@@ -1,0 +1,42 @@
+# Local/private agent context.
+/AGENTS.md
+
+# Build outputs and dependency fetches.
+/build*/
+/**/_deps/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Python/runtime caches.
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local environment and credentials.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.csr
+*.cookie
+*token*
+*secret*
+
+# Generated performance data and large temporary artifacts.
+/tools/perf/results/*
+!/tools/perf/results/.gitkeep
+*.log
+*.tmp
+*.src
+*.dst
+*.bin
+*.part
+*.manifest
+*.gridflux.manifest
+*.gridflux.download.manifest
