@@ -18,7 +18,8 @@ CPNetFlux 是面向算力网的大规模可靠数据传输底座。它提供 Gri
 
 1. 阅读 `docs/DESIGN.md`、`docs/ROADMAP.md`、`docs/ENGINEERING.md`。
 2. 阅读 `docs/RESEARCH_BASELINE.md`，了解现有实验真正证明和没有证明的内容。
-3. 先运行本地构建和单元测试，再开始新的任务。
-4. 每个任务使用独立分支，并在任务规格中写明验收标准。
+3. 阅读 `docs/AI_COLLABORATION.md` 和 `docs/tasks/README.md`，确认自己属于哪个协作角色。
+4. 先运行本地构建和单元测试，再开始新的任务。
+5. 每个任务使用独立分支，并在任务规格中写明验收标准。
 
 CPNetFlux 不等同于完整 GridFTP 实现；`GridFTP` 在文档中仅表示外部兼容协议和对照工具名称。
