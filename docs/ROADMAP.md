@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-**路线重置（2026-09-17）：** 控制连接复用重测已完成，但暴露出实验事实模型、hot-path compression 隔离和云端资源治理问题。当前下一步不是继续调 scheduler 或 compression 参数，而是先执行 [`docs/DECISIONS/2026-09-17-retest-route-reset.md`](DECISIONS/2026-09-17-retest-route-reset.md) 的阶段 0：修复证据分类、关闭开关传播、case 资源清理和固定 commit 构建，再以代表性小矩阵定位目录数据面差距。
+**路线重置（2026-09-17）：** 控制连接复用重测已完成。结果显示单文件差距约 8–12%，目录差距约 33–49%；worker 复用有效但没有解决目录数据面瓶颈。阶段 0 的证据分类、compression 开关传播和资源治理已经落地，见 [`docs/DECISIONS/2026-09-17-retest-route-reset.md`](DECISIONS/2026-09-17-retest-route-reset.md)。下一步用固定提交补足代表性小矩阵并拆解目录阶段耗时，之后再决定 scheduler 是否值得继续优化。
 
-**阶段：** Lab Beta 5 — 总结证据包与汇报材料收口（CPSS-aware go review-ready）
+**阶段：** CPNetFlux 路线重置 — 控制连接复用已验证，目录数据面 profiling 待开始
 
 **已完成：** 项目设计、技术选型、工程规范制定、CMake 工程骨架初始化、GoogleTest 工具链测试、本机与<redacted>二构建验证、GridFTP 源码学习经验整理入设计文档、Phase 1.0 多连接 TCP sink 与本机 loopback 验证、Phase 1.1 性能基线脚本与 loopback smoke matrix、Phase 1.2A offset-aware 单文件传输闭环、Phase 1.2B 文件传输健壮性、Phase 1.3A 文件性能基线自动化、Phase 2A manifest/range-based 断点续传核心、Phase 2B CRC32C chunk checksum 与损坏注入验证、Phase 2C CRC32C backend 自动选择、manifest 批量 flush、恢复统计与 checksum benchmark、Phase 3A GridFTP 风格控制面 STOR 上传与 REST/GFID resume 映射、Phase 3B GridFTP 风格控制面 framed RETR 完整下载、Phase 3C 下载端 manifest/verified_chunks 与 RETR REST/GFID resume、Phase 3D 控制面 SIZE/MDTM/CWD/CDUP/LIST/NLST 与测试工具收敛。
 

@@ -1,6 +1,6 @@
 # CPNetFlux 现状研究基线
 
-更新时间：2026-09-16
+更新时间：2026-09-17
 
 这份文档把旧项目的设计、实现和保留实验结果压缩成长期开发可用的事实基线。它区分“代码已经实现”“实验已经验证”和“仍然只是目标”，避免后续 Agent 把路线图当成事实。
 
@@ -49,6 +49,14 @@ CPSS 虚拟环境、tiny/64MiB roundtrip 和 CPNetFlux/GridFTP CPSS staged trans
 
 Beta 5 只是汇总 Beta 1-4 的证据，没有新增性能矩阵。它支持“CPSS-aware go review-ready”，不支持生产 readiness、50G/100G readiness 或重型长期稳定性结论。
 
+### 2026-09-16/17：控制连接复用重测
+
+在深圳/上海公网环境、真实 GridFTP 对照和 `control_reuse=worker` 下，单文件 256 MiB 的 CPNetFlux 吞吐约为上传 77.14 Mbps、下载 78.79 Mbps；GridFTP 约为上传 87.35 Mbps、下载 85.42 Mbps。单文件差距约 8–12%，worker 复用没有改变这个数据面瓶颈。
+
+目录传输的 tree hash 全部正确，但 dense/mixed 目录的 CPNetFlux 吞吐仍约比 GridFTP 低 33–49%。这说明控制连接复用已经解决了重复建控制连接的主要浪费，剩余差距集中在文件级调度、数据通道启动/关闭、首块等待、有效读写和目录 finalize 路径。
+
+这次重测还发现三个实验管理问题：审计器把 wire accounting 或缺少可选 evidence 误报成 correctness failure；scheduler 在 `compression=off` 时仍创建 compression work item；云端用例 payload 没有稳定清理，导致磁盘耗尽并污染 resume/io 结果。后续结论必须把 transfer status、integrity status、evidence status 和 wire accounting 分开，并以固定提交运行。
+
 ## 不能从现有结果推出的结论
 
 - 没有完成 10GiB、20GiB、100GiB 或 heavy soak 验证。
@@ -75,6 +83,8 @@ Beta 5 只是汇总 Beta 1-4 的证据，没有新增性能矩阵。它支持“
 - 保留：已通过单元测试和 Beta 正确性门禁的传输、manifest、checksum、控制面能力。
 - 重新评估：global scheduler、hot-path compression、复杂性能 knob。
 - 单独规划：生产认证、观测后端、100G 专线、raw FTP compatibility。
+
+当前路线重置为：先完成实验事实模型和资源治理，再用小矩阵拆出目录数据面阶段耗时；之后再评估 scheduler，最后才讨论 CPNetFlux C++ 热路径压缩。控制连接复用保留为目录传输默认策略。
 
 所有新的 Agent 任务都应引用本基线，并明确哪些结论是历史证据、哪些是新假设。
 
