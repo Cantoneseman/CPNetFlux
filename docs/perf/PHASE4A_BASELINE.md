@@ -23,13 +23,13 @@ python3 -m py_compile tools/perf/run_gridftp_private_matrix.py
 私网 smoke：
 
 ```bash
-export GRIDFLUX_SSH_PASSWORD='***'
+export CPNETFLUX_SSH_PASSWORD='***'
 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -46,8 +46,8 @@ tools/perf/run_gridftp_private_matrix.py \
   --checksums crc32c \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 

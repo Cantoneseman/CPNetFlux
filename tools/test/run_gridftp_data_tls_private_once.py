@@ -16,17 +16,19 @@ import sys
 import time
 from pathlib import Path
 
+from gridftp_port_window import assert_epsv_port_in_window, clamp_passive_data_port_base
+
 
 def ssh_prefix(remote: str) -> list[str]:
-    if os.environ.get("GRIDFLUX_SSH_PASSWORD") or os.environ.get("SSHPASS"):
+    if os.environ.get("CPNETFLUX_SSH_PASSWORD") or os.environ.get("SSHPASS"):
         return ["sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=no", remote]
     return ["ssh", "-o", "StrictHostKeyChecking=no", remote]
 
 
 def run_remote(remote: str, command: str, *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    if env.get("GRIDFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
-        env["SSHPASS"] = env["GRIDFLUX_SSH_PASSWORD"]
+    if env.get("CPNETFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
+        env["SSHPASS"] = env["CPNETFLUX_SSH_PASSWORD"]
     completed = subprocess.run(
         ssh_prefix(remote) + [command],
         input=input_text,
@@ -168,8 +170,8 @@ def wait_tls(host: str, port: int, cafile: Path) -> None:
 def login_type_i(host: str, port: int, cafile: Path) -> tuple[ssl.SSLSocket, bytearray]:
     sock, buffer, greeting = tls_connect(host, port, cafile)
     assert reply_code(greeting) == 220, greeting
-    assert reply_code(send_command(sock, buffer, "USER gridflux")) == 331
-    assert reply_code(send_command(sock, buffer, "PASS gridflux")) == 230
+    assert reply_code(send_command(sock, buffer, "USER cpnetflux")) == 331
+    assert reply_code(send_command(sock, buffer, "PASS cpnetflux")) == 230
     assert reply_code(send_command(sock, buffer, "TYPE I")) == 200
     return sock, buffer
 
@@ -181,11 +183,12 @@ def run_smoke(args: argparse.Namespace) -> int:
     server_log = output_dir / f"{timestamp}_gridftp-data-tls-private.log"
     cert = output_dir / f"{timestamp}_data-tls-cert.pem"
     key = output_dir / f"{timestamp}_data-tls-key.pem"
-    remote_ca = f"/tmp/gridflux-data-tls-private-{timestamp}-{os.getpid()}-ca.pem"
-    remote_source = f"/tmp/gridflux-data-tls-private-{timestamp}-{os.getpid()}-source.bin"
-    remote_download = f"/tmp/gridflux-data-tls-private-{timestamp}-{os.getpid()}-download.bin"
+    remote_ca = f"/tmp/cpnetflux-data-tls-private-{timestamp}-{os.getpid()}-ca.pem"
+    remote_source = f"/tmp/cpnetflux-data-tls-private-{timestamp}-{os.getpid()}-source.bin"
+    remote_download = f"/tmp/cpnetflux-data-tls-private-{timestamp}-{os.getpid()}-download.bin"
     generate_cert(cert, key)
     write_remote_text(args.remote, remote_ca, cert.read_text(encoding="utf-8"))
+    args.data_port_base = clamp_passive_data_port_base(args.data_port_base)
 
     root = Path(args.root)
     subprocess.run(["rm", "-rf", str(root)], check=True)
@@ -194,8 +197,8 @@ def run_smoke(args: argparse.Namespace) -> int:
     make_file(local_source, args.bytes)
     source_sha = sha256_file(local_source)
 
-    remote_client = f"{args.remote_build_dir.rstrip('/')}/gridflux-file-client"
-    remote_download_client = f"{args.remote_build_dir.rstrip('/')}/gridflux-file-download-client"
+    remote_client = f"{args.remote_build_dir.rstrip('/')}/cpnetflux-file-client"
+    remote_download_client = f"{args.remote_build_dir.rstrip('/')}/cpnetflux-file-download-client"
     run_remote(args.remote, f"test -x {shlex.quote(remote_client)} && test -x {shlex.quote(remote_download_client)}")
     run_remote(
         args.remote,
@@ -211,16 +214,16 @@ def run_smoke(args: argparse.Namespace) -> int:
         f"        remaining -= size\n"
         f"PY\n"
         f"rm -f {shlex.quote(remote_download)} {shlex.quote(remote_download)}.part.* "
-        f"{shlex.quote(remote_download)}.gridflux.download.manifest",
+        f"{shlex.quote(remote_download)}.cpnetflux.download.manifest",
     )
     remote_source_sha = run_remote(args.remote, f"sha256sum {shlex.quote(remote_source)}").stdout.split()[0]
     if remote_source_sha != source_sha:
         raise RuntimeError("remote source generation hash mismatch")
 
     server_cmd = [
-        str(Path(args.local_build_dir) / "gridflux-gridftp-server"),
+        str(Path(args.local_build_dir) / "cpnetflux-gridftp-server"),
         "--host",
-        args.server_host,
+        "0.0.0.0",
         "--port",
         str(args.control_port),
         "--root",
@@ -254,6 +257,7 @@ def run_smoke(args: argparse.Namespace) -> int:
             epsv = send_command(sock, buffer, "EPSV")
             assert reply_code(epsv) == 229, epsv
             data_port = parse_epsv_port(epsv)
+            assert_epsv_port_in_window(data_port, args.data_port_base)
             stor = send_command(sock, buffer, "STOR private-data-tls-upload.bin")
             assert reply_code(stor) == 150, stor
             transfer_id = parse_transfer_id(stor)
@@ -278,6 +282,7 @@ def run_smoke(args: argparse.Namespace) -> int:
             epsv = send_command(sock, buffer, "EPSV")
             assert reply_code(epsv) == 229, epsv
             data_port = parse_epsv_port(epsv)
+            assert_epsv_port_in_window(data_port, args.data_port_base)
             retr = send_command(sock, buffer, "RETR private-data-tls-upload.bin")
             assert reply_code(retr) == 150, retr
             transfer_id = parse_transfer_id(retr)
@@ -317,7 +322,7 @@ def run_smoke(args: argparse.Namespace) -> int:
             args.remote,
             f"rm -f {shlex.quote(remote_ca)} {shlex.quote(remote_source)} "
             f"{shlex.quote(remote_download)} {shlex.quote(remote_download)}.part.* "
-            f"{shlex.quote(remote_download)}.gridflux.download.manifest",
+            f"{shlex.quote(remote_download)}.cpnetflux.download.manifest",
             check=False,
         )
         for path in (cert, key, local_source):
@@ -333,9 +338,9 @@ def main() -> int:
     parser.add_argument("--server-host", required=True)
     parser.add_argument("--control-port", type=int, default=2121)
     parser.add_argument("--data-port-base", type=int, default=20300)
-    parser.add_argument("--root", default="/tmp/gridflux-gridftp-data-tls-private-root")
-    parser.add_argument("--local-build-dir", default="/root/projects/GridFlux/build")
-    parser.add_argument("--remote-build-dir", default="/root/projects/GridFlux/build")
+    parser.add_argument("--root", default="/tmp/cpnetflux-gridftp-data-tls-private-root")
+    parser.add_argument("--local-build-dir", default="/root/projects/CPNetFlux/build")
+    parser.add_argument("--remote-build-dir", default="/root/projects/CPNetFlux/build")
     parser.add_argument("--connections", type=int, default=1)
     parser.add_argument("--bytes", type=int, default=1024 * 1024)
     parser.add_argument("--chunk-size", type=int, default=1024 * 1024)

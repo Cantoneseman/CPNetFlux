@@ -1,6 +1,6 @@
-#include "gridflux/core/session/manifest_flush_policy.h"
+#include "cpnetflux/core/session/manifest_flush_policy.h"
 
-namespace gridflux::core::session {
+namespace cpnetflux::core::session {
 
 common::Result<ManifestFlushPolicy> parseManifestFlushPolicy(std::string_view text) {
     if (text == "every_n_chunks") {
@@ -23,4 +23,4 @@ std::string manifestFlushPolicyName(ManifestFlushPolicy policy) {
     return "every_n_chunks";
 }
 
-}  // namespace gridflux::core::session
+}  // namespace cpnetflux::core::session

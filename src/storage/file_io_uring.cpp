@@ -1,6 +1,6 @@
-#include "gridflux/storage/file_io.h"
+#include "cpnetflux/storage/file_io.h"
 
-#if GRIDFLUX_HAS_IO_URING
+#if CPNETFLUX_HAS_IO_URING
 
 #include <liburing.h>
 
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace gridflux::storage {
+namespace cpnetflux::storage {
 namespace {
 
 constexpr std::uint64_t kMaxQueueDepth = 256;
@@ -455,6 +455,6 @@ done:
     return finalStatus;
 }
 
-}  // namespace gridflux::storage
+}  // namespace cpnetflux::storage
 
 #endif

@@ -1,4 +1,4 @@
-#include "gridflux/storage/file_io.h"
+#include "cpnetflux/storage/file_io.h"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -12,7 +12,7 @@
 #include <string>
 #include <string_view>
 
-namespace gridflux::storage {
+namespace cpnetflux::storage {
 namespace {
 
 std::uint64_t nanosFromDuration(std::chrono::steady_clock::duration duration) noexcept {
@@ -325,7 +325,7 @@ bool fileIoBackendAvailable(FileIoBackendKind backend) noexcept {
         case FileIoBackendKind::Posix:
             return true;
         case FileIoBackendKind::IoUring:
-            return GRIDFLUX_HAS_IO_URING != 0;
+            return CPNETFLUX_HAS_IO_URING != 0;
     }
     return false;
 }
@@ -564,4 +564,4 @@ void appendFileIoStats(std::ostream& stream, const FileIoStats& stats) {
            << " io_uring_avg_bytes_per_sqe=" << stats.ioUringAverageBytesPerSqe();
 }
 
-}  // namespace gridflux::storage
+}  // namespace cpnetflux::storage

@@ -97,7 +97,7 @@ elif command == "hostname":
     print("fake-remote")
 elif command == "uname -r":
     print("5.15.0-fake")
-elif "gridflux-storage-bench" in command:
+elif "cpnetflux-storage-bench" in command:
     print("storage_bench operation=write bytes=1024 iterations=1 buffer_size=1024 preallocate=off file_io_backend=posix file_io_buffer_size=0 file_io_queue_depth=1 file_io_batch_size=1 file_io_advice=off posix_write_strategy=auto posix_write_strategy_effective=direct iteration=0 aggregate=false elapsed_seconds=0.010000 throughput_gbps=1.000000 read_call_count=1 write_call_count=1 write_syscall_count=1 write_retry_count=0 write_short_count=0 write_zero_count=0 write_total_bytes=1024 avg_read_bytes_per_call=1024 avg_write_bytes_per_call=1024 write_avg_bytes_per_syscall=1024 file_io_wait_seconds=0.001000 io_uring_submit_count=2 io_uring_wait_count=2 io_uring_completion_count=2 io_uring_sqe_count=2 io_uring_partial_completion_count=0 io_uring_retry_count=0 io_uring_avg_bytes_per_sqe=512 result=pass")
     print("storage_bench operation=write bytes=1024 iterations=1 buffer_size=1024 preallocate=off file_io_backend=posix file_io_buffer_size=0 file_io_queue_depth=1 file_io_batch_size=1 file_io_advice=off posix_write_strategy=auto posix_write_strategy_effective=direct iteration=aggregate aggregate=true elapsed_seconds=0.010000 throughput_gbps=1.000000 read_call_count=1 write_call_count=1 write_syscall_count=1 write_retry_count=0 write_short_count=0 write_zero_count=0 write_total_bytes=1024 avg_read_bytes_per_call=1024 avg_write_bytes_per_call=1024 write_avg_bytes_per_syscall=1024 file_io_wait_seconds=0.001000 io_uring_submit_count=2 io_uring_wait_count=2 io_uring_completion_count=2 io_uring_sqe_count=2 io_uring_partial_completion_count=0 io_uring_retry_count=0 io_uring_avg_bytes_per_sqe=512 result=pass")
 sys.exit(0)
@@ -124,7 +124,7 @@ def assert_success(completed: subprocess.CompletedProcess[str]) -> None:
 
 def test_local_side_does_not_call_ssh(script: Path, temp: Path) -> None:
     build_dir = temp / "build"
-    write_executable(build_dir / "gridflux-storage-bench", fake_bench_text())
+    write_executable(build_dir / "cpnetflux-storage-bench", fake_bench_text())
     ssh_log = temp / "ssh.log"
     fake_bin = temp / "bin"
     write_executable(
@@ -133,7 +133,7 @@ def test_local_side_does_not_call_ssh(script: Path, temp: Path) -> None:
     )
 
     env = os.environ.copy()
-    env.pop("GRIDFLUX_SSH_PASSWORD", None)
+    env.pop("CPNETFLUX_SSH_PASSWORD", None)
     env.pop("SSHPASS", None)
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
     completed = run_wrapper(
@@ -171,7 +171,7 @@ def test_remote_side_uses_ssh(script: Path, temp: Path) -> None:
     write_executable(fake_bin / "ssh", fake_ssh_text(ssh_log))
 
     env = os.environ.copy()
-    env.pop("GRIDFLUX_SSH_PASSWORD", None)
+    env.pop("CPNETFLUX_SSH_PASSWORD", None)
     env.pop("SSHPASS", None)
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
     completed = run_wrapper(
@@ -200,7 +200,7 @@ def test_remote_side_uses_ssh(script: Path, temp: Path) -> None:
     )
     assert_success(completed)
     ssh_text = ssh_log.read_text(encoding="utf-8")
-    if "df -PT" not in ssh_text or "gridflux-storage-bench" not in ssh_text:
+    if "df -PT" not in ssh_text or "cpnetflux-storage-bench" not in ssh_text:
         raise AssertionError(f"--side remote did not exercise expected remote commands:\n{ssh_text}")
 
 
@@ -210,7 +210,7 @@ def main() -> int:
     args = parser.parse_args()
 
     script = Path(args.script) if args.script else Path(__file__).with_name("run_storage_bench.py")
-    with tempfile.TemporaryDirectory(prefix="gridflux-storage-wrapper-test-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-storage-wrapper-test-") as tmp:
         temp = Path(tmp)
         test_local_side_does_not_call_ssh(script, temp)
         test_remote_side_uses_ssh(script, temp)

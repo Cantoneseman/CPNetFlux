@@ -16,7 +16,7 @@ def directory_size(root: Path) -> int:
 
 
 def test_dataset_is_deterministic() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-demo-dataset.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-demo-dataset.") as temp_text:
         base = Path(temp_text)
         one = base / "one"
         two = base / "two"
@@ -31,7 +31,7 @@ def test_dataset_is_deterministic() -> None:
 
 
 def test_profiles_are_size_bounded_and_ordered() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-demo-profiles.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-demo-profiles.") as temp_text:
         base = Path(temp_text)
         totals = []
         for profile in ["tiny", "small", "mixed"]:
@@ -71,7 +71,7 @@ def test_demo_case_json_shape() -> None:
 
 
 def test_private_output_hash_parser_accepts_smoke_text() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-demo-private-parse.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-demo-private-parse.") as temp_text:
         log = Path(temp_text) / "private.log"
         command = ["python3", "-c", "print('source_sha256=' + 'a'*64); print('dest_sha256=' + 'a'*64)"]
         result = run_alpha_demo.run_private_case("fake_private", command, log, env={})

@@ -1,4 +1,4 @@
-#include "gridflux/protocol/control/control_options.h"
+#include "cpnetflux/protocol/control/control_options.h"
 
 #include <gtest/gtest.h>
 
@@ -7,37 +7,38 @@
 #include <string>
 #include <vector>
 
-#include "gridflux/storage/file_io.h"
-#include "gridflux/core/io/tls_socket.h"
+#include "cpnetflux/storage/file_io.h"
+#include "cpnetflux/core/io/tls_socket.h"
 
 namespace {
 
-using gridflux::checksum::ChecksumAlgorithm;
-using gridflux::checksum::ChecksumBackend;
-using gridflux::core::session::CommitSyncPolicy;
-using gridflux::core::session::FinalVerifyPolicy;
-using gridflux::core::session::ManifestFlushPolicy;
-using gridflux::protocol::control::ControlListEntry;
-using gridflux::protocol::control::ControlPathKind;
-using gridflux::protocol::control::AuthMode;
-using gridflux::protocol::control::formatList;
-using gridflux::protocol::control::formatMdtmTime;
-using gridflux::protocol::control::formatNlst;
-using gridflux::protocol::control::parseControlServerOptions;
-using gridflux::protocol::control::resolveControlPath;
-using gridflux::protocol::control::resolveRetrPath;
-using gridflux::protocol::control::resolveStorPath;
-using gridflux::protocol::control::resolveVirtualPath;
-using gridflux::core::io::DataTlsMode;
-using gridflux::core::io::TlsMode;
+using cpnetflux::checksum::ChecksumAlgorithm;
+using cpnetflux::checksum::ChecksumBackend;
+using cpnetflux::core::session::CommitSyncPolicy;
+using cpnetflux::core::session::FinalVerifyPolicy;
+using cpnetflux::core::session::ManifestFlushPolicy;
+using cpnetflux::protocol::control::ControlListEntry;
+using cpnetflux::protocol::control::ControlPathKind;
+using cpnetflux::protocol::control::AuthMode;
+using cpnetflux::protocol::control::kMaxPassiveDataPortBase;
+using cpnetflux::protocol::control::formatList;
+using cpnetflux::protocol::control::formatMdtmTime;
+using cpnetflux::protocol::control::formatNlst;
+using cpnetflux::protocol::control::parseControlServerOptions;
+using cpnetflux::protocol::control::resolveControlPath;
+using cpnetflux::protocol::control::resolveRetrPath;
+using cpnetflux::protocol::control::resolveStorPath;
+using cpnetflux::protocol::control::resolveVirtualPath;
+using cpnetflux::core::io::DataTlsMode;
+using cpnetflux::core::io::TlsMode;
 
 TEST(ControlOptionsTest, ParsesDefaultsAndRequiredRoot) {
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "gridflux-control-options-root";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-options-root";
     std::filesystem::create_directories(root);
 
     const std::string rootText = root.string();
-    const char* argv[] = {"gridflux-gridftp-server", "--root", rootText.c_str()};
+    const char* argv[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str()};
     auto parsed = parseControlServerOptions(3, argv);
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
     EXPECT_EQ(parsed.value().host, "127.0.0.1");
@@ -50,16 +51,16 @@ TEST(ControlOptionsTest, ParsesDefaultsAndRequiredRoot) {
     EXPECT_EQ(parsed.value().manifestFlushIntervalChunks, 16U);
     EXPECT_EQ(parsed.value().finalVerifyPolicy, FinalVerifyPolicy::Full);
     EXPECT_EQ(parsed.value().commitSyncPolicy, CommitSyncPolicy::None);
-    EXPECT_EQ(parsed.value().preallocateMode, gridflux::storage::PreallocateMode::Off);
-    EXPECT_EQ(parsed.value().fileIo.backend, gridflux::storage::FileIoBackendKind::Posix);
+    EXPECT_EQ(parsed.value().preallocateMode, cpnetflux::storage::PreallocateMode::Off);
+    EXPECT_EQ(parsed.value().fileIo.backend, cpnetflux::storage::FileIoBackendKind::Posix);
     EXPECT_EQ(parsed.value().fileIo.bufferSize, 0U);
-    EXPECT_EQ(parsed.value().fileIo.advice, gridflux::storage::FileIoAdvice::Off);
+    EXPECT_EQ(parsed.value().fileIo.advice, cpnetflux::storage::FileIoAdvice::Off);
     EXPECT_EQ(parsed.value().fileIo.posixWriteStrategy,
-              gridflux::storage::PosixWriteStrategy::Auto);
+              cpnetflux::storage::PosixWriteStrategy::Auto);
     EXPECT_EQ(parsed.value().auth.mode, AuthMode::Anonymous);
     EXPECT_EQ(parsed.value().tls.mode, TlsMode::Off);
     EXPECT_EQ(parsed.value().dataTlsMode, DataTlsMode::Off);
-    EXPECT_EQ(parsed.value().user, "gridflux");
+    EXPECT_EQ(parsed.value().user, "cpnetflux");
     EXPECT_TRUE(parsed.value().eventLogPath.empty());
 
     std::filesystem::remove_all(root);
@@ -67,11 +68,11 @@ TEST(ControlOptionsTest, ParsesDefaultsAndRequiredRoot) {
 
 TEST(ControlOptionsTest, ParsesAndValidatesDataTlsMode) {
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "gridflux-control-data-tls-root";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-data-tls-root";
     const std::filesystem::path cert =
-        std::filesystem::temp_directory_path() / "gridflux-control-data-tls-cert.pem";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-data-tls-cert.pem";
     const std::filesystem::path key =
-        std::filesystem::temp_directory_path() / "gridflux-control-data-tls-key.pem";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-data-tls-key.pem";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
     {
@@ -88,7 +89,7 @@ TEST(ControlOptionsTest, ParsesAndValidatesDataTlsMode) {
     const std::string rootText = root.string();
     const std::string certText = cert.string();
     const std::string keyText = key.string();
-    const char* valid[] = {"gridflux-gridftp-server",
+    const char* valid[] = {"cpnetflux-gridftp-server",
                            "--root",
                            rootText.c_str(),
                            "--tls-mode",
@@ -100,7 +101,7 @@ TEST(ControlOptionsTest, ParsesAndValidatesDataTlsMode) {
                            "--data-tls-mode",
                            "required"};
     auto parsed = parseControlServerOptions(static_cast<int>(std::size(valid)), valid);
-    if (gridflux::core::io::tlsSupportAvailable()) {
+    if (cpnetflux::core::io::tlsSupportAvailable()) {
         ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
         EXPECT_EQ(parsed.value().tls.mode, TlsMode::Required);
         EXPECT_EQ(parsed.value().dataTlsMode, DataTlsMode::Required);
@@ -108,13 +109,13 @@ TEST(ControlOptionsTest, ParsesAndValidatesDataTlsMode) {
         EXPECT_FALSE(parsed.isOk());
     }
 
-    const char* missingControlTls[] = {"gridflux-gridftp-server", "--root", rootText.c_str(),
+    const char* missingControlTls[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
                                        "--data-tls-mode", "required"};
     EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(missingControlTls)),
                                            missingControlTls)
                      .isOk());
 
-    const char* badDataTls[] = {"gridflux-gridftp-server", "--root", rootText.c_str(),
+    const char* badDataTls[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
                                 "--data-tls-mode", "maybe"};
     EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(badDataTls)), badDataTls)
                      .isOk());
@@ -126,11 +127,11 @@ TEST(ControlOptionsTest, ParsesAndValidatesDataTlsMode) {
 
 TEST(ControlOptionsTest, ParsesTlsOptionsAndRejectsUnsafeKeys) {
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "gridflux-control-tls-root";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-tls-root";
     const std::filesystem::path cert =
-        std::filesystem::temp_directory_path() / "gridflux-control-tls-cert.pem";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-tls-cert.pem";
     const std::filesystem::path key =
-        std::filesystem::temp_directory_path() / "gridflux-control-tls-key.pem";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-tls-key.pem";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
     {
@@ -147,7 +148,7 @@ TEST(ControlOptionsTest, ParsesTlsOptionsAndRejectsUnsafeKeys) {
     const std::string rootText = root.string();
     const std::string certText = cert.string();
     const std::string keyText = key.string();
-    const char* argv[] = {"gridflux-gridftp-server",
+    const char* argv[] = {"cpnetflux-gridftp-server",
                           "--root",
                           rootText.c_str(),
                           "--tls-mode",
@@ -157,7 +158,7 @@ TEST(ControlOptionsTest, ParsesTlsOptionsAndRejectsUnsafeKeys) {
                           "--tls-key-file",
                           keyText.c_str()};
     auto parsed = parseControlServerOptions(static_cast<int>(std::size(argv)), argv);
-    if (gridflux::core::io::tlsSupportAvailable()) {
+    if (cpnetflux::core::io::tlsSupportAvailable()) {
         ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
         EXPECT_EQ(parsed.value().tls.mode, TlsMode::Required);
         EXPECT_EQ(parsed.value().tls.certFile, certText);
@@ -171,12 +172,12 @@ TEST(ControlOptionsTest, ParsesTlsOptionsAndRejectsUnsafeKeys) {
                                           std::filesystem::perms::group_read);
     EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(argv)), argv).isOk());
 
-    const char* explicitTls[] = {"gridflux-gridftp-server", "--root", rootText.c_str(),
+    const char* explicitTls[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
                                  "--tls-mode", "explicit"};
     EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(explicitTls)), explicitTls)
                      .isOk());
 
-    const char* badTls[] = {"gridflux-gridftp-server", "--root", rootText.c_str(), "--tls-mode",
+    const char* badTls[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(), "--tls-mode",
                             "yes"};
     EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(badTls)), badTls).isOk());
 
@@ -187,9 +188,9 @@ TEST(ControlOptionsTest, ParsesTlsOptionsAndRejectsUnsafeKeys) {
 
 TEST(ControlOptionsTest, ParsesTokenAuthAndRejectsBadTokenFiles) {
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "gridflux-control-token-root";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-token-root";
     const std::filesystem::path token =
-        std::filesystem::temp_directory_path() / "gridflux-control-token.txt";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-token.txt";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
     {
@@ -200,7 +201,7 @@ TEST(ControlOptionsTest, ParsesTokenAuthAndRejectsBadTokenFiles) {
                                             std::filesystem::perms::owner_write);
     const std::string rootText = root.string();
     const std::string tokenText = token.string();
-    const char* argv[] = {"gridflux-gridftp-server", "--root", rootText.c_str(),
+    const char* argv[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
                           "--auth-mode", "token", "--auth-token-file", tokenText.c_str()};
     auto parsed = parseControlServerOptions(static_cast<int>(std::size(argv)), argv);
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
@@ -208,7 +209,7 @@ TEST(ControlOptionsTest, ParsesTokenAuthAndRejectsBadTokenFiles) {
     EXPECT_EQ(parsed.value().auth.token, "alpha-token");
     EXPECT_EQ(parsed.value().user, "token");
 
-    const char* missingFile[] = {"gridflux-gridftp-server", "--root", rootText.c_str(),
+    const char* missingFile[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
                                  "--auth-mode", "token"};
     EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(missingFile)), missingFile)
                      .isOk());
@@ -236,10 +237,10 @@ TEST(ControlOptionsTest, ParsesTokenAuthAndRejectsBadTokenFiles) {
 
 TEST(ControlOptionsTest, ParsesExplicitOptions) {
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "gridflux-control-options-explicit";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-options-explicit";
     std::filesystem::create_directories(root);
     const std::string rootText = root.string();
-    const char* argv[] = {"gridflux-gridftp-server",
+    const char* argv[] = {"cpnetflux-gridftp-server",
                           "--root",
                           rootText.c_str(),
                           "--host",
@@ -279,7 +280,7 @@ TEST(ControlOptionsTest, ParsesExplicitOptions) {
                           "--posix-write-strategy",
                           "coalesced",
                           "--event-log",
-                          "/tmp/gridflux-control-events.jsonl",
+                          "/tmp/cpnetflux-control-events.jsonl",
                           "--user",
                           "alice",
                           "--password",
@@ -298,80 +299,95 @@ TEST(ControlOptionsTest, ParsesExplicitOptions) {
     EXPECT_EQ(parsed.value().manifestFlushIntervalChunks, 32U);
     EXPECT_EQ(parsed.value().finalVerifyPolicy, FinalVerifyPolicy::VerifiedChunks);
     EXPECT_EQ(parsed.value().commitSyncPolicy, CommitSyncPolicy::FsyncFile);
-    EXPECT_EQ(parsed.value().preallocateMode, gridflux::storage::PreallocateMode::Full);
-    EXPECT_EQ(parsed.value().fileIo.backend, gridflux::storage::FileIoBackendKind::IoUring);
+    EXPECT_EQ(parsed.value().preallocateMode, cpnetflux::storage::PreallocateMode::Full);
+    EXPECT_EQ(parsed.value().fileIo.backend, cpnetflux::storage::FileIoBackendKind::IoUring);
     EXPECT_EQ(parsed.value().fileIo.bufferSize, 1048576U);
     EXPECT_EQ(parsed.value().fileIo.queueDepth, 8U);
     EXPECT_EQ(parsed.value().fileIo.batchSize, 8U);
-    EXPECT_EQ(parsed.value().fileIo.advice, gridflux::storage::FileIoAdvice::Noreuse);
+    EXPECT_EQ(parsed.value().fileIo.advice, cpnetflux::storage::FileIoAdvice::Noreuse);
     EXPECT_EQ(parsed.value().fileIo.posixWriteStrategy,
-              gridflux::storage::PosixWriteStrategy::Coalesced);
+              cpnetflux::storage::PosixWriteStrategy::Coalesced);
     EXPECT_EQ(parsed.value().user, "alice");
-    EXPECT_EQ(parsed.value().eventLogPath, "/tmp/gridflux-control-events.jsonl");
+    EXPECT_EQ(parsed.value().eventLogPath, "/tmp/cpnetflux-control-events.jsonl");
 
     std::filesystem::remove_all(root);
 }
 
 TEST(ControlOptionsTest, RejectsInvalidOptions) {
-    const char* missingRoot[] = {"gridflux-gridftp-server"};
+    const char* missingRoot[] = {"cpnetflux-gridftp-server"};
     EXPECT_FALSE(parseControlServerOptions(1, missingRoot).isOk());
 
-    const char* badConnections[] = {"gridflux-gridftp-server", "--root", "/tmp", "--connections",
+    const char* badConnections[] = {"cpnetflux-gridftp-server", "--root", "/tmp", "--connections",
                                     "65"};
     EXPECT_FALSE(parseControlServerOptions(5, badConnections).isOk());
 
-    const char* badBackend[] = {"gridflux-gridftp-server", "--root", "/tmp", "--checksum-backend",
+    const std::string maxDataPortBase = std::to_string(kMaxPassiveDataPortBase);
+    const char* maxPassiveWindowBase[] = {"cpnetflux-gridftp-server",
+                                          "--root",
+                                          "/tmp",
+                                          "--data-port-base",
+                                          maxDataPortBase.c_str()};
+    auto maxPassive = parseControlServerOptions(static_cast<int>(std::size(maxPassiveWindowBase)),
+                                                maxPassiveWindowBase);
+    ASSERT_TRUE(maxPassive.isOk()) << maxPassive.status().message();
+    EXPECT_EQ(maxPassive.value().dataPortBase, kMaxPassiveDataPortBase);
+
+    const char* badDataPortBase[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
+                                     "--data-port-base", "65025"};
+    EXPECT_FALSE(parseControlServerOptions(5, badDataPortBase).isOk());
+
+    const char* badBackend[] = {"cpnetflux-gridftp-server", "--root", "/tmp", "--checksum-backend",
                                 "fast"};
     EXPECT_FALSE(parseControlServerOptions(5, badBackend).isOk());
 
-    const char* badFinalVerify[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badFinalVerify[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                     "--final-verify-policy", "fast"};
     EXPECT_FALSE(parseControlServerOptions(5, badFinalVerify).isOk());
 
-    const char* badFlushPolicy[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badFlushPolicy[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                     "--manifest-flush-policy", "sometimes"};
     EXPECT_FALSE(parseControlServerOptions(5, badFlushPolicy).isOk());
 
-    const char* badCommitSync[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badCommitSync[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                    "--commit-sync-policy", "sync_everything"};
     EXPECT_FALSE(parseControlServerOptions(5, badCommitSync).isOk());
 
-    const char* badPreallocate[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badPreallocate[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                     "--preallocate", "yes"};
     EXPECT_FALSE(parseControlServerOptions(5, badPreallocate).isOk());
 
-    const char* badFileIoBackend[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badFileIoBackend[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                       "--file-io-backend", "uring"};
     EXPECT_FALSE(parseControlServerOptions(5, badFileIoBackend).isOk());
 
-    const char* badFileIoBuffer[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badFileIoBuffer[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                      "--file-io-buffer-size", "67108865"};
     EXPECT_FALSE(parseControlServerOptions(5, badFileIoBuffer).isOk());
 
-    const char* badFileIoQueueDepth[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badFileIoQueueDepth[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                          "--file-io-queue-depth", "0"};
     EXPECT_FALSE(parseControlServerOptions(5, badFileIoQueueDepth).isOk());
 
-    const char* badFileIoBatchSize[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badFileIoBatchSize[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                         "--file-io-batch-size", "257"};
     EXPECT_FALSE(parseControlServerOptions(5, badFileIoBatchSize).isOk());
 
-    const char* badFileIoAdvice[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badFileIoAdvice[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                      "--file-io-advice", "random"};
     EXPECT_FALSE(parseControlServerOptions(5, badFileIoAdvice).isOk());
 
-    const char* badPosixWriteStrategy[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badPosixWriteStrategy[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                            "--posix-write-strategy", "buffered"};
     EXPECT_FALSE(parseControlServerOptions(5, badPosixWriteStrategy).isOk());
 
-    const char* badCoalescedWithoutBuffer[] = {"gridflux-gridftp-server", "--root", "/tmp",
+    const char* badCoalescedWithoutBuffer[] = {"cpnetflux-gridftp-server", "--root", "/tmp",
                                                "--posix-write-strategy", "coalesced"};
     EXPECT_FALSE(parseControlServerOptions(5, badCoalescedWithoutBuffer).isOk());
 }
 
 TEST(ControlOptionsTest, ResolvesStorPathInsideRoot) {
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "gridflux-control-path-root";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-path-root";
     std::filesystem::create_directories(root / "subdir");
 
     auto resolved = resolveStorPath(root.string(), "subdir/file.bin");
@@ -391,7 +407,7 @@ TEST(ControlOptionsTest, ResolvesStorPathInsideRoot) {
 
 TEST(ControlOptionsTest, ResolvesRetrPathInsideRoot) {
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "gridflux-control-retr-path-root";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-retr-path-root";
     std::filesystem::create_directories(root / "subdir");
     const std::filesystem::path file = root / "subdir/source.bin";
     std::filesystem::path directory = root / "subdir";
@@ -415,7 +431,7 @@ TEST(ControlOptionsTest, ResolvesRetrPathInsideRoot) {
 
 TEST(ControlOptionsTest, ResolvesPathsRelativeToWorkingDirectory) {
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "gridflux-control-cwd-path-root";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-cwd-path-root";
     std::filesystem::create_directories(root / "subdir" / "nested");
     const std::filesystem::path file = root / "subdir" / "nested" / "source.bin";
     {
@@ -446,9 +462,9 @@ TEST(ControlOptionsTest, ResolvesPathsRelativeToWorkingDirectory) {
 
 TEST(ControlOptionsTest, RejectsSymlinkEscape) {
     const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "gridflux-control-symlink-root";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-symlink-root";
     const std::filesystem::path outside =
-        std::filesystem::temp_directory_path() / "gridflux-control-symlink-outside";
+        std::filesystem::temp_directory_path() / "cpnetflux-control-symlink-outside";
     std::filesystem::remove_all(root);
     std::filesystem::remove_all(outside);
     std::filesystem::create_directories(root);

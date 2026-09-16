@@ -1,10 +1,10 @@
-#include "gridflux/config/sink_options.h"
+#include "cpnetflux/config/sink_options.h"
 
 #include <charconv>
 #include <limits>
 #include <string_view>
 
-namespace gridflux::config {
+namespace cpnetflux::config {
 namespace {
 
 constexpr std::uint32_t kMaxConnections = 64;
@@ -123,4 +123,4 @@ std::string sinkUsage(const char* programName, SinkRole role) {
            " --port <port> --connections <N> --bytes <total-bytes> --buffer-size <bytes>";
 }
 
-}  // namespace gridflux::config
+}  // namespace cpnetflux::config

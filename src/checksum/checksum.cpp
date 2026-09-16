@@ -1,10 +1,10 @@
-#include "gridflux/checksum/checksum.h"
+#include "cpnetflux/checksum/checksum.h"
 
 #include <string>
 
-#include "gridflux/checksum/crc32c.h"
+#include "cpnetflux/checksum/crc32c.h"
 
-namespace gridflux::checksum {
+namespace cpnetflux::checksum {
 
 ChecksumComputer::ChecksumComputer(ChecksumAlgorithm algorithm, ChecksumBackend backend) noexcept
     : algorithm_(algorithm) {
@@ -118,4 +118,4 @@ common::Result<ChecksumBackend> resolveChecksumBackend(ChecksumAlgorithm algorit
     return ChecksumBackend::Software;
 }
 
-}  // namespace gridflux::checksum
+}  // namespace cpnetflux::checksum

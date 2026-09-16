@@ -75,10 +75,10 @@ def run_case(
     buffer_size: int,
     total_bytes: int,
 ) -> dict[str, str]:
-    server_bin = build_dir / "gridflux-server"
-    client_bin = build_dir / "gridflux-client"
+    server_bin = build_dir / "cpnetflux-server"
+    client_bin = build_dir / "cpnetflux-client"
     if not server_bin.exists() or not client_bin.exists():
-        raise FileNotFoundError(f"missing gridflux-server/client in {build_dir}")
+        raise FileNotFoundError(f"missing cpnetflux-server/client in {build_dir}")
 
     case_id = f"{timestamp()}_{mode}_c{connections}_b{buffer_size}_bytes{total_bytes}_p{port}"
     server_log = output_dir / f"{case_id}_server.log"
@@ -150,7 +150,7 @@ def run_case(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux loopback performance matrix.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux loopback performance matrix.")
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--bytes", type=int)
     parser.add_argument("--smoke", action="store_true")

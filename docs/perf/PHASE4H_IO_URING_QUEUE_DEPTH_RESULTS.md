@@ -23,12 +23,12 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Result: `139/139` passed. In the default build, `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` is expected to be skipped because `GRIDFLUX_ENABLE_IO_URING` is off.
+Result: `139/139` passed. In the default build, `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` is expected to be skipped because `CPNETFLUX_ENABLE_IO_URING` is off.
 
 Local real io_uring Release build:
 
 ```bash
-cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON
+cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure
@@ -45,9 +45,9 @@ Machine two validation after sync:
 Public release gate:
 
 ```bash
-rm -rf /tmp/gridflux-public
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public --force
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
+rm -rf /tmp/cpnetflux-public
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
 ```
 
 Result: strict hygiene passed. Export summary: `copied_files=168 skipped_files=1 skipped_dirs=11 skipped_build_dirs=7`.

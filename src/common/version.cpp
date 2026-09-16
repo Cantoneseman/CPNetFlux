@@ -1,6 +1,6 @@
-#include "gridflux/version.h"
+#include "cpnetflux/version.h"
 
-namespace gridflux {
+namespace cpnetflux {
 
 std::string_view projectName() noexcept {
     return kProjectName;
@@ -10,4 +10,4 @@ std::string_view projectVersion() noexcept {
     return kProjectVersion;
 }
 
-}  // namespace gridflux
+}  // namespace cpnetflux

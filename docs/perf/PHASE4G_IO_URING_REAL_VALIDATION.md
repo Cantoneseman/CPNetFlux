@@ -7,7 +7,7 @@ Phase 4G validates the optional file-IO-only `io_uring` backend in a real liburi
 ## Scope
 
 - Default file IO backend remains `posix`.
-- `io_uring` remains explicit opt-in via `--file-io-backend io_uring` and a build configured with `-DGRIDFLUX_ENABLE_IO_URING=ON`.
+- `io_uring` remains explicit opt-in via `--file-io-backend io_uring` and a build configured with `-DCPNETFLUX_ENABLE_IO_URING=ON`.
 - Network IO remains POSIX socket + epoll.
 - The io_uring v1 backend is synchronous submit-and-wait regular file IO, not queued/batched async IO.
 - Public export must exclude local `AGENTS.md`, build artifacts, private perf results, credentials, and generated large files.
@@ -36,7 +36,7 @@ Result: `135/135` passed.
 Local real io_uring build:
 
 ```text
-cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON
+cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ```
@@ -50,7 +50,7 @@ Machine two real io_uring build: `135/135` passed. `FileIoTest.IoUringContextRea
 Additional io_uring CLI smoke:
 
 ```text
-./build-io-uring-real/gridflux-storage-bench --path /tmp/gridflux-iouring-smoke.bin --mode all --bytes 16777216 --buffer-size 262144 --iterations 1 --preallocate off --file-io-backend io_uring
+./build-io-uring-real/cpnetflux-storage-bench --path /tmp/cpnetflux-iouring-smoke.bin --mode all --bytes 16777216 --buffer-size 262144 --iterations 1 --preallocate off --file-io-backend io_uring
 ```
 
 Result: write/read/rewrite all passed with `file_io_backend=io_uring`.
@@ -73,10 +73,10 @@ python3 tools/release/check_public_hygiene.py --path .
 Result: failed as expected in the private working tree because local `AGENTS.md` and historical private topology references are present. This is the intended gate behavior.
 
 ```text
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
-test ! -f /tmp/gridflux-public/AGENTS.md
-test -f /tmp/gridflux-public/AGENTS.example.md
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
+test ! -f /tmp/cpnetflux-public/AGENTS.md
+test -f /tmp/cpnetflux-public/AGENTS.example.md
 ```
 
 Result: public export passed strict hygiene and did not contain `AGENTS.md`.
@@ -97,13 +97,13 @@ Release gate commands:
 ```text
 python3 -m py_compile tools/release/check_public_hygiene.py tools/release/export_public_repo.py tools/release/test_public_hygiene.py
 python3 tools/release/test_public_hygiene.py
-rm -rf /tmp/gridflux-public
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public --force
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
-test ! -f /tmp/gridflux-public/AGENTS.md
-test -f /tmp/gridflux-public/AGENTS.example.md
-find /tmp/gridflux-public -type d -name 'build*' -print -quit | grep -q . && exit 1 || true
-grep -RIn '<redacted-password>\|<public-ip>\|<private-ip>' /tmp/gridflux-public && exit 1 || true
+rm -rf /tmp/cpnetflux-public
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
+test ! -f /tmp/cpnetflux-public/AGENTS.md
+test -f /tmp/cpnetflux-public/AGENTS.example.md
+find /tmp/cpnetflux-public -type d -name 'build*' -print -quit | grep -q . && exit 1 || true
+grep -RIn '<redacted-password>\|<public-ip>\|<private-ip>' /tmp/cpnetflux-public && exit 1 || true
 ```
 
 Result: passed after the stricter export/hygiene rules.

@@ -33,7 +33,7 @@ def run_upload_case(build_dir: Path, temp: Path, mode: str) -> dict:
     try:
         run_checked(
             [
-                str(build_dir / "gridflux-tree-upload-client"),
+                str(build_dir / "cpnetflux-tree-upload-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -71,11 +71,11 @@ def run_upload_case(build_dir: Path, temp: Path, mode: str) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux tree control reuse smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux tree control reuse smoke.")
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     build_dir = Path(args.build_dir)
-    with tempfile.TemporaryDirectory(prefix="gridflux-tree-control-reuse.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-control-reuse.") as temp_text:
         temp = Path(temp_text)
         off = run_upload_case(build_dir, temp, "off")
         worker = run_upload_case(build_dir, temp, "worker")

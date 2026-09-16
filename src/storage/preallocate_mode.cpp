@@ -1,6 +1,6 @@
-#include "gridflux/storage/preallocate_mode.h"
+#include "cpnetflux/storage/preallocate_mode.h"
 
-namespace gridflux::storage {
+namespace cpnetflux::storage {
 
 common::Result<PreallocateMode> parsePreallocateMode(std::string_view text) {
     if (text == "off") {
@@ -22,4 +22,4 @@ std::string preallocateModeName(PreallocateMode mode) {
     return "off";
 }
 
-}  // namespace gridflux::storage
+}  // namespace cpnetflux::storage

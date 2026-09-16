@@ -1,6 +1,6 @@
-#include "gridflux/core/session/final_verify_policy.h"
+#include "cpnetflux/core/session/final_verify_policy.h"
 
-namespace gridflux::core::session {
+namespace cpnetflux::core::session {
 
 common::Result<FinalVerifyPolicy> parseFinalVerifyPolicy(std::string_view text) {
     if (text == "full") {
@@ -41,4 +41,4 @@ bool canCommitWithVerifiedChunksFinalVerify(FinalVerifyPolicy requested,
                                                               verifiedBytes, hasMissingRanges);
 }
 
-}  // namespace gridflux::core::session
+}  // namespace cpnetflux::core::session

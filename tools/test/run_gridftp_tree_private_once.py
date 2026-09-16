@@ -12,7 +12,7 @@ from tree_smoke_common import file_sha256, tree_hash
 
 
 def ssh_prefix(remote: str) -> list[str]:
-    if os.environ.get("GRIDFLUX_SSH_PASSWORD") or os.environ.get("SSHPASS"):
+    if os.environ.get("CPNETFLUX_SSH_PASSWORD") or os.environ.get("SSHPASS"):
         return ["sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=no", remote]
     return ["ssh", "-o", "StrictHostKeyChecking=no", remote]
 
@@ -26,8 +26,8 @@ def run_local(command: list[str], *, check: bool = True) -> subprocess.Completed
 
 def run_remote(remote: str, command: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    if env.get("GRIDFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
-        env["SSHPASS"] = env["GRIDFLUX_SSH_PASSWORD"]
+    if env.get("CPNETFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
+        env["SSHPASS"] = env["CPNETFLUX_SSH_PASSWORD"]
     completed = subprocess.run(
         ssh_prefix(remote) + [command],
         text=True,
@@ -68,7 +68,7 @@ count = 0
 total = 0
 for path in sorted(p for p in root.rglob('*') if p.is_file()):
     rel = path.relative_to(root).as_posix()
-    if '.gridflux.' in rel or '.part.' in rel:
+    if '.cpnetflux.' in rel or '.part.' in rel:
         continue
     h = hashlib.sha256(path.read_bytes()).hexdigest()
     size = path.stat().st_size
@@ -88,7 +88,7 @@ PY
 def start_server(args: argparse.Namespace, root: str, log: Path) -> subprocess.Popen:
     Path(root).mkdir(parents=True, exist_ok=True)
     command = [
-        str(Path(args.local_build_dir) / "gridflux-gridftp-server"),
+        str(Path(args.local_build_dir) / "cpnetflux-gridftp-server"),
         "--host",
         args.server_host,
         "--port",
@@ -129,11 +129,11 @@ def stop_server(process: subprocess.Popen, log: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run private GridFlux tree upload/download smoke.")
+    parser = argparse.ArgumentParser(description="Run private CPNetFlux tree upload/download smoke.")
     parser.add_argument("--remote", required=True)
     parser.add_argument("--server-host", required=True)
-    parser.add_argument("--local-build-dir", default="/root/projects/GridFlux/build")
-    parser.add_argument("--remote-build-dir", default="/root/projects/GridFlux/build")
+    parser.add_argument("--local-build-dir", default="/root/projects/CPNetFlux/build")
+    parser.add_argument("--remote-build-dir", default="/root/projects/CPNetFlux/build")
     parser.add_argument("--control-port", type=int, default=2121)
     parser.add_argument("--data-port-base", type=int, default=20300)
     parser.add_argument("--connections", type=int, default=2)
@@ -149,11 +149,11 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    local_root = f"/tmp/gridflux-tree-private-root-{timestamp}"
-    local_resume_root = f"/tmp/gridflux-tree-private-root-resume-{timestamp}"
-    remote_source = f"/tmp/gridflux-tree-private-source-{timestamp}"
-    remote_download = f"/tmp/gridflux-tree-private-download-{timestamp}"
-    remote_resume_download = f"/tmp/gridflux-tree-private-download-resume-{timestamp}"
+    local_root = f"/tmp/cpnetflux-tree-private-root-{timestamp}"
+    local_resume_root = f"/tmp/cpnetflux-tree-private-root-resume-{timestamp}"
+    remote_source = f"/tmp/cpnetflux-tree-private-source-{timestamp}"
+    remote_download = f"/tmp/cpnetflux-tree-private-download-{timestamp}"
+    remote_resume_download = f"/tmp/cpnetflux-tree-private-download-resume-{timestamp}"
     server_log = output_dir / f"{timestamp}_gridftp-tree-private-server.log"
     result_json = output_dir / f"{timestamp}_gridftp-tree-private.json"
 
@@ -161,7 +161,7 @@ def main() -> int:
     process = start_server(args, local_root, server_log)
     try:
         upload_cmd = [
-            f"{args.remote_build_dir}/gridflux-tree-upload-client",
+            f"{args.remote_build_dir}/cpnetflux-tree-upload-client",
             "--host",
             args.server_host,
             "--port",
@@ -186,7 +186,7 @@ def main() -> int:
             raise RuntimeError("private tree upload hash mismatch")
 
         download_cmd = [
-            f"{args.remote_build_dir}/gridflux-tree-download-client",
+            f"{args.remote_build_dir}/cpnetflux-tree-download-client",
             "--host",
             args.server_host,
             "--port",
@@ -210,7 +210,7 @@ def main() -> int:
             raise RuntimeError("private tree download hash mismatch")
 
         resume_upload_cmd = [
-            f"{args.remote_build_dir}/gridflux-tree-upload-client",
+            f"{args.remote_build_dir}/cpnetflux-tree-upload-client",
             "--host",
             args.server_host,
             "--port",
@@ -240,7 +240,7 @@ def main() -> int:
             raise RuntimeError("private tree upload resume hash mismatch")
 
         resume_download_cmd = [
-            f"{args.remote_build_dir}/gridflux-tree-download-client",
+            f"{args.remote_build_dir}/cpnetflux-tree-download-client",
             "--host",
             args.server_host,
             "--port",

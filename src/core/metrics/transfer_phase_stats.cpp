@@ -1,8 +1,8 @@
-#include "gridflux/core/metrics/transfer_phase_stats.h"
+#include "cpnetflux/core/metrics/transfer_phase_stats.h"
 
 #include <ostream>
 
-namespace gridflux::core::metrics {
+namespace cpnetflux::core::metrics {
 namespace {
 
 std::uint64_t nanosFromDuration(std::chrono::steady_clock::duration duration) noexcept {
@@ -147,4 +147,4 @@ void appendRetrReceiverAliases(std::ostream& stream, const TransferPhaseStats& s
     appendAlias(stream, "finalize_rename", stats, TransferPhase::RenameCommit);
 }
 
-}  // namespace gridflux::core::metrics
+}  // namespace cpnetflux::core::metrics

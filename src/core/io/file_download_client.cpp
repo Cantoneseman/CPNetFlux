@@ -1,5 +1,6 @@
-#include "gridflux/core/io/file_download_client.h"
+#include "cpnetflux/core/io/file_download_client.h"
 
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -16,19 +18,20 @@
 #include <utility>
 #include <vector>
 
-#include "gridflux/checkpoint/download_manifest.h"
-#include "gridflux/checksum/checksum.h"
-#include "gridflux/common/throughput_counter.h"
-#include "gridflux/core/chunk/chunk_planner.h"
-#include "gridflux/core/io/framed_data_socket.h"
-#include "gridflux/core/io/socket_utils.h"
-#include "gridflux/core/metrics/transfer_phase_stats.h"
-#include "gridflux/core/protocol/frame.h"
-#include "gridflux/core/session/download_session.h"
-#include "gridflux/storage/file_io.h"
-#include "gridflux/storage/posix_file.h"
+#include "cpnetflux/checkpoint/download_manifest.h"
+#include "cpnetflux/checksum/checksum.h"
+#include "cpnetflux/common/throughput_counter.h"
+#include "cpnetflux/core/chunk/chunk_planner.h"
+#include "cpnetflux/core/io/framed_data_socket.h"
+#include "cpnetflux/core/io/socket_utils.h"
+#include "cpnetflux/core/metrics/transfer_phase_stats.h"
+#include "cpnetflux/core/protocol/compressed_data.h"
+#include "cpnetflux/core/protocol/frame.h"
+#include "cpnetflux/core/session/download_session.h"
+#include "cpnetflux/storage/file_io.h"
+#include "cpnetflux/storage/posix_file.h"
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 namespace {
 
 common::Status applyCommitSyncPolicy(const std::string& outputPath,
@@ -48,8 +51,50 @@ common::Status applyCommitSyncPolicy(const std::string& outputPath,
 
 struct DownloadStats {
     std::uint64_t receivedBytes = 0;
+    std::uint64_t wireBytes = 0;
     std::uint64_t verifiedBytes = 0;
+    std::uint64_t compressedFrames = 0;
+    std::uint64_t decompressionFailures = 0;
+    std::uint64_t compressedLogicalBytes = 0;
+    std::uint64_t compressedWireBytes = 0;
+    double cpuSeconds = 0.0;
 };
+
+double threadCpuSeconds() noexcept {
+    rusage usage{};
+    if (::getrusage(RUSAGE_THREAD, &usage) != 0) {
+        return 0.0;
+    }
+    return static_cast<double>(usage.ru_utime.tv_sec) +
+           static_cast<double>(usage.ru_utime.tv_usec) / 1'000'000.0 +
+           static_cast<double>(usage.ru_stime.tv_sec) +
+           static_cast<double>(usage.ru_stime.tv_usec) / 1'000'000.0;
+}
+
+class ThreadCpuScope {
+   public:
+    explicit ThreadCpuScope(double* output) noexcept
+        : output_(output), start_(threadCpuSeconds()) {}
+
+    ~ThreadCpuScope() {
+        if (output_ != nullptr) {
+            *output_ = std::max(0.0, threadCpuSeconds() - start_);
+        }
+    }
+
+   private:
+    double* output_;
+    double start_;
+};
+
+double normalizedCpuPercent(double cpuSeconds, double elapsedSeconds) noexcept {
+    if (elapsedSeconds <= 0.0) {
+        return 0.0;
+    }
+    const long cpuCount = ::sysconf(_SC_NPROCESSORS_ONLN);
+    const double onlineCpus = static_cast<double>(std::max<long>(1, cpuCount));
+    return std::max(0.0, cpuSeconds / elapsedSeconds / onlineCpus * 100.0);
+}
 
 struct SharedDownloadState {
     std::mutex mutex;
@@ -329,6 +374,7 @@ common::Result<std::vector<chunk::CompletedRange>> prepareDownloadSession(
 common::Status receiveStream(const config::FileDownloadOptions& options,
                              checksum::ChecksumBackend checksumBackend, SharedDownloadState* state,
                              DownloadStats* stats) {
+    ThreadCpuScope cpuScope(stats == nullptr ? nullptr : &stats->cpuSeconds);
     auto connectionResult = connectFramedDataSocket(options.host.c_str(), options.port, options.dataTlsMode, options.dataTls);
     if (!connectionResult.isOk()) {
         return connectionResult.status();
@@ -438,12 +484,54 @@ common::Status receiveStream(const config::FileDownloadOptions& options,
             if (!recvStatus.isOk()) {
                 return recvStatus;
             }
+            const bool compressed = (header.value().flags & protocol::kDataCompressed) != 0;
+            const common::Status payloadStatus = protocol::validateDataFramePayload(
+                header.value(), buffer.data(), header.value().payloadSize,
+                static_cast<std::uint32_t>(buffer.size()));
+            if (!payloadStatus.isOk()) {
+                if (compressed) {
+                    ++stats->decompressionFailures;
+                }
+                (void)sendStatusFrame(&connection, protocol::FrameType::Error,
+                                      protocol::FrameStatusCode::InvalidFrame,
+                                      session.value().totalSize, &state->phaseStats);
+                return payloadStatus;
+            }
+
+            const std::uint8_t* logicalData = buffer.data();
+            std::uint64_t logicalSize = header.value().payloadSize;
+            std::vector<std::uint8_t> decompressed;
+            if (compressed) {
+                auto logicalLength = protocol::compressedDataPayloadLogicalLength(
+                    buffer.data(), header.value().payloadSize);
+                if (!logicalLength.isOk()) {
+                    ++stats->decompressionFailures;
+                    (void)sendStatusFrame(&connection, protocol::FrameType::Error,
+                                          protocol::FrameStatusCode::InvalidFrame,
+                                          session.value().totalSize, &state->phaseStats);
+                    return logicalLength.status();
+                }
+                auto decoded = protocol::decodeCompressedDataPayload(
+                    buffer.data(), header.value().payloadSize, logicalLength.value(), buffer.size());
+                if (!decoded.isOk()) {
+                    ++stats->decompressionFailures;
+                    (void)sendStatusFrame(&connection, protocol::FrameType::Error,
+                                          protocol::FrameStatusCode::InvalidFrame,
+                                          session.value().totalSize, &state->phaseStats);
+                    return decoded.status();
+                }
+                decompressed = std::move(decoded.value());
+                logicalData = decompressed.data();
+                logicalSize = decompressed.size();
+                ++stats->compressedFrames;
+                stats->compressedLogicalBytes += logicalSize;
+                stats->compressedWireBytes += header.value().payloadSize;
+            }
             common::Status writeStatus;
             {
                 metrics::ScopedPhaseTimer timer(&state->phaseStats, metrics::TransferPhase::Write,
-                                                header.value().payloadSize);
-                writeStatus = writer.write(header.value().offset, buffer.data(),
-                                           header.value().payloadSize);
+                                                logicalSize);
+                writeStatus = writer.write(header.value().offset, logicalData, logicalSize);
             }
             if (!writeStatus.isOk()) {
                 (void)sendStatusFrame(&connection, protocol::FrameType::Error,
@@ -454,11 +542,12 @@ common::Status receiveStream(const config::FileDownloadOptions& options,
             {
                 metrics::ScopedPhaseTimer timer(&state->phaseStats,
                                                 metrics::TransferPhase::Checksum,
-                                                header.value().payloadSize);
-                checksumComputer.update(buffer.data(), header.value().payloadSize);
+                                                logicalSize);
+                checksumComputer.update(logicalData, logicalSize);
             }
-            activeChunkNextOffset += header.value().payloadSize;
-            stats->receivedBytes += header.value().payloadSize;
+            activeChunkNextOffset += logicalSize;
+            stats->receivedBytes += logicalSize;
+            stats->wireBytes += header.value().payloadSize;
             continue;
         }
         if (header.value().type == protocol::FrameType::ChunkComplete) {
@@ -669,26 +758,62 @@ common::Status runFileDownloadClient(const config::FileDownloadOptions& options)
     }
 
     std::uint64_t receivedBytes = 0;
+    std::uint64_t wireBytes = 0;
     std::uint64_t verifiedBytes = 0;
+    std::uint64_t compressedFrames = 0;
+    std::uint64_t decompressionFailures = 0;
+    std::uint64_t compressedLogicalBytes = 0;
+    std::uint64_t compressedWireBytes = 0;
     for (const DownloadStats& stats : streamStats) {
         receivedBytes += stats.receivedBytes;
+        wireBytes += stats.wireBytes;
         verifiedBytes += stats.verifiedBytes;
+        compressedFrames += stats.compressedFrames;
+        decompressionFailures += stats.decompressionFailures;
+        compressedLogicalBytes += stats.compressedLogicalBytes;
+        compressedWireBytes += stats.compressedWireBytes;
     }
     counter.addBytes(receivedBytes);
     const auto end = common::ThroughputCounter::Clock::now();
     counter.stop(end);
     overallTimer.stop();
+    if (options.runtimeMetrics != nullptr) {
+        double cpuSeconds = 0.0;
+        for (const DownloadStats& stats : streamStats) {
+            cpuSeconds += stats.cpuSeconds;
+        }
+        const double elapsed = counter.elapsedSeconds(end);
+        options.runtimeMetrics->elapsedSeconds = elapsed;
+        options.runtimeMetrics->cpuPercent = normalizedCpuPercent(cpuSeconds, elapsed);
+        options.runtimeMetrics->sendSeconds = state.phaseStats.seconds(metrics::TransferPhase::Send);
+        options.runtimeMetrics->recvSeconds = state.phaseStats.seconds(metrics::TransferPhase::Recv);
+        options.runtimeMetrics->readSeconds = state.phaseStats.seconds(metrics::TransferPhase::Read);
+        options.runtimeMetrics->writeSeconds = state.phaseStats.seconds(metrics::TransferPhase::Write);
+        options.runtimeMetrics->checksumSeconds =
+            state.phaseStats.seconds(metrics::TransferPhase::Checksum);
+        options.runtimeMetrics->logicalBytes = state.knownTotalSize;
+        options.runtimeMetrics->wireBytes = wireBytes;
+        options.runtimeMetrics->compressedFrames = compressedFrames;
+        options.runtimeMetrics->decompressionFailures = decompressionFailures;
+        options.runtimeMetrics->compressedLogicalBytes = compressedLogicalBytes;
+        options.runtimeMetrics->compressedWireBytes = compressedWireBytes;
+    }
 
     const char* backendName = options.checksumAlgorithm == checksum::ChecksumAlgorithm::None
                                   ? "none"
                                   : checksum::checksumBackendName(resolvedBackend.value());
     std::cout << "file_download_client received_bytes=" << receivedBytes
+              << " wire_bytes=" << wireBytes
               << " elapsed_seconds=" << counter.elapsedSeconds(end)
               << " throughput_gbps=" << counter.gigabitsPerSecond(end)
               << " transfer_id=" << options.transferId << " checksum_backend=" << backendName
               << " skipped_bytes=" << state.session.stats().skippedBytes
               << " resent_bytes=" << state.session.stats().resentBytes
               << " verified_bytes=" << state.session.stats().verifiedBytes
+              << " compressed_frames=" << compressedFrames
+              << " decompression_failures=" << decompressionFailures
+              << " compressed_logical_bytes=" << compressedLogicalBytes
+              << " compressed_wire_bytes=" << compressedWireBytes
               << " removed_corrupt_chunks=" << state.session.stats().removedCorruptChunks
               << " manifest_flush_policy="
               << session::manifestFlushPolicyName(state.session.manifestFlushPolicy())
@@ -720,4 +845,4 @@ common::Status runFileDownloadClient(const config::FileDownloadOptions& options)
     return common::Status::ok();
 }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

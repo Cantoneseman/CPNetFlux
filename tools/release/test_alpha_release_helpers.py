@@ -22,7 +22,7 @@ def write(path: Path, text: str) -> None:
 
 
 def test_source_tree_hash_excludes_private_and_build() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-alpha-hash.") as temp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-alpha-hash.") as temp:
         root = Path(temp)
         write(root / "src" / "main.cpp", "int main() { return 0; }\n")
         first = run_alpha_release_gate.source_tree_hash(root)
@@ -35,14 +35,25 @@ def test_source_tree_hash_excludes_private_and_build() -> None:
 
 
 def test_csv_sidecar_extraction() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-alpha-csv.") as temp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-alpha-csv.") as temp:
         root = Path(temp)
         csv_path = root / "tools" / "perf" / "results" / "matrix.csv"
         csv_path.parent.mkdir(parents=True)
         with csv_path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(
                 handle,
-                fieldnames=["server_log", "client_env_before_log", "absolute_log", "result"],
+                fieldnames=[
+                    "server_log",
+                    "client_env_before_log",
+                    "absolute_log",
+                    "json_summary",
+                    "scheduler_summary_csv",
+                    "scheduler_events_jsonl",
+                    "scheduler_samples_csv",
+                    "auth_preflight_audit",
+                    "process_audit",
+                    "result",
+                ],
             )
             writer.writeheader()
             writer.writerow(
@@ -50,6 +61,12 @@ def test_csv_sidecar_extraction() -> None:
                     "server_log": "tools/perf/results/server.log",
                     "client_env_before_log": "tools/perf/results/client-env.log",
                     "absolute_log": str(root / "tools" / "perf" / "results" / "abs.log"),
+                    "json_summary": "tools/perf/results/tree-summary.json",
+                    "scheduler_summary_csv": "tools/perf/results/scheduler-summary.csv",
+                    "scheduler_events_jsonl": "tools/perf/results/scheduler-events.jsonl",
+                    "scheduler_samples_csv": "tools/perf/results/scheduler-samples.csv",
+                    "auth_preflight_audit": "tools/perf/results/auth.json",
+                    "process_audit": "tools/perf/results/process.json",
                     "result": "pass",
                 }
             )
@@ -59,6 +76,12 @@ def test_csv_sidecar_extraction() -> None:
             "tools/perf/results/server.log",
             "tools/perf/results/client-env.log",
             "tools/perf/results/abs.log",
+            "tools/perf/results/tree-summary.json",
+            "tools/perf/results/scheduler-summary.csv",
+            "tools/perf/results/scheduler-events.jsonl",
+            "tools/perf/results/scheduler-samples.csv",
+            "tools/perf/results/auth.json",
+            "tools/perf/results/process.json",
         }
         if paths != expected:
             raise AssertionError(f"unexpected sidecar paths: {paths}")
@@ -68,7 +91,7 @@ def test_csv_sidecar_extraction() -> None:
 
 
 def test_matrix_summary_default_baseline() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-alpha-summary.") as temp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-alpha-summary.") as temp:
         summary = Path(temp) / "summary.csv"
         fields = [
             "file_io_backend",
@@ -112,16 +135,24 @@ def test_matrix_summary_default_baseline() -> None:
 
 
 def test_artifact_manifest_excludes_private_paths_and_includes_sidecars() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-alpha-manifest.") as temp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-alpha-manifest.") as temp:
         root = Path(temp)
         write(root / "INDEX.md", "index\n")
         write(root / "docs" / "ROADMAP.md", "roadmap\n")
         write(root / "docs" / "PROJECT_STATE.md", "state\n")
         write(root / "docs" / "perf" / "README.md", "perf\n")
+        write(root / "docs" / "perf" / "PHASE1_GLOBAL_SCHEDULER_MVP.md", "phase1\n")
+        write(root / "docs" / "perf" / "PHASE2_GLOBAL_SCHEDULER.md", "phase2\n")
+        write(root / "docs" / "perf" / "PHASE3_HOT_PATH_COMPRESSION.md", "phase3\n")
+        write(root / "docs" / "perf" / "PHASE4_POST_PHASE3_REVALIDATION.md", "phase4\n")
         write(root / "docs" / "perf" / "PHASE5B_TREE_DATASET_MATRIX.md", "tree matrix report\n")
         write(root / "docs" / "release" / "ALPHA_RELEASE_GATE.md", "gate\n")
         write(root / "tools" / "release" / "helper.py", "print('ok')\n")
+        write(root / "tools" / "benchmark" / "run_storage_bench.py", "print('storage')\n")
+        write(root / "tools" / "perf" / "run_gridftp_private_matrix.py", "print('single matrix')\n")
         write(root / "tools" / "perf" / "run_gridftp_tree_private_matrix.py", "print('matrix')\n")
+        write(root / "tools" / "perf" / "analyze_phase1_global_scheduler.py", "print('phase1')\n")
+        write(root / "tools" / "perf" / "analyze_phase4l.py", "print('phase4')\n")
         write(root / "tools" / "perf" / "analyze_phase5b.py", "print('analyze')\n")
         write(root / "AGENTS.md", "password\n")
         write(root / "build-private" / "artifact.log", "private\n")
@@ -164,10 +195,18 @@ def test_artifact_manifest_excludes_private_paths_and_includes_sidecars() -> Non
             "docs/ROADMAP.md",
             "docs/PROJECT_STATE.md",
             "docs/perf/README.md",
+            "docs/perf/PHASE1_GLOBAL_SCHEDULER_MVP.md",
+            "docs/perf/PHASE2_GLOBAL_SCHEDULER.md",
+            "docs/perf/PHASE3_HOT_PATH_COMPRESSION.md",
+            "docs/perf/PHASE4_POST_PHASE3_REVALIDATION.md",
             "docs/perf/PHASE5B_TREE_DATASET_MATRIX.md",
             "docs/release/ALPHA_RELEASE_GATE.md",
             "tools/release/helper.py",
+            "tools/benchmark/run_storage_bench.py",
+            "tools/perf/run_gridftp_private_matrix.py",
             "tools/perf/run_gridftp_tree_private_matrix.py",
+            "tools/perf/analyze_phase1_global_scheduler.py",
+            "tools/perf/analyze_phase4l.py",
             "tools/perf/analyze_phase5b.py",
             "tools/perf/results/matrix.csv",
             "tools/perf/results/server.log",
@@ -181,7 +220,7 @@ def test_artifact_manifest_excludes_private_paths_and_includes_sidecars() -> Non
 
 
 def test_remote_artifact_sync_local_verify_and_sync() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-alpha-sync.") as temp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-alpha-sync.") as temp:
         base = Path(temp)
         local = base / "machine1"
         remote = base / "machine2"
@@ -268,7 +307,7 @@ def test_artifact_path_rejects_traversal_and_sensitive_paths() -> None:
 
 
 def test_artifact_manifest_freshness_detects_stale_required_doc() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-alpha-freshness.") as temp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-alpha-freshness.") as temp:
         root = Path(temp)
         write(root / "docs" / "PROJECT_STATE.md", "state-v1\n")
         manifest_path = root / "tools" / "perf" / "results" / "alpha-artifacts.json"
@@ -289,7 +328,7 @@ def test_artifact_manifest_freshness_detects_stale_required_doc() -> None:
 
 
 def test_remote_auth_reads_matching_private_agents_row() -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-remote-auth.") as temp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-remote-auth.") as temp:
         root = Path(temp)
         write(
             root / "AGENTS.md",
@@ -303,7 +342,7 @@ def test_remote_auth_reads_matching_private_agents_row() -> None:
                 ]
             ),
         )
-        for key in ["GRIDFLUX_SSH_PASSWORD", "SSHPASS"]:
+        for key in ["CPNETFLUX_SSH_PASSWORD", "SSHPASS"]:
             os.environ.pop(key, None)
         auth = remote_auth.resolve_auth("root@192.0.2.2", root)
         if auth is None or auth.password != "second-secret" or auth.source != "AGENTS.md":

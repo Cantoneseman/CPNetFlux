@@ -1,9 +1,9 @@
-#include "gridflux/storage/file_io.h"
+#include "cpnetflux/storage/file_io.h"
 
 #include <cerrno>
 #include <vector>
 
-namespace gridflux::storage {
+namespace cpnetflux::storage {
 
 common::Status ioUringRunCompletionLoopForTest(IoUringOperation operation, std::uint64_t offset,
                                                std::size_t length,
@@ -135,4 +135,4 @@ common::Status ioUringWriteAtAll(const PosixFile&, std::uint64_t, const std::uin
         "file IO backend unavailable: io_uring (liburing not found at build time)");
 }
 
-}  // namespace gridflux::storage
+}  // namespace cpnetflux::storage

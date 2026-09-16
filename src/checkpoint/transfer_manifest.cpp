@@ -1,4 +1,4 @@
-#include "gridflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/checkpoint/transfer_manifest.h"
 
 #include <algorithm>
 #include <array>
@@ -10,9 +10,9 @@
 #include <unordered_map>
 #include <utility>
 
-#include "gridflux/checksum/crc32c.h"
+#include "cpnetflux/checksum/crc32c.h"
 
-namespace gridflux::checkpoint {
+namespace cpnetflux::checkpoint {
 namespace {
 
 constexpr std::size_t kMaxTransferIdLength = 128;
@@ -300,7 +300,7 @@ bool isValidTransferId(const std::string& transferId) noexcept {
 }
 
 std::string manifestPathForOutput(const std::string& outputPath) {
-    return outputPath + ".gridflux.manifest";
+    return outputPath + ".cpnetflux.manifest";
 }
 
 std::string tempPathForOutput(const std::string& outputPath, const std::string& transferId) {
@@ -528,4 +528,4 @@ common::Result<TransferManifest> parseTransferManifest(const std::string& text) 
     return manifest;
 }
 
-}  // namespace gridflux::checkpoint
+}  // namespace cpnetflux::checkpoint

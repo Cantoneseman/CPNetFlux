@@ -1,4 +1,4 @@
-#include "gridflux/core/io/tree_transfer_client.h"
+#include "cpnetflux/core/io/tree_transfer_client.h"
 
 #include <fcntl.h>
 #include <netdb.h>
@@ -27,21 +27,22 @@
 #include <utility>
 #include <vector>
 
-#include "gridflux/checksum/checksum.h"
-#include "gridflux/checkpoint/transfer_manifest.h"
-#include "gridflux/config/file_download_options.h"
-#include "gridflux/config/file_transfer_options.h"
-#include "gridflux/core/io/file_download_client.h"
-#include "gridflux/core/io/file_transfer_client.h"
-#include "gridflux/core/metrics/error_code.h"
-#include "gridflux/core/metrics/event_log.h"
-#include "gridflux/core/io/socket_utils.h"
-#include "gridflux/core/io/tls_socket.h"
-#include "gridflux/core/tree/tree_manifest.h"
-#include "gridflux/core/tree/tree_scan.h"
-#include "gridflux/protocol/control/control_auth.h"
+#include "cpnetflux/checksum/checksum.h"
+#include "cpnetflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/config/file_download_options.h"
+#include "cpnetflux/config/file_transfer_options.h"
+#include "cpnetflux/core/io/file_download_client.h"
+#include "cpnetflux/core/io/file_transfer_client.h"
+#include "cpnetflux/core/metrics/error_code.h"
+#include "cpnetflux/core/metrics/event_log.h"
+#include "cpnetflux/core/io/socket_utils.h"
+#include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/scheduler/scheduler.h"
+#include "cpnetflux/core/tree/tree_manifest.h"
+#include "cpnetflux/core/tree/tree_scan.h"
+#include "cpnetflux/protocol/control/control_auth.h"
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 namespace {
 
 struct ControlReply {
@@ -123,13 +124,23 @@ class ControlClient {
             return typeReply.isOk() ? common::Status::runtimeError("TYPE I rejected")
                                     : typeReply.status();
         }
+        return setParallelism(connections);
+    }
+
+    [[nodiscard]] common::Status setParallelism(std::uint32_t connections) {
+        if (parallelism_ == connections) {
+            return common::Status::ok();
+        }
         auto optsReply = command("OPTS PARALLELISM=" + std::to_string(connections));
         if (!optsReply.isOk() || optsReply.value().code != 200) {
             return optsReply.isOk() ? common::Status::runtimeError("OPTS PARALLELISM rejected")
                                     : optsReply.status();
         }
+        parallelism_ = connections;
         return common::Status::ok();
     }
+
+    [[nodiscard]] std::uint32_t parallelism() const noexcept { return parallelism_; }
 
     [[nodiscard]] common::Result<std::uint16_t> epsv() {
         auto reply = command("EPSV");
@@ -410,6 +421,7 @@ class ControlClient {
     TlsConnection control_;
     std::string host_;
     std::string buffer_;
+    std::uint32_t parallelism_ = 0;
 };
 
 std::string generateTransferId() {
@@ -484,29 +496,7 @@ common::Status validateCompletedUploadFile(ControlClient* client, const std::str
     if (size.value() != record.size) {
         return common::Status::invalidArgument("completed upload file changed: " + record.relativePath);
     }
-    auto mtime = client->mdtm(remotePath);
-    if (!mtime.isOk()) {
-        return common::Status::runtimeError("completed upload MDTM failed: " +
-                                            mtime.status().message());
-    }
     return common::Status::ok();
-}
-
-bool isDataFinalStatusTimeout(const common::Status& status) {
-    return !status.isOk() &&
-           status.message().starts_with("data final status timeout:");
-}
-
-std::string uploadRecoveryFailureMessage(const common::Status& transferStatus,
-                                         const common::Status& controlStatus,
-                                         const common::Status& metadataStatus) {
-    std::ostringstream output;
-    output << transferStatus.message()
-           << "; control_final_status="
-           << (controlStatus.isOk() ? "pass" : controlStatus.message())
-           << "; remote_metadata_status="
-           << (metadataStatus.isOk() ? "pass" : metadataStatus.message());
-    return output.str();
 }
 
 common::Status validateCompletedDownloadFile(const std::string& localRoot,
@@ -597,15 +587,82 @@ std::uint64_t totalBytes(const core::tree::TreeManifest& manifest) {
     return total;
 }
 
+std::filesystem::path absoluteLexicalPath(const std::filesystem::path& path) {
+    std::error_code error;
+    std::filesystem::path absolute = std::filesystem::absolute(path, error);
+    if (error) {
+        absolute = path;
+    }
+    return absolute.lexically_normal();
+}
+
+bool pathInsideOrEqualPath(const std::filesystem::path& candidate,
+                           const std::filesystem::path& root) {
+    const std::filesystem::path normalizedCandidate = absoluteLexicalPath(candidate);
+    const std::filesystem::path normalizedRoot = absoluteLexicalPath(root);
+    auto candIt = normalizedCandidate.begin();
+    auto rootIt = normalizedRoot.begin();
+    for (; rootIt != normalizedRoot.end(); ++rootIt, ++candIt) {
+        if (candIt == normalizedCandidate.end() || *candIt != *rootIt) {
+            return false;
+        }
+    }
+    return true;
+}
+
+common::Result<core::scheduler::SchedulerMetricsPaths> schedulerMetricsPaths(
+    const config::TreeTransferOptions& options, const std::string& manifestPath,
+    const char* direction) {
+    const std::string localRoot =
+        std::string(direction) == "upload" ? options.sourceDir : options.destDir;
+    std::filesystem::path metricsDir;
+    if (options.schedulerMetricsDir.empty()) {
+        metricsDir = std::filesystem::path(manifestPath);
+        metricsDir.replace_filename(metricsDir.filename().string() + ".scheduler");
+    } else {
+        metricsDir = std::filesystem::path(options.schedulerMetricsDir);
+    }
+    if (pathInsideOrEqualPath(metricsDir, localRoot)) {
+        return common::Status::invalidArgument(
+            "scheduler metrics directory must be outside the local transfer root");
+    }
+    core::scheduler::SchedulerMetricsPaths paths;
+    paths.summaryCsv = (metricsDir / "scheduler_summary.csv").string();
+    paths.eventsJsonl = (metricsDir / "scheduler_events.jsonl").string();
+    paths.samplesCsv = (metricsDir / "scheduler_samples.csv").string();
+    return paths;
+}
+
 struct TreeRunStats {
     std::atomic<std::uint64_t> completedThisRun{0};
     std::atomic<std::uint64_t> skippedFiles{0};
     std::atomic<std::uint64_t> transferredBytes{0};
+    std::atomic<std::uint64_t> wireBytes{0};
+    std::atomic<std::uint64_t> compressionAttempts{0};
+    std::atomic<std::uint64_t> compressedFrames{0};
+    std::atomic<std::uint64_t> rawFallbackFrames{0};
+    std::atomic<std::uint64_t> compressionFailures{0};
+    std::atomic<std::uint64_t> decompressionFailures{0};
+    std::atomic<std::uint64_t> compressedLogicalBytes{0};
+    std::atomic<std::uint64_t> compressedWireBytes{0};
     std::atomic<std::uint64_t> controlConnectCount{0};
     std::atomic<std::uint64_t> controlReconnectCount{0};
     std::atomic<std::uint64_t> dataTransferCount{0};
-    std::atomic<std::uint64_t> recoveredAfterDataFinalStatusTimeout{0};
 };
+
+void addTransferMetrics(TreeRunStats* stats, const core::io::TransferRuntimeMetrics* metrics) {
+    if (stats == nullptr || metrics == nullptr) {
+        return;
+    }
+    stats->wireBytes.fetch_add(metrics->wireBytes);
+    stats->compressionAttempts.fetch_add(metrics->compressionAttempts);
+    stats->compressedFrames.fetch_add(metrics->compressedFrames);
+    stats->rawFallbackFrames.fetch_add(metrics->rawFallbackFrames);
+    stats->compressionFailures.fetch_add(metrics->compressionFailures);
+    stats->decompressionFailures.fetch_add(metrics->decompressionFailures);
+    stats->compressedLogicalBytes.fetch_add(metrics->compressedLogicalBytes);
+    stats->compressedWireBytes.fetch_add(metrics->compressedWireBytes);
+}
 
 struct TreeSummary {
     std::uint64_t completedFiles = 0;
@@ -728,7 +785,7 @@ common::Result<std::string> computeTreeVerificationHash(const std::string& root)
                                                    error.value());
             }
             const std::string relativeText = relative.generic_string();
-            if (relativeText.find(".gridflux.") != std::string::npos ||
+            if (relativeText.find(".cpnetflux.") != std::string::npos ||
                 relativeText.find(".part.") != std::string::npos) {
                 continue;
             }
@@ -824,8 +881,6 @@ void printTreeSummary(const char* label, const char* result,
               << " control_connect_count=" << stats.controlConnectCount.load()
               << " control_reconnect_count=" << stats.controlReconnectCount.load()
               << " data_transfer_count=" << stats.dataTransferCount.load()
-              << " recovered_after_data_final_status_timeout="
-              << stats.recoveredAfterDataFinalStatusTimeout.load()
               << " total_bytes=" << logicalBytes
               << " transferred_bytes=" << stats.transferredBytes.load()
               << " elapsed_seconds=" << elapsed << " throughput_gbps=" << throughputGbps
@@ -837,7 +892,7 @@ void emitTreeEvent(const config::TreeTransferOptions& options, const char* event
                    const common::Status& status, std::uint64_t bytes = 0) {
     (void)core::metrics::writeEventLog(
         options.eventLogPath,
-        core::metrics::EventRecord{std::string("gridflux-tree-") + direction + "-client",
+        core::metrics::EventRecord{std::string("cpnetflux-tree-") + direction + "-client",
                                    event,
                                    "",
                                    direction,
@@ -896,18 +951,37 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"changed_files\": " << summary.changedFiles << ",\n";
     output << "  \"bytes_total\": " << logicalBytes << ",\n";
     output << "  \"bytes_transferred\": " << stats.transferredBytes.load() << ",\n";
+    output << "  \"wire_bytes\": " << stats.wireBytes.load() << ",\n";
     output << "  \"file_parallelism\": " << options.fileParallelism << ",\n";
     output << "  \"connections\": " << options.connections << ",\n";
+    output << "  \"scheduler_mode\": \"" << config::treeSchedulerModeName(options.schedulerMode)
+           << "\",\n";
+    output << "  \"scheduler_policy\": \""
+           << core::scheduler::schedulerPolicyName(options.schedulerPolicy) << "\",\n";
+    if (options.schedulerMode == config::TreeSchedulerMode::Global) {
+        auto metricsPaths = schedulerMetricsPaths(options, std::string(direction) == "upload"
+                                                              ? core::tree::treeManifestPathForUpload(options.sourceDir)
+                                                              : core::tree::treeManifestPathForDownload(options.destDir),
+                                                  direction);
+        if (metricsPaths.isOk()) {
+            output << "  \"scheduler_metrics_dir\": \""
+                   << jsonEscape(std::filesystem::path(metricsPaths.value().summaryCsv)
+                                     .parent_path()
+                                     .string())
+                   << "\",\n";
+            output << "  \"scheduler_summary_csv\": \""
+                   << jsonEscape(metricsPaths.value().summaryCsv) << "\",\n";
+            output << "  \"scheduler_events_jsonl\": \""
+                   << jsonEscape(metricsPaths.value().eventsJsonl) << "\",\n";
+            output << "  \"scheduler_samples_csv\": \""
+                   << jsonEscape(metricsPaths.value().samplesCsv) << "\",\n";
+        }
+    }
     output << "  \"control_reuse_mode\": \""
            << config::controlReuseModeName(options.controlReuseMode) << "\",\n";
     output << "  \"control_connect_count\": " << stats.controlConnectCount.load() << ",\n";
     output << "  \"control_reconnect_count\": " << stats.controlReconnectCount.load() << ",\n";
     output << "  \"data_transfer_count\": " << stats.dataTransferCount.load() << ",\n";
-    output << "  \"recovered_after_data_final_status_timeout\": "
-           << (stats.recoveredAfterDataFinalStatusTimeout.load() > 0 ? "true" : "false")
-           << ",\n";
-    output << "  \"recovered_after_data_final_status_timeout_count\": "
-           << stats.recoveredAfterDataFinalStatusTimeout.load() << ",\n";
     output << "  \"planner_preset\": \"" << jsonEscape(options.plannerPreset) << "\",\n";
     output << "  \"checksum_algorithm\": \""
            << checksum::checksumAlgorithmName(options.checksumAlgorithm) << "\",\n";
@@ -1035,7 +1109,34 @@ bool acquireTransferSlot(SchedulerState* state, const config::TreeTransferOption
 struct TreeWorkerRuntime {
     ControlClient control;
     bool controlReady = false;
+    core::io::TransferRuntimeMetrics transferMetrics;
+    bool hasTransferMetrics = false;
+    core::io::HotPathCompressionOptions hotPathCompression;
+    bool forcedRawRetry = false;
 };
+
+void mergeTransferMetrics(core::io::TransferRuntimeMetrics* destination,
+                          const core::io::TransferRuntimeMetrics& source) {
+    destination->elapsedSeconds += source.elapsedSeconds;
+    destination->cpuPercent += source.cpuPercent;
+    destination->sendSeconds += source.sendSeconds;
+    destination->recvSeconds += source.recvSeconds;
+    destination->readSeconds += source.readSeconds;
+    destination->writeSeconds += source.writeSeconds;
+    destination->checksumSeconds += source.checksumSeconds;
+    destination->logicalBytes += source.logicalBytes;
+    destination->wireBytes += source.wireBytes;
+    destination->compressionAttempts += source.compressionAttempts;
+    destination->compressedFrames += source.compressedFrames;
+    destination->rawFallbackFrames += source.rawFallbackFrames;
+    destination->compressionFailures += source.compressionFailures;
+    destination->decompressionFailures += source.decompressionFailures;
+    destination->compressedLogicalBytes += source.compressedLogicalBytes;
+    destination->compressedWireBytes += source.compressedWireBytes;
+    if (destination->compressionFallbackReason.empty()) {
+        destination->compressionFallbackReason = source.compressionFallbackReason;
+    }
+}
 
 common::Status ensureControlReadyWithStats(ControlClient* client,
                                            const config::TreeTransferOptions& options,
@@ -1061,6 +1162,11 @@ common::Result<ControlClient*> controlForFile(SchedulerState* state, TreeWorkerR
                 return status;
             }
             runtime->controlReady = true;
+        } else if (runtime->control.parallelism() != options.connections) {
+            const common::Status status = runtime->control.setParallelism(options.connections);
+            if (!status.isOk()) {
+                return status;
+            }
         }
         return &runtime->control;
     }
@@ -1201,6 +1307,11 @@ common::Status preflightDownloadResume(const config::TreeTransferOptions& option
 common::Status processUploadFile(SchedulerState* state, std::size_t index,
                                  const config::TreeTransferOptions& options,
                                  TreeWorkerRuntime* runtime) {
+    if (runtime != nullptr) {
+        runtime->transferMetrics = {};
+        runtime->hasTransferMetrics = false;
+        runtime->forcedRawRetry = false;
+    }
     const core::tree::TreeFileRecord record = state->manifest->files[index];
     const std::filesystem::path localPath = std::filesystem::path(options.sourceDir) / record.relativePath;
     const std::string remotePath = joinRemotePath(options.destDir, record.relativePath);
@@ -1280,7 +1391,6 @@ common::Status processUploadFile(SchedulerState* state, std::size_t index,
     fileOptions.connections = options.connections;
     fileOptions.bufferSize = options.bufferSize;
     fileOptions.chunkSize = options.chunkSize;
-    fileOptions.dataFinalStatusTimeoutSeconds = options.dataFinalStatusTimeoutSeconds;
     fileOptions.path = localPath.string();
     fileOptions.transferId = effectiveTransferId;
     fileOptions.checksumAlgorithm = options.checksumAlgorithm;
@@ -1291,36 +1401,52 @@ common::Status processUploadFile(SchedulerState* state, std::size_t index,
                                    : core::io::TlsMode::Off;
     fileOptions.dataTlsMode = options.dataTlsMode;
     fileOptions.resume = resumeFile;
+    fileOptions.hotPathCompression =
+        runtime != nullptr ? runtime->hotPathCompression : core::io::HotPathCompressionOptions{};
+    core::io::TransferRuntimeMetrics transferMetrics;
+    fileOptions.runtimeMetrics = &transferMetrics;
 
-    const common::Status transferStatus = runFileTransferClient(fileOptions);
-    if (!transferStatus.isOk()) {
-        if (isDataFinalStatusTimeout(transferStatus)) {
-            state->stats.dataTransferCount.fetch_add(1);
-            const common::Status completeStatus = control.value()->waitTransferComplete();
-            const common::Status metadataStatus =
-                validateCompletedUploadFile(control.value(), remotePath, record);
-            if (completeStatus.isOk() && metadataStatus.isOk()) {
-                const common::Status doneStatus =
-                    updateRecord(state, index, core::tree::TreeFileStatus::Completed);
-                if (!doneStatus.isOk()) {
-                    return doneStatus;
-                }
-                state->stats.completedThisRun.fetch_add(1);
-                state->stats.transferredBytes.fetch_add(record.size);
-                state->stats.recoveredAfterDataFinalStatusTimeout.fetch_add(1);
-                emitTreeEvent(options, "file_recovered_after_data_final_status_timeout",
-                              "upload", record.relativePath, common::Status::ok(),
-                              record.size);
-                return common::Status::ok();
-            }
-            const std::string message =
-                uploadRecoveryFailureMessage(transferStatus, completeStatus, metadataStatus);
-            const common::Status recoveredFailure = common::Status::runtimeError(message);
-            (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed, message);
-            emitTreeEvent(options, "file_failed", "upload", record.relativePath,
-                          recoveredFailure, record.size);
-            return recoveredFailure;
+    common::Status transferStatus = runFileTransferClient(fileOptions);
+    if (runtime != nullptr && options.schedulerMode == config::TreeSchedulerMode::Global) {
+        runtime->transferMetrics = transferMetrics;
+        runtime->hasTransferMetrics = true;
+    }
+    if (!transferStatus.isOk() && runtime != nullptr &&
+        runtime->hotPathCompression.candidate && !runtime->forcedRawRetry) {
+        const common::Status firstControlStatus = control.value()->waitTransferComplete();
+        if (!firstControlStatus.isOk() &&
+            firstControlStatus.code() == common::StatusCode::SystemError) {
+            (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed,
+                               transferStatus.message());
+            emitTreeEvent(options, "file_failed", "upload", record.relativePath, transferStatus,
+                          record.size);
+            return transferStatus;
         }
+
+        auto retryPort = control.value()->epsv();
+        if (retryPort.isOk()) {
+            const common::Status restStatus = control.value()->rest(effectiveTransferId);
+            if (restStatus.isOk()) {
+                auto retryTransfer =
+                    control.value()->startTransfer("STOR", remotePath);
+                if (retryTransfer.isOk()) {
+                    config::FileTransferOptions retryOptions = fileOptions;
+                    retryOptions.port = retryPort.value();
+                    retryOptions.resume = true;
+                    retryOptions.hotPathCompression.forceRaw = true;
+                    retryOptions.hotPathCompression.candidate = true;
+                    core::io::TransferRuntimeMetrics retryMetrics;
+                    retryOptions.runtimeMetrics = &retryMetrics;
+                    transferStatus = runFileTransferClient(retryOptions);
+                    mergeTransferMetrics(&transferMetrics, retryMetrics);
+                    runtime->transferMetrics = transferMetrics;
+                    runtime->hasTransferMetrics = true;
+                    runtime->forcedRawRetry = true;
+                }
+            }
+        }
+    }
+    if (!transferStatus.isOk()) {
         (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed,
                            transferStatus.message());
         emitTreeEvent(options, "file_failed", "upload", record.relativePath, transferStatus,
@@ -1336,6 +1462,9 @@ common::Status processUploadFile(SchedulerState* state, std::size_t index,
                       record.size);
         return completeStatus;
     }
+    if (runtime == nullptr) {
+        addTransferMetrics(&state->stats, &transferMetrics);
+    }
     const common::Status doneStatus = updateRecord(state, index, core::tree::TreeFileStatus::Completed);
     if (!doneStatus.isOk()) {
         return doneStatus;
@@ -1350,6 +1479,10 @@ common::Status processUploadFile(SchedulerState* state, std::size_t index,
 common::Status processDownloadFile(SchedulerState* state, std::size_t index,
                                    const config::TreeTransferOptions& options,
                                    TreeWorkerRuntime* runtime) {
+    if (runtime != nullptr) {
+        runtime->transferMetrics = {};
+        runtime->hasTransferMetrics = false;
+    }
     const core::tree::TreeFileRecord record = state->manifest->files[index];
     const std::filesystem::path localPath = std::filesystem::path(options.destDir) / record.relativePath;
     const std::string remotePath = joinRemotePath(options.sourceDir, record.relativePath);
@@ -1452,8 +1585,15 @@ common::Status processDownloadFile(SchedulerState* state, std::size_t index,
                                    : core::io::TlsMode::Off;
     fileOptions.dataTlsMode = options.dataTlsMode;
     fileOptions.resume = resumeFile;
+    fileOptions.hotPathCompression = {};
+    core::io::TransferRuntimeMetrics transferMetrics;
+    fileOptions.runtimeMetrics = &transferMetrics;
 
     const common::Status transferStatus = runFileDownloadClient(fileOptions);
+    if (runtime != nullptr && options.schedulerMode == config::TreeSchedulerMode::Global) {
+        runtime->transferMetrics = transferMetrics;
+        runtime->hasTransferMetrics = true;
+    }
     if (!transferStatus.isOk()) {
         (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed,
                            transferStatus.message());
@@ -1469,6 +1609,9 @@ common::Status processDownloadFile(SchedulerState* state, std::size_t index,
         emitTreeEvent(options, "file_failed", "download", record.relativePath, completeStatus,
                       record.size);
         return completeStatus;
+    }
+    if (runtime == nullptr) {
+        addTransferMetrics(&state->stats, &transferMetrics);
     }
     const common::Status mtimeStatus = setRegularFileMtime(localPath, record.mtimeUnixSeconds);
     if (!mtimeStatus.isOk()) {
@@ -1487,6 +1630,671 @@ common::Status processDownloadFile(SchedulerState* state, std::size_t index,
     emitTreeEvent(options, "file_complete", "download", record.relativePath,
                   common::Status::ok(), record.size);
     return common::Status::ok();
+}
+
+std::uint64_t workItemBytes(const core::scheduler::FilePlan& plan) {
+    std::uint64_t bytes = 0;
+    for (const auto& item : plan.workItems) {
+        bytes += item.length;
+    }
+    return bytes;
+}
+
+struct GlobalSchedulerRuntime {
+    std::vector<core::scheduler::FilePlan> plans;
+    std::size_t nextPlan = 0;
+    std::uint64_t readyBytes = 0;
+    std::uint64_t rawWorkItems = 0;
+    std::uint64_t compressedWorkItems = 0;
+    std::uint64_t retriedWorkItems = 0;
+};
+
+struct GlobalDispatch {
+    bool hasPlan = false;
+    bool waitForCapacity = false;
+    core::scheduler::FilePlan plan;
+    std::uint32_t targetConnections = 1;
+};
+
+void tallyGlobalPlans(const std::vector<core::scheduler::FilePlan>& plans,
+                      GlobalSchedulerRuntime* runtime) {
+    for (const auto& plan : plans) {
+        runtime->readyBytes += workItemBytes(plan);
+        const std::uint64_t itemCount = plan.workItems.size();
+        if (plan.compression.disposition ==
+            core::scheduler::CompressionDisposition::CompressionCandidate) {
+            runtime->compressedWorkItems += itemCount;
+        } else {
+            runtime->rawWorkItems += itemCount;
+        }
+        if (plan.retryCount > 0) {
+            runtime->retriedWorkItems += itemCount;
+        }
+    }
+}
+
+core::scheduler::SchedulerEventRecord schedulerEvent(
+    const char* event, const core::scheduler::SchedulerConfig& config,
+    const core::scheduler::FilePlan& plan, std::uint64_t offset, std::uint64_t length,
+    const std::string& reason, std::uint64_t readyBytes, std::uint32_t targetConnections,
+    const std::string& result, const std::string& message) {
+    return core::scheduler::SchedulerEventRecord{"",
+                                                 event,
+                                                 config.taskId,
+                                                 plan.fileId,
+                                                 config.linkId,
+                                                 offset,
+                                                 length,
+                                                 reason,
+                                                 readyBytes,
+                                                 targetConnections,
+                                                 result,
+                                                 message};
+}
+
+double phasePressure(double phaseSeconds, double elapsedSeconds) noexcept {
+    if (phaseSeconds <= 0.0 || elapsedSeconds <= 0.0) {
+        return 0.0;
+    }
+    return std::min(1.0, phaseSeconds / elapsedSeconds);
+}
+
+common::Status recordPlanDispatch(core::scheduler::GlobalScheduler* scheduler,
+                                  const core::scheduler::FilePlan& plan,
+                                  std::uint64_t readyBytes,
+                                  std::uint32_t targetConnections) {
+    const auto& config = scheduler->config();
+    if (plan.compression.disposition ==
+        core::scheduler::CompressionDisposition::CompressionCandidate) {
+        const common::Status compressionStatus = scheduler->recordDispatch(
+            schedulerEvent("compression_dispatch", config, plan, 0, plan.totalBytes,
+                           "worthwhile", readyBytes, targetConnections, "candidate",
+                           "file executor will attempt bounded compression"));
+        if (!compressionStatus.isOk()) {
+            return compressionStatus;
+        }
+    }
+    bool first = true;
+    for (const auto& item : plan.workItems) {
+        const std::string message = first ? "file_executor_dispatch" : "delegated_accounting";
+        const common::Status status = scheduler->recordDispatch(
+            schedulerEvent("workitem_dispatch", config, plan, item.offset, item.length,
+                           item.dispatchable ? "dispatchable" : "delegated_accounting",
+                           readyBytes, targetConnections, "scheduled", message));
+        if (!status.isOk()) {
+            return status;
+        }
+        first = false;
+    }
+    if (plan.retryCount > 0) {
+        return scheduler->recordRetry(
+            schedulerEvent("workitem_retry", config, plan, 0, plan.totalBytes, "resume_retry",
+                           readyBytes, targetConnections, "scheduled", "resume_or_failed_file"));
+    }
+    return common::Status::ok();
+}
+
+common::Result<GlobalDispatch> nextGlobalDispatch(SchedulerState* state,
+                                                  GlobalSchedulerRuntime* runtime,
+                                                  core::scheduler::GlobalScheduler* scheduler) {
+    std::lock_guard<std::mutex> lock(state->mutex);
+    GlobalDispatch dispatch;
+    if (state->stop) {
+        return common::Status::runtimeError("tree scheduler stopped");
+    }
+    if (runtime->nextPlan >= runtime->plans.size()) {
+        return dispatch;
+    }
+
+    core::scheduler::LinkManager& manager = scheduler->linkManager();
+    const std::string& linkId = scheduler->config().linkId;
+    const common::Status readyStatus = manager.setReadyBytes(linkId, runtime->readyBytes);
+    if (!readyStatus.isOk()) {
+        return readyStatus;
+    }
+    core::scheduler::LinkState* link = manager.link(linkId);
+    if (link == nullptr) {
+        return common::Status::runtimeError("scheduler link state missing");
+    }
+    const bool paused = manager.shouldPause(*link);
+    const common::Status pauseStatus = manager.setPaused(linkId, paused);
+    if (!pauseStatus.isOk()) {
+        return pauseStatus;
+    }
+    link = manager.link(linkId);
+    core::scheduler::FeedbackDecision decision =
+        scheduler->feedbackController().evaluate(*link, link->cpuPressure,
+                                                 link->writePressure, link->sendPressure,
+                                                 link->retryCount);
+    const std::uint64_t previousLowHits = link->lowWatermarkHits;
+    const std::uint64_t previousHighHits = link->highWatermarkHits;
+    const common::Status watermarkStatus =
+        manager.recordWatermarkHit(linkId, decision.queueLow, decision.queueHigh);
+    if (!watermarkStatus.isOk()) {
+        return watermarkStatus;
+    }
+    const common::Status rampStatus =
+        manager.recordRamp(linkId, decision.rampUp, decision.rampDown);
+    if (!rampStatus.isOk()) {
+        return rampStatus;
+    }
+    const common::Status targetStatus =
+        manager.setTargetConnections(linkId, decision.targetConnections);
+    if (!targetStatus.isOk()) {
+        return targetStatus;
+    }
+
+    link = manager.link(linkId);
+    const core::scheduler::FilePlan& plan = runtime->plans[runtime->nextPlan];
+    if (decision.queueLow && previousLowHits == 0) {
+        const common::Status eventStatus = scheduler->recordLinkEvent(
+            schedulerEvent("queue_low", scheduler->config(), plan, 0, 0, decision.reason,
+                           runtime->readyBytes, decision.targetConnections, "observed",
+                           "ready queue below low watermark"));
+        if (!eventStatus.isOk()) {
+            return eventStatus;
+        }
+    }
+    if (decision.queueHigh && previousHighHits == 0) {
+        const common::Status eventStatus = scheduler->recordLinkEvent(
+            schedulerEvent("queue_high", scheduler->config(), plan, 0, 0, decision.reason,
+                           runtime->readyBytes, decision.targetConnections, "observed",
+                           "ready queue above high watermark"));
+        if (!eventStatus.isOk()) {
+            return eventStatus;
+        }
+    }
+    if (decision.rampUp || decision.rampDown) {
+        const common::Status eventStatus = scheduler->recordLinkEvent(
+            schedulerEvent(decision.rampUp ? "ramp_up" : "ramp_down", scheduler->config(),
+                           plan, 0, 0, decision.reason, runtime->readyBytes,
+                           decision.targetConnections, "applied",
+                           decision.rampUp ? "target connections increased"
+                                           : "target connections decreased"));
+        if (!eventStatus.isOk()) {
+            return eventStatus;
+        }
+    }
+
+    if (decision.paused && link->inflightBytes > 0) {
+        dispatch.waitForCapacity = true;
+        return dispatch;
+    }
+
+    dispatch.hasPlan = true;
+    dispatch.plan = plan;
+    dispatch.targetConnections = link == nullptr ? decision.targetConnections
+                                                 : link->targetConnections;
+    const std::uint64_t planBytes = workItemBytes(dispatch.plan);
+    runtime->readyBytes = planBytes >= runtime->readyBytes ? 0 : runtime->readyBytes - planBytes;
+    const common::Status inflightStatus = manager.addInflightBytes(linkId, planBytes);
+    if (!inflightStatus.isOk()) {
+        return inflightStatus;
+    }
+    const common::Status retryStatus =
+        dispatch.plan.retryCount > 0 ? manager.addRetryCount(linkId, dispatch.plan.retryCount)
+                                     : common::Status::ok();
+    if (!retryStatus.isOk()) {
+        return retryStatus;
+    }
+    const common::Status dispatchStatus =
+        recordPlanDispatch(scheduler, dispatch.plan, runtime->readyBytes,
+                           dispatch.targetConnections);
+    if (!dispatchStatus.isOk()) {
+        return dispatchStatus;
+    }
+    ++runtime->nextPlan;
+    return dispatch;
+}
+
+common::Status completeGlobalDispatch(SchedulerState* state, GlobalSchedulerRuntime* runtime,
+                                      core::scheduler::GlobalScheduler* scheduler,
+                                      const core::scheduler::FilePlan& plan,
+                                      std::uint32_t targetConnections,
+                                      const core::io::TransferRuntimeMetrics* transferMetrics,
+                                      bool forcedRawRetry,
+                                      const common::Status& fileStatus) {
+    std::lock_guard<std::mutex> lock(state->mutex);
+    addTransferMetrics(&state->stats, transferMetrics);
+    const std::string& linkId = scheduler->config().linkId;
+    core::scheduler::LinkManager& manager = scheduler->linkManager();
+    const std::uint64_t bytes = workItemBytes(plan);
+    const common::Status inflightStatus = manager.releaseInflightBytes(linkId, bytes);
+    if (!inflightStatus.isOk()) {
+        return inflightStatus;
+    }
+    auto* link = manager.link(linkId);
+    if (link == nullptr) {
+        return common::Status::runtimeError("scheduler link state missing");
+    }
+    const bool isUpload =
+        !plan.workItems.empty() &&
+        plan.workItems.front().direction == core::scheduler::SchedulerDirection::Upload;
+    double cpuPressure = transferMetrics == nullptr ? 0.0 : transferMetrics->cpuPercent;
+    double writePressure = transferMetrics == nullptr
+                                ? 0.0
+                                : phasePressure(transferMetrics->writeSeconds,
+                                                transferMetrics->elapsedSeconds);
+    double sendPressure = transferMetrics == nullptr
+                               ? 0.0
+                               : phasePressure(transferMetrics->sendSeconds,
+                                               transferMetrics->elapsedSeconds);
+    if (fileStatus.isOk() && isUpload) {
+        writePressure = 0.0;
+    }
+    if (fileStatus.isOk() && !isUpload) {
+        sendPressure = 0.0;
+    }
+    if (!fileStatus.isOk()) {
+        cpuPressure = 0.0;
+        writePressure = isUpload ? 0.0 : 1.0;
+        sendPressure = isUpload ? 1.0 : 0.0;
+    }
+    const common::Status pressureStatus =
+        manager.updatePressure(linkId, cpuPressure, writePressure, sendPressure);
+    if (!pressureStatus.isOk()) {
+        return pressureStatus;
+    }
+    const common::Status readyStatus = manager.setReadyBytes(linkId, runtime->readyBytes);
+    if (!readyStatus.isOk()) {
+        return readyStatus;
+    }
+    link = manager.link(linkId);
+    if (link == nullptr) {
+        return common::Status::runtimeError("scheduler link state missing");
+    }
+    const std::uint64_t previousLowHits = link->lowWatermarkHits;
+    const std::uint64_t previousHighHits = link->highWatermarkHits;
+    const bool paused = manager.shouldPause(*link);
+    const common::Status pauseStatus = manager.setPaused(linkId, paused);
+    if (!pauseStatus.isOk()) {
+        return pauseStatus;
+    }
+    link = manager.link(linkId);
+    core::scheduler::FeedbackDecision decision =
+        scheduler->feedbackController().evaluate(*link, link->cpuPressure,
+                                                 link->writePressure, link->sendPressure,
+                                                 link->retryCount);
+    const common::Status watermarkStatus =
+        manager.recordWatermarkHit(linkId, decision.queueLow, decision.queueHigh);
+    if (!watermarkStatus.isOk()) {
+        return watermarkStatus;
+    }
+    const common::Status rampStatus =
+        manager.recordRamp(linkId, decision.rampUp, decision.rampDown);
+    if (!rampStatus.isOk()) {
+        return rampStatus;
+    }
+    const common::Status targetStatus =
+        manager.setTargetConnections(linkId, decision.targetConnections);
+    if (!targetStatus.isOk()) {
+        return targetStatus;
+    }
+    if (decision.queueLow && previousLowHits == 0) {
+        const common::Status eventStatus = scheduler->recordLinkEvent(
+            schedulerEvent("queue_low", scheduler->config(), plan, 0, 0, decision.reason,
+                           runtime->readyBytes, decision.targetConnections, "observed",
+                           "ready queue below low watermark"));
+        if (!eventStatus.isOk()) {
+            return eventStatus;
+        }
+    }
+    if (decision.queueHigh && previousHighHits == 0) {
+        const common::Status eventStatus = scheduler->recordLinkEvent(
+            schedulerEvent("queue_high", scheduler->config(), plan, 0, 0, decision.reason,
+                           runtime->readyBytes, decision.targetConnections, "observed",
+                           "ready queue above high watermark"));
+        if (!eventStatus.isOk()) {
+            return eventStatus;
+        }
+    }
+    if (decision.rampUp || decision.rampDown) {
+        const common::Status eventStatus = scheduler->recordLinkEvent(
+            schedulerEvent(decision.rampUp ? "ramp_up" : "ramp_down", scheduler->config(),
+                           plan, 0, 0, decision.reason, runtime->readyBytes,
+                           decision.targetConnections, "applied",
+                           decision.rampUp ? "target connections increased"
+                                           : "target connections decreased"));
+        if (!eventStatus.isOk()) {
+            return eventStatus;
+        }
+    }
+
+    if (transferMetrics != nullptr) {
+        if (transferMetrics->rawFallbackFrames > 0) {
+            const common::Status eventStatus = scheduler->recordLinkEvent(
+                schedulerEvent("compression_fallback_raw", scheduler->config(), plan, 0,
+                               plan.totalBytes,
+                               transferMetrics->compressionFallbackReason.empty()
+                                   ? "compression_not_beneficial_or_failed"
+                                   : transferMetrics->compressionFallbackReason,
+                               runtime->readyBytes, targetConnections, "raw",
+                               "DATA frames used raw fallback"));
+            if (!eventStatus.isOk()) {
+                return eventStatus;
+            }
+        }
+        if (transferMetrics->compressionFailures > 0) {
+            const common::Status eventStatus = scheduler->recordLinkEvent(
+                schedulerEvent("compression_failed", scheduler->config(), plan, 0,
+                               plan.totalBytes, "compression_failure", runtime->readyBytes,
+                               targetConnections, "raw_fallback", "compression probe failed"));
+            if (!eventStatus.isOk()) {
+                return eventStatus;
+            }
+        }
+        if (transferMetrics->decompressionFailures > 0) {
+            const common::Status eventStatus = scheduler->recordLinkEvent(
+                schedulerEvent("decompression_failed", scheduler->config(), plan, 0,
+                               plan.totalBytes, "compressed_payload_invalid",
+                               runtime->readyBytes, targetConnections, "fail",
+                               "compressed DATA could not be decoded"));
+            if (!eventStatus.isOk()) {
+                return eventStatus;
+            }
+        }
+    }
+    if (forcedRawRetry) {
+        runtime->retriedWorkItems += plan.workItems.size();
+        const common::Status retryStatus = scheduler->recordRetry(
+            schedulerEvent("workitem_retry", scheduler->config(), plan, 0, plan.totalBytes,
+                           "compression_failure_raw_retry", runtime->readyBytes,
+                           targetConnections, "raw", "resume retry forced raw"));
+        if (!retryStatus.isOk()) {
+            return retryStatus;
+        }
+    }
+    if (!fileStatus.isOk() &&
+        fileStatus.message().find("checksum mismatch") != std::string::npos &&
+        plan.compression.disposition ==
+            core::scheduler::CompressionDisposition::CompressionCandidate) {
+        const common::Status eventStatus = scheduler->recordLinkEvent(
+            schedulerEvent("compressed_checksum_mismatch", scheduler->config(), plan, 0,
+                           plan.totalBytes, "logical_checksum_mismatch", runtime->readyBytes,
+                           targetConnections, "fail", fileStatus.message()));
+        if (!eventStatus.isOk()) {
+            return eventStatus;
+        }
+    }
+
+    std::ostringstream pressureMessage;
+    pressureMessage << (fileStatus.isOk() ? "file executor completed" : fileStatus.message())
+                    << " cpu_pressure=" << cpuPressure
+                    << " write_pressure=" << writePressure
+                    << " send_pressure=" << sendPressure;
+    if (fileStatus.isOk()) {
+        return scheduler->recordExecutorComplete(schedulerEvent(
+            "executor_complete", scheduler->config(), plan, 0, plan.totalBytes, "file_complete",
+            runtime->readyBytes, targetConnections, "pass", pressureMessage.str()));
+    }
+    const common::Status failedStatus = scheduler->recordFailed(
+        schedulerEvent("executor_failed", scheduler->config(), plan, 0, plan.totalBytes,
+                       "executor_error", runtime->readyBytes, targetConnections, "fail",
+                       pressureMessage.str()));
+    if (!failedStatus.isOk()) {
+        return failedStatus;
+    }
+    setFirstErrorLocked(state, fileStatus);
+    return common::Status::ok();
+}
+
+common::Status writeGlobalSchedulerSummary(core::scheduler::GlobalScheduler* scheduler,
+                                           const core::tree::TreeManifest& manifest,
+                                           const TreeRunStats& stats,
+                                           const GlobalSchedulerRuntime& runtime,
+                                           const common::Status& runStatus,
+                                           std::chrono::steady_clock::time_point startedAt) {
+    const std::uint64_t logicalBytes = totalBytes(manifest);
+    const auto elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - startedAt).count();
+    core::scheduler::SchedulerSummaryRecord summary;
+    summary.taskId = scheduler->taskId();
+    summary.totalBytes = logicalBytes;
+    summary.logicalBytes = logicalBytes;
+    summary.wireBytes = stats.wireBytes.load();
+    summary.elapsedSeconds = elapsed;
+    summary.goodputGbps =
+        elapsed > 0.0 ? static_cast<double>(logicalBytes) * 8.0 / elapsed / 1'000'000'000.0 : 0.0;
+    summary.wireGbps = elapsed > 0.0
+                           ? static_cast<double>(summary.wireBytes) * 8.0 / elapsed /
+                                 1'000'000'000.0
+                           : 0.0;
+    summary.compressionAttempts = stats.compressionAttempts.load();
+    summary.compressedWorkItems = stats.compressedFrames.load();
+    summary.rawFallbackWorkItems = stats.rawFallbackFrames.load();
+    summary.compressionFailures = stats.compressionFailures.load();
+    summary.decompressionFailures = stats.decompressionFailures.load();
+    summary.rawWorkItems = runtime.rawWorkItems;
+    summary.retriedWorkItems = runtime.retriedWorkItems;
+    summary.compressionRatioEffective =
+        stats.compressedLogicalBytes.load() == 0
+            ? 1.0
+            : static_cast<double>(stats.compressedWireBytes.load()) /
+                  static_cast<double>(stats.compressedLogicalBytes.load());
+    summary.result = runStatus.isOk() ? "pass" : "fail";
+
+    const auto* link = scheduler->linkManager().link(scheduler->config().linkId);
+    if (link != nullptr) {
+        summary.policy = core::scheduler::schedulerPolicyName(scheduler->config().policy);
+        summary.initialConnections = scheduler->config().initialConnections;
+        summary.currentConnections = link->currentConnections;
+        summary.targetConnections = link->targetConnections;
+        summary.maxConnections = scheduler->config().maxConnections;
+        summary.rampUpCount = link->rampUpCount;
+        summary.rampDownCount = link->rampDownCount;
+        summary.queueLowCount = link->lowWatermarkHits;
+        summary.queueHighCount = link->highWatermarkHits;
+        summary.sendPressureCount = link->sendPressureHighCount;
+        summary.writePressureCount = link->writePressureHighCount;
+        summary.cpuPressureCount = link->cpuPressureHighCount;
+        summary.retryCount = link->retryCount;
+        summary.maxSendPressure = link->maxSendPressure;
+        summary.maxWritePressure = link->maxWritePressure;
+        summary.maxCpuPressure = link->maxCpuPressure;
+        summary.dominantBottleneck = scheduler->dominantBottleneck(summary, *link);
+    }
+    return scheduler->writeSummary(summary);
+}
+
+common::Status runGlobalTreeScheduler(core::tree::TreeManifest* manifest,
+                                      const std::string& manifestPath,
+                                      const config::TreeTransferOptions& options,
+                                      common::Status (*processFile)(
+                                          SchedulerState*, std::size_t,
+                                          const config::TreeTransferOptions&,
+                                          TreeWorkerRuntime*),
+                                      TreeRunStats* stats, const char* direction,
+                                      std::chrono::steady_clock::time_point startedAt) {
+    SchedulerState state;
+    state.manifest = manifest;
+    state.manifestPath = manifestPath;
+    const std::uint64_t completedBase =
+        stats != nullptr ? stats->completedThisRun.load() : 0;
+    const std::uint64_t skippedBase = stats != nullptr ? stats->skippedFiles.load() : 0;
+    const std::uint64_t transferredBase =
+        stats != nullptr ? stats->transferredBytes.load() : 0;
+    const std::uint64_t controlConnectBase =
+        stats != nullptr ? stats->controlConnectCount.load() : 0;
+    const std::uint64_t controlReconnectBase =
+        stats != nullptr ? stats->controlReconnectCount.load() : 0;
+    const std::uint64_t dataTransferBase =
+        stats != nullptr ? stats->dataTransferCount.load() : 0;
+    const std::uint64_t wireBase = stats != nullptr ? stats->wireBytes.load() : 0;
+    const std::uint64_t compressionAttemptsBase =
+        stats != nullptr ? stats->compressionAttempts.load() : 0;
+    const std::uint64_t compressedFramesBase =
+        stats != nullptr ? stats->compressedFrames.load() : 0;
+    const std::uint64_t rawFallbackFramesBase =
+        stats != nullptr ? stats->rawFallbackFrames.load() : 0;
+    const std::uint64_t compressionFailuresBase =
+        stats != nullptr ? stats->compressionFailures.load() : 0;
+    const std::uint64_t decompressionFailuresBase =
+        stats != nullptr ? stats->decompressionFailures.load() : 0;
+    const std::uint64_t compressedLogicalBytesBase =
+        stats != nullptr ? stats->compressedLogicalBytes.load() : 0;
+    const std::uint64_t compressedWireBytesBase =
+        stats != nullptr ? stats->compressedWireBytes.load() : 0;
+    const auto copyStats = [&]() {
+        if (stats != nullptr) {
+            stats->completedThisRun.store(completedBase + state.stats.completedThisRun.load());
+            stats->skippedFiles.store(skippedBase + state.stats.skippedFiles.load());
+            stats->transferredBytes.store(transferredBase + state.stats.transferredBytes.load());
+            stats->controlConnectCount.store(controlConnectBase +
+                                             state.stats.controlConnectCount.load());
+            stats->controlReconnectCount.store(controlReconnectBase +
+                                               state.stats.controlReconnectCount.load());
+            stats->dataTransferCount.store(dataTransferBase + state.stats.dataTransferCount.load());
+            stats->wireBytes.store(wireBase + state.stats.wireBytes.load());
+            stats->compressionAttempts.store(compressionAttemptsBase +
+                                              state.stats.compressionAttempts.load());
+            stats->compressedFrames.store(compressedFramesBase +
+                                          state.stats.compressedFrames.load());
+            stats->rawFallbackFrames.store(rawFallbackFramesBase +
+                                           state.stats.rawFallbackFrames.load());
+            stats->compressionFailures.store(compressionFailuresBase +
+                                             state.stats.compressionFailures.load());
+            stats->decompressionFailures.store(decompressionFailuresBase +
+                                               state.stats.decompressionFailures.load());
+            stats->compressedLogicalBytes.store(
+                compressedLogicalBytesBase + state.stats.compressedLogicalBytes.load());
+            stats->compressedWireBytes.store(
+                compressedWireBytesBase + state.stats.compressedWireBytes.load());
+        }
+    };
+
+    auto metricsPaths = schedulerMetricsPaths(options, manifestPath, direction);
+    if (!metricsPaths.isOk()) {
+        return metricsPaths.status();
+    }
+    core::scheduler::SchedulerConfig schedulerConfig;
+    schedulerConfig.taskId = std::string("tree-") + direction + "-" +
+                             std::to_string(manifest->updatedAtUnixNanos);
+    schedulerConfig.linkId = options.schedulerLinkId;
+    schedulerConfig.remoteHost = options.host;
+    schedulerConfig.capacityGbps = options.schedulerCapacityGbps;
+    schedulerConfig.policy = options.schedulerPolicy;
+    schedulerConfig.initialConnections =
+        options.schedulerPolicy == core::scheduler::SchedulerPolicy::Adaptive ? 1
+                                                                              : options.connections;
+    schedulerConfig.maxConnections = options.connections;
+    schedulerConfig.workItemMinBytes = options.schedulerWorkItemMinBytes;
+    schedulerConfig.workItemMaxBytes = options.schedulerWorkItemMaxBytes;
+    schedulerConfig.defaultRttMs = options.schedulerDefaultRttMs;
+    schedulerConfig.minCompressGbps = options.schedulerMinCompressGbps;
+    schedulerConfig.metricsPaths = metricsPaths.value();
+
+    auto schedulerResult = core::scheduler::GlobalScheduler::create(std::move(schedulerConfig));
+    if (!schedulerResult.isOk()) {
+        return schedulerResult.status();
+    }
+    core::scheduler::GlobalScheduler scheduler = std::move(schedulerResult.value());
+    auto plansResult = scheduler.planManifest(
+        *manifest,
+        std::string(direction) == "upload" ? std::filesystem::path(options.sourceDir)
+                                           : std::filesystem::path(options.destDir),
+        std::string(direction) == "upload" ? core::scheduler::SchedulerDirection::Upload
+                                           : core::scheduler::SchedulerDirection::Download,
+        std::string(direction) == "upload");
+    if (!plansResult.isOk()) {
+        return plansResult.status();
+    }
+
+    for (std::size_t index = 0; index < manifest->files.size(); ++index) {
+        if (manifest->files[index].status != core::tree::TreeFileStatus::Completed) {
+            continue;
+        }
+        TreeWorkerRuntime runtime;
+        const common::Status status = processFile(&state, index, options, &runtime);
+        if (!status.isOk()) {
+            copyStats();
+            const common::Status summaryStatus =
+                writeGlobalSchedulerSummary(&scheduler, *manifest, state.stats,
+                                            GlobalSchedulerRuntime{}, status, startedAt);
+            return summaryStatus.isOk() ? status : summaryStatus;
+        }
+    }
+
+    GlobalSchedulerRuntime runtime;
+    runtime.plans = std::move(plansResult.value());
+    tallyGlobalPlans(runtime.plans, &runtime);
+    const std::uint32_t workerCount =
+        runtime.plans.empty()
+            ? 1
+            : std::max<std::uint32_t>(
+                  1, std::min<std::uint32_t>(
+                         options.fileParallelism,
+                         static_cast<std::uint32_t>(runtime.plans.size())));
+    std::vector<std::thread> workers;
+    workers.reserve(workerCount);
+    for (std::uint32_t worker = 0; worker < workerCount; ++worker) {
+        workers.emplace_back(
+            [&state, &runtime, &scheduler, &options, processFile, direction]() {
+            TreeWorkerRuntime workerRuntime;
+            while (true) {
+                auto dispatch = nextGlobalDispatch(&state, &runtime, &scheduler);
+                if (!dispatch.isOk()) {
+                    std::lock_guard<std::mutex> lock(state.mutex);
+                    setFirstErrorLocked(&state, dispatch.status());
+                    return;
+                }
+                if (dispatch.value().waitForCapacity) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    continue;
+                }
+                if (!dispatch.value().hasPlan) {
+                    return;
+                }
+                config::TreeTransferOptions dispatchOptions = options;
+                dispatchOptions.connections = dispatch.value().targetConnections;
+                workerRuntime.hotPathCompression = {};
+                if (std::string(direction) == "upload" &&
+                    dispatch.value().plan.compression.disposition ==
+                        core::scheduler::CompressionDisposition::CompressionCandidate) {
+                    workerRuntime.hotPathCompression.enabled = true;
+                    workerRuntime.hotPathCompression.candidate = true;
+                    workerRuntime.hotPathCompression.maxPayloadBytes =
+                        dispatchOptions.bufferSize;
+                }
+                const common::Status fileStatus =
+                    processFile(&state, dispatch.value().plan.manifestIndex, dispatchOptions,
+                                &workerRuntime);
+                const common::Status completeStatus =
+                    completeGlobalDispatch(&state, &runtime, &scheduler, dispatch.value().plan,
+                                           dispatch.value().targetConnections,
+                                           workerRuntime.hasTransferMetrics
+                                               ? &workerRuntime.transferMetrics
+                                               : nullptr,
+                                           workerRuntime.forcedRawRetry,
+                                           fileStatus);
+                if (!completeStatus.isOk()) {
+                    std::lock_guard<std::mutex> lock(state.mutex);
+                    setFirstErrorLocked(&state, completeStatus);
+                    return;
+                }
+                if (!fileStatus.isOk()) {
+                    return;
+                }
+            }
+            });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    common::Status status = common::Status::ok();
+    if (state.stoppedByMaxFiles) {
+        status = common::Status::runtimeError("tree transfer stopped after --max-files");
+    } else if (!state.firstError.isOk()) {
+        status = state.firstError;
+    }
+    copyStats();
+    const common::Status summaryStatus =
+        writeGlobalSchedulerSummary(&scheduler, *manifest, state.stats, runtime, status,
+                                    startedAt);
+    if (!summaryStatus.isOk()) {
+        return summaryStatus;
+    }
+    return status;
 }
 
 common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::string& manifestPath,
@@ -1509,8 +2317,6 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
         stats != nullptr ? stats->controlReconnectCount.load() : 0;
     const std::uint64_t dataTransferBase =
         stats != nullptr ? stats->dataTransferCount.load() : 0;
-    const std::uint64_t recoveredAfterDataFinalStatusTimeoutBase =
-        stats != nullptr ? stats->recoveredAfterDataFinalStatusTimeout.load() : 0;
     const auto copyStats = [&]() {
         if (stats != nullptr) {
             stats->completedThisRun.store(completedBase + state.stats.completedThisRun.load());
@@ -1521,9 +2327,6 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
             stats->controlReconnectCount.store(controlReconnectBase +
                                                state.stats.controlReconnectCount.load());
             stats->dataTransferCount.store(dataTransferBase + state.stats.dataTransferCount.load());
-            stats->recoveredAfterDataFinalStatusTimeout.store(
-                recoveredAfterDataFinalStatusTimeoutBase +
-                state.stats.recoveredAfterDataFinalStatusTimeout.load());
         }
     };
     const std::uint32_t workerCount =
@@ -1617,7 +2420,10 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
 
     TreeRunStats stats;
     const common::Status status =
-        runTreeScheduler(&manifest, manifestPath, options, processUploadFile, &stats);
+        options.schedulerMode == config::TreeSchedulerMode::Global
+            ? runGlobalTreeScheduler(&manifest, manifestPath, options, processUploadFile,
+                                     &stats, "upload", startedAt)
+            : runTreeScheduler(&manifest, manifestPath, options, processUploadFile, &stats);
     return emitTreeSummary("tree_upload_complete", "upload", status, options, manifest, stats,
                            startedAt);
 }
@@ -1698,9 +2504,12 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
     }
 
     const common::Status status =
-        runTreeScheduler(&manifest, manifestPath, options, processDownloadFile, &stats);
+        options.schedulerMode == config::TreeSchedulerMode::Global
+            ? runGlobalTreeScheduler(&manifest, manifestPath, options, processDownloadFile,
+                                     &stats, "download", startedAt)
+            : runTreeScheduler(&manifest, manifestPath, options, processDownloadFile, &stats);
     return emitTreeSummary("tree_download_complete", "download", status, options, manifest, stats,
                            startedAt);
 }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

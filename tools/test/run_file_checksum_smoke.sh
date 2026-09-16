@@ -23,8 +23,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-server_bin="${build_dir%/}/gridflux-file-server"
-client_bin="${build_dir%/}/gridflux-file-client"
+server_bin="${build_dir%/}/cpnetflux-file-server"
+client_bin="${build_dir%/}/cpnetflux-file-client"
 
 for bin in "$server_bin" "$client_bin"; do
     if [[ ! -x "$bin" ]]; then
@@ -33,7 +33,7 @@ for bin in "$server_bin" "$client_bin"; do
     fi
 done
 
-tmp_dir="$(mktemp -d /tmp/gridflux-file-checksum.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/cpnetflux-file-checksum.XXXXXX)"
 server_pid=""
 
 cleanup() {
@@ -150,7 +150,7 @@ run_success_case() {
     local src="${tmp_dir}/${name}.src"
     local dst="${tmp_dir}/${name}.dst"
     make_file "$src" "$bytes"
-    rm -f "$dst" "$dst.gridflux.manifest" "$dst".part.*
+    rm -f "$dst" "$dst.cpnetflux.manifest" "$dst".part.*
 
     start_server "$dst" "$port" "$connections" 65536 "$checksum" false \
         "${tmp_dir}/${name}.server.log"
@@ -167,7 +167,7 @@ run_partial_resume_case() {
     local transfer_id="phase2b-resume"
     local port="$1"
     make_file "$src" 67108864
-    rm -f "$dst" "$dst.gridflux.manifest" "$dst.part.$transfer_id"
+    rm -f "$dst" "$dst.cpnetflux.manifest" "$dst.part.$transfer_id"
 
     start_server "$dst" "$port" 4 65536 crc32c false "${tmp_dir}/resume-partial.server.log"
     set +e
@@ -179,7 +179,7 @@ run_partial_resume_case() {
     set -e
     server_pid=""
     expect_failed_transfer "$client_status" "$server_status" "$dst" "partial resume setup"
-    test -f "$dst.gridflux.manifest"
+    test -f "$dst.cpnetflux.manifest"
     test -f "$dst.part.$transfer_id"
 
     start_server "$dst" "$port" 4 65536 crc32c true "${tmp_dir}/resume.server.log"
@@ -196,7 +196,7 @@ run_temp_corruption_case() {
     local transfer_id="phase2b-temp-corrupt"
     local port="$1"
     make_file "$src" 8388608
-    rm -f "$dst" "$dst.gridflux.manifest" "$dst.part.$transfer_id"
+    rm -f "$dst" "$dst.cpnetflux.manifest" "$dst.part.$transfer_id"
 
     start_server "$dst" "$port" 1 65536 crc32c false "${tmp_dir}/temp-partial.server.log"
     set +e
@@ -222,7 +222,7 @@ run_manifest_corruption_case() {
     local transfer_id="phase2b-manifest-corrupt"
     local port="$1"
     make_file "$src" 4194304
-    rm -f "$dst" "$dst.gridflux.manifest" "$dst.part.$transfer_id"
+    rm -f "$dst" "$dst.cpnetflux.manifest" "$dst.part.$transfer_id"
 
     start_server "$dst" "$port" 1 65536 crc32c false "${tmp_dir}/manifest-partial.server.log"
     set +e
@@ -231,7 +231,7 @@ run_manifest_corruption_case() {
     wait "$server_pid"
     set -e
     server_pid=""
-    python3 - "$dst.gridflux.manifest" <<'PY'
+    python3 - "$dst.cpnetflux.manifest" <<'PY'
 import sys
 from pathlib import Path
 
@@ -259,7 +259,7 @@ run_client_corruption_case() {
     local src="${tmp_dir}/${name}.src"
     local dst="${tmp_dir}/${name}.dst"
     make_file "$src" 4194304
-    rm -f "$dst" "$dst.gridflux.manifest" "$dst".part.*
+    rm -f "$dst" "$dst.cpnetflux.manifest" "$dst".part.*
 
     start_server "$dst" "$port" 1 65536 crc32c false "${tmp_dir}/${name}.server.log"
     set +e
@@ -280,4 +280,4 @@ run_manifest_corruption_case "$((port_base + 4))"
 run_client_corruption_case "corrupt-chunk" "--corrupt-chunk" "$((port_base + 5))"
 run_client_corruption_case "duplicate-corrupt-chunk" "--duplicate-corrupt-chunk" "$((port_base + 6))"
 
-echo "gridflux file checksum smoke passed"
+echo "cpnetflux file checksum smoke passed"

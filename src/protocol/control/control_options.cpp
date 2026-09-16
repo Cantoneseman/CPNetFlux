@@ -1,4 +1,4 @@
-#include "gridflux/protocol/control/control_options.h"
+#include "cpnetflux/protocol/control/control_options.h"
 
 #include <charconv>
 #include <ctime>
@@ -8,9 +8,9 @@
 #include <sstream>
 #include <string_view>
 
-#include "gridflux/core/metrics/event_log.h"
+#include "cpnetflux/core/metrics/event_log.h"
 
-namespace gridflux::protocol::control {
+namespace cpnetflux::protocol::control {
 namespace {
 
 constexpr std::uint32_t kMaxConnections = 64;
@@ -138,9 +138,9 @@ common::Result<ControlServerOptions> parseControlServerOptions(int argc, const c
             if (!parsed.isOk()) {
                 return parsed.status();
             }
-            if (parsed.value() == 0 || parsed.value() > std::numeric_limits<std::uint16_t>::max()) {
-                return common::Status::invalidArgument(
-                    "--data-port-base must be in range 1..65535");
+            if (parsed.value() == 0 || parsed.value() > kMaxPassiveDataPortBase) {
+                return common::Status::invalidArgument("--data-port-base must be in range 1.." +
+                                                       std::to_string(kMaxPassiveDataPortBase));
             }
             options.dataPortBase = static_cast<std::uint16_t>(parsed.value());
         } else if (option == "--connections") {
@@ -548,4 +548,4 @@ std::string formatList(const std::vector<ControlListEntry>& entries) {
     return output.str();
 }
 
-}  // namespace gridflux::protocol::control
+}  // namespace cpnetflux::protocol::control

@@ -1,4 +1,4 @@
-#include "gridflux/core/protocol/frame.h"
+#include "cpnetflux/core/protocol/frame.h"
 
 #include <algorithm>
 #include <array>
@@ -7,7 +7,9 @@
 #include <string>
 #include <vector>
 
-namespace gridflux::core::protocol {
+#include "cpnetflux/core/protocol/compressed_data.h"
+
+namespace cpnetflux::core::protocol {
 namespace {
 
 constexpr std::size_t kMagicOffset = 0;
@@ -187,13 +189,13 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
     if (header.headerSize != kFrameHeaderSize) {
         return common::Status::invalidArgument("invalid frame header size");
     }
-    if (header.flags != 0) {
-        return common::Status::invalidArgument("frame flags must be zero");
-    }
     if (header.payloadSize > maxPayloadSize) {
         return common::Status::invalidArgument("frame payload exceeds buffer size");
     }
     if (header.type == FrameType::Complete) {
+        if (header.flags != 0) {
+            return common::Status::invalidArgument("COMPLETE frame flags must be zero");
+        }
         if (header.payloadSize != 0) {
             return common::Status::invalidArgument("COMPLETE frame must not carry payload");
         }
@@ -203,6 +205,9 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
         return common::Status::ok();
     }
     if (header.type == FrameType::Error) {
+        if (header.flags != 0) {
+            return common::Status::invalidArgument("ERROR frame flags must be zero");
+        }
         if (header.payloadSize != 0) {
             return common::Status::invalidArgument("ERROR frame must not carry payload");
         }
@@ -213,6 +218,9 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
     }
     if (header.type == FrameType::SessionInit || header.type == FrameType::ResumeResponse ||
         header.type == FrameType::ChunkComplete) {
+        if (header.flags != 0) {
+            return common::Status::invalidArgument("control frame flags must be zero");
+        }
         if (header.payloadSize == 0) {
             return common::Status::invalidArgument("control frame must carry payload");
         }
@@ -225,6 +233,9 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
         return common::Status::invalidArgument("DATA/FIN frame status must be OK");
     }
     if (header.type == FrameType::Fin) {
+        if (header.flags != 0) {
+            return common::Status::invalidArgument("FIN frame flags must be zero");
+        }
         if (header.payloadSize != 0) {
             return common::Status::invalidArgument("FIN frame must not carry payload");
         }
@@ -233,14 +244,65 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
     if (header.type != FrameType::Data) {
         return common::Status::invalidArgument("invalid frame type");
     }
+    if ((header.flags & ~kDataCompressed) != 0) {
+        return common::Status::invalidArgument("DATA frame has unknown flags");
+    }
     if (header.payloadSize == 0) {
         return common::Status::invalidArgument("DATA frame payload must be greater than zero");
+    }
+    if ((header.flags & kDataCompressed) != 0) {
+        if (header.payloadSize <= kCompressedDataPrefixSize) {
+            return common::Status::invalidArgument("compressed DATA payload is too small");
+        }
+        if (header.offset >= header.totalSize) {
+            return common::Status::invalidArgument("compressed DATA offset exceeds total size");
+        }
+        return common::Status::ok();
     }
     if (header.offset > header.totalSize ||
         static_cast<std::uint64_t>(header.payloadSize) > header.totalSize - header.offset) {
         return common::Status::invalidArgument("frame payload range exceeds total size");
     }
 
+    return common::Status::ok();
+}
+
+common::Status validateDataFramePayload(const FrameHeader& header, const std::uint8_t* payload,
+                                        std::size_t payloadSize,
+                                        std::uint32_t maxLogicalSize) {
+    if (header.type != FrameType::Data) {
+        return common::Status::invalidArgument("payload validation requires DATA frame");
+    }
+    if (payloadSize != header.payloadSize) {
+        return common::Status::invalidArgument("DATA payload size mismatch");
+    }
+    if ((header.flags & ~kDataCompressed) != 0) {
+        return common::Status::invalidArgument("DATA frame has unknown flags");
+    }
+    if ((header.flags & kDataCompressed) == 0) {
+        if (header.payloadSize > maxLogicalSize) {
+            return common::Status::invalidArgument("DATA logical payload exceeds buffer size");
+        }
+        if (header.offset > header.totalSize ||
+            static_cast<std::uint64_t>(header.payloadSize) > header.totalSize - header.offset) {
+            return common::Status::invalidArgument("frame payload range exceeds total size");
+        }
+        return common::Status::ok();
+    }
+
+    auto logicalLength = compressedDataPayloadLogicalLength(payload, payloadSize);
+    if (!logicalLength.isOk()) {
+        return logicalLength.status();
+    }
+    if (logicalLength.value() == 0) {
+        return common::Status::invalidArgument("compressed DATA logical length must be positive");
+    }
+    if (logicalLength.value() > maxLogicalSize) {
+        return common::Status::invalidArgument("compressed DATA logical payload exceeds buffer size");
+    }
+    if (header.offset > header.totalSize || logicalLength.value() > header.totalSize - header.offset) {
+        return common::Status::invalidArgument("compressed DATA logical range exceeds total size");
+    }
     return common::Status::ok();
 }
 
@@ -421,4 +483,4 @@ common::Result<ChunkCompletePayload> decodeChunkCompletePayload(const std::uint8
     return payload;
 }
 
-}  // namespace gridflux::core::protocol
+}  // namespace cpnetflux::core::protocol

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run native GridFlux storage benchmarks locally and/or remotely."""
+"""Run native CPNetFlux storage benchmarks locally and/or remotely."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ def timestamp_utc() -> str:
 
 
 def ssh_prefix(remote: str) -> list[str]:
-    if os.environ.get("GRIDFLUX_SSH_PASSWORD"):
+    if os.environ.get("CPNETFLUX_SSH_PASSWORD"):
         return ["sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=no", remote]
     return ["ssh", "-o", "StrictHostKeyChecking=no", remote]
 
@@ -164,8 +164,8 @@ def run_local(command: list[str], *, timeout: int | None = None) -> subprocess.C
 
 def run_remote(remote: str, command: str, *, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    if env.get("GRIDFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
-        env["SSHPASS"] = env["GRIDFLUX_SSH_PASSWORD"]
+    if env.get("CPNETFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
+        env["SSHPASS"] = env["CPNETFLUX_SSH_PASSWORD"]
     return subprocess.run(
         ssh_prefix(remote) + [command],
         text=True,
@@ -478,11 +478,11 @@ def summarize_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux native storage benchmark.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux native storage benchmark.")
     parser.add_argument("--side", choices=["local", "remote", "both"], default="local")
     parser.add_argument("--remote", default="root@<redacted>")
     parser.add_argument("--build-dir", default="build")
-    parser.add_argument("--remote-build-dir", default="/root/projects/GridFlux/build")
+    parser.add_argument("--remote-build-dir", default="/root/projects/CPNetFlux/build")
     parser.add_argument("--output-dir", default="tools/perf/results")
     parser.add_argument("--path", default="")
     parser.add_argument("--remote-path", default="")
@@ -536,8 +536,8 @@ def main() -> int:
     summary_path = output_dir / f"{compact_timestamp()}_storage-bench-summary.csv"
 
     rows: list[dict[str, str]] = []
-    local_path = args.path or f"/tmp/gridflux-storage-bench-local-{os.getpid()}.bin"
-    remote_path = args.remote_path or f"/tmp/gridflux-storage-bench-remote-{os.getpid()}.bin"
+    local_path = args.path or f"/tmp/cpnetflux-storage-bench-local-{os.getpid()}.bin"
+    remote_path = args.remote_path or f"/tmp/cpnetflux-storage-bench-remote-{os.getpid()}.bin"
     run_local_side = args.side in ("local", "both")
     run_remote_side = args.side in ("remote", "both")
     local_fs = ""
@@ -551,9 +551,9 @@ def main() -> int:
 
     sides: list[tuple[str, str | None, str, str, str, str]] = []
     if run_local_side:
-        sides.append(("local", None, str(Path(args.build_dir) / "gridflux-storage-bench"), local_path, local_fs, local_free))
+        sides.append(("local", None, str(Path(args.build_dir) / "cpnetflux-storage-bench"), local_path, local_fs, local_free))
     if run_remote_side:
-        sides.append(("remote", args.remote, f"{args.remote_build_dir.rstrip('/')}/gridflux-storage-bench", remote_path, remote_fs, remote_free))
+        sides.append(("remote", args.remote, f"{args.remote_build_dir.rstrip('/')}/cpnetflux-storage-bench", remote_path, remote_fs, remote_free))
 
     for side, remote, bench_bin, path, fs_type, free_bytes in sides:
         for bytes_count in byte_values:

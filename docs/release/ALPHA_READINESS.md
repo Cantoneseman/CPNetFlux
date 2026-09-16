@@ -1,11 +1,11 @@
-# GridFlux Alpha Readiness
+# CPNetFlux Alpha Readiness
 
 ## Alpha Scope
 
-GridFlux is alpha-ready for a GridFlux-aware demo of GridFTP-like framed file
+CPNetFlux is alpha-ready for a CPNetFlux-aware demo of GridFTP-like framed file
 transfer:
 
-- Framed STOR upload and RETR download through `gridflux-gridftp-server`.
+- Framed STOR upload and RETR download through `cpnetflux-gridftp-server`.
 - Bidirectional resume using `REST GFID:<transfer_id>` and manifest verified
   chunks.
 - CRC32C chunk checksum by default, with `--checksum none` only for comparison.
@@ -47,7 +47,7 @@ remains high across repeated 1GiB private runs.
 
 ## Not Beta Or Production Yet
 
-GridFlux is not beta or production ready because:
+CPNetFlux is not beta or production ready because:
 
 - 1GiB private matrix throughput still has significant repeat-to-repeat spread.
 - 100G dedicated-line validation is not complete.

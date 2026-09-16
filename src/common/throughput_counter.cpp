@@ -1,6 +1,6 @@
-#include "gridflux/common/throughput_counter.h"
+#include "cpnetflux/common/throughput_counter.h"
 
-namespace gridflux::common {
+namespace cpnetflux::common {
 
 void ThroughputCounter::start(TimePoint now) noexcept {
     start_ = now;
@@ -42,4 +42,4 @@ double ThroughputCounter::gigabitsPerSecond(TimePoint now) const noexcept {
     return bytesPerSecond(now) * 8.0 / 1'000'000'000.0;
 }
 
-}  // namespace gridflux::common
+}  // namespace cpnetflux::common

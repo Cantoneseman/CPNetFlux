@@ -1,9 +1,9 @@
-#include "gridflux/common/throughput_counter.h"
+#include "cpnetflux/common/throughput_counter.h"
 
 #include <gtest/gtest.h>
 
 TEST(ThroughputCounterTest, ComputesRatesWithProvidedClock) {
-    using Counter = gridflux::common::ThroughputCounter;
+    using Counter = cpnetflux::common::ThroughputCounter;
     const Counter::TimePoint start{};
     const Counter::TimePoint end = start + std::chrono::seconds(2);
 
@@ -19,7 +19,7 @@ TEST(ThroughputCounterTest, ComputesRatesWithProvidedClock) {
 }
 
 TEST(ThroughputCounterTest, HandlesZeroElapsedTime) {
-    using Counter = gridflux::common::ThroughputCounter;
+    using Counter = cpnetflux::common::ThroughputCounter;
     const Counter::TimePoint now{};
 
     Counter counter;

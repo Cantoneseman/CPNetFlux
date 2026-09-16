@@ -9,6 +9,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from gridftp_port_window import clamp_passive_data_port_base
+
 
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -67,26 +69,26 @@ def connect_control(port: int) -> tuple[socket.socket, bytearray, list[str]]:
 
 def run_smoke(args: argparse.Namespace) -> int:
     build_dir = Path(args.build_dir)
-    server_bin = build_dir / "gridflux-gridftp-server"
+    server_bin = build_dir / "cpnetflux-gridftp-server"
     if not server_bin.exists():
         raise FileNotFoundError(f"missing gridftp server in {build_dir}")
 
-    with tempfile.TemporaryDirectory(prefix="gridflux-gridftp-metadata.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-gridftp-metadata.") as temp_text:
         temp_dir = Path(temp_text)
         root = temp_dir / "root"
         (root / "subdir").mkdir(parents=True)
         source = root / "subdir" / "source.bin"
-        payload = b"gridflux metadata smoke\n"
+        payload = b"cpnetflux metadata smoke\n"
         source.write_bytes(payload)
         os.utime(source, (0, 0))
 
         control_port = free_port()
-        data_port_base = free_port()
+        data_port_base = clamp_passive_data_port_base(free_port())
         server_log = temp_dir / "gridftp-metadata.log"
         server_cmd = [
             str(server_bin),
             "--host",
-            "127.0.0.1",
+            "0.0.0.0",
             "--port",
             str(control_port),
             "--root",
@@ -102,8 +104,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             with sock:
                 assert reply_code(greeting) == 220, greeting
                 assert reply_code(send_command(sock, buffer, "SIZE subdir/source.bin")) == 530
-                assert reply_code(send_command(sock, buffer, "USER gridflux")) == 331
-                assert reply_code(send_command(sock, buffer, "PASS gridflux")) == 230
+                assert reply_code(send_command(sock, buffer, "USER cpnetflux")) == 331
+                assert reply_code(send_command(sock, buffer, "PASS cpnetflux")) == 230
 
                 feat = send_command(sock, buffer, "FEAT")
                 assert reply_code(feat) == 211, feat
@@ -158,7 +160,7 @@ def run_smoke(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux GridFTP metadata command smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux GridFTP metadata command smoke.")
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     return run_smoke(args)

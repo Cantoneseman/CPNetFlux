@@ -1,4 +1,4 @@
-#include "gridflux/core/io/tcp_sink_server.h"
+#include "cpnetflux/core/io/tcp_sink_server.h"
 
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -9,11 +9,11 @@
 #include <iostream>
 #include <vector>
 
-#include "gridflux/common/throughput_counter.h"
-#include "gridflux/core/io/connection_context.h"
-#include "gridflux/core/io/socket_utils.h"
+#include "cpnetflux/common/throughput_counter.h"
+#include "cpnetflux/core/io/connection_context.h"
+#include "cpnetflux/core/io/socket_utils.h"
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 namespace {
 
 struct ListenerToken {};
@@ -170,4 +170,4 @@ common::Status runTcpSinkServer(const config::SinkOptions& options) {
     return common::Status::ok();
 }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

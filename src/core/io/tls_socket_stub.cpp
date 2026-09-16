@@ -1,4 +1,4 @@
-#include "gridflux/core/io/tls_socket.h"
+#include "cpnetflux/core/io/tls_socket.h"
 
 #include <cerrno>
 #include <cstring>
@@ -6,7 +6,7 @@
 
 #include <sys/socket.h>
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 namespace {
 
 common::Status systemStatus(const char* operation, int errorNumber) {
@@ -198,4 +198,4 @@ common::Result<TlsConnection> TlsClientContext::connect(UniqueFd fd, const std::
     return TlsConnection::plain(std::move(fd));
 }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

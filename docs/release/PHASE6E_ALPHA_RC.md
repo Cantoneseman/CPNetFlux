@@ -6,11 +6,11 @@ package. It does not add new data-plane behavior and does not change defaults.
 ## RC Command
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_candidate.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_candidate.py \
   --build-dir build \
   --io-uring-build-dir build-io-uring-real \
   --remote <remote> \
-  --remote-root /root/projects/GridFlux \
+  --remote-root /root/projects/CPNetFlux \
   --server-host <server-host> \
   --results-dir tools/perf/results
 ```
@@ -51,7 +51,7 @@ so a successful final manifest is not made stale by a later report rewrite.
 
 The RC passes only when the nested full gate passes, long soak has
 `fail_count=0`, public hygiene passes, manifest freshness is `pass`, remote
-artifact sync/verify has `missing=0` and `mismatch=0`, and no GridFlux business
+artifact sync/verify has `missing=0` and `mismatch=0`, and no CPNetFlux business
 processes remain.
 
 ## Defaults

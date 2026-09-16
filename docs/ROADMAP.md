@@ -1,4 +1,4 @@
-# GridFlux 路线图
+# CPNetFlux 路线图
 
 ## 当前状态
 
@@ -8,11 +8,11 @@
 
 **已完成补充：** Phase 4A 私网 GridFTP-like framed STOR/RETR 性能矩阵脚本、环境指标采集、smoke 矩阵、代表性 1GiB 样本和初步瓶颈判断；Phase 4B 阶段级诊断指标、host/link baseline、download manifest 批量 flush、final verify opt-in policy 和瓶颈报告；Phase 4C 原生 storage benchmark、temp preallocation opt-in、私网矩阵 repeat/summary CSV 和 verified_chunks 可靠性护栏；Phase 4D 文件 IO backend 抽象前置、POSIX file IO advice/buffering 选项、IO call 指标和 storage bench summary；Phase 4E 重型 1GiB repeat=3 storage/private matrix、POSIX knob 默认策略判断和 io_uring Phase 4F 设计闸门；Phase 4F 可选 file-IO-only io_uring backend 原型、CMake/liburing 探测、无 liburing stub fallback、脚本 backend 扫描维度和默认 POSIX 回归验证；Phase 4G 在真实 liburing 环境下完成 POSIX/io_uring storage bench 与私网 STOR/RETR 对照，并新增公开发布脱敏/export 工具链；Phase 4H 完成 file-IO-only io_uring queue depth / batching opt-in prototype、CSV 指标扩展和 smoke/1GiB sample；Phase 4I 完成 storage bench wrapper 修复、1GiB repeat=3 storage/private heavy matrix 和 queue-depth gate 报告；Phase 4J 完成 POSIX storage/writeback、checksum、manifest flush 和 final verify 路径诊断，新增双侧 sender/receiver 阶段字段、manifest flush policy 与 commit sync policy opt-in 诊断参数，以及 Phase 4J median 分析报告；Phase 4K 完成 POSIX temp write/writeback 专项优化实验，新增 POSIX write syscall 级指标、`posix_write_strategy=auto|direct|coalesced` opt-in 策略、storage/private matrix 维度和 Phase 4K median gate 报告；Phase 4L 完成 repeat=5 稳定性矩阵、环境/页缓存 sidecar、summary spread/p95 稳定性标记、RETR sender/receiver 双端瓶颈报告和 opt-in 推荐矩阵。
 
-**Beta 验收补充：** Lab Beta 0 ctest gate 与公网小烟测 `pass/go`；Lab Beta 1 公网协议基线 `full_pass/go`；Lab Beta 2 公网连接复用扩展矩阵 `pass/go`。Lab Beta 3 保留三段历史：原 retained evidence `tools/perf/results/20260720T051105Z_lab-beta-3-public-compression-staging-matrix/` 为 `fail_correctness` / no-go；failure triage evidence `tools/perf/results/20260721T034707Z_lab-beta-3-failure-triage-gridflux-lz4-final-status/` 为 `pass_after_fix`；修复后 rerun evidence `tools/perf/results/20260721T093510Z_lab-beta-3-compression-staging-rerun-after-final-status-fix/` 为 `partial_go_cpss_environment_blocked`。Beta 3 当前口径是 raw/gzip/lz4 staging correctness passed；GridFlux、FTP、GridFTP 的 raw/gzip/lz4 transfer status 与 restore/tree hash 均通过。Lab Beta 4 retained evidence `tools/perf/results/20260722T032005Z_lab-beta-4-cpss-environment-and-staging-gate/` 为 `cpss_pass_go`，CPSS venv/check-env/roundtrip 通过，GridFlux CPSS worker 与 GridFTP CPSS 三套数据集均 3/3 pass；FTP CPSS 为 optional `environment_blocked`，不作为核心失败。Lab Beta 5 retained evidence `tools/perf/results/20260722T080536Z_lab-beta-5-report-evidence-pack/` 已生成 PPT/论文可用总结数据包，组合口径支持 CPSS-aware go 评审。Beta 3/4/5 只验证 gzip/lz4/CPSS staging/restore 层，不改 GridFlux C++ 协议热路径。
+**Beta 验收补充：** Lab Beta 0 ctest gate 与公网小烟测 `pass/go`；Lab Beta 1 公网协议基线 `full_pass/go`；Lab Beta 2 公网连接复用扩展矩阵 `pass/go`。Lab Beta 3 保留三段历史：原 retained evidence `tools/perf/results/20260720T051105Z_lab-beta-3-public-compression-staging-matrix/` 为 `fail_correctness` / no-go；failure triage evidence `tools/perf/results/20260721T034707Z_lab-beta-3-failure-triage-cpnetflux-lz4-final-status/` 为 `pass_after_fix`；修复后 rerun evidence `tools/perf/results/20260721T093510Z_lab-beta-3-compression-staging-rerun-after-final-status-fix/` 为 `partial_go_cpss_environment_blocked`。Beta 3 当前口径是 raw/gzip/lz4 staging correctness passed；CPNetFlux、FTP、GridFTP 的 raw/gzip/lz4 transfer status 与 restore/tree hash 均通过。Lab Beta 4 retained evidence `tools/perf/results/20260722T032005Z_lab-beta-4-cpss-environment-and-staging-gate/` 为 `cpss_pass_go`，CPSS venv/check-env/roundtrip 通过，CPNetFlux CPSS worker 与 GridFTP CPSS 三套数据集均 3/3 pass；FTP CPSS 为 optional `environment_blocked`，不作为核心失败。Lab Beta 5 retained evidence `tools/perf/results/20260722T080536Z_lab-beta-5-report-evidence-pack/` 已生成 PPT/论文可用总结数据包，组合口径支持 CPSS-aware go 评审。Beta 3/4/5 只验证 gzip/lz4/CPSS staging/restore 层，不改 CPNetFlux C++ 协议热路径。
 
 **未开始：** 系统级文件传输调优、raw FTP stream STOR/RETR、GridFTP GSI、MLST/MLSD、网络 io_uring、生产级目录同步。
 
-**下一步：** 使用 Beta 5 evidence pack 进入 CPSS-aware go 评审；任何 10GiB/20GiB/100GiB/heavy soak、50G/100G readiness 声明或 GridFlux C++ hot-path 压缩设计都必须作为新的、单独批准阶段启动。默认仍保持 anonymous、`tls-mode=off`、`data-tls-mode=off`、POSIX backend、full final verify 和现有 framed STOR/RETR 语义。
+**下一步：** 使用 Beta 5 evidence pack 进入 CPSS-aware go 评审；任何 10GiB/20GiB/100GiB/heavy soak、50G/100G readiness 声明或 CPNetFlux C++ hot-path 压缩设计都必须作为新的、单独批准阶段启动。默认仍保持 anonymous、`tls-mode=off`、`data-tls-mode=off`、POSIX backend、full final verify 和现有 framed STOR/RETR 语义。
 
 ---
 
@@ -39,7 +39,7 @@
 - 内存到内存吞吐验证。
 - 建立最小 `ConnectionContext`，集中管理单连接状态、EOF/错误和吞吐计数。
 
-状态：已完成。本阶段产物为 `gridflux-server` / `gridflux-client`，用于多连接 memory-to-memory TCP sink smoke test。
+状态：已完成。本阶段产物为 `cpnetflux-server` / `cpnetflux-client`，用于多连接 memory-to-memory TCP sink smoke test。
 
 **1.1 裸性能基线（Week 1-2）**
 - 并发连接数扫描（4/8/16/32）。
@@ -59,7 +59,7 @@
 - 单文件分块传输 + 多连接并行。
 - 命令行参数（路径、连接数、chunk 大小）。
 
-状态：Phase 1.2A 已完成。当前产物为 `gridflux-file-server` / `gridflux-file-client`，支持固定 64 字节 frame header、按 offset 写入、静态 chunk 分配、POSIX `pread/pwrite` 单文件 loopback 传输；未实现 manifest、断点续传、checksum pipeline、ACK/重传、GridFTP 控制面和 io_uring。
+状态：Phase 1.2A 已完成。当前产物为 `cpnetflux-file-server` / `cpnetflux-file-client`，支持固定 64 字节 frame header、按 offset 写入、静态 chunk 分配、POSIX `pread/pwrite` 单文件 loopback 传输；未实现 manifest、断点续传、checksum pipeline、ACK/重传、GridFTP 控制面和 io_uring。
 
 状态补充：Phase 1.2B 已完成。文件传输新增最终 `Complete/Error` 状态帧、`TransferProgress` range 完整性校验、临时文件 + rename 原子输出、默认拒绝覆盖、CTest 文件传输 smoke 回归。仍未实现 per-chunk ACK、ACK 重传窗口、manifest 和断点续传。
 
@@ -87,11 +87,11 @@
 - 临时文件 + 原子提交（rename）。
 - 故障注入测试（kill -9 恢复）。
 
-状态：Phase 2A 已完成。当前 `gridflux-file-server` / `gridflux-file-client` 支持 `SessionInit` / `ResumeResponse` 控制帧、`transfer_id`、服务端 manifest 持久化、stable temp path、completed range list、missing range 恢复计算、失败后保留 temp + manifest、`--resume` 补传缺失范围、`--max-chunks` 故障注入和 CTest resume smoke。
+状态：Phase 2A 已完成。当前 `cpnetflux-file-server` / `cpnetflux-file-client` 支持 `SessionInit` / `ResumeResponse` 控制帧、`transfer_id`、服务端 manifest 持久化、stable temp path、completed range list、missing range 恢复计算、失败后保留 temp + manifest、`--resume` 补传缺失范围、`--max-chunks` 故障注入和 CTest resume smoke。
 
 状态补充：Phase 2B 已完成。新增默认启用的 CRC32C chunk checksum、`ChunkComplete=7` 控制帧、manifest v2 `verified_chunks` 与 `manifest_body_crc32c`、resume 前 temp verified chunk 预检、client corruption 注入参数、checksum 故障注入 CTest、文件 perf CSV checksum 字段和可选 `--checksum none` 性能对照。仍未实现 per-chunk ACK/重传窗口、GridFTP 控制面、多文件目录同步和异步 checksum pipeline。
 
-状态补充：Phase 2C 已完成。新增 CRC32C backend 选择（`auto` / `software` / `hardware`）、x86 SSE4.2 runtime dispatch、`gridflux-checksum-bench`、`TransferSessionConfig`、manifest 每 16 个 verified chunk 默认批量 flush、恢复统计输出和文件 perf CSV 扩展。`auto` 在本机与<redacted>二均选择 hardware；完整 1GiB 矩阵、异步 checksum worker、GridFTP 控制面和 io_uring 仍未实现。
+状态补充：Phase 2C 已完成。新增 CRC32C backend 选择（`auto` / `software` / `hardware`）、x86 SSE4.2 runtime dispatch、`cpnetflux-checksum-bench`、`TransferSessionConfig`、manifest 每 16 个 verified chunk 默认批量 flush、恢复统计输出和文件 perf CSV 扩展。`auto` 在本机与<redacted>二均选择 hardware；完整 1GiB 矩阵、异步 checksum worker、GridFTP 控制面和 io_uring 仍未实现。
 
 **产出：** v0.2，断点续传 + 完整性保证。
 
@@ -117,13 +117,13 @@
 
 不支持的命令返回 502。
 
-状态：Phase 3A 已完成。新增 `gridflux-gridftp-server`，支持 USER/PASS、TYPE I、SYST、FEAT、PWD、NOOP、QUIT、EPSV/PASV、OPTS PARALLELISM、REST GFID token 和 STOR 上传。控制面采用 FTP/GridFTP 风格回复码，数据面继续使用 GridFlux framed protocol，不兼容普通 FTP raw STOR。`REST GFID:<transfer_id>` 映射到 manifest v2 `verified_chunks` / missing ranges；不支持 `REST offset` 假恢复。
+状态：Phase 3A 已完成。新增 `cpnetflux-gridftp-server`，支持 USER/PASS、TYPE I、SYST、FEAT、PWD、NOOP、QUIT、EPSV/PASV、OPTS PARALLELISM、REST GFID token 和 STOR 上传。控制面采用 FTP/GridFTP 风格回复码，数据面继续使用 CPNetFlux framed protocol，不兼容普通 FTP raw STOR。`REST GFID:<transfer_id>` 映射到 manifest v2 `verified_chunks` / missing ranges；不支持 `REST offset` 假恢复。
 
-状态补充：Phase 3B 已完成。`gridflux-gridftp-server` 新增 `RETR <path>`，支持从 `--root` 内读取普通文件并通过 GridFlux framed data channel 下载到 GridFlux-aware client。新增 `gridflux-file-download-client` 作为 framed RETR 接收端，默认 CRC32C auto/hardware 校验，成功后临时文件 rename 到目标路径。Phase 3B 不支持普通 FTP raw RETR，也不支持 RETR resume；`REST GFID:<transfer_id>` 后执行 `RETR` 会返回 `550`，下载恢复留到 Phase 3C。
+状态补充：Phase 3B 已完成。`cpnetflux-gridftp-server` 新增 `RETR <path>`，支持从 `--root` 内读取普通文件并通过 CPNetFlux framed data channel 下载到 CPNetFlux-aware client。新增 `cpnetflux-file-download-client` 作为 framed RETR 接收端，默认 CRC32C auto/hardware 校验，成功后临时文件 rename 到目标路径。Phase 3B 不支持普通 FTP raw RETR，也不支持 RETR resume；`REST GFID:<transfer_id>` 后执行 `RETR` 会返回 `550`，下载恢复留到 Phase 3C。
 
-状态补充：Phase 3C 已完成。`RETR` 下载方向新增接收端 download manifest：`<output>.gridflux.download.manifest` 记录 `transfer_id`、root-relative `source_path`、target/temp path、total size、chunk size、checksum algorithm、`verified_chunks` 与 `manifest_body_crc32c`。`gridflux-file-download-client --resume --transfer-id <id>` 会加载本地 manifest，预检 temp 中已 verified chunk，坏 chunk 移出 verified set 并作为 missing range 请求补传。`REST GFID:<transfer_id> + RETR <path>` 现在映射到下载端 manifest/verified_chunks 恢复流程；`REST offset` 仍拒绝。Phase 3C 仍不支持普通 FTP raw RETR、Mode E、SPAS/SPOR、GSI/DCAU/PROT 或第三方 server-to-server。
+状态补充：Phase 3C 已完成。`RETR` 下载方向新增接收端 download manifest：`<output>.cpnetflux.download.manifest` 记录 `transfer_id`、root-relative `source_path`、target/temp path、total size、chunk size、checksum algorithm、`verified_chunks` 与 `manifest_body_crc32c`。`cpnetflux-file-download-client --resume --transfer-id <id>` 会加载本地 manifest，预检 temp 中已 verified chunk，坏 chunk 移出 verified set 并作为 missing range 请求补传。`REST GFID:<transfer_id> + RETR <path>` 现在映射到下载端 manifest/verified_chunks 恢复流程；`REST offset` 仍拒绝。Phase 3C 仍不支持普通 FTP raw RETR、Mode E、SPAS/SPOR、GSI/DCAU/PROT 或第三方 server-to-server。
 
-状态补充：Phase 3D 已完成。`gridflux-gridftp-server` 新增 `SIZE`、`MDTM`、`CWD`、`CDUP`、`LIST` 和 `NLST`。`CWD/PWD` 在 control session 内维护 root-relative 当前目录；所有路径通过统一 root-confined resolver 校验，拒绝绝对路径、`..` 和符号链接逃逸。`LIST/NLST` 使用 FTP-style ASCII metadata data channel，仅返回目录元数据；STOR/RETR 文件数据仍只支持 GridFlux framed protocol。新增 metadata/list loopback smoke 与私网 metadata/list smoke，并保持 STOR/RETR resume 回归通过。
+状态补充：Phase 3D 已完成。`cpnetflux-gridftp-server` 新增 `SIZE`、`MDTM`、`CWD`、`CDUP`、`LIST` 和 `NLST`。`CWD/PWD` 在 control session 内维护 root-relative 当前目录；所有路径通过统一 root-confined resolver 校验，拒绝绝对路径、`..` 和符号链接逃逸。`LIST/NLST` 使用 FTP-style ASCII metadata data channel，仅返回目录元数据；STOR/RETR 文件数据仍只支持 CPNetFlux framed protocol。新增 metadata/list loopback smoke 与私网 metadata/list smoke，并保持 STOR/RETR resume 回归通过。
 
 兼容边界：
 
@@ -160,7 +160,7 @@
 **4B 性能瓶颈拆解与低风险优化**
 
 - STOR server、upload client、RETR sender、download client 增加阶段级诊断字段。
-- 新增私网 host/link baseline，优先 iperf3/fio，缺失时使用 GridFlux memory sink 和 Python 顺序 IO fallback。
+- 新增私网 host/link baseline，优先 iperf3/fio，缺失时使用 CPNetFlux memory sink 和 Python 顺序 IO fallback。
 - download manifest flush 与 upload manifest flush 对齐，默认每 16 个 verified chunk 批量保存。
 - 新增 `final_verify_policy=full|verified_chunks`。默认 `full` 保持 Phase 4A 语义；`verified_chunks` 仅在 checksum 非 none、verified chunks 完整覆盖且 manifest 已 flush 时跳过最终 full temp reread。
 - `run_gridftp_private_matrix.py` 扩展阶段字段、host baseline 引用、final verify policy 和 manifest flush interval 参数。
@@ -169,7 +169,7 @@
 
 **4C 存储路径优化、重复采样稳定性、verified_chunks 可靠性硬化**
 
-- 新增 `gridflux-storage-bench`，用项目 `PosixFile` / `pread/pwrite` 路径测 sequential write/read/rewrite。
+- 新增 `cpnetflux-storage-bench`，用项目 `PosixFile` / `pread/pwrite` 路径测 sequential write/read/rewrite。
 - 新增 `--preallocate off|full`，默认 off；full 使用 `posix_fallocate`，失败不静默 fallback。
 - `run_gridftp_private_matrix.py` 支持 `--repeat`、preallocate 维度、final verify policy 维度和 summary CSV。
 - `verified_chunks` 仍为 opt-in；checksum none、missing ranges、manifest flush 失败均不得进入 verified_chunks commit。
@@ -182,7 +182,7 @@
 - 新增 `--file-io-backend posix`、`--file-io-buffer-size` 和 `--file-io-advice`，默认保持 Phase 4C 行为。
 - STOR temp write、upload source read、RETR source read、download temp write 统一经过 file IO helper。
 - STOR/RETR 日志和私网矩阵 CSV 追加 read/write call count、average bytes per call 和 file IO wait 指标。
-- `gridflux-storage-bench` 输出 iteration raw 行与 aggregate 行，wrapper 生成 raw + summary CSV。
+- `cpnetflux-storage-bench` 输出 iteration raw 行与 aggregate 行，wrapper 生成 raw + summary CSV。
 
 状态：已完成。本阶段未实现 io_uring；只完成 POSIX 路径可插拔边界、显式 file IO advice、同连接同 chunk 的写入 coalescing、IO call 指标和性能脚本扩展。验收与 median 结论记录在 `docs/perf/PHASE4D_FILE_IO.md`。
 
@@ -197,20 +197,20 @@
 
 **4F 可选 file-IO-only io_uring prototype**
 
-- 新增 `GRIDFLUX_ENABLE_IO_URING` CMake 选项，默认 `OFF`。
+- 新增 `CPNETFLUX_ENABLE_IO_URING` CMake 选项，默认 `OFF`。
 - `ON` 时探测 `liburing.h` 与 `uring` library；缺失时不 fatal，继续编译 unavailable stub。
 - `FileIoBackendKind` 支持 `posix|io_uring`，默认仍为 `posix`；热路径使用 concrete context + switch，不引入虚函数。
 - io_uring v1 只覆盖 regular file `readAtAll` / `writeAtAll` 等价语义，不处理 socket IO，不改变网络 epoll。
-- `gridflux-storage-bench`、storage bench wrapper 和 GridFTP-like private matrix 支持 backend 维度。
+- `cpnetflux-storage-bench`、storage bench wrapper 和 GridFTP-like private matrix 支持 backend 维度。
 - 无 liburing 环境下，显式 `--file-io-backend io_uring` 返回清晰 unavailable 错误；默认 POSIX build/CTest 不受影响。
 
-状态：已完成。本机与<redacted>二均未发现 liburing pkg-config、头文件或动态库；Phase 4F 验收以 fallback 路径为主。默认 build 与 `GRIDFLUX_ENABLE_IO_URING=ON` stub build 均通过 full CTest，显式 io_uring storage bench 清晰失败。报告见 `docs/perf/PHASE4F_IO_URING_PROTOTYPE.md`。
+状态：已完成。本机与<redacted>二均未发现 liburing pkg-config、头文件或动态库；Phase 4F 验收以 fallback 路径为主。默认 build 与 `CPNETFLUX_ENABLE_IO_URING=ON` stub build 均通过 full CTest，显式 io_uring storage bench 清晰失败。报告见 `docs/perf/PHASE4F_IO_URING_PROTOTYPE.md`。
 
 **4G 真实 liburing 验证与公开发布脱敏闸门**
 
 - 新增公开发布 hygiene/export 工具：`tools/release/check_public_hygiene.py` 与 `tools/release/export_public_repo.py`。
 - `AGENTS.md` 明确为本地私有文件，`.gitignore` 排除本地 AGENTS、build 产物、perf 结果、认证材料和大文件；新增公开安全模板 `AGENTS.example.md`。
-- 本机与<redacted>二安装并探测 liburing，使用 `build-io-uring-real` 独立 Release 构建验证 `GRIDFLUX_ENABLE_IO_URING=ON`。
+- 本机与<redacted>二安装并探测 liburing，使用 `build-io-uring-real` 独立 Release 构建验证 `CPNETFLUX_ENABLE_IO_URING=ON`。
 - 扩展 io_uring correctness test：真实可用时 `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 实际运行，completion loop fake test 覆盖 partial completion、retry 和错误传播。
 - 跑 1GiB storage bench 与 GridFTP-like STOR/RETR private matrix 的 POSIX/io_uring 对照，以 median 为判断口径。
 
@@ -250,7 +250,7 @@
 - `FileIoStats` 追加 POSIX write syscall 级诊断字段：logical write call、pwrite syscall、retry、short、zero、total bytes 和平均每次 syscall 字节数。
 - POSIX backend 的 `writeAtAll` 统一走可统计 `pwrite` loop；`PosixFile::writeAtAll` 保持兼容。
 - 新增 `--posix-write-strategy auto|direct|coalesced`。默认 `auto` 保持既有语义：`file_io_buffer_size=0` 直写，`>0` 使用 contiguous coalescing；`direct` 用于强制直写 A/B，`coalesced` 需要显式 file IO buffer。
-- `gridflux-storage-bench`、`run_storage_bench.py` 和 `run_gridftp_private_matrix.py` 均增加 write strategy 维度，raw/summary CSV 保留 write syscall 指标。
+- `cpnetflux-storage-bench`、`run_storage_bench.py` 和 `run_gridftp_private_matrix.py` 均增加 write strategy 维度，raw/summary CSV 保留 write syscall 指标。
 - 新增 `tools/perf/analyze_phase4k.py` 和 `docs/perf/PHASE4K_POSIX_WRITEBACK_OPTIMIZATION.md`，以 1GiB repeat=3 median 判断是否存在可默认启用的 POSIX 写入策略。
 
 状态：已完成。本机与<redacted>二默认 Debug full CTest 均为 `144/144` passed；`build-io-uring-real` Release full CTest 均为 `144/144` passed，真实 io_uring smoke 为 `Passed`。Phase 4K storage bench `384` cases / `0` failures，GridFTP-like private matrix `96` cases / `0` failures，sha256 全一致。median 结论：没有发现同时稳定改善 STOR 与 RETR 的默认策略候选；STOR crc32c 下 `coalesced` 256KiB 有约 `10%` median 提升，但 checksum none 下退化，RETR 也不稳定。默认继续保持 `posix_write_strategy=auto` 且 `file_io_buffer_size=0`；`direct` / `coalesced` 保留为 opt-in 诊断策略。
@@ -294,7 +294,7 @@
 
 - 新增目录级 manifest，记录每个文件的 root-relative path、size、mtime、transfer_id、status 和 checksum policy。
 - 新增稳定目录扫描与 root-confined path validation；默认拒绝 symlink，不保留空目录。
-- 新增 `gridflux-tree-upload-client` 与 `gridflux-tree-download-client`，通过 GridFTP-like 控制面逐文件执行 `STOR` / `RETR`，每个文件内部继续使用现有 framed data channel、per-file manifest、verified_chunks 和 `REST GFID` resume。
+- 新增 `cpnetflux-tree-upload-client` 与 `cpnetflux-tree-download-client`，通过 GridFTP-like 控制面逐文件执行 `STOR` / `RETR`，每个文件内部继续使用现有 framed data channel、per-file manifest、verified_chunks 和 `REST GFID` resume。
 - 目录 resume 以 tree manifest 为 file-level 事实源；文件内部恢复仍由现有 upload/download manifest 负责。
 - changed file 策略为 fail-safe：source/target size 或 manifest metadata 不一致时标记 `changed` 并失败，不自动覆盖或删除已提交目标。
 - Phase 5A 不实现 raw FTP recursive transfer、MLST/MLSD、权限/owner/xattr/ACL 保留、TLS/GSI 或生产认证。
@@ -303,7 +303,7 @@
 
 **5B 目录传输并发、changed-file 防护与数据集级性能验收**
 
-- `gridflux-tree-upload-client` / `gridflux-tree-download-client` 的 `--file-parallelism` 变为真实 bounded file-level 并发；每个 file task 使用独立 control session，每个文件内部仍由既有 `--connections` 和 framed STOR/RETR 负责。
+- `cpnetflux-tree-upload-client` / `cpnetflux-tree-download-client` 的 `--file-parallelism` 变为真实 bounded file-level 并发；每个 file task 使用独立 control session，每个文件内部仍由既有 `--connections` 和 framed STOR/RETR 负责。
 - 目录 manifest 更新通过 mutex 串行化，每次状态变更原子保存；失败后停止派发新任务，保留已完成文件状态用于 resume。
 - `--resume` 增加目录级 changed-file preflight：upload 校验本地 source size/mtime，download 校验远端 source SIZE/MDTM 和已 completed 本地目标 size/mtime；不匹配时标记 `changed` 并 fail-safe。
 - 新增 tree parallel / changed-file loopback smoke、`tools/perf/run_gridftp_tree_private_matrix.py`、`tools/perf/analyze_phase5b.py` 和 `docs/perf/PHASE5B_TREE_DATASET_MATRIX.md`。
@@ -312,7 +312,7 @@
 
 **5C 目录传输 alpha 硬化与 release 自一致性**
 
-- `gridflux-tree-upload-client` / `gridflux-tree-download-client` 新增 opt-in `--json-summary`，`--summary-json` 作为别名；保留人类可读 key=value 输出。
+- `cpnetflux-tree-upload-client` / `cpnetflux-tree-download-client` 新增 opt-in `--json-summary`，`--summary-json` 作为别名；保留人类可读 key=value 输出。
 - JSON summary 记录方向、source/dest、file counts、completed/skipped/failed/changed、bytes、file parallelism、connections、checksum、resume、elapsed、throughput、tree verification hash 和结构化 error。
 - Changed-file fail-safe 失败时 JSON error 记录 changed path、manifest/current size 与 mtime。
 - 新增 tree edge-case smoke，覆盖特殊字符路径、深层目录、大量小文件、空目录不保留、symlink 拒绝和 same-size mtime drift fail-safe。
@@ -364,9 +364,9 @@
 **6D 数据通道 TLS 与安全边界硬化**
 
 - 新增 opt-in `--data-tls-mode off|required`。
-- `gridflux-gridftp-server --data-tls-mode required` 只能与 `--tls-mode required` 同用，并复用 control TLS cert/key。
+- `cpnetflux-gridftp-server --data-tls-mode required` 只能与 `--tls-mode required` 同用，并复用 control TLS cert/key。
 - STOR upload 与 RETR download 的 framed file data socket 可逐连接 TLS handshake；frame、checksum、manifest、resume、final verify 语义不变。
-- `gridflux-file-client`、`gridflux-file-download-client` 和 tree clients 支持 `--data-tls-mode required --tls-ca-file <path>`。
+- `cpnetflux-file-client`、`cpnetflux-file-download-client` 和 tree clients 支持 `--data-tls-mode required --tls-ca-file <path>`。
 - LIST/NLST ASCII metadata passive data channel 不在 Phase 6D 保护范围，仍保持现有明文行为。
 - Event/error code 增加 `data_tls_required` / `data_tls_failed`，日志与 JSON 只记录模式和结果，不记录 token、password 或 private key 内容。
 
@@ -416,13 +416,13 @@
 | 2026-05-16 | manifest v2 的 verified_chunks 是恢复事实源 | `completed_ranges` 仅作为派生可读字段，最终 sha256 只作为测试验收手段 |
 | 2026-05-16 | CRC32C backend 使用 runtime dispatch | x86 SSE4.2 可用时 `auto` 选择 hardware；不可用时回退 software，不让整个 core 依赖 `-msse4.2` |
 | 2026-05-16 | manifest flush 默认每 16 个 verified chunk 批量保存 | 减少热路径 manifest 写入；崩溃后最多重传未 flush 的 chunk，不会误提交 output |
-| 2026-05-16 | Phase 3A 控制面 STOR 使用 GridFlux framed data channel | 先复用 manifest/checksum/resume 数据面，不为 raw FTP stream 另造低可靠路径 |
+| 2026-05-16 | Phase 3A 控制面 STOR 使用 CPNetFlux framed data channel | 先复用 manifest/checksum/resume 数据面，不为 raw FTP stream 另造低可靠路径 |
 | 2026-05-16 | REST marker 使用 `GFID:<transfer_id>` | 明确映射到 manifest v2 `verified_chunks` 和 missing ranges，不支持单 offset 假恢复 |
-| 2026-05-16 | Phase 3B 控制面 RETR 使用 GridFlux framed data channel | 复用 chunk frame/checksum/chunk planner，避免普通 FTP raw stream 旁路可靠性语义 |
+| 2026-05-16 | Phase 3B 控制面 RETR 使用 CPNetFlux framed data channel | 复用 chunk frame/checksum/chunk planner，避免普通 FTP raw stream 旁路可靠性语义 |
 | 2026-05-16 | RETR resume 延后到 Phase 3C | 下载恢复需要接收端 manifest/verified_chunks 事实源，Phase 3B 先交付完整 framed download 并明确 `REST GFID + RETR` 返回 550 |
 | 2026-05-16 | Phase 3C 下载恢复事实源放在 download client 本地 manifest | RETR sender 不维护下载状态，接收端根据 verified_chunks 派生 missing ranges，避免单 offset 或完整重传伪恢复 |
 | 2026-05-16 | SessionInit payload 可选携带 `source_path` | RETR resume 需要校验 REST token 对应的源路径；旧 STOR/upload payload 不带该字段仍兼容 |
-| 2026-05-16 | Phase 3D LIST/NLST 使用 ASCII metadata data channel | 目录元数据兼容常用 GridFTP/FTP 控制面行为，但文件 STOR/RETR 仍只走 GridFlux framed data channel |
+| 2026-05-16 | Phase 3D LIST/NLST 使用 ASCII metadata data channel | 目录元数据兼容常用 GridFTP/FTP 控制面行为，但文件 STOR/RETR 仍只走 CPNetFlux framed data channel |
 | 2026-05-16 | Phase 3D 统一 root-confined path resolver | CWD、SIZE、MDTM、LIST、NLST、STOR 和 RETR 共用路径安全规则，防止 `..` 或符号链接逃逸 root |
 | 2026-05-16 | Phase 4A 不直接引入 io_uring | 先用现有 epoll/pread/pwrite framed STOR/RETR 私网矩阵定位 checksum、磁盘 IO、socket/epoll、buffer/chunk 或控制面调度瓶颈 |
 | 2026-05-16 | Phase 4A CSV 以接收端吞吐为主指标 | STOR 取 server receiver，RETR 取 download client receiver；sender 统计保留在原始日志用于交叉分析 |
@@ -436,7 +436,7 @@
 | 2026-05-17 | Phase 4E 不默认启用 file IO buffer/advice/preallocate | 1GiB repeat=3 median 未显示这些 POSIX knobs 同时改善 STOR 和 RETR；`sequential_dontneed` 明显有害 |
 | 2026-05-17 | Phase 4E 允许 Phase 4F 设计可选 file-IO-only io_uring prototype | POSIX file IO wait/write mass 仍高，低风险 POSIX knobs 未解决双向瓶颈；但主路径和默认 backend 仍保持 POSIX |
 | 2026-05-17 | Phase 4F io_uring backend 可选、file-IO-only、默认关闭 | 当前两机缺 liburing，必须保证默认 POSIX 完整可用；io_uring 只作为显式 backend 原型，不改变网络 epoll 或可靠性语义 |
-| 2026-05-17 | `GRIDFLUX_ENABLE_IO_URING=ON` 缺依赖时 build stub fallback | 便于同一源码在无 liburing 节点继续构建和测试，显式请求 io_uring 时运行时报清晰 unavailable |
+| 2026-05-17 | `CPNETFLUX_ENABLE_IO_URING=ON` 缺依赖时 build stub fallback | 便于同一源码在无 liburing 节点继续构建和测试，显式请求 io_uring 时运行时报清晰 unavailable |
 | 2026-05-17 | Phase 4G 公开发布必须通过 export hygiene gate | 本地 `AGENTS.md` 含私有测试拓扑，公开发布只能使用脱敏 `AGENTS.example.md` 和 export 工具生成的目录 |
 | 2026-05-17 | Phase 4G 真实 liburing 验证后仍保持 POSIX 默认 | storage bench 与私网 STOR/RETR median 未证明同步等待式 io_uring v1 可稳定替代 POSIX；io_uring 继续 opt-in |
 | 2026-05-17 | Phase 4H 若继续 io_uring，应聚焦 queue depth / batching | 当前 v1 只验证接口正确性；若继续优化，应在 file-IO-only 边界内评估异步深度和批量 SQE，而不是切网络 epoll |

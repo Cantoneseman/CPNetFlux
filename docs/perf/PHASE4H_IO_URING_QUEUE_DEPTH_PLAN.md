@@ -43,7 +43,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --bytes 1073741824 \
   --modes write,read \
   --preallocates off \
@@ -72,8 +72,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results
 ```
 

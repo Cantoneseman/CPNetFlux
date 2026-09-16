@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a deterministic GridFlux alpha demo dataset."""
+"""Generate a deterministic CPNetFlux alpha demo dataset."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def tree_hash(root: Path) -> tuple[str, int, int]:
         return digest.hexdigest(), 0, 0
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
         relative = path.relative_to(root).as_posix()
-        if ".gridflux." in relative or ".part." in relative:
+        if ".cpnetflux." in relative or ".part." in relative:
             continue
         size = path.stat().st_size
         file_count += 1
@@ -113,7 +113,7 @@ def make_dataset(output: Path, *, profile: str, seed: int) -> dict[str, object]:
 
     (tree_mixed / "empty.bin").parent.mkdir(parents=True, exist_ok=True)
     (tree_mixed / "empty.bin").write_bytes(b"")
-    (tree_mixed / "notes with spaces.txt").write_text("GridFlux alpha demo\n", encoding="utf-8")
+    (tree_mixed / "notes with spaces.txt").write_text("CPNetFlux alpha demo\n", encoding="utf-8")
     write_deterministic_file(
         tree_mixed / "special_chars" / "alpha+beta,@demo.txt",
         12 * 1024,
@@ -171,7 +171,7 @@ def make_dataset(output: Path, *, profile: str, seed: int) -> dict[str, object]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate deterministic GridFlux alpha demo data.")
+    parser = argparse.ArgumentParser(description="Generate deterministic CPNetFlux alpha demo data.")
     parser.add_argument("--output", required=True)
     parser.add_argument("--seed", type=int, default=20260518)
     parser.add_argument("--profile", choices=sorted(PROFILES), default="small")

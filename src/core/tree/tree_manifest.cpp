@@ -1,4 +1,4 @@
-#include "gridflux/core/tree/tree_manifest.h"
+#include "cpnetflux/core/tree/tree_manifest.h"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -13,11 +13,11 @@
 #include <string_view>
 #include <unordered_map>
 
-#include "gridflux/checkpoint/transfer_manifest.h"
-#include "gridflux/checksum/crc32c.h"
-#include "gridflux/core/tree/tree_scan.h"
+#include "cpnetflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/checksum/crc32c.h"
+#include "cpnetflux/core/tree/tree_scan.h"
 
-namespace gridflux::core::tree {
+namespace cpnetflux::core::tree {
 namespace {
 
 bool isHexDigit(char value) noexcept {
@@ -224,11 +224,11 @@ std::string bodyWithoutChecksum(const TreeManifest& manifest) {
 }  // namespace
 
 std::string treeManifestPathForUpload(const std::string& sourceDir) {
-    return sourceDir + ".gridflux.tree.upload.manifest";
+    return sourceDir + ".cpnetflux.tree.upload.manifest";
 }
 
 std::string treeManifestPathForDownload(const std::string& destDir) {
-    return destDir + ".gridflux.tree.download.manifest";
+    return destDir + ".cpnetflux.tree.download.manifest";
 }
 
 const char* treeTransferModeName(TreeTransferMode mode) noexcept {
@@ -452,4 +452,4 @@ common::Result<TreeManifest> loadTreeManifest(const std::string& path) {
     return parseTreeManifest(buffer.str());
 }
 
-}  // namespace gridflux::core::tree
+}  // namespace cpnetflux::core::tree

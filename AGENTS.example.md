@@ -1,8 +1,8 @@
-# GridFlux — Public AI Collaboration Guide
+# CPNetFlux — Public AI Collaboration Guide
 
 ## Project Summary
 
-GridFlux is a GridFTP-compatible high-performance transfer foundation. It exposes a small GridFTP-like control plane and uses a GridFlux framed data channel internally for reliable STOR/RETR transfer, checksum, manifest, and resume behavior.
+CPNetFlux is a GridFTP-compatible high-performance transfer foundation. It exposes a small GridFTP-like control plane and uses a CPNetFlux framed data channel internally for reliable STOR/RETR transfer, checksum, manifest, and resume behavior.
 
 ## Development Notes
 
@@ -30,8 +30,8 @@ Before publishing to GitHub:
 
 ```bash
 python3 tools/release/check_public_hygiene.py --path .
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
 ```
 
 The public export must not contain the private `AGENTS.md` file.

@@ -1,6 +1,6 @@
-#include "gridflux/checksum/crc32c.h"
+#include "cpnetflux/checksum/crc32c.h"
 
-namespace gridflux::checksum {
+namespace cpnetflux::checksum {
 
 bool crc32cHardwareAvailable() noexcept { return false; }
 
@@ -9,4 +9,4 @@ std::uint32_t crc32cUpdateHardware(std::uint32_t state, const std::uint8_t* data
     return crc32cUpdateSoftware(state, data, size);
 }
 
-}  // namespace gridflux::checksum
+}  // namespace cpnetflux::checksum

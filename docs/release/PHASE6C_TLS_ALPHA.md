@@ -2,12 +2,12 @@
 
 Phase 6C adds opt-in TLS for the GridFTP-like control connection. It does not
 change default behavior: `--tls-mode off` remains the default, anonymous auth
-remains the default, and STOR/RETR file data still uses the existing GridFlux
+remains the default, and STOR/RETR file data still uses the existing CPNetFlux
 framed TCP data channel.
 
 ## Scope
 
-- `gridflux-gridftp-server` accepts `--tls-mode off|explicit|required`.
+- `cpnetflux-gridftp-server` accepts `--tls-mode off|explicit|required`.
 - `required` performs TLS immediately after accepting the control socket.
 - `explicit` is reserved for a future AUTH TLS design and is rejected in this
   phase.

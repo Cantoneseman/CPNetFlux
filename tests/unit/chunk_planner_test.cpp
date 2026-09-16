@@ -1,9 +1,9 @@
-#include "gridflux/core/chunk/chunk_planner.h"
+#include "cpnetflux/core/chunk/chunk_planner.h"
 
 #include <gtest/gtest.h>
 
 TEST(ChunkPlannerTest, PlansExactChunks) {
-    const auto result = gridflux::core::chunk::planChunks(4096, 1024, 2);
+    const auto result = cpnetflux::core::chunk::planChunks(4096, 1024, 2);
 
     ASSERT_TRUE(result.isOk()) << result.status().message();
     ASSERT_EQ(result.value().size(), 4U);
@@ -17,7 +17,7 @@ TEST(ChunkPlannerTest, PlansExactChunks) {
 }
 
 TEST(ChunkPlannerTest, PlansTailChunk) {
-    const auto result = gridflux::core::chunk::planChunks(2500, 1024, 4);
+    const auto result = cpnetflux::core::chunk::planChunks(2500, 1024, 4);
 
     ASSERT_TRUE(result.isOk()) << result.status().message();
     ASSERT_EQ(result.value().size(), 3U);
@@ -31,7 +31,7 @@ TEST(ChunkPlannerTest, PlansTailChunk) {
 }
 
 TEST(ChunkPlannerTest, HandlesFileSmallerThanChunk) {
-    const auto result = gridflux::core::chunk::planChunks(32, 1024, 8);
+    const auto result = cpnetflux::core::chunk::planChunks(32, 1024, 8);
 
     ASSERT_TRUE(result.isOk()) << result.status().message();
     ASSERT_EQ(result.value().size(), 1U);
@@ -42,7 +42,7 @@ TEST(ChunkPlannerTest, HandlesFileSmallerThanChunk) {
 }
 
 TEST(ChunkPlannerTest, HandlesMoreConnectionsThanChunks) {
-    const auto result = gridflux::core::chunk::planChunks(2048, 1024, 8);
+    const auto result = cpnetflux::core::chunk::planChunks(2048, 1024, 8);
 
     ASSERT_TRUE(result.isOk()) << result.status().message();
     ASSERT_EQ(result.value().size(), 2U);
@@ -51,8 +51,8 @@ TEST(ChunkPlannerTest, HandlesMoreConnectionsThanChunks) {
 }
 
 TEST(ChunkPlannerTest, AssignsStreamsDeterministically) {
-    const auto first = gridflux::core::chunk::planChunks(8192, 1024, 3);
-    const auto second = gridflux::core::chunk::planChunks(8192, 1024, 3);
+    const auto first = cpnetflux::core::chunk::planChunks(8192, 1024, 3);
+    const auto second = cpnetflux::core::chunk::planChunks(8192, 1024, 3);
 
     ASSERT_TRUE(first.isOk()) << first.status().message();
     ASSERT_TRUE(second.isOk()) << second.status().message();
@@ -64,14 +64,14 @@ TEST(ChunkPlannerTest, AssignsStreamsDeterministically) {
 }
 
 TEST(ChunkPlannerTest, HandlesEmptyFile) {
-    const auto result = gridflux::core::chunk::planChunks(0, 1024, 4);
+    const auto result = cpnetflux::core::chunk::planChunks(0, 1024, 4);
 
     ASSERT_TRUE(result.isOk()) << result.status().message();
     EXPECT_TRUE(result.value().empty());
 }
 
 TEST(ChunkPlannerTest, RejectsInvalidInputs) {
-    EXPECT_FALSE(gridflux::core::chunk::planChunks(1, 0, 1).isOk());
-    EXPECT_FALSE(gridflux::core::chunk::planChunks(1, 1, 0).isOk());
-    EXPECT_FALSE(gridflux::core::chunk::planChunks(1, 1, 65).isOk());
+    EXPECT_FALSE(cpnetflux::core::chunk::planChunks(1, 0, 1).isOk());
+    EXPECT_FALSE(cpnetflux::core::chunk::planChunks(1, 1, 0).isOk());
+    EXPECT_FALSE(cpnetflux::core::chunk::planChunks(1, 1, 65).isOk());
 }

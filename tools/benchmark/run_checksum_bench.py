@@ -117,7 +117,7 @@ def run_bench(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux CRC32C backend benchmarks.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux CRC32C backend benchmarks.")
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--bytes", type=parse_csv_list, default=[64 * 1024 * 1024, 256 * 1024 * 1024])
     parser.add_argument("--iterations", type=int, default=5)
@@ -134,7 +134,7 @@ def main() -> int:
     build_dir = Path(args.build_dir)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    bench_bin = build_dir / "gridflux-checksum-bench"
+    bench_bin = build_dir / "cpnetflux-checksum-bench"
     if not bench_bin.exists():
         raise FileNotFoundError(f"missing executable: {bench_bin}")
 

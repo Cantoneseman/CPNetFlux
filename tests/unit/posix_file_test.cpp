@@ -1,4 +1,4 @@
-#include "gridflux/storage/posix_file.h"
+#include "cpnetflux/storage/posix_file.h"
 
 #include <gtest/gtest.h>
 
@@ -16,12 +16,12 @@ std::filesystem::path tempPath(const char* name) {
 }  // namespace
 
 TEST(PosixFileTest, ReadsAndWritesAtOffsets) {
-    const std::filesystem::path path = tempPath("gridflux-posix-file-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-posix-file-test.bin");
     std::filesystem::remove(path);
 
-    auto writeResult = gridflux::storage::PosixFile::openWriteTruncate(path.string());
+    auto writeResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
     ASSERT_TRUE(writeResult.isOk()) << writeResult.status().message();
-    gridflux::storage::PosixFile output = std::move(writeResult.value());
+    cpnetflux::storage::PosixFile output = std::move(writeResult.value());
 
     const std::vector<std::uint8_t> first{'a', 'b', 'c'};
     const std::vector<std::uint8_t> second{'x', 'y', 'z'};
@@ -30,11 +30,11 @@ TEST(PosixFileTest, ReadsAndWritesAtOffsets) {
     EXPECT_TRUE(output.writeAtAll(6, second.data(), second.size()).isOk());
     EXPECT_TRUE(output.resize(9).isOk());
 
-    output = gridflux::storage::PosixFile();
+    output = cpnetflux::storage::PosixFile();
 
-    auto readResult = gridflux::storage::PosixFile::openReadOnly(path.string());
+    auto readResult = cpnetflux::storage::PosixFile::openReadOnly(path.string());
     ASSERT_TRUE(readResult.isOk()) << readResult.status().message();
-    gridflux::storage::PosixFile input = std::move(readResult.value());
+    cpnetflux::storage::PosixFile input = std::move(readResult.value());
 
     auto size = input.fileSize();
     ASSERT_TRUE(size.isOk()) << size.status().message();
@@ -53,13 +53,13 @@ TEST(PosixFileTest, ReadsAndWritesAtOffsets) {
 }
 
 TEST(PosixFileTest, ReportsUnexpectedEof) {
-    const std::filesystem::path path = tempPath("gridflux-posix-file-eof-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-posix-file-eof-test.bin");
     {
         std::ofstream stream(path, std::ios::binary | std::ios::trunc);
         stream << "abc";
     }
 
-    auto readResult = gridflux::storage::PosixFile::openReadOnly(path.string());
+    auto readResult = cpnetflux::storage::PosixFile::openReadOnly(path.string());
     ASSERT_TRUE(readResult.isOk()) << readResult.status().message();
 
     std::vector<std::uint8_t> data(4);
@@ -69,50 +69,50 @@ TEST(PosixFileTest, ReportsUnexpectedEof) {
 }
 
 TEST(PosixFileTest, SupportsExclusiveCreateRenameAndRemove) {
-    const std::filesystem::path path = tempPath("gridflux-posix-file-exclusive-test.bin");
-    const std::filesystem::path renamed = tempPath("gridflux-posix-file-renamed-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-posix-file-exclusive-test.bin");
+    const std::filesystem::path renamed = tempPath("cpnetflux-posix-file-renamed-test.bin");
     std::filesystem::remove(path);
     std::filesystem::remove(renamed);
 
-    auto exists = gridflux::storage::PosixFile::pathExists(path.string());
+    auto exists = cpnetflux::storage::PosixFile::pathExists(path.string());
     ASSERT_TRUE(exists.isOk()) << exists.status().message();
     EXPECT_FALSE(exists.value());
 
     {
-        auto fileResult = gridflux::storage::PosixFile::openWriteExclusive(path.string());
+        auto fileResult = cpnetflux::storage::PosixFile::openWriteExclusive(path.string());
         ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
-        gridflux::storage::PosixFile file = std::move(fileResult.value());
+        cpnetflux::storage::PosixFile file = std::move(fileResult.value());
         const std::vector<std::uint8_t> data{'o', 'k'};
         EXPECT_TRUE(file.writeAtAll(0, data.data(), data.size()).isOk());
 
-        auto duplicate = gridflux::storage::PosixFile::openWriteExclusive(path.string());
+        auto duplicate = cpnetflux::storage::PosixFile::openWriteExclusive(path.string());
         EXPECT_FALSE(duplicate.isOk());
     }
 
-    EXPECT_TRUE(gridflux::storage::PosixFile::renamePath(path.string(), renamed.string()).isOk());
+    EXPECT_TRUE(cpnetflux::storage::PosixFile::renamePath(path.string(), renamed.string()).isOk());
 
-    exists = gridflux::storage::PosixFile::pathExists(renamed.string());
+    exists = cpnetflux::storage::PosixFile::pathExists(renamed.string());
     ASSERT_TRUE(exists.isOk()) << exists.status().message();
     EXPECT_TRUE(exists.value());
 
-    EXPECT_TRUE(gridflux::storage::PosixFile::removePath(renamed.string()).isOk());
-    exists = gridflux::storage::PosixFile::pathExists(renamed.string());
+    EXPECT_TRUE(cpnetflux::storage::PosixFile::removePath(renamed.string()).isOk());
+    exists = cpnetflux::storage::PosixFile::pathExists(renamed.string());
     ASSERT_TRUE(exists.isOk()) << exists.status().message();
     EXPECT_FALSE(exists.value());
 }
 
 TEST(PosixFileTest, OpensExistingFileForWriteOnlyResume) {
-    const std::filesystem::path path = tempPath("gridflux-posix-file-writeonly-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-posix-file-writeonly-test.bin");
     std::filesystem::remove(path);
 
     {
-        auto fileResult = gridflux::storage::PosixFile::openWriteTruncate(path.string());
+        auto fileResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
         ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
         const std::vector<std::uint8_t> data{'a', 'b', 'c'};
         EXPECT_TRUE(fileResult.value().writeAtAll(0, data.data(), data.size()).isOk());
     }
 
-    auto writeOnly = gridflux::storage::PosixFile::openWriteOnly(path.string());
+    auto writeOnly = cpnetflux::storage::PosixFile::openWriteOnly(path.string());
     ASSERT_TRUE(writeOnly.isOk()) << writeOnly.status().message();
     const std::vector<std::uint8_t> patch{'z'};
     EXPECT_TRUE(writeOnly.value().writeAtAll(1, patch.data(), patch.size()).isOk());
@@ -121,17 +121,17 @@ TEST(PosixFileTest, OpensExistingFileForWriteOnlyResume) {
 }
 
 TEST(PosixFileTest, OpensExistingFileForReadWriteResume) {
-    const std::filesystem::path path = tempPath("gridflux-posix-file-readwrite-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-posix-file-readwrite-test.bin");
     std::filesystem::remove(path);
 
     {
-        auto fileResult = gridflux::storage::PosixFile::openReadWriteExclusive(path.string());
+        auto fileResult = cpnetflux::storage::PosixFile::openReadWriteExclusive(path.string());
         ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
         const std::vector<std::uint8_t> data{'a', 'b', 'c'};
         EXPECT_TRUE(fileResult.value().writeAtAll(0, data.data(), data.size()).isOk());
     }
 
-    auto readWrite = gridflux::storage::PosixFile::openReadWrite(path.string());
+    auto readWrite = cpnetflux::storage::PosixFile::openReadWrite(path.string());
     ASSERT_TRUE(readWrite.isOk()) << readWrite.status().message();
 
     const std::vector<std::uint8_t> patch{'z'};
@@ -143,19 +143,19 @@ TEST(PosixFileTest, OpensExistingFileForReadWriteResume) {
     EXPECT_EQ(data[1], 'z');
     EXPECT_EQ(data[2], 'c');
 
-    auto duplicate = gridflux::storage::PosixFile::openReadWriteExclusive(path.string());
+    auto duplicate = cpnetflux::storage::PosixFile::openReadWriteExclusive(path.string());
     EXPECT_FALSE(duplicate.isOk());
 
     std::filesystem::remove(path);
 }
 
 TEST(PosixFileTest, PreallocatesFileSpace) {
-    const std::filesystem::path path = tempPath("gridflux-posix-file-preallocate-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-posix-file-preallocate-test.bin");
     std::filesystem::remove(path);
 
-    auto fileResult = gridflux::storage::PosixFile::openWriteTruncate(path.string());
+    auto fileResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
     ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
-    gridflux::storage::PosixFile file = std::move(fileResult.value());
+    cpnetflux::storage::PosixFile file = std::move(fileResult.value());
 
     ASSERT_TRUE(file.preallocate(4096).isOk());
     auto size = file.fileSize();

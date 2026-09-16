@@ -1,14 +1,14 @@
-#include "gridflux/config/file_download_options.h"
+#include "cpnetflux/config/file_download_options.h"
 
 #include <charconv>
 #include <limits>
 #include <string_view>
 
-#include "gridflux/checkpoint/transfer_manifest.h"
-#include "gridflux/core/io/tls_socket.h"
-#include "gridflux/core/metrics/event_log.h"
+#include "cpnetflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/metrics/event_log.h"
 
-namespace gridflux::config {
+namespace cpnetflux::config {
 namespace {
 
 constexpr std::uint32_t kMaxConnections = 64;
@@ -293,4 +293,4 @@ std::string fileDownloadUsage(const char* programName) {
            "[--max-chunks <N>]";
 }
 
-}  // namespace gridflux::config
+}  // namespace cpnetflux::config

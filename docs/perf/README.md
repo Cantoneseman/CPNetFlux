@@ -1,4 +1,4 @@
-# GridFlux 性能基线工具
+# CPNetFlux 性能基线工具
 
 ## Lab Beta 状态
 
@@ -12,38 +12,49 @@ Beta 3 uses the Shenzhen-configured OSS bucket `science-compressor-datasets` as
 the dataset source, caps staged source data at `<= 3GiB`, and keeps gzip/lz4/CPSS
 strictly in a staging/restore layer. It does not run 10GiB/20GiB/100GiB/heavy
 soak, CPSS training, SSH tunnels, private IP paths, or scp/rsync substitutes for
-FTP/GridFTP/GridFlux transfer evidence.
+FTP/GridFTP/CPNetFlux transfer evidence.
 
 Beta 3 evidence timeline:
 
 - Original run:
   `tools/perf/results/20260720T051105Z_lab-beta-3-public-compression-staging-matrix/`,
-  status `fail_correctness` / no-go. One required GridFlux lz4 worker row failed
+  status `fail_correctness` / no-go. One required CPNetFlux lz4 worker row failed
   with `exit_code=1` (`recv: Resource temporarily unavailable`) even though the
   restored tree hash matched the source.
 - Failure triage:
-  `tools/perf/results/20260721T034707Z_lab-beta-3-failure-triage-gridflux-lz4-final-status/`,
+  `tools/perf/results/20260721T034707Z_lab-beta-3-failure-triage-cpnetflux-lz4-final-status/`,
   status `pass_after_fix`. It covered only the failed
-  `oss_ai_training_mixed` / `gridflux_lz4_worker` path and passed the minimal
+  `oss_ai_training_mixed` / `cpnetflux_lz4_worker` path and passed the minimal
   public repro 3/3 after the final-status timeout fix.
 - Rerun after fix:
   `tools/perf/results/20260721T093510Z_lab-beta-3-compression-staging-rerun-after-final-status-fix/`,
-  status `partial_go_cpss_environment_blocked`. GridFlux, FTP, and GridFTP
+  status `partial_go_cpss_environment_blocked`. CPNetFlux, FTP, and GridFTP
   raw/gzip/lz4 transfer status and restore/tree hash all passed; CPSS remained
   environment-blocked.
 
 Current mouthpiece: raw/gzip/lz4 Beta 3 staging correctness passed; CPSS is
 `environment_blocked`; this is not `full_go`. Do not describe CPSS as passed, do
 not expand this closeout into 10GiB/20GiB/100GiB/heavy soak, and do not enter
-GridFlux C++ hot-path compression design from this evidence.
+CPNetFlux C++ hot-path compression design from this evidence.
 
-本目录记录 GridFlux 的可复现性能工具。`run_loopback_matrix.py` 和 `run_private_once.sh` 仍用于 memory-to-memory TCP sink；`run_file_loopback_matrix.py` 和 `run_file_private_once.sh` 用于文件传输基线；`run_gridftp_private_matrix.py` 用于 GridFTP-like framed STOR/RETR 私网矩阵。Phase 2B 起文件传输默认启用 CRC32C chunk checksum，并支持 `--checksum none` 做性能对照。Phase 2C 起 CRC32C 支持 `auto` / `software` / `hardware` backend，`auto` 在 x86 SSE4.2 可用时选择 hardware。Phase 4F 新增可选 file-IO-only `io_uring` prototype；Phase 4G 已在真实 liburing 环境下验证；Phase 4H 增加 queue depth / batching opt-in 维度；Phase 4J 增加 POSIX storage/writeback、manifest flush、checksum 和 final verify 阶段诊断。默认仍是 POSIX backend，网络仍是 epoll，STOR/RETR 文件数据仍只走 GridFlux framed data channel。
+本目录记录 CPNetFlux 的可复现性能工具。`run_loopback_matrix.py` 和 `run_private_once.sh` 仍用于 memory-to-memory TCP sink；`run_file_loopback_matrix.py` 和 `run_file_private_once.sh` 用于文件传输基线；`run_gridftp_private_matrix.py` 用于 GridFTP-like framed STOR/RETR 私网矩阵。Phase 2B 起文件传输默认启用 CRC32C chunk checksum，并支持 `--checksum none` 做性能对照。Phase 2C 起 CRC32C 支持 `auto` / `software` / `hardware` backend，`auto` 在 x86 SSE4.2 可用时选择 hardware。Phase 4F 新增可选 file-IO-only `io_uring` prototype；Phase 4G 已在真实 liburing 环境下验证；Phase 4H 增加 queue depth / batching opt-in 维度；Phase 4J 增加 POSIX storage/writeback、manifest flush、checksum 和 final verify 阶段诊断。默认仍是 POSIX backend，网络仍是 epoll，STOR/RETR 文件数据仍只走 CPNetFlux framed data channel。
+
+Phase 1 acceptance audit lives in `docs/perf/PHASE1_GLOBAL_SCHEDULER_MVP.md`.
+Phase 2 feedback-driven scheduler validation lives in
+`docs/perf/PHASE2_GLOBAL_SCHEDULER.md`. It compares `off`, `global/fixed`, and
+`global/adaptive`; the adaptive target is bounded by `--connections`, and
+remote 10M results are limited to correctness, resume, backpressure, queue,
+and metrics explainability.
+Phase 3 hot-path lossless compression scope, wire contract, raw fallback,
+resume retry, and validation boundaries live in
+`docs/perf/PHASE3_HOT_PATH_COMPRESSION.md`. Compression is opt-in to global
+tree upload candidates; `--scheduler off` remains raw.
 
 Phase 4N 起，alpha release gate 会生成 `tools/perf/results/<timestamp>_alpha-artifacts.json`，并用该 manifest 同步和校验远端 release artifacts。性能 CSV、summary CSV 和 CSV 引用的 sidecar logs 若被纳入 manifest，<redacted>一/<redacted>二必须 hash 一致。
 
-Phase 5A 起，目录级 alpha smoke 通过 `gridflux-tree-upload-client` /
-`gridflux-tree-download-client` 验证多文件 upload/download/resume。目录传输仍逐文件复用
-GridFlux framed STOR/RETR；性能矩阵默认仍以单文件 STOR/RETR 为主要口径。
+Phase 5A 起，目录级 alpha smoke 通过 `cpnetflux-tree-upload-client` /
+`cpnetflux-tree-download-client` 验证多文件 upload/download/resume。目录传输仍逐文件复用
+CPNetFlux framed STOR/RETR；性能矩阵默认仍以单文件 STOR/RETR 为主要口径。
 Phase 5C 起 tree private matrix 会给每次 tree CLI 调用传入 `--json-summary`，
 raw CSV 会记录 JSON summary 路径和 completed/skipped/failed/changed、
 bytes_total、bytes_transferred、tree_hash/error_message 等字段；stdout
@@ -59,7 +70,7 @@ CSV 为主，event log 用于单 case 排障：auth/path/manifest/checksum/chang
 python3 tools/release/sync_remote_artifacts.py \
   --manifest tools/perf/results/<timestamp>_alpha-artifacts.json \
   --remote <remote> \
-  --local-root /root/projects/GridFlux \
+  --local-root /root/projects/CPNetFlux \
   --remote-root <remote-root> \
   --verify-only \
   --json-output tools/perf/results/<timestamp>_artifact-verify.json
@@ -105,17 +116,17 @@ tools/perf/run_loopback_matrix.py --build-dir build --bytes 1073741824 --output-
 
 ## <redacted>二同步
 
-远程同步需要人工确认后运行。脚本不会打印密码；如需密码登录，使用 `GRIDFLUX_SSH_PASSWORD` 环境变量。
+远程同步需要人工确认后运行。脚本不会打印密码；如需密码登录，使用 `CPNETFLUX_SSH_PASSWORD` 环境变量。
 
 ```bash
-export GRIDFLUX_SSH_PASSWORD='***'
-tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux
+export CPNETFLUX_SSH_PASSWORD='***'
+tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux
 ```
 
 同步后需要在<redacted>二构建：
 
 ```bash
-ssh root@<redacted> 'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
+ssh root@<redacted> 'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
 ```
 
 ## 私网单次测试
@@ -123,7 +134,7 @@ ssh root@<redacted> 'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja 
 跨机测试需要人工确认<redacted>二已经同步并构建完成。默认从<redacted>一启动 server，并通过 SSH 在<redacted>二运行 client。
 
 ```bash
-tools/perf/run_private_once.sh --remote root@<redacted> --server-host <redacted> --build-dir /root/projects/GridFlux/build --connections 8 --bytes 1073741824 --buffer-size 65536
+tools/perf/run_private_once.sh --remote root@<redacted> --server-host <redacted> --build-dir /root/projects/CPNetFlux/build --connections 8 --bytes 1073741824 --buffer-size 65536
 ```
 
 输出 CSV 以及 server/client 原始日志写入 `tools/perf/results/`。
@@ -143,7 +154,7 @@ tools/perf/run_file_loopback_matrix.py \
   --output-dir tools/perf/results
 ```
 
-默认 smoke 覆盖 `connections=1,4,8`、`chunk_size=1MiB,4MiB`、`buffer_size=64KiB`。脚本为每个 case 生成源文件，运行 `gridflux-file-server` / `gridflux-file-client`，计算源/目标 sha256，并写 CSV。
+默认 smoke 覆盖 `connections=1,4,8`、`chunk_size=1MiB,4MiB`、`buffer_size=64KiB`。脚本为每个 case 生成源文件，运行 `cpnetflux-file-server` / `cpnetflux-file-client`，计算源/目标 sha256，并写 CSV。
 
 如需和无 checksum 路径对照：
 
@@ -168,22 +179,22 @@ tools/benchmark/run_checksum_bench.py \
   --output-dir tools/perf/results
 ```
 
-脚本调用 `gridflux-checksum-bench`，默认扫描 `software,auto,hardware` backend，输出 CSV 到 `tools/perf/results/`。如果显式 `hardware` 在当前<redacted>不可用，会记录为 `skip`；`auto` 应回退到 software。单次命令也可直接运行：
+脚本调用 `cpnetflux-checksum-bench`，默认扫描 `software,auto,hardware` backend，输出 CSV 到 `tools/perf/results/`。如果显式 `hardware` 在当前<redacted>不可用，会记录为 `skip`；`auto` 应回退到 software。单次命令也可直接运行：
 
 ```bash
-./build/gridflux-checksum-bench --backend auto --bytes 67108864 --iterations 5
+./build/cpnetflux-checksum-bench --backend auto --bytes 67108864 --iterations 5
 ```
 
 ## Native Storage Benchmark
 
-Phase 4C 新增 `gridflux-storage-bench`，它直接使用项目 `PosixFile` 路径测顺序写、读和 rewrite，不再用 Python IO 作为主要磁盘口径。Phase 4D 起 bench 输出每次 iteration raw 行和 aggregate 行，并记录 file IO call count、average bytes per call 与 file IO wait time。
+Phase 4C 新增 `cpnetflux-storage-bench`，它直接使用项目 `PosixFile` 路径测顺序写、读和 rewrite，不再用 Python IO 作为主要磁盘口径。Phase 4D 起 bench 输出每次 iteration raw 行和 aggregate 行，并记录 file IO call count、average bytes per call 与 file IO wait time。
 
 ```bash
 python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --modes write,read \
   --preallocates off,full \
@@ -196,8 +207,8 @@ python3 tools/benchmark/run_storage_bench.py \
 单次 C++ 命令也可直接运行：
 
 ```bash
-./build/gridflux-storage-bench \
-  --path /tmp/gridflux-storage-bench.bin \
+./build/cpnetflux-storage-bench \
+  --path /tmp/cpnetflux-storage-bench.bin \
   --mode all \
   --bytes 1073741824 \
   --buffer-size 1048576 \
@@ -211,20 +222,20 @@ python3 tools/benchmark/run_storage_bench.py \
 
 `--preallocate full` 使用 `posix_fallocate`。如果系统或文件系统返回错误，命令会失败并记录错误，不会静默降级为 off。
 `--file-io-advice` 支持 `off`、`sequential`、`noreuse`、`dontneed`、`sequential_dontneed`；非 off 会显式调用 `posix_fadvise`，调用失败则当前 case 失败。
-Phase 4F 起 `--file-io-backend` 支持 `posix|io_uring`。`posix` 是默认值；`io_uring` 只有在构建时显式启用 `-DGRIDFLUX_ENABLE_IO_URING=ON` 且探测到 liburing 时可用。Phase 4G 中本机和<redacted>二均已安装 `liburing-dev` 并完成真实 io_uring 构建、CTest 与 POSIX/io_uring 对比；即便如此，默认 backend 仍保持 POSIX。Phase 4H 起 storage bench 和 private matrix 支持 `--file-io-queue-depths` 与 `--file-io-batch-sizes`；未显式传 batch size 时默认跟随 queue depth。queue/batch 只影响 `io_uring` backend，POSIX 路径仅记录参数用于公平 CSV 对照。
+Phase 4F 起 `--file-io-backend` 支持 `posix|io_uring`。`posix` 是默认值；`io_uring` 只有在构建时显式启用 `-DCPNETFLUX_ENABLE_IO_URING=ON` 且探测到 liburing 时可用。Phase 4G 中本机和<redacted>二均已安装 `liburing-dev` 并完成真实 io_uring 构建、CTest 与 POSIX/io_uring 对比；即便如此，默认 backend 仍保持 POSIX。Phase 4H 起 storage bench 和 private matrix 支持 `--file-io-queue-depths` 与 `--file-io-batch-sizes`；未显式传 batch size 时默认跟随 queue depth。queue/batch 只影响 `io_uring` backend，POSIX 路径仅记录参数用于公平 CSV 对照。
 Phase 4K 起 `--posix-write-strategy auto|direct|coalesced` 用于 POSIX temp write/writeback 诊断。默认 `auto` 保持既有语义：`file_io_buffer_size=0` 直写，`>0` 使用 contiguous coalescing；`direct` 强制直写；`coalesced` 要求 `--file-io-buffer-size > 0`。
 
 ## Tree Private Matrix
 
-Phase 5B/5C 的目录级私网矩阵使用现有 `gridflux-gridftp-server` 与
-`gridflux-tree-upload-client` / `gridflux-tree-download-client`：
+Phase 5B/5C 的目录级私网矩阵使用现有 `cpnetflux-gridftp-server` 与
+`cpnetflux-tree-upload-client` / `cpnetflux-tree-download-client`：
 
 ```bash
 python3 tools/perf/run_gridftp_tree_private_matrix.py \
   --remote <remote> \
   --server-host <server-host> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --datasets small,mixed \
   --directions upload,download \
   --file-parallelisms 1,2,4 \
@@ -246,12 +257,12 @@ Phase 4F/4G no-liburing fallback 验证：
 cmake -S . -B build-iouring-probe -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_COMPILER=g++-13 \
-  -DGRIDFLUX_ENABLE_IO_URING=ON
+  -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-iouring-probe
 ctest --test-dir build-iouring-probe --output-on-failure
 
-./build-iouring-probe/gridflux-storage-bench \
-  --path /tmp/gridflux-iouring-unavailable.bin \
+./build-iouring-probe/cpnetflux-storage-bench \
+  --path /tmp/cpnetflux-iouring-unavailable.bin \
   --mode write \
   --bytes 1048576 \
   --buffer-size 65536 \
@@ -269,7 +280,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --modes write,read \
   --preallocates off \
@@ -288,7 +299,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --bytes 1073741824 \
   --modes write,read,rewrite \
   --preallocates off \
@@ -307,7 +318,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --bytes 1073741824 \
   --modes write,read,rewrite \
   --file-io-backends posix,io_uring \
@@ -325,7 +336,7 @@ Phase 4G 真实 liburing storage bench 命令：
 cmake -S . -B build-io-uring-real -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER=g++-13 \
-  -DGRIDFLUX_ENABLE_IO_URING=ON
+  -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 
@@ -333,7 +344,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --bytes 1073741824 \
   --modes write,read,all \
   --preallocates off,full \
@@ -346,15 +357,15 @@ python3 tools/benchmark/run_storage_bench.py \
 
 ## 文件传输私网单次测试
 
-跨机文件测试需要人工确认<redacted>二已同步并构建。源文件生成在 client 所在<redacted>二，目标文件生成在 server 所在<redacted>一；脚本不会打印密码，如需密码登录使用 `GRIDFLUX_SSH_PASSWORD`。
+跨机文件测试需要人工确认<redacted>二已同步并构建。源文件生成在 client 所在<redacted>二，目标文件生成在 server 所在<redacted>一；脚本不会打印密码，如需密码登录使用 `CPNETFLUX_SSH_PASSWORD`。
 
 ```bash
-export GRIDFLUX_SSH_PASSWORD='***'
+export CPNETFLUX_SSH_PASSWORD='***'
 tools/perf/run_file_private_once.sh \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --connections 4 \
   --bytes 268435456 \
   --chunk-size 1048576 \
@@ -371,12 +382,12 @@ tools/perf/run_file_private_once.sh \
 该脚本从<redacted>一启动 server，在<redacted>二生成 source，并先用 `--max-chunks` 制造 partial transfer，再双端 `--resume` 补传。它用于可靠性 smoke，不属于性能矩阵。
 
 ```bash
-export GRIDFLUX_SSH_PASSWORD='***'
+export CPNETFLUX_SSH_PASSWORD='***'
 tools/test/run_file_checksum_private_once.sh \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --connections 4 \
   --bytes 67108864 \
   --chunk-size 1048576 \
@@ -387,22 +398,22 @@ tools/test/run_file_checksum_private_once.sh \
 
 ## GridFTP-like Framed 私网矩阵
 
-Phase 4A/4B 使用 `gridflux-gridftp-server` 控制面发起 STOR/RETR，但文件数据仍走 GridFlux framed data channel。脚本从<redacted>一启动 control server，通过 SSH 在<redacted>二运行 GridFlux-aware framed client，并为每个 case 分配唯一端口、root、transfer id、日志和临时路径。
+Phase 4A/4B 使用 `cpnetflux-gridftp-server` 控制面发起 STOR/RETR，但文件数据仍走 CPNetFlux framed data channel。脚本从<redacted>一启动 control server，通过 SSH 在<redacted>二运行 CPNetFlux-aware framed client，并为每个 case 分配唯一端口、root、transfer id、日志和临时路径。
 
 Phase 4B 新增 host/link baseline：
 
 ```bash
-export GRIDFLUX_SSH_PASSWORD='***'
+export CPNETFLUX_SSH_PASSWORD='***'
 tools/perf/run_private_host_baseline.py \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --output-dir tools/perf/results
 ```
 
-该脚本优先使用 `iperf3` / `fio`；如果任一端缺工具，会自动标记 fallback 并使用 GridFlux memory sink 或 Python 顺序 IO 探针，不安装系统软件。
+该脚本优先使用 `iperf3` / `fio`；如果任一端缺工具，会自动标记 fallback 并使用 CPNetFlux memory sink 或 Python 顺序 IO 探针，不安装系统软件。
 
 Smoke 模式默认覆盖：
 
@@ -414,13 +425,13 @@ Smoke 模式默认覆盖：
 - checksum：`crc32c,none`
 
 ```bash
-export GRIDFLUX_SSH_PASSWORD='***'
+export CPNETFLUX_SSH_PASSWORD='***'
 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -438,8 +449,8 @@ tools/perf/run_gridftp_private_matrix.py \
   --final-verify-policy full \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -487,7 +498,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --modes write,read \
   --preallocates off,full \
@@ -515,8 +526,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --case-timeout 600 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -554,8 +565,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results
 ```
 
@@ -582,8 +593,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results
 ```
 
@@ -610,8 +621,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results
 ```
 
@@ -648,8 +659,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 900
 ```
@@ -674,8 +685,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 900
 ```
@@ -698,7 +709,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --bytes 1073741824 \
   --modes write,read,rewrite \
   --file-io-backends posix \
@@ -732,8 +743,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 900
 ```
@@ -752,7 +763,7 @@ Phase 4K 结论记录在 `docs/perf/PHASE4K_POSIX_WRITEBACK_OPTIMIZATION.md`：�
 Phase 4L stability and RETR breakdown matrix:
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions stor,retr \
   --bytes 1073741824 \
@@ -773,8 +784,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 5 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 900
 ```
@@ -799,11 +810,11 @@ Phase 4L 结论记录在 `docs/perf/PHASE4L_STABILITY_AND_RETR_BREAKDOWN.md`：r
 Phase 5B tree private matrix:
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_tree_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_tree_private_matrix.py \
   --remote <remote> \
   --server-host <server-host> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --directions upload,download \
   --datasets mixed \
   --file-parallelisms 1,2,4 \
@@ -813,8 +824,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_tree_private_matrix.p
   --output-dir tools/perf/results
 ```
 
-The tree matrix starts `gridflux-gridftp-server` locally and runs
-`gridflux-tree-upload-client` / `gridflux-tree-download-client` on the remote
+The tree matrix starts `cpnetflux-gridftp-server` locally and runs
+`cpnetflux-tree-upload-client` / `cpnetflux-tree-download-client` on the remote
 machine. It records raw and summary CSV. Summary rows include
 `throughput_gbps_min/median/max`, `repeat_count`, `fail_count`, and
 `tree_hash_mismatch_count`. Use:
@@ -840,10 +851,10 @@ Tree hash uses sorted relative paths, file size, and file content hashes.
 
 ```bash
 python3 tools/release/check_public_hygiene.py --path .
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public --force
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
-test ! -f /tmp/gridflux-public/AGENTS.md
-test -f /tmp/gridflux-public/AGENTS.example.md
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
+test ! -f /tmp/cpnetflux-public/AGENTS.md
+test -f /tmp/cpnetflux-public/AGENTS.example.md
 ```
 
 私有工作区的 hygiene check 可能因本地 `AGENTS.md` 和历史私网拓扑记录失败；这是预期的发布闸门。公开目录必须由 `export_public_repo.py` 生成并通过 strict check。
@@ -860,19 +871,19 @@ python3 tools/release/run_alpha_release_gate.py \
   --build-dir build \
   --io-uring-build-dir build-io-uring-real \
   --remote <remote> \
-  --remote-root /root/projects/GridFlux \
+  --remote-root /root/projects/CPNetFlux \
   --results-dir tools/perf/results
 ```
 
 Full gate 会在 quick 基础上跑 1GiB repeat=3 STOR/RETR private baseline，并输出 Markdown 与 JSON：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_gate.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_gate.py \
   --full \
   --build-dir build \
   --io-uring-build-dir build-io-uring-real \
   --remote <remote> \
-  --remote-root /root/projects/GridFlux \
+  --remote-root /root/projects/CPNetFlux \
   --server-host <server-host> \
   --results-dir tools/perf/results
 ```
@@ -882,8 +893,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_gate.py \
 ```bash
 python3 tools/release/check_remote_artifact_sync.py \
   --remote <remote> \
-  --local-root /root/projects/GridFlux \
-  --remote-root /root/projects/GridFlux \
+  --local-root /root/projects/CPNetFlux \
+  --remote-root /root/projects/CPNetFlux \
   --path INDEX.md \
   --path docs/ROADMAP.md \
   --path docs/PROJECT_STATE.md \
@@ -913,12 +924,12 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
-失败时脚本保留日志与临时路径并在 CSV 写入 `result=fail` 和错误摘要；成功 case 默认清理临时数据。脚本结束会检查本机与<redacted>二是否有遗留 `gridflux-gridftp-server` / `gridflux-file-*` 进程。
+失败时脚本保留日志与临时路径并在 CSV 写入 `result=fail` 和错误摘要；成功 case 默认清理临时数据。脚本结束会检查本机与<redacted>二是否有遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 进程。
 
 ## CSV 字段
 
@@ -960,7 +971,7 @@ Storage benchmark CSV 字段：
 timestamp,side,operation,bytes,iterations,buffer_size,preallocate,file_io_backend,file_io_buffer_size,posix_write_strategy,posix_write_strategy_effective,file_io_queue_depth,file_io_batch_size,file_io_advice,iteration,aggregate,elapsed_seconds,throughput_gbps,read_call_count,write_call_count,avg_read_bytes_per_call,avg_write_bytes_per_call,file_io_wait_seconds,write_syscall_count,write_retry_count,write_short_count,write_zero_count,write_total_bytes,write_avg_bytes_per_syscall,io_uring_submit_count,io_uring_wait_count,io_uring_completion_count,io_uring_sqe_count,io_uring_partial_completion_count,io_uring_retry_count,io_uring_avg_bytes_per_sqe,hostname,kernel,fs_type,free_bytes,path,log,result,error
 ```
 
-Storage bench wrapper 同时生成 `*-summary.csv`，按 side/operation/bytes/buffer/preallocate/file_io_backend/file_io_queue_depth/file_io_batch_size/file_io_advice 分组统计 throughput/elapsed 的 min、median、max。Phase 4I 起 summary 还聚合 io_uring submit/wait/completion/SQE/partial/retry/avg bytes per SQE 的 min、median、max。
+Storage bench wrapper 同时生成 `*-summary.csv`，按 side/operation/bytes/buffer/preallocate/file_io_backend/file_io_buffer_size/file_io_queue_depth/file_io_batch_size/file_io_advice/posix_write_strategy/effective strategy 分组统计 throughput/elapsed 的 min、median、max。Phase 4I 起 summary 还聚合 io_uring submit/wait/completion/SQE/partial/retry/avg bytes per SQE，以及 POSIX write syscall 计数/重试/短写/零写/平均 syscall 字节数的 min、median、max。
 
 ## Phase 6D Data TLS Smoke
 
@@ -980,7 +991,7 @@ Private:
 python3 tools/test/run_gridftp_data_tls_private_once.py \
   --remote <remote> \
   --server-host <server-host> \
-  --local-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
   --remote-build-dir <remote-root>/build \
   --output-dir tools/perf/results
 ```
@@ -992,6 +1003,6 @@ plaintext listing data channel.
 ## Beta Matrix Draft
 
 `tools/experiments/beta_matrix/` holds the local planning and dry-run layer for
-the GridFlux Beta integration work. It reads the FDT HPC manifest, builds the
+the CPNetFlux Beta integration work. It reads the FDT HPC manifest, builds the
 method matrix, and writes the fixed report set listed in
 `docs/perf/BETA_MATRIX.md`. It does not run the cloud experiment itself.

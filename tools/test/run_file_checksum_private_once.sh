@@ -8,8 +8,8 @@ Usage: run_file_checksum_private_once.sh [options]
 Options:
   --remote <user@host>              default: root@<redacted>
   --server-host <ip>                default: <redacted>
-  --local-build-dir <path>          default: /root/projects/GridFlux/build
-  --remote-build-dir <path>         default: /root/projects/GridFlux/build
+  --local-build-dir <path>          default: /root/projects/CPNetFlux/build
+  --remote-build-dir <path>         default: /root/projects/CPNetFlux/build
   --output-dir <path>               default: tools/perf/results
   --port <port>                     default: 19900
   --connections <N>                 default: 4
@@ -25,8 +25,8 @@ USAGE
 
 remote="root@<redacted>"
 server_host="<redacted>"
-local_build_dir="/root/projects/GridFlux/build"
-remote_build_dir="/root/projects/GridFlux/build"
+local_build_dir="/root/projects/CPNetFlux/build"
+remote_build_dir="/root/projects/CPNetFlux/build"
 output_dir="tools/perf/results"
 port="19900"
 connections="4"
@@ -74,8 +74,8 @@ server_partial_log="${output_dir}/${case_id}_server_partial.log"
 client_partial_log="${output_dir}/${case_id}_client_partial.log"
 server_resume_log="${output_dir}/${case_id}_server_resume.log"
 client_resume_log="${output_dir}/${case_id}_client_resume.log"
-local_server_bin="${local_build_dir%/}/gridflux-file-server"
-remote_client_bin="${remote_build_dir%/}/gridflux-file-client"
+local_server_bin="${local_build_dir%/}/cpnetflux-file-server"
+remote_client_bin="${remote_build_dir%/}/cpnetflux-file-client"
 remote_source="/tmp/${case_id}.src"
 local_dest="/tmp/${case_id}.dst"
 
@@ -85,23 +85,23 @@ if [[ ! -x "$local_server_bin" ]]; then
 fi
 
 ssh_cmd=(ssh -o StrictHostKeyChecking=no "$remote")
-if [[ -n "${GRIDFLUX_SSH_PASSWORD:-}" ]]; then
+if [[ -n "${CPNETFLUX_SSH_PASSWORD:-}" ]]; then
     if ! command -v sshpass >/dev/null 2>&1; then
-        echo "sshpass is required when GRIDFLUX_SSH_PASSWORD is set" >&2
+        echo "sshpass is required when CPNETFLUX_SSH_PASSWORD is set" >&2
         exit 1
     fi
     ssh_cmd=(sshpass -e ssh -o StrictHostKeyChecking=no "$remote")
-    export SSHPASS="$GRIDFLUX_SSH_PASSWORD"
+    export SSHPASS="$CPNETFLUX_SSH_PASSWORD"
 fi
 
 if ! "${ssh_cmd[@]}" "test -x '$remote_client_bin'"; then
-    echo "remote gridflux-file-client is missing; sync and build ${remote} first" >&2
+    echo "remote cpnetflux-file-client is missing; sync and build ${remote} first" >&2
     exit 1
 fi
 
 cleanup() {
     if [[ "$keep_files" != "true" ]]; then
-        rm -f "$local_dest" "$local_dest.gridflux.manifest" "$local_dest.part.$transfer_id"
+        rm -f "$local_dest" "$local_dest.cpnetflux.manifest" "$local_dest.part.$transfer_id"
         "${ssh_cmd[@]}" "rm -f '$remote_source'" >/dev/null 2>&1 || true
     fi
 }
@@ -122,7 +122,7 @@ PY
 "
 
 source_sha256="$("${ssh_cmd[@]}" "sha256sum '$remote_source' | awk '{print \$1}'")"
-rm -f "$local_dest" "$local_dest.gridflux.manifest" "$local_dest.part.$transfer_id"
+rm -f "$local_dest" "$local_dest.cpnetflux.manifest" "$local_dest.part.$transfer_id"
 
 "$local_server_bin" \
     --host "$server_host" \
@@ -147,7 +147,7 @@ if [[ "$client_partial_status" -eq 0 || "$server_partial_status" -eq 0 ]]; then
     exit 1
 fi
 test ! -f "$local_dest"
-test -f "$local_dest.gridflux.manifest"
+test -f "$local_dest.cpnetflux.manifest"
 test -f "$local_dest.part.$transfer_id"
 
 "$local_server_bin" \
@@ -179,4 +179,4 @@ if [[ "$source_sha256" != "$dest_sha256" ]]; then
     exit 1
 fi
 
-echo "gridflux private checksum resume smoke passed"
+echo "cpnetflux private checksum resume smoke passed"

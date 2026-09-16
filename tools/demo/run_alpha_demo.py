@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a compact GridFlux alpha demo locally or on the private two-node setup."""
+"""Run a compact CPNetFlux alpha demo locally or on the private two-node setup."""
 
 from __future__ import annotations
 
@@ -120,8 +120,8 @@ def login_type_i(
     tls_ca_file: str = "",
 ) -> tuple[socket.socket | ssl.SSLSocket, bytearray]:
     sock, buffer = connect_control(host, port, tls_mode=tls_mode, tls_ca_file=tls_ca_file)
-    user = "token" if auth_mode == "token" else "gridflux"
-    password = Path(token_file).read_text(encoding="utf-8").strip() if auth_mode == "token" else "gridflux"
+    user = "token" if auth_mode == "token" else "cpnetflux"
+    password = Path(token_file).read_text(encoding="utf-8").strip() if auth_mode == "token" else "cpnetflux"
     if reply_code(send_command(sock, buffer, f"USER {user}")) != 331:
         raise RuntimeError("USER failed")
     if reply_code(send_command(sock, buffer, "PASS " + password)) != 230:
@@ -158,7 +158,7 @@ def start_server(
     data_tls_mode: str = "off",
 ) -> subprocess.Popen:
     command = [
-        str(build_dir / "gridflux-gridftp-server"),
+        str(build_dir / "cpnetflux-gridftp-server"),
         "--host",
         "127.0.0.1",
         "--port",
@@ -411,7 +411,7 @@ class LocalDemo:
                 raise RuntimeError(f"STOR failed: {stor}")
             parsed_transfer_id = parse_transfer_id(stor)
             command = [
-                str(self.build_dir / "gridflux-file-client"),
+                str(self.build_dir / "cpnetflux-file-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -478,7 +478,7 @@ class LocalDemo:
                 raise RuntimeError(f"RETR failed: {retr}")
             parsed_transfer_id = parse_transfer_id(retr)
             command = [
-                str(self.build_dir / "gridflux-file-download-client"),
+                str(self.build_dir / "cpnetflux-file-download-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -557,14 +557,14 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
         work_dir = results_dir / "work"
         work_dir.mkdir(parents=True, exist_ok=True)
     else:
-        temp_context = tempfile.TemporaryDirectory(prefix="gridflux-alpha-demo.")
+        temp_context = tempfile.TemporaryDirectory(prefix="cpnetflux-alpha-demo.")
         work_dir = Path(temp_context.name)
     build_dir = Path(args.build_dir).resolve()
     event_log = str(Path(args.event_log)) if args.event_log else str(results_dir / "alpha_demo_events.jsonl")
     generated_token_context = None
     auth_token_file = args.auth_token_file
     if args.auth_mode == "token" and not auth_token_file:
-        generated_token_context = tempfile.TemporaryDirectory(prefix="gridflux-alpha-demo-token.")
+        generated_token_context = tempfile.TemporaryDirectory(prefix="cpnetflux-alpha-demo-token.")
         token_path = Path(generated_token_context.name) / "auth-token.txt"
         token_path.write_text("phase6b-alpha-demo-token\n", encoding="utf-8")
         token_path.chmod(0o600)
@@ -574,7 +574,7 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
     tls_key_file = args.tls_key_file
     tls_ca_file = args.tls_ca_file
     if args.tls_mode == "required" and (not tls_cert_file or not tls_key_file):
-        generated_tls_context = tempfile.TemporaryDirectory(prefix="gridflux-alpha-demo-tls.")
+        generated_tls_context = tempfile.TemporaryDirectory(prefix="cpnetflux-alpha-demo-tls.")
         tls_root = Path(generated_tls_context.name)
         tls_cert = tls_root / "cert.pem"
         tls_key = tls_root / "key.pem"
@@ -672,7 +672,7 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
             summary = demo.run_tree_command(
                 "tree_upload",
                 [
-                    str(build_dir / "gridflux-tree-upload-client"),
+                    str(build_dir / "cpnetflux-tree-upload-client"),
                     "--host",
                     "127.0.0.1",
                     "--port",
@@ -699,7 +699,7 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
             summary = demo.run_tree_command(
                 "tree_download",
                 [
-                    str(build_dir / "gridflux-tree-download-client"),
+                    str(build_dir / "cpnetflux-tree-download-client"),
                     "--host",
                     "127.0.0.1",
                     "--port",
@@ -723,7 +723,7 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
 
         def tree_resume(start: float) -> dict[str, object]:
             upload_base = [
-                str(build_dir / "gridflux-tree-upload-client"),
+                str(build_dir / "cpnetflux-tree-upload-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -746,7 +746,7 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
             demo.run_tree_command("tree_resume_upload", upload_base + ["--resume"])
             download_dest = work_dir / "tree-download-resume"
             download_base = [
-                str(build_dir / "gridflux-tree-download-client"),
+                str(build_dir / "cpnetflux-tree-download-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -778,7 +778,7 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
             changed_source = work_dir / "tree-changed-source"
             shutil.copytree(tree_mixed, changed_source)
             base = [
-                str(build_dir / "gridflux-tree-upload-client"),
+                str(build_dir / "cpnetflux-tree-upload-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -847,8 +847,8 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
 
 def private_env(remote: str) -> dict[str, str]:
     env = remote_auth.command_env(remote, REPO_ROOT)
-    if env.get("SSHPASS") and not env.get("GRIDFLUX_SSH_PASSWORD"):
-        env["GRIDFLUX_SSH_PASSWORD"] = env["SSHPASS"]
+    if env.get("SSHPASS") and not env.get("CPNETFLUX_SSH_PASSWORD"):
+        env["CPNETFLUX_SSH_PASSWORD"] = env["SSHPASS"]
     return env
 
 
@@ -921,7 +921,7 @@ def run_private_demo(args: argparse.Namespace, output_json: Path, timestamp: str
         if args.auth_token_file:
             token_file = args.auth_token_file
         else:
-            token_dir = Path("/tmp") / f"gridflux-alpha-demo-token-{timestamp}-{os.getpid()}"
+            token_dir = Path("/tmp") / f"cpnetflux-alpha-demo-token-{timestamp}-{os.getpid()}"
             token_dir.mkdir(parents=True, exist_ok=True)
             token_path = token_dir / "auth-token.txt"
             token_path.write_text("phase6a-alpha-demo-token\n", encoding="utf-8")
@@ -1039,11 +1039,11 @@ def run_private_demo(args: argparse.Namespace, output_json: Path, timestamp: str
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the GridFlux alpha demo.")
+    parser = argparse.ArgumentParser(description="Run the CPNetFlux alpha demo.")
     parser.add_argument("--mode", choices=["local", "private"], required=True)
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--remote")
-    parser.add_argument("--remote-root", default="/root/projects/GridFlux")
+    parser.add_argument("--remote-root", default="/root/projects/CPNetFlux")
     parser.add_argument("--server-host")
     parser.add_argument("--results-dir", default="tools/perf/results")
     parser.add_argument("--dataset-dir", default="")

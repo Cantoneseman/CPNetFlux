@@ -1,4 +1,4 @@
-#include "gridflux/core/io/file_download_sender.h"
+#include "cpnetflux/core/io/file_download_sender.h"
 
 #include <poll.h>
 #include <sys/socket.h>
@@ -14,28 +14,41 @@
 #include <utility>
 #include <vector>
 
-#include "gridflux/checkpoint/transfer_manifest.h"
-#include "gridflux/common/throughput_counter.h"
-#include "gridflux/core/chunk/chunk_planner.h"
-#include "gridflux/core/io/framed_data_socket.h"
-#include "gridflux/core/metrics/transfer_phase_stats.h"
-#include "gridflux/core/protocol/frame.h"
-#include "gridflux/storage/file_io.h"
-#include "gridflux/storage/posix_file.h"
+#include "cpnetflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/common/throughput_counter.h"
+#include "cpnetflux/core/chunk/chunk_planner.h"
+#include "cpnetflux/core/io/framed_data_socket.h"
+#include "cpnetflux/core/metrics/transfer_phase_stats.h"
+#include "cpnetflux/core/protocol/compressed_data.h"
+#include "cpnetflux/core/protocol/frame.h"
+#include "cpnetflux/storage/file_io.h"
+#include "cpnetflux/storage/posix_file.h"
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 namespace {
 
 struct SenderStats {
     std::uint64_t sentBytes = 0;
+    std::uint64_t wireBytes = 0;
     std::uint64_t skippedBytes = 0;
     std::uint64_t resentBytes = 0;
     std::uint64_t verifiedBytes = 0;
+    std::uint64_t compressionAttempts = 0;
+    std::uint64_t compressedFrames = 0;
+    std::uint64_t rawFallbackFrames = 0;
+    std::uint64_t compressionFailures = 0;
+    std::uint64_t compressedLogicalBytes = 0;
+    std::uint64_t compressedWireBytes = 0;
+    std::string compressionFallbackReason;
 };
 
 common::Status systemStatus(const char* operation, int errorNumber) {
     return common::Status::systemError(std::string(operation) + ": " + std::strerror(errorNumber),
                                        errorNumber);
+}
+
+bool isPayloadLimitFailure(const common::Status& status) {
+    return status.message().find("payload") != std::string::npos;
 }
 
 common::Status setReceiveTimeout(int fd) {
@@ -186,7 +199,7 @@ common::Status sendChunk(FramedDataSocket* socket, const FileDownloadSenderOptio
                          std::vector<std::uint8_t>& buffer,
                          metrics::TransferPhaseStats* phaseStats,
                          const storage::FileIoContext& fileIoContext,
-                         storage::FileIoStats* fileIoStats) {
+                         storage::FileIoStats* fileIoStats, SenderStats* stats) {
     checksum::ChecksumComputer checksumComputer(options.checksumAlgorithm, checksumBackend);
     std::uint64_t completed = chunk.offset;
     const std::uint64_t end = chunk.offset + chunk.length;
@@ -210,20 +223,78 @@ common::Status sendChunk(FramedDataSocket* socket, const FileDownloadSenderOptio
             checksumComputer.update(buffer.data(), payloadSize);
         }
 
+        const std::uint8_t* payloadData = buffer.data();
+        std::uint32_t wirePayloadSize = payloadSize;
+        std::uint16_t flags = 0;
+        std::vector<std::uint8_t> compressedPayload;
+        const bool canAttemptCompression = options.hotPathCompression.enabled &&
+                                           options.hotPathCompression.candidate &&
+                                           !options.hotPathCompression.forceRaw;
+        if (canAttemptCompression && stats != nullptr) {
+            ++stats->compressionAttempts;
+        }
+        if (canAttemptCompression && !options.hotPathCompression.testForceCompressFailure) {
+            const std::uint32_t maxPayloadBytes = options.hotPathCompression.maxPayloadBytes == 0
+                                                      ? options.bufferSize
+                                                      : std::min(options.bufferSize,
+                                                                 options.hotPathCompression
+                                                                     .maxPayloadBytes);
+            auto encoded = protocol::encodeCompressedDataPayload(buffer.data(), payloadSize,
+                                                                 maxPayloadBytes);
+            if (encoded.isOk() && encoded.value().size() < payloadSize) {
+                compressedPayload = std::move(encoded.value());
+                if (options.hotPathCompression.testCorruptCompressedPayload &&
+                    compressedPayload.size() > protocol::kCompressedDataPrefixSize) {
+                    compressedPayload[protocol::kCompressedDataPrefixSize] ^= 0xFFU;
+                }
+                payloadData = compressedPayload.data();
+                wirePayloadSize = static_cast<std::uint32_t>(compressedPayload.size());
+                flags = protocol::kDataCompressed;
+                if (stats != nullptr) {
+                    ++stats->compressedFrames;
+                    stats->compressedLogicalBytes += payloadSize;
+                    stats->compressedWireBytes += wirePayloadSize;
+                }
+            } else if (stats != nullptr) {
+                ++stats->rawFallbackFrames;
+                if (stats->compressionFallbackReason.empty()) {
+                    stats->compressionFallbackReason =
+                        !encoded.isOk()
+                            ? (encoded.status().message().find("payload limit") !=
+                                       std::string::npos
+                                   ? "payload_limit"
+                                   : "compression_failure")
+                            : "poor_ratio";
+                }
+                if (!encoded.isOk() &&
+                    !isPayloadLimitFailure(encoded.status())) {
+                    ++stats->compressionFailures;
+                }
+            }
+        } else if (canAttemptCompression && stats != nullptr) {
+            ++stats->rawFallbackFrames;
+            ++stats->compressionFailures;
+            stats->compressionFallbackReason = "compression_failure";
+        }
+
         protocol::FrameHeader header;
         header.type = protocol::FrameType::Data;
+        header.flags = flags;
         header.streamId = chunk.streamId;
         header.chunkId = chunk.chunkId;
         header.offset = completed;
-        header.payloadSize = payloadSize;
+        header.payloadSize = wirePayloadSize;
         header.totalSize = totalSize;
         const common::Status headerStatus = sendFrame(socket, header, {}, phaseStats);
         if (!headerStatus.isOk()) {
             return headerStatus;
         }
-        const common::Status payloadStatus = sendAll(socket, buffer.data(), payloadSize, phaseStats);
+        const common::Status payloadStatus = sendAll(socket, payloadData, wirePayloadSize, phaseStats);
         if (!payloadStatus.isOk()) {
             return payloadStatus;
+        }
+        if (stats != nullptr) {
+            stats->wireBytes += wirePayloadSize;
         }
         completed += payloadSize;
     }
@@ -285,7 +356,7 @@ common::Status sendStream(FramedDataSocket connection, const FileDownloadSenderO
         }
         const common::Status sendStatus = sendChunk(&connection, options, inputFile, chunk,
                                                     checksumBackend, totalSize, buffer,
-                                                    phaseStats, fileIoContext, fileIoStats);
+                                                    phaseStats, fileIoContext, fileIoStats, stats);
         if (!sendStatus.isOk()) {
             return sendStatus;
         }
@@ -402,14 +473,32 @@ common::Status runFramedFileSenderOnListener(const FileDownloadSenderOptions& op
     }
 
     std::uint64_t sentBytes = 0;
+    std::uint64_t wireBytes = 0;
     std::uint64_t skippedBytes = 0;
     std::uint64_t resentBytes = 0;
     std::uint64_t verifiedBytes = 0;
+    std::uint64_t compressionAttempts = 0;
+    std::uint64_t compressedFrames = 0;
+    std::uint64_t rawFallbackFrames = 0;
+    std::uint64_t compressionFailures = 0;
+    std::uint64_t compressedLogicalBytes = 0;
+    std::uint64_t compressedWireBytes = 0;
+    std::string compressionFallbackReason;
     for (const SenderStats& stats : streamStats) {
         sentBytes += stats.sentBytes;
+        wireBytes += stats.wireBytes;
         skippedBytes += stats.skippedBytes;
         resentBytes += stats.resentBytes;
         verifiedBytes += stats.verifiedBytes;
+        compressionAttempts += stats.compressionAttempts;
+        compressedFrames += stats.compressedFrames;
+        rawFallbackFrames += stats.rawFallbackFrames;
+        compressionFailures += stats.compressionFailures;
+        compressedLogicalBytes += stats.compressedLogicalBytes;
+        compressedWireBytes += stats.compressedWireBytes;
+        if (compressionFallbackReason.empty() && !stats.compressionFallbackReason.empty()) {
+            compressionFallbackReason = stats.compressionFallbackReason;
+        }
     }
     counter.addBytes(sentBytes);
     const auto end = common::ThroughputCounter::Clock::now();
@@ -419,12 +508,37 @@ common::Status runFramedFileSenderOnListener(const FileDownloadSenderOptions& op
     const char* backendName = options.checksumAlgorithm == checksum::ChecksumAlgorithm::None
                                   ? "none"
                                   : checksum::checksumBackendName(resolvedBackend.value());
+    if (options.runtimeMetrics != nullptr) {
+        options.runtimeMetrics->elapsedSeconds = counter.elapsedSeconds(end);
+        options.runtimeMetrics->sendSeconds = phaseStats.seconds(metrics::TransferPhase::Send);
+        options.runtimeMetrics->recvSeconds = phaseStats.seconds(metrics::TransferPhase::Recv);
+        options.runtimeMetrics->readSeconds = phaseStats.seconds(metrics::TransferPhase::Read);
+        options.runtimeMetrics->writeSeconds = phaseStats.seconds(metrics::TransferPhase::Write);
+        options.runtimeMetrics->checksumSeconds =
+            phaseStats.seconds(metrics::TransferPhase::Checksum);
+        options.runtimeMetrics->logicalBytes = totalSize;
+        options.runtimeMetrics->wireBytes = wireBytes;
+        options.runtimeMetrics->compressionAttempts = compressionAttempts;
+        options.runtimeMetrics->compressedFrames = compressedFrames;
+        options.runtimeMetrics->rawFallbackFrames = rawFallbackFrames;
+        options.runtimeMetrics->compressionFailures = compressionFailures;
+        options.runtimeMetrics->compressedLogicalBytes = compressedLogicalBytes;
+        options.runtimeMetrics->compressedWireBytes = compressedWireBytes;
+        options.runtimeMetrics->compressionFallbackReason = compressionFallbackReason;
+    }
     std::cout << "file_download_sender sent_bytes=" << sentBytes
+              << " wire_bytes=" << wireBytes
               << " elapsed_seconds=" << counter.elapsedSeconds(end)
               << " throughput_gbps=" << counter.gigabitsPerSecond(end)
               << " transfer_id=" << options.transferId << " checksum_backend=" << backendName
               << " skipped_bytes=" << skippedBytes << " resent_bytes=" << resentBytes
               << " verified_bytes=" << verifiedBytes
+              << " compression_attempts=" << compressionAttempts
+              << " compressed_frames=" << compressedFrames
+              << " raw_fallback_frames=" << rawFallbackFrames
+              << " compression_failures=" << compressionFailures
+              << " compressed_logical_bytes=" << compressedLogicalBytes
+              << " compressed_wire_bytes=" << compressedWireBytes
               << " file_io_backend=" << storage::fileIoBackendName(options.fileIo.backend)
               << " file_io_buffer_size=" << options.fileIo.bufferSize
               << " file_io_queue_depth=" << options.fileIo.queueDepth
@@ -443,4 +557,4 @@ common::Status runFramedFileSenderOnListener(const FileDownloadSenderOptions& op
     return common::Status::ok();
 }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

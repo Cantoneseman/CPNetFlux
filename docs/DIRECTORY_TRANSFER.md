@@ -1,15 +1,15 @@
-# GridFlux Directory Transfer Alpha
+# CPNetFlux Directory Transfer Alpha
 
 Phase 5A adds alpha-grade multi-file directory transfer on top of the existing
 single-file GridFTP-like control plane. It does not add raw FTP recursive
-transfer: every file still uses the GridFlux framed STOR/RETR data channel.
+transfer: every file still uses the CPNetFlux framed STOR/RETR data channel.
 
 ## Commands
 
 Upload a local directory into a server root-relative directory:
 
 ```bash
-gridflux-tree-upload-client \
+cpnetflux-tree-upload-client \
   --host <server-host> \
   --port <control-port> \
   --source-dir <local-dir> \
@@ -20,7 +20,7 @@ gridflux-tree-upload-client \
 Download a server root-relative directory into a local directory:
 
 ```bash
-gridflux-tree-download-client \
+cpnetflux-tree-download-client \
   --host <server-host> \
   --port <control-port> \
   --source-dir <remote-dir> \
@@ -35,8 +35,8 @@ Common options include `--file-parallelism`, `--chunk-size`, `--buffer-size`,
 Phase 5C adds opt-in structured summaries:
 
 ```bash
-gridflux-tree-upload-client ... --json-summary /tmp/tree-upload-summary.json
-gridflux-tree-download-client ... --summary-json /tmp/tree-download-summary.json
+cpnetflux-tree-upload-client ... --json-summary /tmp/tree-upload-summary.json
+cpnetflux-tree-download-client ... --summary-json /tmp/tree-download-summary.json
 ```
 
 `--json-summary` is the canonical flag; `--summary-json` is an alias. The JSON
@@ -49,7 +49,7 @@ object on failure.
 Phase 5D adds an opt-in control reuse mode:
 
 ```bash
-gridflux-tree-upload-client ... --control-reuse off|worker --planner-preset <name>
+cpnetflux-tree-upload-client ... --control-reuse off|worker --planner-preset <name>
 ```
 
 `off` keeps the Alpha RC behavior: each file opens its own control connection.
@@ -73,8 +73,8 @@ logic.
 
 Directory transfer adds a file-level manifest:
 
-- Upload: `<source_dir>.gridflux.tree.upload.manifest`
-- Download: `<dest_dir>.gridflux.tree.download.manifest`
+- Upload: `<source_dir>.cpnetflux.tree.upload.manifest`
+- Download: `<dest_dir>.cpnetflux.tree.download.manifest`
 
 The tree manifest records the transfer mode, logical root path, checksum
 policy, and one record per regular file: relative path, size, mtime,
@@ -83,8 +83,8 @@ CRC32C body checksum.
 
 Each file still has its existing single-file manifest:
 
-- Upload/STOR uses server-side `<output>.gridflux.manifest`.
-- Download/RETR uses receiver-side `<output>.gridflux.download.manifest`.
+- Upload/STOR uses server-side `<output>.cpnetflux.manifest`.
+- Download/RETR uses receiver-side `<output>.cpnetflux.download.manifest`.
 
 ## Resume
 
@@ -117,7 +117,7 @@ completed file state remains in the tree manifest for resume.
 The scanner only includes regular files. Symlinks, non-regular files, absolute
 paths, `..`, Windows drive-style paths, backslashes, and control characters are
 rejected. Remote paths are always interpreted relative to the configured
-`gridflux-gridftp-server --root`.
+`cpnetflux-gridftp-server --root`.
 
 Phase 5A/5B/5C does not preserve empty directories, permissions, owner/group,
 xattrs, ACLs, or directory mtimes. Empty directories are intentionally not

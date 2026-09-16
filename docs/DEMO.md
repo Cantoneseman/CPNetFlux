@@ -1,7 +1,7 @@
-# GridFlux Alpha Demo Quickstart
+# CPNetFlux Alpha Demo Quickstart
 
 This guide is for the alpha operator demo. It uses the GridFTP-like control
-server and the GridFlux framed data channel. It does not enable raw FTP
+server and the CPNetFlux framed data channel. It does not enable raw FTP
 STOR/RETR, GSI, production auth, or any non-default transfer backend. Phase 6C
 can optionally wrap the control connection with TLS for alpha demos. Phase 6D
 can also wrap STOR/RETR framed file data sockets with opt-in data TLS. LIST/NLST
@@ -20,7 +20,7 @@ For the optional io_uring correctness build:
 cmake -S . -B build-io-uring-real -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER=g++-13 \
-  -DGRIDFLUX_ENABLE_IO_URING=ON
+  -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ```
 
@@ -28,7 +28,7 @@ cmake --build build-io-uring-real
 
 ```bash
 python3 tools/demo/make_demo_dataset.py \
-  --output /tmp/gridflux-demo-data \
+  --output /tmp/cpnetflux-demo-data \
   --profile tiny \
   --seed 20260518
 ```
@@ -51,7 +51,7 @@ python3 tools/demo/run_alpha_demo.py \
   --json-output tools/perf/results/alpha-demo-local.json
 ```
 
-The local demo starts a loopback `gridflux-gridftp-server` and runs:
+The local demo starts a loopback `cpnetflux-gridftp-server` and runs:
 
 - single-file STOR;
 - single-file RETR;
@@ -78,6 +78,43 @@ python3 tools/demo/run_alpha_demo.py \
 
 The demo JSON includes `event_summary`, `error_code_counts`, and `first_error`.
 Event logs do not include token or password values.
+
+## One-Command Reliable Transfer Showcase
+
+For the real Shenzhen-to-Shanghai reliability path, run this command from the
+Shenzhen host:
+
+```bash
+python3 tools/demo/run_recovery_demo.py \
+  --build-dir build \
+  --remote cpnetflux-beta-shanghai \
+  --server-host 47.116.174.181 \
+  --remote-build-dir /root/projects/CPNetFlux-Beta/build \
+  --control-port 2121 \
+  --data-port-base 20300 \
+  --connections 4 \
+  --bytes 200MiB \
+  --chunk-size 4M \
+  --partial-chunks 8 \
+  --pause-seconds 2
+```
+
+The script starts `cpnetflux-gridftp-server` on Shanghai over SSH, binds it to
+`0.0.0.0`, and sends the source file from Shenzhen over the real public TCP
+path. It validates the EPSV-selected port against the complete
+`20300..20811` passive window. The script prints a recording-friendly flow
+with elapsed seconds:
+
+`4 connections -> controlled interruption -> manifest/verified_chunks -> missing chunks -> --resume -> CRC32C -> 226 COMPLETE -> SHA-256 PASS`
+
+The command keeps the Shenzhen source file, Shanghai temporary file and
+manifest, JSONL events, client/server logs, and `demo-report.json` under a
+timestamped directory in `tools/perf/results/` plus the per-run remote root.
+The default `--partial-chunks 8` gives a deterministic interruption; use
+`--partial-chunks 0` with `--interrupt-after-seconds N` for a timed
+interruption. The resume transfer uses the same `transfer_id` and only sends
+ranges absent from `verified_chunks`. The 10M-class public link is suitable for
+correctness and recovery validation, not 100G readiness claims.
 
 To run the same local demo with control-plane TLS enabled, let the demo runner
 generate a temporary self-signed certificate:
@@ -133,7 +170,7 @@ file with owner-only permissions and pass it to the demo runner:
 
 ```bash
 umask 077
-printf '%s\n' '<token-value>' > /tmp/gridflux-token.txt
+printf '%s\n' '<token-value>' > /tmp/cpnetflux-token.txt
 
 python3 tools/demo/run_alpha_demo.py \
   --mode private \
@@ -143,7 +180,7 @@ python3 tools/demo/run_alpha_demo.py \
   --server-host <server-host> \
   --profile tiny \
   --auth-mode token \
-  --auth-token-file /tmp/gridflux-token.txt \
+  --auth-token-file /tmp/cpnetflux-token.txt \
   --json-output tools/perf/results/alpha-demo-private-token.json
 ```
 
@@ -158,7 +195,7 @@ server:
 python3 tools/test/run_gridftp_control_tls_private_once.py \
   --remote <remote> \
   --server-host <server-host> \
-  --local-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -168,7 +205,7 @@ Private framed data TLS smoke verifies remote STOR/RETR data clients over TLS:
 python3 tools/test/run_gridftp_data_tls_private_once.py \
   --remote <remote> \
   --server-host <server-host> \
-  --local-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
   --remote-build-dir <remote-root>/build \
   --output-dir tools/perf/results
 ```
@@ -178,10 +215,10 @@ python3 tools/test/run_gridftp_data_tls_private_once.py \
 Start a server:
 
 ```bash
-./build/gridflux-gridftp-server \
+./build/cpnetflux-gridftp-server \
   --host 127.0.0.1 \
   --port 2121 \
-  --root /tmp/gridflux-demo-root \
+  --root /tmp/cpnetflux-demo-root \
   --data-port-base 20300 \
   --connections 2 \
   --checksum crc32c \
@@ -192,15 +229,15 @@ Token-auth server:
 
 ```bash
 umask 077
-printf '%s\n' '<token-value>' > /tmp/gridflux-token.txt
+printf '%s\n' '<token-value>' > /tmp/cpnetflux-token.txt
 
-./build/gridflux-gridftp-server \
+./build/cpnetflux-gridftp-server \
   --host 127.0.0.1 \
   --port 2121 \
-  --root /tmp/gridflux-demo-root \
+  --root /tmp/cpnetflux-demo-root \
   --data-port-base 20300 \
   --auth-mode token \
-  --auth-token-file /tmp/gridflux-token.txt
+  --auth-token-file /tmp/cpnetflux-token.txt
 ```
 
 TLS-required control server:
@@ -208,55 +245,55 @@ TLS-required control server:
 ```bash
 umask 077
 openssl req -x509 -newkey rsa:2048 \
-  -keyout /tmp/gridflux-control-key.pem \
-  -out /tmp/gridflux-control-cert.pem \
+  -keyout /tmp/cpnetflux-control-key.pem \
+  -out /tmp/cpnetflux-control-cert.pem \
   -sha256 -days 1 -nodes -subj '/CN=localhost'
 
-./build/gridflux-gridftp-server \
+./build/cpnetflux-gridftp-server \
   --host 127.0.0.1 \
   --port 2121 \
-  --root /tmp/gridflux-demo-root \
+  --root /tmp/cpnetflux-demo-root \
   --data-port-base 20300 \
   --tls-mode required \
-  --tls-cert-file /tmp/gridflux-control-cert.pem \
-  --tls-key-file /tmp/gridflux-control-key.pem
+  --tls-cert-file /tmp/cpnetflux-control-cert.pem \
+  --tls-key-file /tmp/cpnetflux-control-key.pem
 ```
 
 Directory upload:
 
 ```bash
-./build/gridflux-tree-upload-client \
+./build/cpnetflux-tree-upload-client \
   --host 127.0.0.1 \
   --port 2121 \
-  --source-dir /tmp/gridflux-demo-data/tree-mixed \
+  --source-dir /tmp/cpnetflux-demo-data/tree-mixed \
   --dest-dir demo/tree-mixed \
   --connections 2 \
   --file-parallelism 2 \
   --tls-mode required \
-  --tls-ca-file /tmp/gridflux-control-cert.pem \
+  --tls-ca-file /tmp/cpnetflux-control-cert.pem \
   --json-summary /tmp/tree-upload-summary.json
 ```
 
 Directory download:
 
 ```bash
-./build/gridflux-tree-download-client \
+./build/cpnetflux-tree-download-client \
   --host 127.0.0.1 \
   --port 2121 \
   --source-dir demo/tree-mixed \
-  --dest-dir /tmp/gridflux-demo-download \
+  --dest-dir /tmp/cpnetflux-demo-download \
   --connections 2 \
   --file-parallelism 2 \
   --tls-mode required \
-  --tls-ca-file /tmp/gridflux-control-cert.pem \
+  --tls-ca-file /tmp/cpnetflux-control-cert.pem \
   --json-summary /tmp/tree-download-summary.json
 ```
 
 Resume drill:
 
 ```bash
-./build/gridflux-tree-upload-client ... --max-files 1
-./build/gridflux-tree-upload-client ... --resume
+./build/cpnetflux-tree-upload-client ... --max-files 1
+./build/cpnetflux-tree-upload-client ... --resume
 ```
 
 `--max-files` intentionally exits nonzero after committing a bounded number of
@@ -266,7 +303,7 @@ files, leaving the tree manifest for resume.
 
 - `530` replies mean the control session was not logged in.
 - TLS-required servers close plaintext control clients during handshake. Use
-  `--tls-mode required` and `--tls-ca-file <cert>` on GridFlux-aware clients.
+  `--tls-mode required` and `--tls-ca-file <cert>` on CPNetFlux-aware clients.
 - `550` during transfer usually means path validation, changed-file fail-safe,
   checksum failure, or data-channel failure. Check the JSON summary and the
   server/client logs.
@@ -276,7 +313,7 @@ files, leaving the tree manifest for resume.
   [OBSERVABILITY.md](OBSERVABILITY.md) for the JSONL schema and stable error
   codes.
 - Empty directories, permissions, owner, xattrs, and ACLs are not preserved.
-- STOR/RETR file contents still use the GridFlux framed data channel; stock FTP
+- STOR/RETR file contents still use the CPNetFlux framed data channel; stock FTP
   recursive/raw transfer is not supported.
 
 ## Alpha Release Candidate
@@ -284,11 +321,11 @@ files, leaving the tree manifest for resume.
 For a complete alpha handoff run, use the Phase 6E release-candidate wrapper:
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_candidate.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_candidate.py \
   --build-dir build \
   --io-uring-build-dir build-io-uring-real \
   --remote <remote> \
-  --remote-root /root/projects/GridFlux \
+  --remote-root /root/projects/CPNetFlux \
   --server-host <server-host> \
   --results-dir tools/perf/results
 ```

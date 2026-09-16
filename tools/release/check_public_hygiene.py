@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scan a GridFlux tree for obvious private release hygiene problems."""
+"""Scan a CPNetFlux tree for obvious private release hygiene problems."""
 
 from __future__ import annotations
 
@@ -69,9 +69,9 @@ PLACEHOLDER_RE = re.compile(r"(<[^>\n]+>|\*{3,}|REDACTED|CHANGEME|placeholder)",
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("private key block", re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")),
     ("sshpass inline password", re.compile(r"\bsshpass\s+-p\s+\S+")),
-    ("GRIDFLUX_SSH_PASSWORD assignment", re.compile(r"\bGRIDFLUX_SSH_PASSWORD\s*=\s*['\"]?[^'\"\s]+")),
-    ("SSHPASS direct assignment", re.compile(r"\bSSHPASS\s*=\s*['\"]?(?!\$GRIDFLUX_SSH_PASSWORD\b)[^'\"\s]+")),
-    ("password assignment", re.compile(r"\b(password|passwd|pwd)\s*[:=]\s*['\"](?!gridflux\b)(?!\*\*\*)(?!<)[^'\"\s|]+['\"]?", re.IGNORECASE)),
+    ("CPNETFLUX_SSH_PASSWORD assignment", re.compile(r"\bCPNETFLUX_SSH_PASSWORD\s*=\s*['\"]?[^'\"\s]+")),
+    ("SSHPASS direct assignment", re.compile(r"\bSSHPASS\s*=\s*['\"]?(?!\$CPNETFLUX_SSH_PASSWORD\b)[^'\"\s]+")),
+    ("password assignment", re.compile(r"\b(password|passwd|pwd)\s*[:=]\s*['\"](?!cpnetflux\b)(?!\*\*\*)(?!<)[^'\"\s|]+['\"]?", re.IGNORECASE)),
     ("secret/token assignment", re.compile(r"\b(api[_-]?key|access[_-]?token|secret[_-]?key)\s*[:=]\s*['\"]?(?!\*\*\*)(?!<)[^'\"\s]+", re.IGNORECASE)),
     ("auth token literal", re.compile(r"\b(auth[_-]?token|token)\s*[:=]\s*['\"]?(?!\*\*\*)(?!<)(?!REDACTED\b)(?!CHANGEME\b)[A-Za-z0-9._+/=-]{20,}", re.IGNORECASE)),
     ("known private password", re.compile("609" + "@scst")),
@@ -188,7 +188,7 @@ def scan(root: Path, strict: bool) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Check GridFlux public release hygiene.")
+    parser = argparse.ArgumentParser(description="Check CPNetFlux public release hygiene.")
     parser.add_argument("--path", default=".", help="tree to scan")
     parser.add_argument("--strict", action="store_true", help="fail on public-export-only issues")
     args = parser.parse_args()

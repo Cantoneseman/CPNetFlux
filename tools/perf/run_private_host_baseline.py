@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Collect private host/link baselines for GridFlux Phase 4B.
+"""Collect private host/link baselines for CPNetFlux Phase 4B.
 
 The script runs on machine one. It never installs packages. If iperf3 or fio is
-missing, it falls back to the existing GridFlux memory sink and a small Python
+missing, it falls back to the existing CPNetFlux memory sink and a small Python
 sequential IO probe.
 """
 
@@ -20,6 +20,12 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.release import remote_auth
 
 
 CSV_FIELDS = [
@@ -51,9 +57,7 @@ def timestamp_utc() -> str:
 
 
 def ssh_prefix(remote: str) -> list[str]:
-    if os.environ.get("GRIDFLUX_SSH_PASSWORD"):
-        return ["sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=no", remote]
-    return ["ssh", "-o", "StrictHostKeyChecking=no", remote]
+    return remote_auth.ssh_prefix(remote, root=REPO_ROOT)
 
 
 def run_local(command: list[str], *, check: bool = False, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
@@ -61,9 +65,7 @@ def run_local(command: list[str], *, check: bool = False, timeout: int | None = 
 
 
 def run_remote(remote: str, command: str, *, check: bool = False, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    if env.get("GRIDFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
-        env["SSHPASS"] = env["GRIDFLUX_SSH_PASSWORD"]
+    env = remote_auth.command_env(remote, REPO_ROOT)
     completed = subprocess.run(
         ssh_prefix(remote) + [command],
         text=True,
@@ -216,7 +218,7 @@ print(f"read_bytes={read_bytes}")
 
 def run_disk_fallback_local(args: argparse.Namespace, env: dict[str, str], output_dir: Path) -> list[dict[str, str]]:
     log = output_dir / f"{compact_timestamp()}_local-disk-python.log"
-    path = f"/tmp/gridflux-phase4b-local-disk-{os.getpid()}.bin"
+    path = f"/tmp/cpnetflux-phase4b-local-disk-{os.getpid()}.bin"
     # The script is passed through stdin to avoid leaving helper files behind.
     completed = subprocess.run(
         ["python3", "-", path, str(args.bytes)],
@@ -232,11 +234,11 @@ def run_disk_fallback_local(args: argparse.Namespace, env: dict[str, str], outpu
 
 def run_disk_fallback_remote(args: argparse.Namespace, env: dict[str, str], output_dir: Path) -> list[dict[str, str]]:
     log = output_dir / f"{compact_timestamp()}_remote-disk-python.log"
-    path = f"/tmp/gridflux-phase4b-remote-disk-{os.getpid()}.bin"
+    path = f"/tmp/cpnetflux-phase4b-remote-disk-{os.getpid()}.bin"
     ssh_command = ssh_prefix(args.remote) + [f"python3 - {shlex.quote(path)} {args.bytes}"]
     env_vars = os.environ.copy()
-    if env_vars.get("GRIDFLUX_SSH_PASSWORD") and not env_vars.get("SSHPASS"):
-        env_vars["SSHPASS"] = env_vars["GRIDFLUX_SSH_PASSWORD"]
+    if env_vars.get("CPNETFLUX_SSH_PASSWORD") and not env_vars.get("SSHPASS"):
+        env_vars["SSHPASS"] = env_vars["CPNETFLUX_SSH_PASSWORD"]
     completed = subprocess.run(
         ssh_command,
         input=run_python_io_probe(path, args.bytes),
@@ -303,13 +305,13 @@ def fio_row_from_output(
 
 
 def run_disk_fio_local(args: argparse.Namespace, env: dict[str, str], output_dir: Path) -> list[dict[str, str]]:
-    path = f"/tmp/gridflux-phase4b-local-fio-{os.getpid()}.bin"
+    path = f"/tmp/cpnetflux-phase4b-local-fio-{os.getpid()}.bin"
     rows: list[dict[str, str]] = []
     for category, rw in (("disk_write", "write"), ("disk_read", "read")):
         log = output_dir / f"{compact_timestamp()}_local-disk-fio-{rw}.log"
         command = [
             "fio",
-            "--name=gridflux-phase4b",
+            "--name=cpnetflux-phase4b",
             f"--filename={path}",
             f"--rw={rw}",
             "--bs=1M",
@@ -327,12 +329,12 @@ def run_disk_fio_local(args: argparse.Namespace, env: dict[str, str], output_dir
 
 
 def run_disk_fio_remote(args: argparse.Namespace, env: dict[str, str], output_dir: Path) -> list[dict[str, str]]:
-    path = f"/tmp/gridflux-phase4b-remote-fio-{os.getpid()}.bin"
+    path = f"/tmp/cpnetflux-phase4b-remote-fio-{os.getpid()}.bin"
     rows: list[dict[str, str]] = []
     for category, rw in (("disk_write", "write"), ("disk_read", "read")):
         log = output_dir / f"{compact_timestamp()}_remote-disk-fio-{rw}.log"
         command = (
-            "fio --name=gridflux-phase4b "
+            "fio --name=cpnetflux-phase4b "
             f"--filename={shlex.quote(path)} --rw={rw} --bs=1M --size={args.bytes} "
             "--ioengine=sync --direct=0 --numjobs=1 --output-format=json"
         )
@@ -347,8 +349,8 @@ def run_memory_network(args: argparse.Namespace, env_server: dict[str, str], out
     port = args.memory_sink_port
     server_log = output_dir / f"{compact_timestamp()}_memory-sink-server.log"
     client_log = output_dir / f"{compact_timestamp()}_memory-sink-client.log"
-    server_bin = Path(args.local_build_dir) / "gridflux-server"
-    client_bin = f"{args.remote_build_dir.rstrip('/')}/gridflux-client"
+    server_bin = Path(args.local_build_dir) / "cpnetflux-server"
+    client_bin = f"{args.remote_build_dir.rstrip('/')}/cpnetflux-client"
     server_cmd = [
         str(server_bin),
         "--host",
@@ -384,7 +386,7 @@ def run_memory_network(args: argparse.Namespace, env_server: dict[str, str], out
         if server.poll() is None:
             os.killpg(server.pid, signal.SIGTERM)
             server.wait(timeout=5)
-    row = base_row("link", "network", "gridflux_memory_sink", args.bytes, env_server, server_log)
+    row = base_row("link", "network", "cpnetflux_memory_sink", args.bytes, env_server, server_log)
     row["log"] = f"{server_log};{client_log}"
     match = None
     for line in text.splitlines():
@@ -447,7 +449,7 @@ def run_checksum_bench(side: str, command: str, env: dict[str, str], output_dir:
     else:
         completed = run_remote(args.remote, command, timeout=args.timeout)
     write_log(log, completed.stdout + completed.stderr)
-    row = base_row(side, "checksum", "gridflux-checksum-bench", args.bytes, env, log)
+    row = base_row(side, "checksum", "cpnetflux-checksum-bench", args.bytes, env, log)
     values = {}
     for part in completed.stdout.split():
         if "=" in part:
@@ -463,11 +465,11 @@ def run_checksum_bench(side: str, command: str, env: dict[str, str], output_dir:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Collect GridFlux private host/link baselines.")
+    parser = argparse.ArgumentParser(description="Collect CPNetFlux private host/link baselines.")
     parser.add_argument("--remote", default="root@<redacted>")
     parser.add_argument("--server-host", default="<redacted>")
-    parser.add_argument("--local-build-dir", default="/root/projects/GridFlux/build")
-    parser.add_argument("--remote-build-dir", default="/root/projects/GridFlux/build")
+    parser.add_argument("--local-build-dir", default="/root/projects/CPNetFlux/build")
+    parser.add_argument("--remote-build-dir", default="/root/projects/CPNetFlux/build")
     parser.add_argument("--bytes", type=parse_size, default=parse_size("1GiB"))
     parser.add_argument("--output-dir", default="tools/perf/results")
     parser.add_argument("--memory-sink-port", type=int, default=21800)
@@ -495,8 +497,8 @@ def main() -> int:
         rows.extend(run_disk_fallback_remote(args, client_env, output_dir))
 
     checksum_bytes = min(args.bytes, 256 * 1024 * 1024)
-    local_bench = f"{Path(args.local_build_dir) / 'gridflux-checksum-bench'} --backend auto --bytes {checksum_bytes} --iterations 3"
-    remote_bench = f"{args.remote_build_dir.rstrip('/')}/gridflux-checksum-bench --backend auto --bytes {checksum_bytes} --iterations 3"
+    local_bench = f"{Path(args.local_build_dir) / 'cpnetflux-checksum-bench'} --backend auto --bytes {checksum_bytes} --iterations 3"
+    remote_bench = f"{args.remote_build_dir.rstrip('/')}/cpnetflux-checksum-bench --backend auto --bytes {checksum_bytes} --iterations 3"
     rows.append(run_checksum_bench("server", local_bench, server_env, output_dir, args))
     rows.append(run_checksum_bench("client", remote_bench, client_env, output_dir, args))
 

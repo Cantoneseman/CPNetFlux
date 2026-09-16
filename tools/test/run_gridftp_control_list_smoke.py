@@ -8,6 +8,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from gridftp_port_window import assert_epsv_port_in_window, clamp_passive_data_port_base
+
 
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -82,10 +84,12 @@ def read_data(host: str, port: int) -> str:
     return b"".join(chunks).decode("utf-8", errors="replace")
 
 
-def run_listing(sock: socket.socket, buffer: bytearray, command: str) -> tuple[list[str], str, list[str]]:
+def run_listing(sock: socket.socket, buffer: bytearray, command: str,
+                data_port_base: int) -> tuple[list[str], str, list[str]]:
     epsv = send_command(sock, buffer, "EPSV")
     assert reply_code(epsv) == 229, epsv
     data_port = parse_epsv_port(epsv)
+    assert_epsv_port_in_window(data_port, data_port_base)
     sock.sendall((command + "\r\n").encode("utf-8"))
     opening = read_reply(sock, buffer)
     assert reply_code(opening) == 150, opening
@@ -96,11 +100,11 @@ def run_listing(sock: socket.socket, buffer: bytearray, command: str) -> tuple[l
 
 def run_smoke(args: argparse.Namespace) -> int:
     build_dir = Path(args.build_dir)
-    server_bin = build_dir / "gridflux-gridftp-server"
+    server_bin = build_dir / "cpnetflux-gridftp-server"
     if not server_bin.exists():
         raise FileNotFoundError(f"missing gridftp server in {build_dir}")
 
-    with tempfile.TemporaryDirectory(prefix="gridflux-gridftp-list.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-gridftp-list.") as temp_text:
         temp_dir = Path(temp_text)
         root = temp_dir / "root"
         (root / "subdir").mkdir(parents=True)
@@ -110,12 +114,12 @@ def run_smoke(args: argparse.Namespace) -> int:
         nested.write_bytes(b"nested")
 
         control_port = free_port()
-        data_port_base = free_port()
+        data_port_base = clamp_passive_data_port_base(free_port())
         server_log = temp_dir / "gridftp-list.log"
         server_cmd = [
             str(server_bin),
             "--host",
-            "127.0.0.1",
+            "0.0.0.0",
             "--port",
             str(control_port),
             "--root",
@@ -130,25 +134,25 @@ def run_smoke(args: argparse.Namespace) -> int:
             sock, buffer, greeting = connect_control(control_port)
             with sock:
                 assert reply_code(greeting) == 220, greeting
-                assert reply_code(send_command(sock, buffer, "USER gridflux")) == 331
-                assert reply_code(send_command(sock, buffer, "PASS gridflux")) == 230
+                assert reply_code(send_command(sock, buffer, "USER cpnetflux")) == 331
+                assert reply_code(send_command(sock, buffer, "PASS cpnetflux")) == 230
                 assert reply_code(send_command(sock, buffer, "LIST")) == 550
                 assert reply_code(send_command(sock, buffer, "NLST")) == 550
 
-                opening, payload, complete = run_listing(sock, buffer, "NLST")
+                opening, payload, complete = run_listing(sock, buffer, "NLST", data_port_base)
                 assert reply_code(opening) == 150, opening
                 assert reply_code(complete) == 226, complete
                 names = [line for line in payload.splitlines() if line]
                 assert names == ["alpha.bin", "subdir"], names
                 assert str(root) not in payload, payload
 
-                _, payload, complete = run_listing(sock, buffer, "LIST")
+                _, payload, complete = run_listing(sock, buffer, "LIST", data_port_base)
                 assert reply_code(complete) == 226, complete
                 assert "- 5 " in payload and " alpha.bin" in payload, payload
                 assert "d 0 " in payload and " subdir" in payload, payload
                 assert str(root) not in payload, payload
 
-                _, payload, complete = run_listing(sock, buffer, "NLST subdir")
+                _, payload, complete = run_listing(sock, buffer, "NLST subdir", data_port_base)
                 assert reply_code(complete) == 226, complete
                 assert payload.splitlines() == ["nested.txt"], payload
 
@@ -172,7 +176,7 @@ def run_smoke(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux GridFTP LIST/NLST smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux GridFTP LIST/NLST smoke.")
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     return run_smoke(args)

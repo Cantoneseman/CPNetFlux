@@ -1,9 +1,9 @@
-# GridFlux 工程规范
+# CPNetFlux 工程规范
 
 ## 1. 目录结构
 
 ```
-GridFlux/
+CPNetFlux/
 ├── INDEX.md
 ├── AGENTS.md
 ├── CMakeLists.txt
@@ -29,7 +29,7 @@ GridFlux/
 │   ├── metrics/
 │   ├── config/
 │   └── common/
-├── include/gridflux/
+├── include/cpnetflux/
 ├── tests/unit/
 ├── tests/integration/
 ├── tests/benchmark/
@@ -54,9 +54,9 @@ GridFlux/
 | 成员变量 | 尾部下划线 | `chunkSize_`, `manifest_` |
 | 常量 | kPascalCase | `kMaxChunkSize`, `kDefaultPort` |
 | 枚举值 | PascalCase | `ChunkState::Completed` |
-| 命名空间 | 小写下划线 | `gridflux::core` |
+| 命名空间 | 小写下划线 | `cpnetflux::core` |
 | 文件名 | 小写下划线 | `transfer_engine.h` |
-| 宏 | 全大写下划线 | `GRIDFLUX_ASSERT` |
+| 宏 | 全大写下划线 | `CPNETFLUX_ASSERT` |
 
 ### 头文件
 
@@ -89,10 +89,10 @@ GridFlux/
 
 ## 6. 传输边界
 
-GridFlux 借鉴 GridFTP 的控制面/数据面/DSI 分层，但内部实现保持简单直接。
+CPNetFlux 借鉴 GridFTP 的控制面/数据面/DSI 分层，但内部实现保持简单直接。
 
 - Frontend 只解析协议和参数，输出内部 transfer request。
-- Phase 3A/3B/3C/3D Frontend 支持最小 FTP/GridFTP 控制面 STOR 上传、RETR 下载、RETR resume 和常用只读元数据命令；STOR/RETR 数据连接仍使用 GridFlux framed protocol，不实现普通 FTP raw stream。
+- Phase 3A/3B/3C/3D Frontend 支持最小 FTP/GridFTP 控制面 STOR 上传、RETR 下载、RETR resume 和常用只读元数据命令；STOR/RETR 数据连接仍使用 CPNetFlux framed protocol，不实现普通 FTP raw stream。
 - Phase 3D 的 LIST/NLST 例外使用 FTP-style ASCII metadata data channel，只用于目录元数据，不用于文件 STOR/RETR。
 - Session Manager 统一生成 chunk plan，不把 `REST`、range、stripe 或恢复逻辑下放到 IO 层。
 - Transfer Engine 只消费 `ChunkTask`，按 offset-aware frame 收发数据。
@@ -111,7 +111,7 @@ Manifest flush 可以批量化，但必须满足：失败路径、resume 预检�
 
 控制面实现应保持三层边界：command parser 只解析文本和回复码，control session 只维护登录、TYPE、当前工作目录、passive listener、REST token 和 parallelism 状态，数据传输调度只通过内部 options/config 调用现有 framed sender/receiver 逻辑。控制面日志不得打印密码；STOR/RETR/SIZE/MDTM/LIST/NLST/CWD path 必须限制在配置的 `--root` 内，拒绝绝对路径、`..` 逃逸和符号链接逃逸。
 
-目录传输客户端是 GridFlux-aware orchestration layer：它可以用 `LIST/NLST/SIZE` 构造目录计划，但文件内容只能通过现有 framed STOR/RETR 传输。默认拒绝 symlink；不保留权限、owner、xattr、ACL 或空目录；changed file 采用 fail-safe，不自动覆盖。
+目录传输客户端是 CPNetFlux-aware orchestration layer：它可以用 `LIST/NLST/SIZE` 构造目录计划，但文件内容只能通过现有 framed STOR/RETR 传输。默认拒绝 symlink；不保留权限、owner、xattr、ACL 或空目录；changed file 采用 fail-safe，不自动覆盖。
 
 ## 7. Git 规范
 

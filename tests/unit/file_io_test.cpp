@@ -1,4 +1,4 @@
-#include "gridflux/storage/file_io.h"
+#include "cpnetflux/storage/file_io.h"
 
 #include <gtest/gtest.h>
 
@@ -15,20 +15,20 @@ std::filesystem::path tempPath(const char* name) {
 
 struct FakeCompletionState {
     std::vector<std::size_t> completions;
-    gridflux::common::Status status = gridflux::common::Status::ok();
-    std::vector<gridflux::common::Status> statuses;
+    cpnetflux::common::Status status = cpnetflux::common::Status::ok();
+    std::vector<cpnetflux::common::Status> statuses;
     std::size_t index = 0;
     std::vector<std::uint64_t> offsets;
     std::vector<std::size_t> lengths;
 };
 
-gridflux::common::Status fakeCompletion(std::uint64_t offset, std::size_t length,
+cpnetflux::common::Status fakeCompletion(std::uint64_t offset, std::size_t length,
                                          std::size_t* completed, void* userData) {
     auto* state = static_cast<FakeCompletionState*>(userData);
     state->offsets.push_back(offset);
     state->lengths.push_back(length);
     if (state->index < state->statuses.size()) {
-        gridflux::common::Status status = state->statuses[state->index];
+        cpnetflux::common::Status status = state->statuses[state->index];
         if (!status.isOk()) {
             ++state->index;
             return status;
@@ -39,62 +39,62 @@ gridflux::common::Status fakeCompletion(std::uint64_t offset, std::size_t length
     }
     if (state->index >= state->completions.size()) {
         *completed = length;
-        return gridflux::common::Status::ok();
+        return cpnetflux::common::Status::ok();
     }
     *completed = state->completions[state->index++];
-    return gridflux::common::Status::ok();
+    return cpnetflux::common::Status::ok();
 }
 
 }  // namespace
 
 TEST(FileIoTest, ParsesBackendAndAdvice) {
-    auto backend = gridflux::storage::parseFileIoBackendKind("posix");
+    auto backend = cpnetflux::storage::parseFileIoBackendKind("posix");
     ASSERT_TRUE(backend.isOk()) << backend.status().message();
-    EXPECT_EQ(backend.value(), gridflux::storage::FileIoBackendKind::Posix);
-    auto ioUringBackend = gridflux::storage::parseFileIoBackendKind("io_uring");
+    EXPECT_EQ(backend.value(), cpnetflux::storage::FileIoBackendKind::Posix);
+    auto ioUringBackend = cpnetflux::storage::parseFileIoBackendKind("io_uring");
     ASSERT_TRUE(ioUringBackend.isOk()) << ioUringBackend.status().message();
-    EXPECT_EQ(ioUringBackend.value(), gridflux::storage::FileIoBackendKind::IoUring);
-    EXPECT_FALSE(gridflux::storage::parseFileIoBackendKind("uring").isOk());
+    EXPECT_EQ(ioUringBackend.value(), cpnetflux::storage::FileIoBackendKind::IoUring);
+    EXPECT_FALSE(cpnetflux::storage::parseFileIoBackendKind("uring").isOk());
 
-    auto advice = gridflux::storage::parseFileIoAdvice("sequential_dontneed");
+    auto advice = cpnetflux::storage::parseFileIoAdvice("sequential_dontneed");
     ASSERT_TRUE(advice.isOk()) << advice.status().message();
-    EXPECT_EQ(advice.value(), gridflux::storage::FileIoAdvice::SequentialDontNeed);
-    EXPECT_FALSE(gridflux::storage::parseFileIoAdvice("random").isOk());
+    EXPECT_EQ(advice.value(), cpnetflux::storage::FileIoAdvice::SequentialDontNeed);
+    EXPECT_FALSE(cpnetflux::storage::parseFileIoAdvice("random").isOk());
 
-    auto strategy = gridflux::storage::parsePosixWriteStrategy("coalesced");
+    auto strategy = cpnetflux::storage::parsePosixWriteStrategy("coalesced");
     ASSERT_TRUE(strategy.isOk()) << strategy.status().message();
-    EXPECT_EQ(strategy.value(), gridflux::storage::PosixWriteStrategy::Coalesced);
-    EXPECT_FALSE(gridflux::storage::parsePosixWriteStrategy("buffered").isOk());
+    EXPECT_EQ(strategy.value(), cpnetflux::storage::PosixWriteStrategy::Coalesced);
+    EXPECT_FALSE(cpnetflux::storage::parsePosixWriteStrategy("buffered").isOk());
 }
 
 TEST(FileIoTest, DefaultsQueueDepthAndBatchSizeToOne) {
-    gridflux::storage::FileIoConfig config;
+    cpnetflux::storage::FileIoConfig config;
     EXPECT_EQ(config.queueDepth, 1U);
     EXPECT_EQ(config.batchSize, 1U);
-    EXPECT_EQ(config.posixWriteStrategy, gridflux::storage::PosixWriteStrategy::Auto);
-    EXPECT_EQ(gridflux::storage::effectivePosixWriteStrategy(config),
-              gridflux::storage::PosixWriteStrategy::Direct);
+    EXPECT_EQ(config.posixWriteStrategy, cpnetflux::storage::PosixWriteStrategy::Auto);
+    EXPECT_EQ(cpnetflux::storage::effectivePosixWriteStrategy(config),
+              cpnetflux::storage::PosixWriteStrategy::Direct);
     config.bufferSize = 1024;
-    EXPECT_EQ(gridflux::storage::effectivePosixWriteStrategy(config),
-              gridflux::storage::PosixWriteStrategy::Coalesced);
+    EXPECT_EQ(cpnetflux::storage::effectivePosixWriteStrategy(config),
+              cpnetflux::storage::PosixWriteStrategy::Coalesced);
 }
 
 TEST(FileIoTest, RejectsCoalescedStrategyWithoutBuffer) {
-    gridflux::storage::FileIoConfig config;
-    config.posixWriteStrategy = gridflux::storage::PosixWriteStrategy::Coalesced;
-    const auto status = gridflux::storage::validateFileIoConfig(config);
+    cpnetflux::storage::FileIoConfig config;
+    config.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Coalesced;
+    const auto status = cpnetflux::storage::validateFileIoConfig(config);
     EXPECT_FALSE(status.isOk());
     EXPECT_NE(status.message().find("coalesced"), std::string::npos);
 }
 
 TEST(FileIoTest, ContextReportsIoUringAvailability) {
-    gridflux::storage::FileIoConfig config;
-    config.backend = gridflux::storage::FileIoBackendKind::IoUring;
+    cpnetflux::storage::FileIoConfig config;
+    config.backend = cpnetflux::storage::FileIoBackendKind::IoUring;
     config.queueDepth = 4;
     config.batchSize = 4;
-    gridflux::storage::FileIoContext context(config);
-    const gridflux::common::Status status = context.validateAvailable();
-#if GRIDFLUX_HAS_IO_URING
+    cpnetflux::storage::FileIoContext context(config);
+    const cpnetflux::common::Status status = context.validateAvailable();
+#if CPNETFLUX_HAS_IO_URING
     EXPECT_TRUE(status.isOk()) << status.message();
 #else
     EXPECT_FALSE(status.isOk());
@@ -103,16 +103,16 @@ TEST(FileIoTest, ContextReportsIoUringAvailability) {
 }
 
 TEST(FileIoTest, TracksReadAndWriteCalls) {
-    const std::filesystem::path path = tempPath("gridflux-file-io-stats-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-file-io-stats-test.bin");
     std::filesystem::remove(path);
 
-    auto fileResult = gridflux::storage::PosixFile::openWriteTruncate(path.string());
+    auto fileResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
     ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
-    gridflux::storage::PosixFile file = std::move(fileResult.value());
+    cpnetflux::storage::PosixFile file = std::move(fileResult.value());
 
-    gridflux::storage::FileIoStats stats;
+    cpnetflux::storage::FileIoStats stats;
     const std::vector<std::uint8_t> data{'a', 'b', 'c', 'd'};
-    ASSERT_TRUE(gridflux::storage::writeAtAll(file, 0, data.data(), data.size(), &stats).isOk());
+    ASSERT_TRUE(cpnetflux::storage::writeAtAll(file, 0, data.data(), data.size(), &stats).isOk());
     EXPECT_EQ(stats.writeCalls(), 1U);
     EXPECT_EQ(stats.writeBytes(), data.size());
     EXPECT_EQ(stats.posixWriteSyscallCount(), 1U);
@@ -120,12 +120,12 @@ TEST(FileIoTest, TracksReadAndWriteCalls) {
     EXPECT_GT(stats.averageWriteBytesPerCall(), 0.0);
     EXPECT_GT(stats.posixAverageBytesPerWriteSyscall(), 0.0);
 
-    file = gridflux::storage::PosixFile();
-    auto inputResult = gridflux::storage::PosixFile::openReadOnly(path.string());
+    file = cpnetflux::storage::PosixFile();
+    auto inputResult = cpnetflux::storage::PosixFile::openReadOnly(path.string());
     ASSERT_TRUE(inputResult.isOk()) << inputResult.status().message();
     std::vector<std::uint8_t> output(data.size());
     ASSERT_TRUE(
-        gridflux::storage::readAtAll(inputResult.value(), 0, output.data(), output.size(), &stats)
+        cpnetflux::storage::readAtAll(inputResult.value(), 0, output.data(), output.size(), &stats)
             .isOk());
     EXPECT_EQ(stats.readCalls(), 1U);
     EXPECT_EQ(stats.readBytes(), data.size());
@@ -135,27 +135,27 @@ TEST(FileIoTest, TracksReadAndWriteCalls) {
 }
 
 TEST(FileIoTest, PosixContextReadsAndWrites) {
-    const std::filesystem::path path = tempPath("gridflux-file-io-context-posix-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-file-io-context-posix-test.bin");
     std::filesystem::remove(path);
 
-    auto fileResult = gridflux::storage::PosixFile::openWriteTruncate(path.string());
+    auto fileResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
     ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
-    gridflux::storage::PosixFile file = std::move(fileResult.value());
+    cpnetflux::storage::PosixFile file = std::move(fileResult.value());
 
-    gridflux::storage::FileIoConfig config;
-    config.backend = gridflux::storage::FileIoBackendKind::Posix;
-    gridflux::storage::FileIoContext context(config);
-    gridflux::storage::FileIoStats stats;
+    cpnetflux::storage::FileIoConfig config;
+    config.backend = cpnetflux::storage::FileIoBackendKind::Posix;
+    cpnetflux::storage::FileIoContext context(config);
+    cpnetflux::storage::FileIoStats stats;
     const std::vector<std::uint8_t> data{'x', 'y', 'z'};
     ASSERT_TRUE(
-        gridflux::storage::writeAtAll(file, 0, data.data(), data.size(), context, &stats).isOk());
+        cpnetflux::storage::writeAtAll(file, 0, data.data(), data.size(), context, &stats).isOk());
     EXPECT_EQ(stats.writeCalls(), 1U);
 
-    file = gridflux::storage::PosixFile();
-    auto inputResult = gridflux::storage::PosixFile::openReadOnly(path.string());
+    file = cpnetflux::storage::PosixFile();
+    auto inputResult = cpnetflux::storage::PosixFile::openReadOnly(path.string());
     ASSERT_TRUE(inputResult.isOk()) << inputResult.status().message();
     std::vector<std::uint8_t> output(data.size());
-    ASSERT_TRUE(gridflux::storage::readAtAll(inputResult.value(), 0, output.data(),
+    ASSERT_TRUE(cpnetflux::storage::readAtAll(inputResult.value(), 0, output.data(),
                                              output.size(), context, &stats)
                     .isOk());
     EXPECT_EQ(output, data);
@@ -164,30 +164,30 @@ TEST(FileIoTest, PosixContextReadsAndWrites) {
 }
 
 TEST(FileIoTest, IoUringContextReadWriteSmokeWhenAvailable) {
-    const std::filesystem::path path = tempPath("gridflux-file-io-context-iouring-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-file-io-context-iouring-test.bin");
     std::filesystem::remove(path);
 
-    gridflux::storage::FileIoConfig config;
-    config.backend = gridflux::storage::FileIoBackendKind::IoUring;
-    gridflux::storage::FileIoContext context(config);
+    cpnetflux::storage::FileIoConfig config;
+    config.backend = cpnetflux::storage::FileIoBackendKind::IoUring;
+    cpnetflux::storage::FileIoContext context(config);
     if (!context.validateAvailable().isOk()) {
         GTEST_SKIP() << "io_uring backend unavailable";
     }
 
-    auto fileResult = gridflux::storage::PosixFile::openWriteTruncate(path.string());
+    auto fileResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
     ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
-    gridflux::storage::PosixFile file = std::move(fileResult.value());
+    cpnetflux::storage::PosixFile file = std::move(fileResult.value());
 
-    gridflux::storage::FileIoStats stats;
+    cpnetflux::storage::FileIoStats stats;
     const std::vector<std::uint8_t> data(4096, 42);
     ASSERT_TRUE(
-        gridflux::storage::writeAtAll(file, 0, data.data(), data.size(), context, &stats).isOk());
+        cpnetflux::storage::writeAtAll(file, 0, data.data(), data.size(), context, &stats).isOk());
 
-    file = gridflux::storage::PosixFile();
-    auto inputResult = gridflux::storage::PosixFile::openReadOnly(path.string());
+    file = cpnetflux::storage::PosixFile();
+    auto inputResult = cpnetflux::storage::PosixFile::openReadOnly(path.string());
     ASSERT_TRUE(inputResult.isOk()) << inputResult.status().message();
     std::vector<std::uint8_t> output(data.size());
-    ASSERT_TRUE(gridflux::storage::readAtAll(inputResult.value(), 0, output.data(),
+    ASSERT_TRUE(cpnetflux::storage::readAtAll(inputResult.value(), 0, output.data(),
                                              output.size(), context, &stats)
                     .isOk());
     EXPECT_EQ(output, data);
@@ -198,8 +198,8 @@ TEST(FileIoTest, IoUringContextReadWriteSmokeWhenAvailable) {
 TEST(FileIoTest, IoUringCompletionLoopHandlesPartialCompletions) {
     FakeCompletionState state;
     state.completions = {2, 3, 5};
-    const auto status = gridflux::storage::ioUringRunCompletionLoopForTest(
-        gridflux::storage::IoUringOperation::Read, 100, 10, fakeCompletion, &state);
+    const auto status = cpnetflux::storage::ioUringRunCompletionLoopForTest(
+        cpnetflux::storage::IoUringOperation::Read, 100, 10, fakeCompletion, &state);
     EXPECT_TRUE(status.isOk()) << status.message();
     EXPECT_EQ(state.offsets, (std::vector<std::uint64_t>{100, 102, 105}));
     EXPECT_EQ(state.lengths, (std::vector<std::size_t>{10, 8, 5}));
@@ -208,9 +208,9 @@ TEST(FileIoTest, IoUringCompletionLoopHandlesPartialCompletions) {
 TEST(FileIoTest, IoUringBatchedCompletionLoopTracksStatsAndOutOfOrderSqes) {
     FakeCompletionState state;
     state.completions = {4, 4, 4, 4};
-    gridflux::storage::FileIoStats stats;
-    const auto status = gridflux::storage::ioUringRunBatchedCompletionLoopForTest(
-        gridflux::storage::IoUringOperation::Read, 64, 16, 4, 4, 4, fakeCompletion, &state,
+    cpnetflux::storage::FileIoStats stats;
+    const auto status = cpnetflux::storage::ioUringRunBatchedCompletionLoopForTest(
+        cpnetflux::storage::IoUringOperation::Read, 64, 16, 4, 4, 4, fakeCompletion, &state,
         &stats);
     EXPECT_TRUE(status.isOk()) << status.message();
     EXPECT_EQ(state.offsets, (std::vector<std::uint64_t>{76, 72, 68, 64}));
@@ -223,12 +223,12 @@ TEST(FileIoTest, IoUringBatchedCompletionLoopTracksStatsAndOutOfOrderSqes) {
 
 TEST(FileIoTest, IoUringBatchedCompletionLoopHandlesPartialAndRetry) {
     FakeCompletionState state;
-    state.statuses = {gridflux::common::Status::systemError("try again", EAGAIN),
-                      gridflux::common::Status::ok(), gridflux::common::Status::ok()};
+    state.statuses = {cpnetflux::common::Status::systemError("try again", EAGAIN),
+                      cpnetflux::common::Status::ok(), cpnetflux::common::Status::ok()};
     state.completions = {3, 5};
-    gridflux::storage::FileIoStats stats;
-    const auto status = gridflux::storage::ioUringRunBatchedCompletionLoopForTest(
-        gridflux::storage::IoUringOperation::Write, 0, 8, 2, 2, 8, fakeCompletion, &state,
+    cpnetflux::storage::FileIoStats stats;
+    const auto status = cpnetflux::storage::ioUringRunBatchedCompletionLoopForTest(
+        cpnetflux::storage::IoUringOperation::Write, 0, 8, 2, 2, 8, fakeCompletion, &state,
         &stats);
     EXPECT_TRUE(status.isOk()) << status.message();
     EXPECT_EQ(stats.ioUringRetryCount(), 1U);
@@ -239,31 +239,31 @@ TEST(FileIoTest, IoUringBatchedCompletionLoopHandlesPartialAndRetry) {
 TEST(FileIoTest, IoUringCompletionLoopPropagatesRetryAndSystemErrors) {
     FakeCompletionState retryState;
     retryState.completions = {0, 4};
-    const auto eof = gridflux::storage::ioUringRunCompletionLoopForTest(
-        gridflux::storage::IoUringOperation::Read, 0, 4, fakeCompletion, &retryState);
+    const auto eof = cpnetflux::storage::ioUringRunCompletionLoopForTest(
+        cpnetflux::storage::IoUringOperation::Read, 0, 4, fakeCompletion, &retryState);
     EXPECT_FALSE(eof.isOk());
     EXPECT_NE(eof.message().find("EOF"), std::string::npos);
 
     FakeCompletionState errorState;
-    errorState.status = gridflux::common::Status::systemError("fake error", EIO);
-    const auto error = gridflux::storage::ioUringRunCompletionLoopForTest(
-        gridflux::storage::IoUringOperation::Write, 0, 4, fakeCompletion, &errorState);
+    errorState.status = cpnetflux::common::Status::systemError("fake error", EIO);
+    const auto error = cpnetflux::storage::ioUringRunCompletionLoopForTest(
+        cpnetflux::storage::IoUringOperation::Write, 0, 4, fakeCompletion, &errorState);
     EXPECT_FALSE(error.isOk());
     EXPECT_EQ(error.errorNumber(), EIO);
 }
 
 TEST(FileIoTest, BufferedWriterCoalescesContiguousWritesAndFlushesGaps) {
-    const std::filesystem::path path = tempPath("gridflux-file-io-buffered-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-file-io-buffered-test.bin");
     std::filesystem::remove(path);
 
-    auto fileResult = gridflux::storage::PosixFile::openWriteTruncate(path.string());
+    auto fileResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
     ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
-    gridflux::storage::PosixFile file = std::move(fileResult.value());
+    cpnetflux::storage::PosixFile file = std::move(fileResult.value());
 
-    gridflux::storage::FileIoConfig config;
+    cpnetflux::storage::FileIoConfig config;
     config.bufferSize = 8;
-    gridflux::storage::FileIoStats stats;
-    gridflux::storage::BufferedFileWriter writer(file, config, &stats);
+    cpnetflux::storage::FileIoStats stats;
+    cpnetflux::storage::BufferedFileWriter writer(file, config, &stats);
 
     const std::vector<std::uint8_t> first{'a', 'b'};
     const std::vector<std::uint8_t> second{'c', 'd'};
@@ -276,8 +276,8 @@ TEST(FileIoTest, BufferedWriterCoalescesContiguousWritesAndFlushesGaps) {
     ASSERT_TRUE(writer.flush().isOk());
     EXPECT_EQ(stats.writeCalls(), 2U);
 
-    file = gridflux::storage::PosixFile();
-    auto inputResult = gridflux::storage::PosixFile::openReadOnly(path.string());
+    file = cpnetflux::storage::PosixFile();
+    auto inputResult = cpnetflux::storage::PosixFile::openReadOnly(path.string());
     ASSERT_TRUE(inputResult.isOk()) << inputResult.status().message();
     std::vector<std::uint8_t> output(7);
     ASSERT_TRUE(inputResult.value().readAtAll(0, output.data(), output.size()).isOk());
@@ -291,18 +291,18 @@ TEST(FileIoTest, BufferedWriterCoalescesContiguousWritesAndFlushesGaps) {
 }
 
 TEST(FileIoTest, DirectStrategyBypassesBufferedWriter) {
-    const std::filesystem::path path = tempPath("gridflux-file-io-direct-strategy-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-file-io-direct-strategy-test.bin");
     std::filesystem::remove(path);
 
-    auto fileResult = gridflux::storage::PosixFile::openWriteTruncate(path.string());
+    auto fileResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
     ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
-    gridflux::storage::PosixFile file = std::move(fileResult.value());
+    cpnetflux::storage::PosixFile file = std::move(fileResult.value());
 
-    gridflux::storage::FileIoConfig config;
+    cpnetflux::storage::FileIoConfig config;
     config.bufferSize = 8;
-    config.posixWriteStrategy = gridflux::storage::PosixWriteStrategy::Direct;
-    gridflux::storage::FileIoStats stats;
-    gridflux::storage::BufferedFileWriter writer(file, config, &stats);
+    config.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    cpnetflux::storage::FileIoStats stats;
+    cpnetflux::storage::BufferedFileWriter writer(file, config, &stats);
 
     const std::vector<std::uint8_t> first{'a', 'b'};
     const std::vector<std::uint8_t> second{'c', 'd'};
@@ -317,19 +317,19 @@ TEST(FileIoTest, DirectStrategyBypassesBufferedWriter) {
 }
 
 TEST(FileIoTest, AppliesOffAndSequentialAdvice) {
-    const std::filesystem::path path = tempPath("gridflux-file-io-advice-test.bin");
+    const std::filesystem::path path = tempPath("cpnetflux-file-io-advice-test.bin");
     std::filesystem::remove(path);
 
-    auto fileResult = gridflux::storage::PosixFile::openWriteTruncate(path.string());
+    auto fileResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
     ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
     const std::vector<std::uint8_t> data(4096, 7);
     ASSERT_TRUE(fileResult.value().writeAtAll(0, data.data(), data.size()).isOk());
 
-    EXPECT_TRUE(gridflux::storage::applyFileIoAdvice(
-                    fileResult.value(), gridflux::storage::FileIoAdvice::Off, 0, data.size())
+    EXPECT_TRUE(cpnetflux::storage::applyFileIoAdvice(
+                    fileResult.value(), cpnetflux::storage::FileIoAdvice::Off, 0, data.size())
                     .isOk());
-    EXPECT_TRUE(gridflux::storage::applyFileIoAdvice(
-                    fileResult.value(), gridflux::storage::FileIoAdvice::Sequential, 0,
+    EXPECT_TRUE(cpnetflux::storage::applyFileIoAdvice(
+                    fileResult.value(), cpnetflux::storage::FileIoAdvice::Sequential, 0,
                     data.size())
                     .isOk());
 

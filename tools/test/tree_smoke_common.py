@@ -6,6 +6,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from gridftp_port_window import clamp_passive_data_port_base
+
 
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -37,7 +39,7 @@ def tree_hash(root: Path) -> tuple[str, int, int]:
     total_bytes = 0
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
         relative = path.relative_to(root).as_posix()
-        if ".gridflux." in relative or ".part." in relative:
+        if ".cpnetflux." in relative or ".part." in relative:
             continue
         size = path.stat().st_size
         file_count += 1
@@ -57,10 +59,11 @@ def start_server(
     *,
     extra_env: dict[str, str] | None = None,
 ):
+    data_port_base = clamp_passive_data_port_base(data_port_base)
     cmd = [
-        str(build_dir / "gridflux-gridftp-server"),
+        str(build_dir / "cpnetflux-gridftp-server"),
         "--host",
-        "127.0.0.1",
+        "0.0.0.0",
         "--port",
         str(control_port),
         "--root",
@@ -124,14 +127,14 @@ def run_checked(cmd: list[str], *, expect_success: bool = True) -> subprocess.Co
     return completed
 
 
-def clean_gridflux_tree_artifacts(root: Path) -> None:
+def clean_cpnetflux_tree_artifacts(root: Path) -> None:
     for path in root.rglob("*"):
-        if path.is_file() and (".gridflux." in path.name or ".part." in path.name):
+        if path.is_file() and (".cpnetflux." in path.name or ".part." in path.name):
             path.unlink()
 
 
 def env_without_password() -> dict[str, str]:
     env = os.environ.copy()
-    env.pop("GRIDFLUX_SSH_PASSWORD", None)
+    env.pop("CPNETFLUX_SSH_PASSWORD", None)
     env.pop("SSHPASS", None)
     return env

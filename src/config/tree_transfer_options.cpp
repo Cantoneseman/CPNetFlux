@@ -1,15 +1,19 @@
-#include "gridflux/config/tree_transfer_options.h"
+#include "cpnetflux/config/tree_transfer_options.h"
 
+#include <cerrno>
 #include <charconv>
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <limits>
+#include <string>
 #include <string_view>
 
-#include "gridflux/core/metrics/event_log.h"
-#include "gridflux/core/tree/tree_scan.h"
-#include "gridflux/protocol/control/control_auth.h"
+#include "cpnetflux/core/metrics/event_log.h"
+#include "cpnetflux/core/tree/tree_scan.h"
+#include "cpnetflux/protocol/control/control_auth.h"
 
-namespace gridflux::config {
+namespace cpnetflux::config {
 namespace {
 
 constexpr std::uint32_t kMaxConnections = 64;
@@ -27,6 +31,23 @@ common::Result<std::uint64_t> parseUnsigned(std::string_view value, std::string_
     const auto result = std::from_chars(begin, end, parsed, 10);
     if (result.ec != std::errc() || result.ptr != end) {
         return common::Status::invalidArgument(std::string(name) + " must be a decimal integer");
+    }
+    return parsed;
+}
+
+common::Result<double> parsePositiveDouble(std::string_view value, std::string_view name) {
+    if (value.empty()) {
+        return common::Status::invalidArgument(std::string(name) + " must not be empty");
+    }
+    std::string text(value);
+    char* end = nullptr;
+    errno = 0;
+    const double parsed = std::strtod(text.c_str(), &end);
+    if (errno != 0 || end == text.c_str() || *end != '\0' || !std::isfinite(parsed)) {
+        return common::Status::invalidArgument(std::string(name) + " must be a decimal number");
+    }
+    if (parsed <= 0.0) {
+        return common::Status::invalidArgument(std::string(name) + " must be greater than zero");
     }
     return parsed;
 }
@@ -59,6 +80,43 @@ common::Status validateRemoteDirArgument(const std::string& path, std::string_vi
     return core::tree::validateTreeRelativePath(path);
 }
 
+std::filesystem::path absoluteLexical(const std::string& path) {
+    std::error_code error;
+    std::filesystem::path absolute = std::filesystem::absolute(path, error);
+    if (error) {
+        absolute = std::filesystem::path(path);
+    }
+    return absolute.lexically_normal();
+}
+
+bool pathInsideOrEqual(const std::filesystem::path& candidate,
+                       const std::filesystem::path& root) {
+    auto candIt = candidate.begin();
+    auto rootIt = root.begin();
+    for (; rootIt != root.end(); ++rootIt, ++candIt) {
+        if (candIt == candidate.end() || *candIt != *rootIt) {
+            return false;
+        }
+    }
+    return true;
+}
+
+common::Status validateSchedulerMetricsDir(const TreeTransferOptions& options,
+                                           TreeTransferRole role) {
+    if (options.schedulerMetricsDir.empty()) {
+        return common::Status::ok();
+    }
+    const std::string& localRoot =
+        role == TreeTransferRole::Upload ? options.sourceDir : options.destDir;
+    const std::filesystem::path metrics = absoluteLexical(options.schedulerMetricsDir);
+    const std::filesystem::path root = absoluteLexical(localRoot);
+    if (pathInsideOrEqual(metrics, root)) {
+        return common::Status::invalidArgument(
+            "--scheduler-metrics-dir must be outside the local transfer root");
+    }
+    return common::Status::ok();
+}
+
 }  // namespace
 
 common::Result<ControlReuseMode> parseControlReuseMode(std::string_view value) {
@@ -77,6 +135,26 @@ const char* controlReuseModeName(ControlReuseMode mode) noexcept {
             return "off";
         case ControlReuseMode::Worker:
             return "worker";
+    }
+    return "off";
+}
+
+common::Result<TreeSchedulerMode> parseTreeSchedulerMode(std::string_view value) {
+    if (value == "off") {
+        return TreeSchedulerMode::Off;
+    }
+    if (value == "global") {
+        return TreeSchedulerMode::Global;
+    }
+    return common::Status::invalidArgument("--scheduler must be off or global");
+}
+
+const char* treeSchedulerModeName(TreeSchedulerMode mode) noexcept {
+    switch (mode) {
+        case TreeSchedulerMode::Off:
+            return "off";
+        case TreeSchedulerMode::Global:
+            return "global";
     }
     return "off";
 }
@@ -162,18 +240,6 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                     "--chunk-size must be in range 1..1099511627776");
             }
             options.chunkSize = parsed.value();
-        } else if (option == "--data-final-status-timeout-seconds") {
-            auto parsed = parseUnsigned(value, "--data-final-status-timeout-seconds");
-            if (!parsed.isOk()) {
-                return parsed.status();
-            }
-            if (parsed.value() == 0 ||
-                parsed.value() > std::numeric_limits<std::uint32_t>::max()) {
-                return common::Status::invalidArgument(
-                    "--data-final-status-timeout-seconds must be in range 1..4294967295");
-            }
-            options.dataFinalStatusTimeoutSeconds =
-                static_cast<std::uint32_t>(parsed.value());
         } else if (option == "--buffer-size") {
             auto parsed = parseUnsigned(value, "--buffer-size");
             if (!parsed.isOk()) {
@@ -241,6 +307,70 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return common::Status::invalidArgument("--event-log must not be empty");
             }
             options.eventLogPath = std::string(value);
+        } else if (option == "--scheduler") {
+            auto parsed = parseTreeSchedulerMode(value);
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.schedulerMode = parsed.value();
+        } else if (option == "--scheduler-policy") {
+            auto parsed = core::scheduler::parseSchedulerPolicy(value);
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.schedulerPolicy = parsed.value();
+        } else if (option == "--scheduler-metrics-dir") {
+            if (value.empty()) {
+                return common::Status::invalidArgument("--scheduler-metrics-dir must not be empty");
+            }
+            options.schedulerMetricsDir = std::string(value);
+        } else if (option == "--scheduler-link-id") {
+            if (value.empty()) {
+                return common::Status::invalidArgument("--scheduler-link-id must not be empty");
+            }
+            options.schedulerLinkId = std::string(value);
+        } else if (option == "--scheduler-capacity-gbps") {
+            auto parsed = parsePositiveDouble(value, "--scheduler-capacity-gbps");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.schedulerCapacityGbps = parsed.value();
+        } else if (option == "--scheduler-workitem-min-bytes") {
+            auto parsed = parseUnsigned(value, "--scheduler-workitem-min-bytes");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            if (parsed.value() == 0) {
+                return common::Status::invalidArgument(
+                    "--scheduler-workitem-min-bytes must be greater than zero");
+            }
+            options.schedulerWorkItemMinBytes = parsed.value();
+        } else if (option == "--scheduler-workitem-max-bytes") {
+            auto parsed = parseUnsigned(value, "--scheduler-workitem-max-bytes");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            if (parsed.value() == 0) {
+                return common::Status::invalidArgument(
+                    "--scheduler-workitem-max-bytes must be greater than zero");
+            }
+            options.schedulerWorkItemMaxBytes = parsed.value();
+        } else if (option == "--scheduler-default-rtt-ms") {
+            auto parsed = parseUnsigned(value, "--scheduler-default-rtt-ms");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            if (parsed.value() == 0) {
+                return common::Status::invalidArgument(
+                    "--scheduler-default-rtt-ms must be greater than zero");
+            }
+            options.schedulerDefaultRttMs = parsed.value();
+        } else if (option == "--scheduler-min-compress-gbps") {
+            auto parsed = parsePositiveDouble(value, "--scheduler-min-compress-gbps");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.schedulerMinCompressGbps = parsed.value();
         } else if (option == "--tls-mode") {
             auto parsed = core::io::parseTlsMode(value);
             if (!parsed.isOk()) {
@@ -279,6 +409,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             return token.status();
         }
     }
+    if (options.schedulerWorkItemMinBytes > options.schedulerWorkItemMaxBytes) {
+        return common::Status::invalidArgument(
+            "--scheduler-workitem-min-bytes must be <= --scheduler-workitem-max-bytes");
+    }
     if (role == TreeTransferRole::Upload) {
         const common::Status sourceStatus = validateLocalDirectory(options.sourceDir, "--source-dir");
         if (!sourceStatus.isOk()) {
@@ -302,6 +436,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                                                    error.value());
             }
         }
+    }
+    const common::Status schedulerMetricsStatus = validateSchedulerMetricsDir(options, role);
+    if (!schedulerMetricsStatus.isOk()) {
+        return schedulerMetricsStatus;
     }
     const common::Status eventLogStatus =
         core::metrics::validateEventLogPath(options.eventLogPath);
@@ -327,14 +465,18 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            " --host <server-ip> --port <port> --source-dir " + sourceText + " --dest-dir " +
            destText +
            " [--connections <N>] [--file-parallelism <N>] [--chunk-size <bytes>] "
-           "[--data-final-status-timeout-seconds <N>] "
            "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
            "[--checksum-backend <auto|software|hardware>] [--resume] [--max-files <N>] "
            "[--control-reuse off|worker] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
-           "[--event-log <path>] [--tls-mode off|required] [--tls-ca-file <path>] "
+           "[--event-log <path>] [--scheduler off|global] "
+           "[--scheduler-policy fixed|adaptive] [--scheduler-metrics-dir <dir>] "
+           "[--scheduler-link-id <id>] [--scheduler-capacity-gbps <float>] "
+           "[--scheduler-workitem-min-bytes <N>] [--scheduler-workitem-max-bytes <N>] "
+           "[--scheduler-default-rtt-ms <N>] [--scheduler-min-compress-gbps <float>] "
+           "[--tls-mode off|required] [--tls-ca-file <path>] "
            "[--data-tls-mode off|required]";
 }
 
-}  // namespace gridflux::config
+}  // namespace cpnetflux::config

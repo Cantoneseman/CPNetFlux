@@ -1,2 +1,2 @@
-"""GridFlux Beta experiment planning helpers."""
+"""CPNetFlux Beta experiment planning helpers."""
 

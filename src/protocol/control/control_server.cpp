@@ -1,4 +1,4 @@
-#include "gridflux/protocol/control/control_server.h"
+#include "cpnetflux/protocol/control/control_server.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -22,20 +22,21 @@
 #include <utility>
 #include <vector>
 
-#include "gridflux/checkpoint/transfer_manifest.h"
-#include "gridflux/config/file_transfer_options.h"
-#include "gridflux/core/io/file_download_sender.h"
-#include "gridflux/core/io/file_transfer_server.h"
-#include "gridflux/core/metrics/event_log.h"
-#include "gridflux/core/io/socket_utils.h"
-#include "gridflux/core/io/tls_socket.h"
-#include "gridflux/protocol/control/control_command.h"
-#include "gridflux/storage/posix_file.h"
+#include "cpnetflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/config/file_transfer_options.h"
+#include "cpnetflux/core/io/file_download_sender.h"
+#include "cpnetflux/core/io/file_transfer_server.h"
+#include "cpnetflux/core/metrics/event_log.h"
+#include "cpnetflux/core/io/socket_utils.h"
+#include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/protocol/control/control_command.h"
+#include "cpnetflux/storage/posix_file.h"
 
-namespace gridflux::protocol::control {
+namespace cpnetflux::protocol::control {
 namespace {
 
-constexpr std::uint16_t kPassiveScanLimit = 512;
+constexpr std::uint16_t kPassiveScanLimit =
+    static_cast<std::uint16_t>(kPassiveDataPortWindowSize);
 
 using EventLoggerPtr = std::shared_ptr<core::metrics::EventLogger>;
 
@@ -121,7 +122,7 @@ void emitControlEvent(const EventLoggerPtr& logger, std::string event, std::stri
         return;
     }
     (void)logger->write(core::metrics::EventRecord{
-        "gridflux-gridftp-server",
+        "cpnetflux-gridftp-server",
         std::move(event),
         std::move(transferId),
         std::move(direction),
@@ -506,7 +507,7 @@ common::Status runStor(core::io::TlsConnection* control, ControlSession& session
     fileOptions.dataTlsMode = controlOptions.dataTlsMode;
     fileOptions.resume = response.resume;
 
-    const std::string prelude = "Opening GridFlux data connection transfer_id=GFID:" + transferId +
+    const std::string prelude = "Opening CPNetFlux data connection transfer_id=GFID:" + transferId +
                                 " connections=" + std::to_string(response.connections);
     common::Status status = sendLine(control, formatReply(150, prelude));
     if (!status.isOk()) {
@@ -581,7 +582,7 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
     senderOptions.sourcePath = sourcePath;
 
     const std::string prelude =
-        "Opening GridFlux download data connection transfer_id=GFID:" + transferId +
+        "Opening CPNetFlux download data connection transfer_id=GFID:" + transferId +
         " connections=" + std::to_string(response.connections);
     common::Status status = sendLine(control, formatReply(150, prelude));
     if (!status.isOk()) {
@@ -635,7 +636,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     PassiveListener passive;
     std::string inputBuffer;
 
-    if (!sendLine(&control, formatReply(220, "GridFlux GridFTP control ready")).isOk()) {
+    if (!sendLine(&control, formatReply(220, "CPNetFlux GridFTP control ready")).isOk()) {
         return;
     }
 
@@ -774,6 +775,9 @@ common::Status runControlServer(const ControlServerOptions& options) {
     std::cout << "gridftp_control_server listening host=" << options.host
               << " port=" << options.port << " root=" << options.root
               << " data_port_base=" << options.dataPortBase
+              << " passive_window=[" << options.dataPortBase << ","
+              << (static_cast<std::uint32_t>(options.dataPortBase) + kPassiveScanLimit - 1)
+              << "]"
               << " connections=" << options.connections
               << " auth_mode=" << authModeName(options.auth.mode)
               << " tls_mode=" << core::io::tlsModeName(options.tls.mode)
@@ -812,4 +816,4 @@ common::Status runControlServer(const ControlServerOptions& options) {
     }
 }
 
-}  // namespace gridflux::protocol::control
+}  // namespace cpnetflux::protocol::control

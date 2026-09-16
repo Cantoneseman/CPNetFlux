@@ -1,4 +1,4 @@
-#include "gridflux/core/io/socket_utils.h"
+#include "cpnetflux/core/io/socket_utils.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -11,7 +11,7 @@
 #include <cstring>
 #include <string>
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 namespace {
 
 common::Status lastSystemError(const char* operation) {
@@ -204,4 +204,4 @@ common::Result<int> getSocketError(int fd) {
     return socketError;
 }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

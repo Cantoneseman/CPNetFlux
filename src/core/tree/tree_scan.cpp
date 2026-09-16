@@ -1,4 +1,4 @@
-#include "gridflux/core/tree/tree_scan.h"
+#include "cpnetflux/core/tree/tree_scan.h"
 
 #include <sys/stat.h>
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <system_error>
 
-namespace gridflux::core::tree {
+namespace cpnetflux::core::tree {
 namespace {
 
 bool hasControlCharacter(const std::string& value) {
@@ -137,4 +137,4 @@ common::Result<std::vector<TreeFileInfo>> scanLocalTree(const std::string& root)
     return files;
 }
 
-}  // namespace gridflux::core::tree
+}  // namespace cpnetflux::core::tree

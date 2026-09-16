@@ -50,7 +50,7 @@ DSI 后端执行存储读写，并通过 data channel 收发数据
 - 数据通道负责真正的 TCP 连接、并行流、stripe、读写回调。
 - DSI 负责后端存储，默认 file DSI 只是其中一种实现。
 
-对 GridFlux 的启发：可以保留这种分层思想，但不要复刻 Globus 的复杂状态机。GridFlux 应直接定义自己的 `Frontend -> SessionManager -> TransferEngine -> StorageAdapter` 路径。
+对 CPNetFlux 的启发：可以保留这种分层思想，但不要复刻 Globus 的复杂状态机。CPNetFlux 应直接定义自己的 `Frontend -> SessionManager -> TransferEngine -> StorageAdapter` 路径。
 
 ---
 
@@ -80,7 +80,7 @@ RETR / ERET        -> server send
 LIST / NLST / MLSD -> server list
 ```
 
-对 GridFlux Phase 3：第一版只需要保留 `USER/PASS`、`TYPE I`、`SIZE`、`PASV/EPSV`、`REST`、`RETR`、`STOR`、`OPTS PARALLELISM`、`QUIT`，其余命令先返回 `502`。
+对 CPNetFlux Phase 3：第一版只需要保留 `USER/PASS`、`TYPE I`、`SIZE`、`PASV/EPSV`、`REST`、`RETR`、`STOR`、`OPTS PARALLELISM`、`QUIT`，其余命令先返回 `502`。
 
 ### 3.2 `OPTS RETR` 并行参数
 
@@ -95,7 +95,7 @@ GridFTP 支持通过 `OPTS RETR` 设置传输参数，源码中解析的典型�
 
 其中 `parallelism` 会写入服务端控制 handle 的传输选项。源码里还有限制过大 parallelism 的逻辑。
 
-对 GridFlux 的建议：
+对 CPNetFlux 的建议：
 
 - Phase 1 命令行优先支持 `--connections`。
 - Phase 3 再映射 `OPTS RETR parallelism=N` 到内部连接数。
@@ -110,10 +110,10 @@ GridFTP 支持通过 `OPTS RETR` 设置传输参数，源码中解析的典型�
 - `SPAS` 是 striped passive，可能返回多个地址。
 - `EPSV ALL` 会让服务端进入 passive-only 语义。
 
-对 GridFlux 的建议：
+对 CPNetFlux 的建议：
 
 - 第一版支持 `EPSV` 优先，`PASV` 兼容。
-- 不做 `SPAS`，因为 GridFlux 的多流可以由一个控制会话内部创建多个数据连接，不必暴露完整 striped GridFTP 语义。
+- 不做 `SPAS`，因为 CPNetFlux 的多流可以由一个控制会话内部创建多个数据连接，不必暴露完整 striped GridFTP 语义。
 
 ---
 
@@ -139,14 +139,14 @@ REST 0-1024,2048-4096
 
 服务端会把多个已完成或待处理区间存进 range list，后续传输根据 range list 计算读写范围。
 
-### 4.3 对 GridFlux 的启发
+### 4.3 对 CPNetFlux 的启发
 
-GridFTP 的 REST 模型是“协议层记录 restart marker”，而 GridFlux 更适合“manifest 是事实源”：
+GridFTP 的 REST 模型是“协议层记录 restart marker”，而 CPNetFlux 更适合“manifest 是事实源”：
 
 - manifest 记录每个 chunk 的状态、offset、length、checksum、重试次数。
 - REST 只作为兼容入口，把 offset 转换成 chunk 状态。
 - 对普通客户端：`REST offset + STOR/RETR` 可以恢复单偏移。
-- 对 GridFlux 自家客户端：优先用 manifest 做 chunk 级续传。
+- 对 CPNetFlux 自家客户端：优先用 manifest 做 chunk 级续传。
 
 建议 Phase 2 的断点恢复不要只依赖单个 offset。单 offset 对大文件多流传输不够精确，chunk manifest 更稳。
 
@@ -185,10 +185,10 @@ DSI 接口定义在 `globus_gridftp_server.h`，核心函数包括：
 
 默认 file DSI 注册了 `send`、`recv`、`event`、`command`、`stat`、`realpath` 等回调。
 
-对 GridFlux 的启发：
+对 CPNetFlux 的启发：
 
 - `StorageAdapter` 应该像 DSI 一样隔离存储实现。
-- 但 GridFlux 不需要保留 DSI 插件 ABI，早期用 C++ 接口即可。
+- 但 CPNetFlux 不需要保留 DSI 插件 ABI，早期用 C++ 接口即可。
 - 热路径不要用虚函数这一点已经写入 `ENGINEERING.md`，可以用模板或静态多态包住 POSIX file adapter。
 
 ---
@@ -208,7 +208,7 @@ DSI 接口定义在 `globus_gridftp_server.h`，核心函数包括：
 - 数据层把这些协议语义翻译成“从哪里读、写到哪里、长度多少”。
 - striped/partitioned 模式下，根据 node index、node count、stripe block size 计算当前节点负责的数据区间。
 
-对 GridFlux 的建议：
+对 CPNetFlux 的建议：
 
 - `SessionManager` 统一生成 chunk plan。
 - `TransferEngine` 只消费明确的 `ChunkTask { file_id, offset, length, checksum_state }`。
@@ -262,7 +262,7 @@ extended block mode 支持：
 
 GridFTP 的并行传输主要建立在 extended block mode 上。
 
-对 GridFlux 的取舍：
+对 CPNetFlux 的取舍：
 
 - 不必实现完整 Mode E。
 - Phase 1 可以直接设计自有二进制 data protocol，每个 frame 带 `transfer_id/chunk_id/offset/length/flags`。
@@ -321,7 +321,7 @@ file_send
 - buffer 复用，pending 数控制并发。
 - range 由上层数据层计算，file DSI 不直接解析 REST。
 
-对 GridFlux 的建议：
+对 CPNetFlux 的建议：
 
 - Phase 1 也采用固定数量 buffer + pending IO。
 - 先实现简单版本：每连接一个 worker，每 worker 一个 buffer pool。
@@ -348,7 +348,7 @@ parallelism 当前主要支持 fixed 模式。restart marker 支持两类：
 
 restart marker 的 range 插入逻辑会合并相邻或重叠区间，这个设计值得借鉴。
 
-对 GridFlux 客户端：
+对 CPNetFlux 客户端：
 
 - manifest 中的 completed chunk 可以合并成 ranges，便于减少恢复协商体积。
 - 对 CLI 暴露简单参数：`--connections`、`--chunk-size`、`--resume`、`--verify`。
@@ -360,11 +360,11 @@ restart marker 的 range 插入逻辑会合并相邻或重叠区间，这个设�
 
 ### 10.1 控制面和数据面解耦
 
-GridFTP 的控制命令不会直接读写文件，而是变成内部传输操作。GridFlux 应保持这个边界。
+GridFTP 的控制命令不会直接读写文件，而是变成内部传输操作。CPNetFlux 应保持这个边界。
 
 ### 10.2 Storage Adapter / DSI 思想
 
-不同存储后端通过统一接口接入。GridFlux 可保留思想，但不需要兼容 DSI ABI。
+不同存储后端通过统一接口接入。CPNetFlux 可保留思想，但不需要兼容 DSI ABI。
 
 ### 10.3 range list
 
@@ -372,19 +372,19 @@ GridFTP 的控制命令不会直接读写文件，而是变成内部传输操作
 
 ### 10.4 buffer 和 pending 并发
 
-file DSI 用固定 buffer、pending read/write 数控制流水线，这与 GridFlux 的高性能目标一致。
+file DSI 用固定 buffer、pending read/write 数控制流水线，这与 CPNetFlux 的高性能目标一致。
 
 ### 10.5 连接级状态
 
-GridFTP 对每条数据连接维护状态、EOF/EOD、复用和 callback。GridFlux 也需要明确的 `ConnectionContext`，避免把连接状态散落在回调里。
+GridFTP 对每条数据连接维护状态、EOF/EOD、复用和 callback。CPNetFlux 也需要明确的 `ConnectionContext`，避免把连接状态散落在回调里。
 
 ---
 
-## 11. GridFlux 应避免的历史包袱
+## 11. CPNetFlux 应避免的历史包袱
 
 ### 11.1 完整 Mode E
 
-Mode E 支持强，但状态机复杂。GridFlux 不需要完整兼容 Mode E，内部可用更直接的 chunk frame 协议。
+Mode E 支持强，但状态机复杂。CPNetFlux 不需要完整兼容 Mode E，内部可用更直接的 chunk frame 协议。
 
 ### 11.2 SPAS/SPOR/第三方传输
 
@@ -392,21 +392,21 @@ Mode E 支持强，但状态机复杂。GridFlux 不需要完整兼容 Mode E，
 
 ### 11.3 XIO/DSI 插件复杂度
 
-Globus 通过 XIO 和 DSI 支持大量扩展，灵活但复杂。GridFlux 初期应保持静态、可测、可优化。
+Globus 通过 XIO 和 DSI 支持大量扩展，灵活但复杂。CPNetFlux 初期应保持静态、可测、可优化。
 
 ### 11.4 控制面兼容泛化
 
-GridFTP 源码里有大量历史命令、站点命令、不同服务器兼容逻辑。GridFlux 只实现项目 Profile。
+GridFTP 源码里有大量历史命令、站点命令、不同服务器兼容逻辑。CPNetFlux 只实现项目 Profile。
 
 ### 11.5 安全体系混入数据面
 
-GSI、DCAU、PROT、PBSZ 等安全能力复杂且影响性能。GridFlux 应先明确是否需要数据面加密，再单独设计。
+GSI、DCAU、PROT、PBSZ 等安全能力复杂且影响性能。CPNetFlux 应先明确是否需要数据面加密，再单独设计。
 
 ---
 
-## 12. 建议的 GridFlux 内部传输协议
+## 12. 建议的 CPNetFlux 内部传输协议
 
-GridFlux 不必照搬 GridFTP data channel。建议 Phase 1 自研数据帧：
+CPNetFlux 不必照搬 GridFTP data channel。建议 Phase 1 自研数据帧：
 
 ```text
 FrameHeader
@@ -504,7 +504,7 @@ client control
 ```text
 请参考 docs/GridFTP传输源码学习笔记.md。
 GridFTP 源码只用于理解传输模型，不复制实现。
-GridFlux 内部数据面不复刻 GridFTP Mode E，而采用自研 chunk frame 协议。
+CPNetFlux 内部数据面不复刻 GridFTP Mode E，而采用自研 chunk frame 协议。
 控制面只在 Phase 3 提供 GridFTP-compatible 子集。
 Phase 1 重点是 TCP 多连接、固定 chunk、offset-aware 写入、buffer pool 和吞吐指标。
 ```

@@ -74,7 +74,7 @@ def compact_timestamp() -> str:
 
 
 def default_fdt_root(repo_root: Path) -> Path:
-    return Path(os.environ.get("GRIDFLUX_FDT_ROOT", repo_root.parent / "fast data transfer"))
+    return Path(os.environ.get("CPNETFLUX_FDT_ROOT", repo_root.parent / "fast data transfer"))
 
 
 def default_manifest_path(repo_root: Path) -> Path:
@@ -150,7 +150,7 @@ def method_rows() -> list[dict[str, Any]]:
                 "transport": spec.transport,
                 "compression": spec.compression,
                 "compression_scope": spec.compression_scope,
-                "beta_v1_status": "unsupported" if spec.method == "gridflux_b2_read_pipeline_proxy" else "planned",
+                "beta_v1_status": "unsupported" if spec.method == "cpnetflux_b2_read_pipeline_proxy" else "planned",
                 "description": spec.description,
             }
         )
@@ -170,7 +170,7 @@ def plan_rows(profiles: list[WorkloadProfile], link: LinkProfile) -> list[dict[s
 
 def write_final_summary(path: Path, audit: dict[str, Any], profiles: list[WorkloadProfile]) -> None:
     dataset_text = ", ".join(profile.dataset for profile in profiles)
-    text = f"""# GridFlux Beta 本地 dry-run 汇总
+    text = f"""# CPNetFlux Beta 本地 dry-run 汇总
 
 - 状态：{audit["status"]}
 - 数据集：{dataset_text}
@@ -178,7 +178,7 @@ def write_final_summary(path: Path, audit: dict[str, Any], profiles: list[Worklo
 - unsupported 行数：{audit["unsupported_count"]}
 - 云端传输：未执行
 - GridFTP 对比：只生成计划；正式实验前必须通过 XTransfer-GridFTP/GCT preflight，不能用 scp/rsync 替代。
-- 压缩路径：CPSS/gzip/lz4 均在 staging 层，GridFlux C++ 数据热路径不接入压缩逻辑。
+- 压缩路径：CPSS/gzip/lz4 均在 staging 层，CPNetFlux C++ 数据热路径不接入压缩逻辑。
 - 控制连接复用：仅 `--control-reuse worker` opt-in；默认 `off` 保持 Alpha RC 行为。
 """
     path.write_text(text, encoding="utf-8")
@@ -255,7 +255,7 @@ def parse_csv_list(text: str | None) -> list[str] | None:
 
 def build_parser() -> argparse.ArgumentParser:
     repo_root = Path(__file__).resolve().parents[3]
-    parser = argparse.ArgumentParser(description="Prepare the GridFlux Beta cross-domain experiment matrix.")
+    parser = argparse.ArgumentParser(description="Prepare the CPNetFlux Beta cross-domain experiment matrix.")
     parser.add_argument("--dry-run", action="store_true", help="generate matrix plans without cloud execution")
     parser.add_argument("--fdt-root", type=Path, default=default_fdt_root(repo_root))
     parser.add_argument("--fdt-manifest", type=Path, default=None)

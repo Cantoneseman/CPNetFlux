@@ -33,5 +33,5 @@
 ## Boundaries
 
 - No raw FTP recursive transfer, no MLST/MLSD, no TLS/GSI/production auth, and no third-party transfer.
-- Each file still uses the existing GridFlux framed STOR/RETR path and per-file manifest/verified_chunks semantics.
+- Each file still uses the existing CPNetFlux framed STOR/RETR path and per-file manifest/verified_chunks semantics.
 - Changed-file handling remains fail-safe: changed files are marked and the transfer exits nonzero.

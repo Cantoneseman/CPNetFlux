@@ -1,6 +1,6 @@
-#include "gridflux/core/session/commit_sync_policy.h"
+#include "cpnetflux/core/session/commit_sync_policy.h"
 
-namespace gridflux::core::session {
+namespace cpnetflux::core::session {
 
 common::Result<CommitSyncPolicy> parseCommitSyncPolicy(std::string_view text) {
     if (text == "none") {
@@ -28,4 +28,4 @@ std::string commitSyncPolicyName(CommitSyncPolicy policy) {
     return "none";
 }
 
-}  // namespace gridflux::core::session
+}  // namespace cpnetflux::core::session

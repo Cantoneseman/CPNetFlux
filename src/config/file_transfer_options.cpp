@@ -1,13 +1,13 @@
-#include "gridflux/config/file_transfer_options.h"
+#include "cpnetflux/config/file_transfer_options.h"
 
 #include <charconv>
 #include <limits>
 #include <string_view>
 
-#include "gridflux/core/io/tls_socket.h"
-#include "gridflux/core/metrics/event_log.h"
+#include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/metrics/event_log.h"
 
-namespace gridflux::config {
+namespace cpnetflux::config {
 namespace {
 
 constexpr std::uint32_t kMaxConnections = 64;
@@ -470,7 +470,7 @@ common::Result<FileTransferOptions> parseFileTransferOptions(int argc, const cha
     if (role == FileTransferRole::Server &&
         options.dataTlsMode == core::io::DataTlsMode::Required) {
         return common::Status::invalidArgument(
-            "--data-tls-mode required on receive side is provided by gridflux-gridftp-server");
+            "--data-tls-mode required on receive side is provided by cpnetflux-gridftp-server");
     }
     const common::Status dataTlsStatus =
         core::io::validateDataTlsClientConfig(options.dataTlsMode, options.dataTls);
@@ -515,4 +515,4 @@ std::string fileTransferUsage(const char* programName, FileTransferRole role) {
            "[--corrupt-chunk <chunk-id>] [--duplicate-corrupt-chunk <chunk-id>]";
 }
 
-}  // namespace gridflux::config
+}  // namespace cpnetflux::config

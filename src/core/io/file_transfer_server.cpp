@@ -1,4 +1,4 @@
-#include "gridflux/core/io/file_transfer_server.h"
+#include "cpnetflux/core/io/file_transfer_server.h"
 
 #include <poll.h>
 #include <sys/epoll.h>
@@ -18,26 +18,27 @@
 #include <utility>
 #include <vector>
 
-#include "gridflux/checkpoint/transfer_manifest.h"
-#include "gridflux/checksum/checksum.h"
-#include "gridflux/common/throughput_counter.h"
-#include "gridflux/core/io/connection_context.h"
-#include "gridflux/core/io/framed_data_socket.h"
-#include "gridflux/core/io/socket_utils.h"
-#include "gridflux/core/metrics/transfer_phase_stats.h"
-#include "gridflux/core/protocol/frame.h"
-#include "gridflux/core/session/transfer_session.h"
-#include "gridflux/core/session/transfer_session_config.h"
-#include "gridflux/storage/file_io.h"
-#include "gridflux/storage/posix_file.h"
+#include "cpnetflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/checksum/checksum.h"
+#include "cpnetflux/common/throughput_counter.h"
+#include "cpnetflux/core/io/connection_context.h"
+#include "cpnetflux/core/io/framed_data_socket.h"
+#include "cpnetflux/core/io/socket_utils.h"
+#include "cpnetflux/core/metrics/transfer_phase_stats.h"
+#include "cpnetflux/core/protocol/compressed_data.h"
+#include "cpnetflux/core/protocol/frame.h"
+#include "cpnetflux/core/session/transfer_session.h"
+#include "cpnetflux/core/session/transfer_session_config.h"
+#include "cpnetflux/storage/file_io.h"
+#include "cpnetflux/storage/posix_file.h"
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 namespace {
 
 struct ListenerToken {};
 
 void maybeDelayBeforeDataCompleteForTest() {
-    const char* value = std::getenv("GRIDFLUX_TEST_DELAY_BEFORE_DATA_COMPLETE_MS");
+    const char* value = std::getenv("CPNETFLUX_TEST_DELAY_BEFORE_DATA_COMPLETE_MS");
     if (value == nullptr || *value == '\0') {
         return;
     }
@@ -87,6 +88,11 @@ struct TransferState {
     std::uint64_t chunkSize = 0;
     std::uint64_t initialVerifiedBytes = 0;
     std::uint64_t bytesWritten = 0;
+    std::uint64_t wireBytes = 0;
+    std::uint64_t compressedFrames = 0;
+    std::uint64_t compressedLogicalBytes = 0;
+    std::uint64_t compressedWireBytes = 0;
+    std::uint64_t decompressionFailures = 0;
     std::uint32_t finConnections = 0;
     std::vector<bool> streamsSeen;
     session::TransferSession session;
@@ -576,6 +582,45 @@ common::Status processCompletedHeader(FileServerConnection& connection, Transfer
 
 common::Status processDataPayload(FileServerConnection& connection, TransferState& transfer) {
     const protocol::FrameHeader& header = connection.currentHeader;
+    const bool compressed = (header.flags & protocol::kDataCompressed) != 0;
+    const common::Status payloadStatus = protocol::validateDataFramePayload(
+        header, connection.payloadBuffer.data(), header.payloadSize,
+        static_cast<std::uint32_t>(connection.payloadBuffer.size()));
+    if (!payloadStatus.isOk()) {
+        if (compressed) {
+            ++transfer.decompressionFailures;
+        }
+        transfer.errorCode = protocol::FrameStatusCode::InvalidFrame;
+        return payloadStatus;
+    }
+
+    const std::uint8_t* logicalData = connection.payloadBuffer.data();
+    std::uint64_t logicalSize = header.payloadSize;
+    std::vector<std::uint8_t> decompressed;
+    if (compressed) {
+        auto logicalLength = protocol::compressedDataPayloadLogicalLength(
+            connection.payloadBuffer.data(), header.payloadSize);
+        if (!logicalLength.isOk()) {
+            ++transfer.decompressionFailures;
+            transfer.errorCode = protocol::FrameStatusCode::InvalidFrame;
+            return logicalLength.status();
+        }
+        auto decoded = protocol::decodeCompressedDataPayload(
+            connection.payloadBuffer.data(), header.payloadSize, logicalLength.value(),
+            connection.payloadBuffer.size());
+        if (!decoded.isOk()) {
+            ++transfer.decompressionFailures;
+            transfer.errorCode = protocol::FrameStatusCode::InvalidFrame;
+            return decoded.status();
+        }
+        decompressed = std::move(decoded.value());
+        logicalData = decompressed.data();
+        logicalSize = decompressed.size();
+        ++transfer.compressedFrames;
+        transfer.compressedLogicalBytes += logicalSize;
+        transfer.compressedWireBytes += header.payloadSize;
+    }
+
     if (!connection.chunkActive) {
         connection.chunkActive = true;
         connection.activeChunkId = header.chunkId;
@@ -593,9 +638,8 @@ common::Status processDataPayload(FileServerConnection& connection, TransferStat
     common::Status writeStatus;
     {
         metrics::ScopedPhaseTimer timer(&transfer.phaseStats, metrics::TransferPhase::Write,
-                                        header.payloadSize);
-        writeStatus = connection.writer->write(header.offset, connection.payloadBuffer.data(),
-                                               header.payloadSize);
+                                        logicalSize);
+        writeStatus = connection.writer->write(header.offset, logicalData, logicalSize);
     }
     if (!writeStatus.isOk()) {
         transfer.errorCode = protocol::FrameStatusCode::WriteFailed;
@@ -604,18 +648,19 @@ common::Status processDataPayload(FileServerConnection& connection, TransferStat
 
     {
         metrics::ScopedPhaseTimer timer(&transfer.phaseStats, metrics::TransferPhase::Checksum,
-                                        header.payloadSize);
-        connection.checksumComputer.update(connection.payloadBuffer.data(), header.payloadSize);
+                                        logicalSize);
+        connection.checksumComputer.update(logicalData, logicalSize);
     }
-    connection.activeChunkNextOffset += header.payloadSize;
+    connection.activeChunkNextOffset += logicalSize;
 
-    connection.context.addBytesReceived(header.payloadSize);
+    connection.context.addBytesReceived(logicalSize);
     transfer.bytesWritten = transfer.session.bytesCompleted();
     if (!transfer.counterStarted) {
         transfer.counter.start(common::ThroughputCounter::Clock::now());
         transfer.counterStarted = true;
     }
-    transfer.counter.addBytes(header.payloadSize);
+    transfer.counter.addBytes(logicalSize);
+    transfer.wireBytes += header.payloadSize;
 
     connection.payloadBytesRead = 0;
     connection.readState = ReadState::Header;
@@ -1038,13 +1083,33 @@ common::Status runFileTransferServerOnListenerTls(const config::FileTransferOpti
     const char* backendName = transfer.checksumAlgorithm == checksum::ChecksumAlgorithm::None
                                   ? "none"
                                   : checksum::checksumBackendName(transfer.checksumBackend);
+    if (options.runtimeMetrics != nullptr) {
+        options.runtimeMetrics->elapsedSeconds = transfer.counter.elapsedSeconds(end);
+        options.runtimeMetrics->sendSeconds = transfer.phaseStats.seconds(metrics::TransferPhase::Send);
+        options.runtimeMetrics->recvSeconds = transfer.phaseStats.seconds(metrics::TransferPhase::Recv);
+        options.runtimeMetrics->readSeconds = transfer.phaseStats.seconds(metrics::TransferPhase::Read);
+        options.runtimeMetrics->writeSeconds = transfer.phaseStats.seconds(metrics::TransferPhase::Write);
+        options.runtimeMetrics->checksumSeconds =
+            transfer.phaseStats.seconds(metrics::TransferPhase::Checksum);
+        options.runtimeMetrics->logicalBytes = transfer.session.bytesCompleted();
+        options.runtimeMetrics->wireBytes = transfer.wireBytes;
+        options.runtimeMetrics->compressedFrames = transfer.compressedFrames;
+        options.runtimeMetrics->decompressionFailures = transfer.decompressionFailures;
+        options.runtimeMetrics->compressedLogicalBytes = transfer.compressedLogicalBytes;
+        options.runtimeMetrics->compressedWireBytes = transfer.compressedWireBytes;
+    }
     std::cout << "file_server received_bytes=" << transfer.bytesWritten
+              << " wire_bytes=" << transfer.wireBytes
               << " elapsed_seconds=" << transfer.counter.elapsedSeconds(end)
               << " throughput_gbps=" << transfer.counter.gigabitsPerSecond(end)
               << " transfer_id=" << transfer.transferId << " checksum_backend=" << backendName
               << " skipped_bytes=" << transfer.initialVerifiedBytes
               << " resent_bytes=" << transfer.counter.bytes()
               << " verified_bytes=" << transfer.session.bytesCompleted()
+              << " compressed_frames=" << transfer.compressedFrames
+              << " decompression_failures=" << transfer.decompressionFailures
+              << " compressed_logical_bytes=" << transfer.compressedLogicalBytes
+              << " compressed_wire_bytes=" << transfer.compressedWireBytes
               << " loaded_verified_chunks=" << stats.loadedVerifiedChunks
               << " removed_corrupt_chunks=" << stats.removedCorruptChunks
               << " missing_chunks=" << stats.missingChunks
@@ -1323,13 +1388,33 @@ common::Status runFileTransferServerOnListener(const config::FileTransferOptions
     const char* backendName = transfer.checksumAlgorithm == checksum::ChecksumAlgorithm::None
                                   ? "none"
                                   : checksum::checksumBackendName(transfer.checksumBackend);
+    if (options.runtimeMetrics != nullptr) {
+        options.runtimeMetrics->elapsedSeconds = transfer.counter.elapsedSeconds(end);
+        options.runtimeMetrics->sendSeconds = transfer.phaseStats.seconds(metrics::TransferPhase::Send);
+        options.runtimeMetrics->recvSeconds = transfer.phaseStats.seconds(metrics::TransferPhase::Recv);
+        options.runtimeMetrics->readSeconds = transfer.phaseStats.seconds(metrics::TransferPhase::Read);
+        options.runtimeMetrics->writeSeconds = transfer.phaseStats.seconds(metrics::TransferPhase::Write);
+        options.runtimeMetrics->checksumSeconds =
+            transfer.phaseStats.seconds(metrics::TransferPhase::Checksum);
+        options.runtimeMetrics->logicalBytes = transfer.session.bytesCompleted();
+        options.runtimeMetrics->wireBytes = transfer.wireBytes;
+        options.runtimeMetrics->compressedFrames = transfer.compressedFrames;
+        options.runtimeMetrics->decompressionFailures = transfer.decompressionFailures;
+        options.runtimeMetrics->compressedLogicalBytes = transfer.compressedLogicalBytes;
+        options.runtimeMetrics->compressedWireBytes = transfer.compressedWireBytes;
+    }
     std::cout << "file_server received_bytes=" << transfer.bytesWritten
+              << " wire_bytes=" << transfer.wireBytes
               << " elapsed_seconds=" << transfer.counter.elapsedSeconds(end)
               << " throughput_gbps=" << transfer.counter.gigabitsPerSecond(end)
               << " transfer_id=" << transfer.transferId << " checksum_backend=" << backendName
               << " skipped_bytes=" << transfer.initialVerifiedBytes
               << " resent_bytes=" << transfer.counter.bytes()
               << " verified_bytes=" << transfer.session.bytesCompleted()
+              << " compressed_frames=" << transfer.compressedFrames
+              << " decompression_failures=" << transfer.decompressionFailures
+              << " compressed_logical_bytes=" << transfer.compressedLogicalBytes
+              << " compressed_wire_bytes=" << transfer.compressedWireBytes
               << " loaded_verified_chunks=" << stats.loadedVerifiedChunks
               << " removed_corrupt_chunks=" << stats.removedCorruptChunks
               << " missing_chunks=" << stats.missingChunks
@@ -1379,4 +1464,4 @@ common::Status runFileTransferServer(const config::FileTransferOptions& options)
     return runFileTransferServerOnListener(options, std::move(listenerResult.value()));
 }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

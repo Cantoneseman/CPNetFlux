@@ -1,4 +1,4 @@
-#include "gridflux/checkpoint/download_manifest.h"
+#include "cpnetflux/checkpoint/download_manifest.h"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -13,10 +13,10 @@
 #include <string_view>
 #include <unordered_map>
 
-#include "gridflux/checksum/crc32c.h"
-#include "gridflux/storage/posix_file.h"
+#include "cpnetflux/checksum/crc32c.h"
+#include "cpnetflux/storage/posix_file.h"
 
-namespace gridflux::checkpoint {
+namespace cpnetflux::checkpoint {
 namespace {
 
 bool isHexDigit(char value) noexcept {
@@ -313,7 +313,7 @@ common::Status writeAll(int fd, const char* data, std::size_t length) {
 }  // namespace
 
 std::string downloadManifestPathForOutput(const std::string& outputPath) {
-    return outputPath + ".gridflux.download.manifest";
+    return outputPath + ".cpnetflux.download.manifest";
 }
 
 std::string downloadTempPathForOutput(const std::string& outputPath,
@@ -539,4 +539,4 @@ common::Result<DownloadManifest> loadDownloadManifest(const std::string& path) {
     return parseDownloadManifest(buffer.str());
 }
 
-}  // namespace gridflux::checkpoint
+}  // namespace cpnetflux::checkpoint

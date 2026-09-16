@@ -38,5 +38,5 @@ __pycache__/
 *.bin
 *.part
 *.manifest
-*.gridflux.manifest
-*.gridflux.download.manifest
+*.cpnetflux.manifest
+*.cpnetflux.download.manifest

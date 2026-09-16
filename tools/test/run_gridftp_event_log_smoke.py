@@ -15,7 +15,9 @@ from pathlib import Path
 
 from run_gridftp_control_token_smoke import (  # noqa: E402
     TOKEN,
+    assert_epsv_port_in_window,
     connect_control,
+    clamp_passive_data_port_base,
     free_port,
     make_file,
     parse_epsv_port,
@@ -29,13 +31,13 @@ from run_gridftp_control_token_smoke import (  # noqa: E402
 
 def run_smoke(args: argparse.Namespace) -> int:
     build_dir = Path(args.build_dir)
-    server_bin = build_dir / "gridflux-gridftp-server"
-    client_bin = build_dir / "gridflux-file-client"
-    download_bin = build_dir / "gridflux-file-download-client"
+    server_bin = build_dir / "cpnetflux-gridftp-server"
+    client_bin = build_dir / "cpnetflux-file-client"
+    download_bin = build_dir / "cpnetflux-file-download-client"
     if not server_bin.exists() or not client_bin.exists() or not download_bin.exists():
-        raise FileNotFoundError(f"missing GridFlux binaries in {build_dir}")
+        raise FileNotFoundError(f"missing CPNetFlux binaries in {build_dir}")
 
-    with tempfile.TemporaryDirectory(prefix="gridflux-event-log.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-event-log.") as temp_text:
         temp = Path(temp_text)
         root = temp / "root"
         root.mkdir()
@@ -48,11 +50,11 @@ def run_smoke(args: argparse.Namespace) -> int:
         event_log = temp / "events.jsonl"
         server_log = temp / "server.log"
         control_port = free_port()
-        data_port_base = free_port()
+        data_port_base = clamp_passive_data_port_base(free_port())
         server_cmd = [
             str(server_bin),
             "--host",
-            "127.0.0.1",
+            "0.0.0.0",
             "--port",
             str(control_port),
             "--root",
@@ -82,6 +84,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                 assert reply_code(send_command(sock, buffer, "TYPE I")) == 200
                 epsv = send_command(sock, buffer, "EPSV")
                 assert reply_code(epsv) == 229, epsv
+                assert_epsv_port_in_window(parse_epsv_port(epsv), data_port_base)
                 stor = send_command(sock, buffer, "STOR uploaded.bin")
                 assert reply_code(stor) == 150, stor
                 transfer_id = parse_transfer_id(stor)
@@ -104,6 +107,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                 assert reply_code(read_reply(sock, buffer)) == 226
                 epsv = send_command(sock, buffer, "EPSV")
                 assert reply_code(epsv) == 229
+                assert_epsv_port_in_window(parse_epsv_port(epsv), data_port_base)
                 retr = send_command(sock, buffer, "RETR uploaded.bin")
                 assert reply_code(retr) == 150
                 retr_id = parse_transfer_id(retr)
@@ -167,7 +171,7 @@ def run_smoke(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux event log smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux event log smoke.")
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     return run_smoke(args)

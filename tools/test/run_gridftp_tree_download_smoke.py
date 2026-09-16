@@ -8,11 +8,11 @@ from tree_smoke_common import free_port, make_tree, start_server, stop_server, t
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux tree download smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux tree download smoke.")
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     build_dir = Path(args.build_dir)
-    with tempfile.TemporaryDirectory(prefix="gridflux-tree-download.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-download.") as temp_text:
         temp = Path(temp_text)
         server_root = temp / "server-root"
         source = server_root / "dataset"
@@ -26,7 +26,7 @@ def main() -> int:
         try:
             run_checked(
                 [
-                    str(build_dir / "gridflux-tree-download-client"),
+                    str(build_dir / "cpnetflux-tree-download-client"),
                     "--host",
                     "127.0.0.1",
                     "--port",

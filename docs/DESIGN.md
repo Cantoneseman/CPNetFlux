@@ -1,4 +1,4 @@
-# GridFlux 设计文档
+# CPNetFlux 设计文档
 
 ## 1. 项目背景
 
@@ -20,7 +20,7 @@ GridFTP 曾被广泛用于高性能科学数据传输，具备并行流、断点
 
 ### GridFTP 源码经验取舍
 
-`docs/GridFTP传输源码学习笔记.md` 总结了 Grid Community Toolkit 的传输路径。GridFlux 只吸收其中的分层和恢复思想，不复制 Globus 实现：
+`docs/GridFTP传输源码学习笔记.md` 总结了 Grid Community Toolkit 的传输路径。CPNetFlux 只吸收其中的分层和恢复思想，不复制 Globus 实现：
 
 - 保留控制面、数据面、存储后端分离的模型。
 - 控制命令只转换为内部传输任务，不直接读写文件。
@@ -109,7 +109,7 @@ High-performance Transfer Engine
 
 ### GridFTP 经验映射
 
-| GridFTP 概念 | GridFlux 对应设计 | 取舍 |
+| GridFTP 概念 | CPNetFlux 对应设计 | 取舍 |
 |--------------|-------------------|------|
 | server-control 命令解析 | GridFTP-compatible Frontend | Phase 3 只支持项目 Profile |
 | data operation | Transfer Session / Chunk Plan | 控制语义转换成明确任务 |
@@ -121,14 +121,14 @@ Session Manager 负责把 `REST`、partial transfer、chunk 分配和恢复状�
 
 ### GridFTP-compatible Frontend
 
-Phase 3A/3B/3C/3D 新增最小控制面入口 `gridflux-gridftp-server`。它只把 FTP/GridFTP 风格命令映射到内部传输任务或目录元数据查询，不直接复刻完整 FTP 数据面：
+Phase 3A/3B/3C/3D 新增最小控制面入口 `cpnetflux-gridftp-server`。它只把 FTP/GridFTP 风格命令映射到内部传输任务或目录元数据查询，不直接复刻完整 FTP 数据面：
 
 - 控制连接支持 `USER`、`PASS`、`TYPE I`、`SYST`、`FEAT`、`PWD`、`CWD`、`CDUP`、`NOOP`、`QUIT`、`EPSV`、`PASV`、`OPTS PARALLELISM`、`REST GFID:<transfer_id>`、`SIZE`、`MDTM`、`LIST`、`NLST`、`STOR` 和 `RETR`。
-- STOR/RETR 数据连接仍使用 GridFlux framed protocol；Phase 3A/3B/3C/3D 不兼容普通 FTP raw stream STOR/RETR。
+- STOR/RETR 数据连接仍使用 CPNetFlux framed protocol；Phase 3A/3B/3C/3D 不兼容普通 FTP raw stream STOR/RETR。
 - `STOR` 只能写入 server `--root` 下的相对路径，拒绝绝对路径、`..` 和目录路径。
 - 新上传由控制面生成 `GFID:<transfer_id>`；resume 由 `REST GFID:<transfer_id>` 映射到现有 manifest v2 `verified_chunks` / missing ranges。
-- `RETR` 只能读取 server `--root` 下的相对普通文件，拒绝绝对路径、`..`、目录和不存在文件；数据端由 `gridflux-file-download-client` 接收 framed DATA/ChunkComplete 并原子 rename。
-- Phase 3C 支持 RETR resume；下载恢复事实源位于接收端 `<output>.gridflux.download.manifest`，`REST GFID + RETR` 只提供 transfer id，真正缺失范围由 download client 的 verified chunks 派生。
+- `RETR` 只能读取 server `--root` 下的相对普通文件，拒绝绝对路径、`..`、目录和不存在文件；数据端由 `cpnetflux-file-download-client` 接收 framed DATA/ChunkComplete 并原子 rename。
+- Phase 3C 支持 RETR resume；下载恢复事实源位于接收端 `<output>.cpnetflux.download.manifest`，`REST GFID + RETR` 只提供 transfer id，真正缺失范围由 download client 的 verified chunks 派生。
 - Phase 3D 的 `LIST/NLST` 使用 FTP-style ASCII data channel 传递目录元数据；这不是普通 FTP raw STOR/RETR 文件数据通道。
 - Phase 5A 的目录 upload/download client 只复用 `LIST/NLST/SIZE/STOR/RETR/REST GFID` 编排多个单文件传输，不新增 GridFTP 递归命令，也不支持 raw FTP recursive data stream。
 - `REST offset`、`PORT/EPRT`、TLS/GSI/DCAU/PROT、SPAS/SPOR、Mode E、MLST/MLSD 和第三方传输仍不实现。
@@ -149,7 +149,7 @@ Phase 3A/3B/3C/3D 新增最小控制面入口 `gridflux-gridftp-server`。它只
 
 ### 内部数据面协议
 
-GridFlux 内部不复刻 GridFTP extended block mode。Phase 1 起采用自研二进制数据帧，Phase 2A 在其上增加轻量会话控制帧，Phase 2B 增加 chunk 完成校验帧：
+CPNetFlux 内部不复刻 GridFTP extended block mode。Phase 1 起采用自研二进制数据帧，Phase 2A 在其上增加轻量会话控制帧，Phase 2B 增加 chunk 完成校验帧：
 
 - 协议 magic / version。
 - frame type：`DATA`、`FIN`、`COMPLETE`、`ERROR`、`SESSION_INIT`、`RESUME_RESPONSE`、`CHUNK_COMPLETE`。
@@ -196,11 +196,11 @@ Phase 5A 新增 tree manifest。tree manifest 记录目录传输 mode、logical 
 
 ### 数据传输流程
 
-**上传：** 客户端发起请求 → 控制面创建任务 → Session Manager 生成 chunk manifest → Engine 建立数据连接 → 客户端按 GridFlux frame 发送 → 服务端写入临时文件 → checksum 校验 → rename 提交。
+**上传：** 客户端发起请求 → 控制面创建任务 → Session Manager 生成 chunk manifest → Engine 建立数据连接 → 客户端按 CPNetFlux frame 发送 → 服务端写入临时文件 → checksum 校验 → rename 提交。
 
 **下载：** 客户端发起请求 → 服务端查询文件 → Session Manager 生成 chunk 计划 → Engine 并行读取 → 多流发送 → 客户端按 offset 写入 → 完整性校验。
 
-Phase 3B 的控制面下载是完整 framed RETR：control server 在 passive data listener 上运行 server-side sender，GridFlux-aware download client 接收 `SESSION_INIT`、回复完整文件 range、按 offset 写入临时文件，所有连接收到 `FIN` 并返回 `COMPLETE + OK` 后 rename。
+Phase 3B 的控制面下载是完整 framed RETR：control server 在 passive data listener 上运行 server-side sender，CPNetFlux-aware download client 接收 `SESSION_INIT`、回复完整文件 range、按 offset 写入临时文件，所有连接收到 `FIN` 并返回 `COMPLETE + OK` 后 rename。
 
 Phase 3C 的控制面下载 resume：首次 RETR 中断后保留接收端 download manifest 与 temp 文件；新控制会话执行 `REST GFID:<transfer_id>` + `RETR <path>` 后，sender 在 `SESSION_INIT` 中携带同一 transfer id 与 source path；download client `--resume` 加载 manifest、预检 temp、返回 missing ranges；sender 只发送 missing chunks，最终接收端校验并 rename。
 

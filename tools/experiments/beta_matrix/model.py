@@ -108,8 +108,8 @@ class MethodSpec:
     description: str
 
     @property
-    def is_gridflux(self) -> bool:
-        return self.transport == "gridflux"
+    def is_cpnetflux(self) -> bool:
+        return self.transport == "cpnetflux"
 
 
 @dataclass(frozen=True)
@@ -254,13 +254,13 @@ def choose_b6_preset(profile: WorkloadProfile, link: LinkProfile) -> tuple[str, 
 
 def build_method_matrix() -> list[MethodSpec]:
     return [
-        MethodSpec("gridflux_b0_baseline", "control_reuse", "gridflux", "raw", "per_file", "GridFlux current default behavior"),
-        MethodSpec("gridflux_b1_control_reuse", "control_reuse", "gridflux", "raw", "per_file", "One control session per file worker"),
-        MethodSpec("gridflux_b2_read_pipeline_proxy", "control_reuse", "gridflux", "raw", "per_file", "FDT read-pipeline concept placeholder"),
-        MethodSpec("gridflux_b3_reuse_parallel", "control_reuse", "gridflux", "raw", "per_file", "Control reuse plus file-level parallelism"),
-        MethodSpec("gridflux_cpss", "compression", "gridflux", "cpss", "per_file_blocks", "CPSS staging then GridFlux transfer"),
-        MethodSpec("gridflux_gzip", "compression", "gridflux", "gzip", "per_file_blocks", "gzip staging then GridFlux transfer"),
-        MethodSpec("gridflux_lz4", "compression", "gridflux", "lz4", "per_file_blocks", "lz4 staging then GridFlux transfer"),
+        MethodSpec("cpnetflux_b0_baseline", "control_reuse", "cpnetflux", "raw", "per_file", "CPNetFlux current default behavior"),
+        MethodSpec("cpnetflux_b1_control_reuse", "control_reuse", "cpnetflux", "raw", "per_file", "One control session per file worker"),
+        MethodSpec("cpnetflux_b2_read_pipeline_proxy", "control_reuse", "cpnetflux", "raw", "per_file", "FDT read-pipeline concept placeholder"),
+        MethodSpec("cpnetflux_b3_reuse_parallel", "control_reuse", "cpnetflux", "raw", "per_file", "Control reuse plus file-level parallelism"),
+        MethodSpec("cpnetflux_cpss", "compression", "cpnetflux", "cpss", "per_file_blocks", "CPSS staging then CPNetFlux transfer"),
+        MethodSpec("cpnetflux_gzip", "compression", "cpnetflux", "gzip", "per_file_blocks", "gzip staging then CPNetFlux transfer"),
+        MethodSpec("cpnetflux_lz4", "compression", "cpnetflux", "lz4", "per_file_blocks", "lz4 staging then CPNetFlux transfer"),
         MethodSpec("gridftp_raw", "control_reuse", "gridftp", "raw", "per_file", "GridFTP raw transfer baseline"),
         MethodSpec("gridftp_cpss", "compression", "gridftp", "cpss", "per_file_blocks", "CPSS staging then GridFTP transfer"),
         MethodSpec("gridftp_gzip", "compression", "gridftp", "gzip", "per_file_blocks", "gzip staging then GridFTP transfer"),
@@ -268,12 +268,12 @@ def build_method_matrix() -> list[MethodSpec]:
     ]
 
 
-def _gridflux_preset_for_method(method: str) -> tuple[str, TransferParams] | None:
-    if method == "gridflux_b0_baseline":
+def _cpnetflux_preset_for_method(method: str) -> tuple[str, TransferParams] | None:
+    if method == "cpnetflux_b0_baseline":
         return "B0_baseline", B0_BASELINE
-    if method == "gridflux_b1_control_reuse":
+    if method == "cpnetflux_b1_control_reuse":
         return "B1_session_reuse", B1_SESSION_REUSE
-    if method == "gridflux_b3_reuse_parallel":
+    if method == "cpnetflux_b3_reuse_parallel":
         return "B3_full", B3_FULL
     return None
 
@@ -284,7 +284,7 @@ def _command_hint(plan: MethodPlan) -> str:
     if plan.status == "unsupported":
         return ""
     return (
-        "gridflux-tree-upload-client ... "
+        "cpnetflux-tree-upload-client ... "
         f"--file-parallelism {plan.file_parallelism} "
         f"--connections {plan.connections} "
         f"--control-reuse {plan.control_reuse_mode} "
@@ -292,20 +292,20 @@ def _command_hint(plan: MethodPlan) -> str:
     )
 
 
-def plan_gridflux_method(profile: WorkloadProfile, link: LinkProfile, method: str) -> MethodPlan:
+def plan_cpnetflux_method(profile: WorkloadProfile, link: LinkProfile, method: str) -> MethodPlan:
     regime = classify_regime(profile)
-    if method == "gridflux_b2_read_pipeline_proxy":
+    if method == "cpnetflux_b2_read_pipeline_proxy":
         params = B2_READ_PIPELINE
         estimate = estimate_job_sec(profile, link, params, preset_name="B2_read_pipeline")
         plan = MethodPlan(
             dataset=profile.dataset,
             method=method,
             experiment_group="control_reuse",
-            transport="gridflux",
+            transport="cpnetflux",
             compression="raw",
             compression_scope="per_file",
             status="unsupported",
-            reason="GridFlux Beta v1 has no FDT-style read pipeline proxy in the tree transfer path",
+            reason="CPNetFlux Beta v1 has no FDT-style read pipeline proxy in the tree transfer path",
             control_reuse_mode="off",
             file_parallelism=params.concurrency,
             connections=max(1, min(4, params.concurrency)),
@@ -318,7 +318,7 @@ def plan_gridflux_method(profile: WorkloadProfile, link: LinkProfile, method: st
         )
         return plan
 
-    preset = _gridflux_preset_for_method(method)
+    preset = _cpnetflux_preset_for_method(method)
     if preset is None:
         params = B0_BASELINE
         preset_name = "compression_staging"
@@ -327,17 +327,17 @@ def plan_gridflux_method(profile: WorkloadProfile, link: LinkProfile, method: st
     params = params.clamp()
     estimate = estimate_job_sec(profile, link, params, preset_name=preset_name)
     control_reuse = "worker" if params.session_reuse else "off"
-    if method in {"gridflux_cpss", "gridflux_gzip", "gridflux_lz4"}:
+    if method in {"cpnetflux_cpss", "cpnetflux_gzip", "cpnetflux_lz4"}:
         control_reuse = "off"
     status = "planned"
     reason = "dry-run plan only; no cloud transfer executed"
     plan = MethodPlan(
         dataset=profile.dataset,
         method=method,
-        experiment_group="compression" if method in {"gridflux_cpss", "gridflux_gzip", "gridflux_lz4"} else "control_reuse",
-        transport="gridflux",
-        compression=method.removeprefix("gridflux_") if method.startswith("gridflux_") and method not in {"gridflux_b0_baseline", "gridflux_b1_control_reuse", "gridflux_b3_reuse_parallel"} else "raw",
-        compression_scope="per_file_blocks" if method in {"gridflux_cpss", "gridflux_gzip", "gridflux_lz4"} else "per_file",
+        experiment_group="compression" if method in {"cpnetflux_cpss", "cpnetflux_gzip", "cpnetflux_lz4"} else "control_reuse",
+        transport="cpnetflux",
+        compression=method.removeprefix("cpnetflux_") if method.startswith("cpnetflux_") and method not in {"cpnetflux_b0_baseline", "cpnetflux_b1_control_reuse", "cpnetflux_b3_reuse_parallel"} else "raw",
+        compression_scope="per_file_blocks" if method in {"cpnetflux_cpss", "cpnetflux_gzip", "cpnetflux_lz4"} else "per_file",
         status=status,
         reason=reason,
         control_reuse_mode=control_reuse,
@@ -354,8 +354,8 @@ def plan_gridflux_method(profile: WorkloadProfile, link: LinkProfile, method: st
 
 
 def plan_method(profile: WorkloadProfile, link: LinkProfile, spec: MethodSpec) -> MethodPlan:
-    if spec.transport == "gridflux":
-        return plan_gridflux_method(profile, link, spec.method)
+    if spec.transport == "cpnetflux":
+        return plan_cpnetflux_method(profile, link, spec.method)
     params = B0_BASELINE
     estimate = estimate_job_sec(profile, link, params, preset_name="gridftp_external")
     plan = MethodPlan(

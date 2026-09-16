@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run private GridFTP-like framed STOR/RETR performance matrices.
 
-The script runs on machine one. It starts gridflux-gridftp-server locally and
-uses SSH to run the framed GridFlux-aware data client on machine two.
+The script runs on machine one. It starts cpnetflux-gridftp-server locally and
+uses SSH to run the framed CPNetFlux-aware data client on machine two.
 """
 
 from __future__ import annotations
@@ -23,6 +23,13 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.test.gridftp_port_window import MAX_PASSIVE_DATA_PORT_BASE
+from tools.release import remote_auth
 
 UPLOAD_CLIENT_ROLE = "file_client"
 UPLOAD_SERVER_ROLE = "file_server"
@@ -170,6 +177,7 @@ CSV_FIELDS = [
     "result",
     "server_log",
     "client_log",
+    "control_host",
     "server_env_before_log",
     "server_env_after_log",
     "client_env_before_log",
@@ -259,10 +267,10 @@ class ControlConnection:
         return self.read_reply()
 
     def login_type_i(self) -> None:
-        user = self.send("USER gridflux")
+        user = self.send("USER cpnetflux")
         if reply_code(user) != 331:
             raise RuntimeError(f"USER failed: {user!r}")
-        password = self.send("PASS gridflux")
+        password = self.send("PASS cpnetflux")
         if reply_code(password) != 230:
             raise RuntimeError(f"PASS failed: {password!r}")
         type_i = self.send("TYPE I")
@@ -281,9 +289,7 @@ def run_local(command: list[str], *, check: bool = True, timeout: int | None = N
 
 
 def ssh_prefix(remote: str) -> list[str]:
-    if os.environ.get("GRIDFLUX_SSH_PASSWORD"):
-        return ["sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=no", remote]
-    return ["ssh", "-o", "StrictHostKeyChecking=no", remote]
+    return remote_auth.ssh_prefix(remote, root=REPO_ROOT)
 
 
 def run_remote(
@@ -294,9 +300,7 @@ def run_remote(
     check: bool = True,
     timeout: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    if env.get("GRIDFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
-        env["SSHPASS"] = env["GRIDFLUX_SSH_PASSWORD"]
+    env = remote_auth.command_env(remote, REPO_ROOT)
     completed = subprocess.run(
         ssh_prefix(remote) + [command],
         input=input_text,
@@ -521,11 +525,11 @@ def write_text(path: Path, text: str) -> None:
 
 
 def start_control_server(args: argparse.Namespace, case: Case, root: Path, server_log: Path) -> subprocess.Popen[str]:
-    server_bin = Path(args.local_build_dir) / "gridflux-gridftp-server"
+    server_bin = Path(args.local_build_dir) / "cpnetflux-gridftp-server"
     command = [
         str(server_bin),
         "--host",
-        args.server_host,
+        "0.0.0.0",
         "--port",
         str(control_port(args, case.index)),
         "--root",
@@ -600,7 +604,8 @@ def data_port_base(args: argparse.Namespace, case_index: int) -> int:
 
 
 def login_control(args: argparse.Namespace, case: Case) -> ControlConnection:
-    control = ControlConnection(args.server_host, control_port(args, case.index))
+    control_host = args.control_host or args.server_host
+    control = ControlConnection(control_host, control_port(args, case.index))
     control.login_type_i()
     return control
 
@@ -622,7 +627,7 @@ def run_upload_client(
     resume: bool,
     max_chunks: int | None,
 ) -> subprocess.CompletedProcess[str]:
-    remote_client = f"{args.remote_build_dir.rstrip('/')}/gridflux-file-client"
+    remote_client = f"{args.remote_build_dir.rstrip('/')}/cpnetflux-file-client"
     pieces = [
         shlex.quote(remote_client),
         "--host",
@@ -673,7 +678,7 @@ def run_download_client(
     resume: bool,
     max_chunks: int | None,
 ) -> subprocess.CompletedProcess[str]:
-    remote_client = f"{args.remote_build_dir.rstrip('/')}/gridflux-file-download-client"
+    remote_client = f"{args.remote_build_dir.rstrip('/')}/cpnetflux-file-download-client"
     pieces = [
         shlex.quote(remote_client),
         "--host",
@@ -875,20 +880,20 @@ def cleanup_remote_paths(args: argparse.Namespace, *paths: str) -> None:
             continue
         quoted = shlex.quote(path)
         commands.append(
-            f"rm -rf {quoted} {quoted}.part.* {quoted}.gridflux.download.manifest "
-            f"{quoted}.gridflux.manifest"
+            f"rm -rf {quoted} {quoted}.part.* {quoted}.cpnetflux.download.manifest "
+            f"{quoted}.cpnetflux.manifest"
         )
     if commands:
         run_remote(args.remote, " ; ".join(commands), check=False, timeout=60)
 
 
 def check_binaries(args: argparse.Namespace) -> None:
-    local_server = Path(args.local_build_dir) / "gridflux-gridftp-server"
+    local_server = Path(args.local_build_dir) / "cpnetflux-gridftp-server"
     if not local_server.exists():
         raise RuntimeError(f"missing local server: {local_server}")
     remote_checks = [
-        f"test -x {shlex.quote(args.remote_build_dir.rstrip('/') + '/gridflux-file-client')}",
-        f"test -x {shlex.quote(args.remote_build_dir.rstrip('/') + '/gridflux-file-download-client')}",
+        f"test -x {shlex.quote(args.remote_build_dir.rstrip('/') + '/cpnetflux-file-client')}",
+        f"test -x {shlex.quote(args.remote_build_dir.rstrip('/') + '/cpnetflux-file-download-client')}",
     ]
     run_remote(args.remote, " && ".join(remote_checks), timeout=30)
 
@@ -931,6 +936,7 @@ def initial_row(args: argparse.Namespace, case: Case, env: EnvironmentSnapshot, 
         "result": "fail",
         "server_log": str(server_log),
         "client_log": str(client_log),
+        "control_host": args.control_host or args.server_host,
         "server_env_before_log": "",
         "server_env_after_log": "",
         "client_env_before_log": "",
@@ -1284,8 +1290,8 @@ def run_case(args: argparse.Namespace, case: Case, run_root: Path, env: Environm
     row["temp_root"] = str(case_root)
 
     server: subprocess.Popen[str] | None = None
-    remote_source = f"/tmp/gridflux_phase4a_{case_id}.src"
-    remote_output = f"/tmp/gridflux_phase4a_{case_id}.dst"
+    remote_source = f"/tmp/cpnetflux_phase4a_{case_id}.src"
+    remote_output = f"/tmp/cpnetflux_phase4a_{case_id}.dst"
     output_name = f"{case_id}.bin"
     local_source = server_root / f"{case_id}.source.bin"
     local_output = server_root / output_name
@@ -1491,8 +1497,8 @@ def validate_ports(args: argparse.Namespace, cases: list[Case]) -> None:
     for case in cases:
         if control_port(args, case.index) > 65535:
             raise RuntimeError("control port range exceeds 65535")
-        if data_port_base(args, case.index) + case.connections > 65535:
-            raise RuntimeError("data port range exceeds 65535")
+        if data_port_base(args, case.index) > MAX_PASSIVE_DATA_PORT_BASE:
+            raise RuntimeError("data port window exceeds 65535")
 
 
 def process_check(remote: str) -> tuple[str, str]:
@@ -1514,8 +1520,9 @@ def main() -> int:
     mode.add_argument("--full", action="store_true", help="run the full explicit matrix")
     parser.add_argument("--remote", default="root@<redacted>")
     parser.add_argument("--server-host", default="<redacted>")
-    parser.add_argument("--local-build-dir", default="/root/projects/GridFlux/build")
-    parser.add_argument("--remote-build-dir", default="/root/projects/GridFlux/build")
+    parser.add_argument("--control-host", default="")
+    parser.add_argument("--local-build-dir", default="/root/projects/CPNetFlux/build")
+    parser.add_argument("--remote-build-dir", default="/root/projects/CPNetFlux/build")
     parser.add_argument("--output-dir", default="tools/perf/results")
     parser.add_argument("--control-port-base", type=int, default=21210)
     parser.add_argument("--data-port-base", type=int, default=20400)
@@ -1571,7 +1578,7 @@ def main() -> int:
     summary_path = (
         output_dir / f"{run_id}_gridftp-private-matrix-{'full' if args.full else 'smoke'}-summary.csv"
     )
-    run_root = Path(tempfile.mkdtemp(prefix=f"gridflux-phase4a-{run_id}."))
+    run_root = Path(tempfile.mkdtemp(prefix=f"cpnetflux-phase4a-{run_id}."))
     remove_run_root = not args.keep_files
 
     try:
@@ -1603,7 +1610,7 @@ def main() -> int:
 
         local_processes, remote_processes = process_check(args.remote)
         if local_processes or remote_processes:
-            print("leftover gridflux process detected", file=sys.stderr)
+            print("leftover cpnetflux process detected", file=sys.stderr)
             if local_processes:
                 print("local:\n" + local_processes, file=sys.stderr)
             if remote_processes:

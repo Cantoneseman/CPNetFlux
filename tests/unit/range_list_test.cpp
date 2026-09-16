@@ -1,9 +1,9 @@
-#include "gridflux/core/chunk/range_list.h"
+#include "cpnetflux/core/chunk/range_list.h"
 
 #include <gtest/gtest.h>
 
 TEST(RangeListTest, InsertsAdjacentRangesAndReportsMissingGaps) {
-    gridflux::core::chunk::RangeList ranges;
+    cpnetflux::core::chunk::RangeList ranges;
 
     EXPECT_TRUE(ranges.insert(0, 1024, 4096).isOk());
     EXPECT_TRUE(ranges.insert(1024, 1024, 4096).isOk());
@@ -21,7 +21,7 @@ TEST(RangeListTest, InsertsAdjacentRangesAndReportsMissingGaps) {
 }
 
 TEST(RangeListTest, RejectsDuplicateAndOverlapOnStrictInsert) {
-    gridflux::core::chunk::RangeList ranges;
+    cpnetflux::core::chunk::RangeList ranges;
 
     EXPECT_TRUE(ranges.insert(0, 1024, 4096).isOk());
     EXPECT_FALSE(ranges.insert(0, 1024, 4096).isOk());
@@ -29,7 +29,7 @@ TEST(RangeListTest, RejectsDuplicateAndOverlapOnStrictInsert) {
 }
 
 TEST(RangeListTest, MergesOutOfOrderOverlapAndAdjacentRanges) {
-    gridflux::core::chunk::RangeList ranges;
+    cpnetflux::core::chunk::RangeList ranges;
 
     EXPECT_TRUE(ranges.merge(2048, 1024, 4096).isOk());
     EXPECT_TRUE(ranges.merge(0, 1024, 4096).isOk());
@@ -43,7 +43,7 @@ TEST(RangeListTest, MergesOutOfOrderOverlapAndAdjacentRanges) {
 }
 
 TEST(RangeListTest, RejectsInvalidRanges) {
-    gridflux::core::chunk::RangeList ranges;
+    cpnetflux::core::chunk::RangeList ranges;
 
     EXPECT_FALSE(ranges.insert(0, 0, 4096).isOk());
     EXPECT_FALSE(ranges.insert(4090, 16, 4096).isOk());
@@ -51,7 +51,7 @@ TEST(RangeListTest, RejectsInvalidRanges) {
 }
 
 TEST(RangeListTest, HandlesEmptyTotalSize) {
-    gridflux::core::chunk::RangeList ranges;
+    cpnetflux::core::chunk::RangeList ranges;
 
     EXPECT_TRUE(ranges.missingRanges(0).empty());
     EXPECT_FALSE(ranges.insert(0, 1, 0).isOk());

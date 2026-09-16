@@ -1,4 +1,4 @@
-# GridFlux 项目状态记录
+# CPNetFlux 项目状态记录
 
 ## 2026-07-22 Lab Beta 5 总结证据包与汇报材料收口（CPSS-aware go review-ready）
 
@@ -6,15 +6,15 @@
 
 - Beta 5 retained evidence：`tools/perf/results/20260722T080536Z_lab-beta-5-report-evidence-pack/`。
 - 本轮只汇总 Beta 1/2/3/4 已有 retained evidence，生成 PPT/论文可用 CSV/JSON 和中文报告；不改写旧 retained evidence。
-- Beta 1：公网协议基线 `full_pass/go`，真实跑通 GridFlux、FTP、GridFTP。
+- Beta 1：公网协议基线 `full_pass/go`，真实跑通 CPNetFlux、FTP、GridFTP。
 - Beta 2：公网连接复用扩展 `pass/go`，worker control reuse 在小文件密集型场景显著减少控制连接并带来加速。
-- Beta 3：修复后 compression staging rerun 仍保留为 `partial_go_cpss_environment_blocked`；raw/gzip/lz4 在 GridFlux、FTP、GridFTP 下 transfer 与 restore/tree hash 正确性通过。
-- Beta 4：CPSS environment unblock and minimal staging gate 为 `cpss_pass_go`；GridFlux CPSS worker 与 GridFTP CPSS 均 3 datasets × 3 repeats 通过，FTP CPSS 为 optional `environment_blocked`，不作为核心失败。
+- Beta 3：修复后 compression staging rerun 仍保留为 `partial_go_cpss_environment_blocked`；raw/gzip/lz4 在 CPNetFlux、FTP、GridFTP 下 transfer 与 restore/tree hash 正确性通过。
+- Beta 4：CPSS environment unblock and minimal staging gate 为 `cpss_pass_go`；CPNetFlux CPSS worker 与 GridFTP CPSS 均 3 datasets × 3 repeats 通过，FTP CPSS 为 optional `environment_blocked`，不作为核心失败。
 - 组合口径：Beta 1/2/3/4 evidence 支持进入 CPSS-aware go 评审。
 
 ### 边界
 
-- 压缩仍是 staging/restore 编排层，不在 GridFlux C++ 数据热路径，不改变公开协议/API。
+- 压缩仍是 staging/restore 编排层，不在 CPNetFlux C++ 数据热路径，不改变公开协议/API。
 - 未跑 10GiB/20GiB/100GiB/heavy soak，不能宣称 50G/100G ready。
 - CPSS 收益依赖数据可压缩性；HPC science 样本压缩率接近 1，AI mixed 和 metadata 类数据更适合展示压缩 staging 收益。
 - `scp`/`rsync` 仅用于源码/文档同步和 evidence 管理，不作为公网传输结论替代。
@@ -24,11 +24,11 @@
 ### 当前口径
 
 - 原 Beta 3 retained evidence 保留为历史 no-go：`tools/perf/results/20260720T051105Z_lab-beta-3-public-compression-staging-matrix/`，结论 `fail_correctness` / no-go。
-- failure triage evidence：`tools/perf/results/20260721T034707Z_lab-beta-3-failure-triage-gridflux-lz4-final-status/`，结论 `pass_after_fix`；确认 `oss_ai_training_mixed` / `gridflux_lz4_worker` 的尾部 data final status timeout 误判已通过最小公网复现修复验证。
+- failure triage evidence：`tools/perf/results/20260721T034707Z_lab-beta-3-failure-triage-cpnetflux-lz4-final-status/`，结论 `pass_after_fix`；确认 `oss_ai_training_mixed` / `cpnetflux_lz4_worker` 的尾部 data final status timeout 误判已通过最小公网复现修复验证。
 - rerun after fix evidence：`tools/perf/results/20260721T093510Z_lab-beta-3-compression-staging-rerun-after-final-status-fix/`，结论 `partial_go_cpss_environment_blocked`。
-- 当前 Beta 3 口径：raw/gzip/lz4 Beta 3 staging correctness passed；GridFlux、FTP、GridFTP 的 raw/gzip/lz4 transfer status 与 restore/tree hash 均通过。
+- 当前 Beta 3 口径：raw/gzip/lz4 Beta 3 staging correctness passed；CPNetFlux、FTP、GridFTP 的 raw/gzip/lz4 transfer status 与 restore/tree hash 均通过。
 - CPSS 仍为 `environment_blocked`，不是 `full_go`；不得把 CPSS 写成已通过。
-- 旧失败点 `oss_ai_training_mixed` / `gridflux_lz4_worker` repeat 0..2 已在 rerun 中全部通过；repeat 2 命中 `recovered_after_data_final_status_timeout=true`，但 client exit、summary、bytes/files 和 restore/tree hash 均一致。
+- 旧失败点 `oss_ai_training_mixed` / `cpnetflux_lz4_worker` repeat 0..2 已在 rerun 中全部通过；repeat 2 命中 `recovered_after_data_final_status_timeout=true`，但 client exit、summary、bytes/files 和 restore/tree hash 均一致。
 - 两端 fresh CTest 已验收为 `185/185` pass。
 
 ### 边界
@@ -36,7 +36,7 @@
 - 本轮只做文档/索引收口，不跑新矩阵。
 - 未跑 10GiB/20GiB/100GiB/heavy soak。
 - 不修 CPSS，不做 CPSS 训练或大缓存构建。
-- 未进入 GridFlux C++ hot-path 压缩设计；gzip/lz4/CPSS 仍只属于 staging/restore 层。
+- 未进入 CPNetFlux C++ hot-path 压缩设计；gzip/lz4/CPSS 仍只属于 staging/restore 层。
 - 不改写三个旧 retained evidence 目录下的历史结果文件。
 
 ## 2026-07-20 Lab Beta 3 公网压缩 staging 矩阵（已完成，no-go）
@@ -46,23 +46,23 @@
 - 新增 retained runner：`tools/perf/results/20260720T051105Z_lab-beta-3-public-compression-staging-matrix/beta3_public_compression_staging_runner.py`。
 - 使用深圳公网 `120.25.121.51` -> 上海公网 `47.116.174.181`，只跑 OSS 科学数据集上的 compression staging 矩阵。
 - 数据源优先使用深圳已配置的 OSS bucket `science-compressor-datasets`，总量硬上限 `<= 3GiB`，默认目标约 `1.2-1.6GiB`。
-- 压缩只在 staging/restore 层进行，不进入 GridFlux C++ protocol hot path，不改变公开 API。
+- 压缩只在 staging/restore 层进行，不进入 CPNetFlux C++ protocol hot path，不改变公开 API。
 - Evidence 目录：`tools/perf/results/20260720T051105Z_lab-beta-3-public-compression-staging-matrix/`。
 - 结论：`fail_correctness` / no-go。矩阵产出完整，`method_runs.jsonl` 为 99 行；raw/gzip/lz4 的 FTP 与 GridFTP anchor 均通过，CPSS 因临时 venv/install check 失败按计划标为非阻塞 environment-blocked。
-- 唯一必需路径失败项为 `oss_ai_training_mixed` 的 `gridflux_lz4_worker` repeat 2：GridFlux client 返回 `exit_code=1`，summary 为 `result=fail`、`error_code=io_error`、`recv: Resource temporarily unavailable`。远端 restore 后 tree hash/bytes/files 与源一致，但传输命令本身未成功，不能进入更大数据或协议内压缩设计。
+- 唯一必需路径失败项为 `oss_ai_training_mixed` 的 `cpnetflux_lz4_worker` repeat 2：CPNetFlux client 返回 `exit_code=1`，summary 为 `result=fail`、`error_code=io_error`、`recv: Resource temporarily unavailable`。远端 restore 后 tree hash/bytes/files 与源一致，但传输命令本身未成功，不能进入更大数据或协议内压缩设计。
 
 ### Beta 0/1/2 验收状态
 
 - Lab Beta 0：ctest gate 修复、公网小烟测和清理证据已完成，结论 `pass/go`。
-- Lab Beta 1：公网协议基线对比已完成，FTP/GridFTP/GridFlux anchor 跑通，结论 `full_pass/go`。
-- Lab Beta 2：公网连接复用扩展矩阵已完成，GridFlux worker 复用收益与正确性门禁通过，结论 `pass/go`。
+- Lab Beta 1：公网协议基线对比已完成，FTP/GridFTP/CPNetFlux anchor 跑通，结论 `full_pass/go`。
+- Lab Beta 2：公网连接复用扩展矩阵已完成，CPNetFlux worker 复用收益与正确性门禁通过，结论 `pass/go`。
 - 最新双端 targeted/full CTest 已验收为通过；`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 允许因环境不可用 skip，不允许 failed tests。
 
 ### 本轮边界
 
 - 不跑 10GiB/20GiB/100GiB/heavy soak。
 - 不跑 CPSS 训练、大缓存构建或压缩正式矩阵。
-- 不使用 SSH tunnel、私网 IP、scp/rsync 替代 FTP/GridFTP/GridFlux 协议传输。
+- 不使用 SSH tunnel、私网 IP、scp/rsync 替代 FTP/GridFTP/CPNetFlux 协议传输。
 - 不记录 OSS 凭据、token、password 或其他 secret。
 
 ## 2026-05-19 Phase 6E 完整 alpha 原型收口与长跑验收包（已完成）
@@ -88,7 +88,7 @@
 - 本机 `build-io-uring-real` Release full CTest：`181/181 passed`，`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 为 `Passed`。
 - <redacted>二 Debug full CTest：`181/181 passed`。
 - <redacted>二 `build-io-uring-real` Release full CTest：`181/181 passed`，`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 为 `Passed`。
-- Public export strict hygiene：`pass`，`/tmp/gridflux-public` 检查通过。
+- Public export strict hygiene：`pass`，`/tmp/cpnetflux-public` 检查通过。
 - Quick alpha gate：`pass`，JSON 为 `tools/perf/results/20260519T023443Z_alpha-release-gate.json`。
 - Full alpha gate：`pass`，JSON 为 `tools/perf/results/20260519T023747Z_alpha-release-gate.json`，artifact manifest 为 `tools/perf/results/20260519T023747Z_alpha-artifacts.json`；freshness `checked=872 stale=0 status=pass`，sync/verify `missing=0 mismatch=0 status=pass`。
 - Alpha release candidate：`pass`，报告为 `docs/release/ALPHA_RELEASE_CANDIDATE.md`，JSON 为 `tools/perf/results/20260519T030518Z_alpha-release-candidate.json`，artifact manifest 为 `tools/perf/results/20260519T030518Z_alpha-release-candidate-artifacts.json`。
@@ -107,12 +107,12 @@
 ### 实现内容
 
 - 新增 `--data-tls-mode off|required`，默认 `off`。
-- `gridflux-gridftp-server --data-tls-mode required` 必须与 `--tls-mode required` 同用，复用 control TLS cert/key。
-- `gridflux-file-client`、`gridflux-file-download-client` 和 tree upload/download clients 可通过 `--data-tls-mode required --tls-ca-file <path>` 对 STOR/RETR framed file data socket 做 TLS handshake。
+- `cpnetflux-gridftp-server --data-tls-mode required` 必须与 `--tls-mode required` 同用，复用 control TLS cert/key。
+- `cpnetflux-file-client`、`cpnetflux-file-download-client` 和 tree upload/download clients 可通过 `--data-tls-mode required --tls-ca-file <path>` 对 STOR/RETR framed file data socket 做 TLS handshake。
 - STOR/RETR frame、CRC32C、manifest、resume、verified_chunks 和 final verify 语义未改变。
 - LIST/NLST ASCII listing data channel 明确不在 Phase 6D 保护范围内，仍保持现有明文 metadata data 行为。
 - 新增 `data_tls_required` / `data_tls_failed` 错误码分类和 release/demo summary 分类。
-- 新增本机 `gridflux_gridftp_data_tls_smoke`，覆盖 STOR/RETR data TLS、明文 data client 失败、tree upload/download data TLS 以及 LIST/NLST 明文 listing 回归。
+- 新增本机 `cpnetflux_gridftp_data_tls_smoke`，覆盖 STOR/RETR data TLS、明文 data client 失败、tree upload/download data TLS 以及 LIST/NLST 明文 listing 回归。
 - Release gate quick 接入 local data TLS smoke，full 接入 private STOR/RETR data TLS smoke。
 
 ### 已执行验证
@@ -131,7 +131,7 @@
 - Quick alpha gate：`pass`。
 - Full alpha gate：`pass`，artifact sync/final verify `checked=819`、`missing=0`、`mismatch=0`、`status=pass`。
 - Public export strict hygiene：`pass`。
-- 最终残留进程检查：两台<redacted>无 `gridflux-gridftp-server` / `gridflux-file-*`。
+- 最终残留进程检查：两台<redacted>无 `cpnetflux-gridftp-server` / `cpnetflux-file-*`。
 
 ### 默认值与边界
 
@@ -176,7 +176,7 @@
 
 ### <redacted>二同步与验证
 
-- 通过：使用 `sshpass + rsync` 同步到 `root@<redacted>:/root/projects/GridFlux/`。
+- 通过：使用 `sshpass + rsync` 同步到 `root@<redacted>:/root/projects/CPNetFlux/`。
 - 系统：Ubuntu 22.04.5 LTS，Linux 5.15。
 - CMake：3.22.1，项目最低要求为 3.20。
 - GCC/G++：13.4.0，来自 `ppa:ubuntu-toolchain-r/test`。
@@ -210,7 +210,7 @@
 
 ### 实现内容
 
-- 新增 `gridflux-server` 与 `gridflux-client` 两个可执行入口。
+- 新增 `cpnetflux-server` 与 `cpnetflux-client` 两个可执行入口。
 - 使用 POSIX socket + epoll 实现多连接 TCP sink。
 - 支持 memory-to-memory 吞吐测试，server 接收并丢弃数据，client 重复发送预分配内存 buffer。
 - 新增 `ConnectionContext`，集中管理 fd、连接状态、EOF、错误号、接收/发送字节数。
@@ -234,12 +234,12 @@
 - 通过本机 loopback smoke test：
 
 ```bash
-./build/gridflux-server --host 127.0.0.1 --port 19000 --connections 4 --bytes 67108864 --buffer-size 65536 > /tmp/gridflux-server.log 2>&1 &
+./build/cpnetflux-server --host 127.0.0.1 --port 19000 --connections 4 --bytes 67108864 --buffer-size 65536 > /tmp/cpnetflux-server.log 2>&1 &
 server_pid=$!
 sleep 1
-./build/gridflux-client --host 127.0.0.1 --port 19000 --connections 4 --bytes 67108864 --buffer-size 65536
+./build/cpnetflux-client --host 127.0.0.1 --port 19000 --connections 4 --bytes 67108864 --buffer-size 65536
 wait "$server_pid"
-cat /tmp/gridflux-server.log
+cat /tmp/cpnetflux-server.log
 ```
 
 输出摘要：
@@ -254,13 +254,13 @@ server received_bytes=67108864 elapsed_seconds=0.0075007 throughput_gbps=71.5761
 <redacted>一 `<redacted>`：
 
 ```bash
-./build/gridflux-server --host <redacted> --port 19000 --connections 8 --bytes 1073741824 --buffer-size 65536
+./build/cpnetflux-server --host <redacted> --port 19000 --connections 8 --bytes 1073741824 --buffer-size 65536
 ```
 
 <redacted>二 `<redacted>`：
 
 ```bash
-./build/gridflux-client --host <redacted> --port 19000 --connections 8 --bytes 1073741824 --buffer-size 65536
+./build/cpnetflux-client --host <redacted> --port 19000 --connections 8 --bytes 1073741824 --buffer-size 65536
 ```
 
 ### 备注
@@ -274,7 +274,7 @@ server received_bytes=67108864 elapsed_seconds=0.0075007 throughput_gbps=71.5761
 
 - 新增 `tools/perf/collect_env.sh`，采集 OS/kernel、CPU、内存、IP、TCP sysctl，以及可用时的 `iperf3`、`fio`、`numactl`、`ethtool` 信息。
 - 新增 `tools/perf/run_loopback_matrix.py`，支持 loopback smoke/full matrix，并输出 CSV。
-- 新增 `tools/perf/sync_remote.sh`，通过 `rsync -az --delete` 同步代码并排除构建产物和 `_deps/`，密码只通过 `GRIDFLUX_SSH_PASSWORD` 读取。
+- 新增 `tools/perf/sync_remote.sh`，通过 `rsync -az --delete` 同步代码并排除构建产物和 `_deps/`，密码只通过 `CPNETFLUX_SSH_PASSWORD` 读取。
 - 新增 `tools/perf/run_private_once.sh`，准备<redacted>一 server + <redacted>二 client 的私网单次测试。
 - 新增 `docs/perf/README.md`，记录环境采集、loopback matrix、远程同步、远程构建、私网单次测试命令。
 - 更新 `.gitignore`，忽略 `/build/`、`/build-verify/`、Python 缓存和性能测试临时日志。
@@ -317,27 +317,27 @@ tools/perf/run_loopback_matrix.py --build-dir build --bytes 1073741824 --output-
 - <redacted>二同步：
 
 ```bash
-export GRIDFLUX_SSH_PASSWORD='***'
-tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux
+export CPNETFLUX_SSH_PASSWORD='***'
+tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux
 ```
 
 - <redacted>二构建：
 
 ```bash
-ssh root@<redacted> 'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
+ssh root@<redacted> 'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
 ```
 
 - 私网单次测试：
 
 ```bash
-tools/perf/run_private_once.sh --remote root@<redacted> --server-host <redacted> --build-dir /root/projects/GridFlux/build --connections 8 --bytes 1073741824 --buffer-size 65536
+tools/perf/run_private_once.sh --remote root@<redacted> --server-host <redacted> --build-dir /root/projects/CPNetFlux/build --connections 8 --bytes 1073741824 --buffer-size 65536
 ```
 
 ## 2026-05-16 Phase 1.2A 最小文件传输闭环
 
 ### 实现内容
 
-- 新增 `gridflux-file-server` 与 `gridflux-file-client`，保留既有 `gridflux-server` / `gridflux-client` memory sink 行为不变。
+- 新增 `cpnetflux-file-server` 与 `cpnetflux-file-client`，保留既有 `cpnetflux-server` / `cpnetflux-client` memory sink 行为不变。
 - 新增固定 64 字节二进制 `FrameHeader`，字段包含 magic、version、header size、type、flags、stream id、chunk id、offset、payload size、total size；所有整数按 network byte order 编解码。
 - 新增 frame encode/decode/validate，拒绝非法 magic/version/header size/type、非零 flags、payload 超过 buffer size、payload range 越界和 total size 不一致。
 - 新增 `ChunkRange` 与静态 chunk planner，按文件大小和 chunk size 切分，按 `chunk_id % connections` 分配 stream。
@@ -360,35 +360,35 @@ tools/perf/run_private_once.sh --remote root@<redacted> --server-host <redacted>
 - 通过：`cmake --build build`
 - 通过：`ctest --test-dir build --output-on-failure`
 - 测试结果：33/33 passed。
-- 通过既有 memory sink 回归 smoke test：`gridflux-server` / `gridflux-client`，2 connections，1MiB。
+- 通过既有 memory sink 回归 smoke test：`cpnetflux-server` / `cpnetflux-client`，2 connections，1MiB。
 - 通过本机 16MiB / 4 connections 文件传输 loopback smoke test：
 
 ```bash
-dd if=/dev/urandom of=/tmp/gridflux-src-16m.bin bs=1M count=16 status=none
-rm -f /tmp/gridflux-dst-16m.bin /tmp/gridflux-file-server.log
+dd if=/dev/urandom of=/tmp/cpnetflux-src-16m.bin bs=1M count=16 status=none
+rm -f /tmp/cpnetflux-dst-16m.bin /tmp/cpnetflux-file-server.log
 
-./build/gridflux-file-server \
+./build/cpnetflux-file-server \
   --host 127.0.0.1 \
   --port 19300 \
-  --output /tmp/gridflux-dst-16m.bin \
+  --output /tmp/cpnetflux-dst-16m.bin \
   --connections 4 \
   --buffer-size 65536 \
-  > /tmp/gridflux-file-server.log 2>&1 &
+  > /tmp/cpnetflux-file-server.log 2>&1 &
 server_pid=$!
 
 sleep 1
 
-./build/gridflux-file-client \
+./build/cpnetflux-file-client \
   --host 127.0.0.1 \
   --port 19300 \
-  --input /tmp/gridflux-src-16m.bin \
+  --input /tmp/cpnetflux-src-16m.bin \
   --connections 4 \
   --chunk-size 1048576 \
   --buffer-size 65536
 
 wait "$server_pid"
-cmp /tmp/gridflux-src-16m.bin /tmp/gridflux-dst-16m.bin
-cat /tmp/gridflux-file-server.log
+cmp /tmp/cpnetflux-src-16m.bin /tmp/cpnetflux-dst-16m.bin
+cat /tmp/cpnetflux-file-server.log
 ```
 
 输出摘要：
@@ -405,7 +405,7 @@ cmp_status=0
 
 ### <redacted>二同步与验证
 
-- 通过：使用 `tools/perf/sync_remote.sh` 同步到 `root@<redacted>:/root/projects/GridFlux/`。
+- 通过：使用 `tools/perf/sync_remote.sh` 同步到 `root@<redacted>:/root/projects/CPNetFlux/`。
 - 同步时 `rsync` 提示<redacted>二存在旧的 `build-private-verify-20260515T163633Z` 非空目录未删除；源码同步完成，未影响本次构建和测试。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
@@ -417,11 +417,11 @@ cmp_status=0
 <redacted>一 `<redacted>`：
 
 ```bash
-rm -f /tmp/gridflux-dst-64m.bin
-./build/gridflux-file-server \
+rm -f /tmp/cpnetflux-dst-64m.bin
+./build/cpnetflux-file-server \
   --host <redacted> \
   --port 19310 \
-  --output /tmp/gridflux-dst-64m.bin \
+  --output /tmp/cpnetflux-dst-64m.bin \
   --connections 4 \
   --buffer-size 65536
 ```
@@ -429,13 +429,13 @@ rm -f /tmp/gridflux-dst-64m.bin
 <redacted>二 `<redacted>`：
 
 ```bash
-dd if=/dev/urandom of=/tmp/gridflux-src-64m.bin bs=1M count=64 status=none
-sha256sum /tmp/gridflux-src-64m.bin
+dd if=/dev/urandom of=/tmp/cpnetflux-src-64m.bin bs=1M count=64 status=none
+sha256sum /tmp/cpnetflux-src-64m.bin
 
-/root/projects/GridFlux/build/gridflux-file-client \
+/root/projects/CPNetFlux/build/cpnetflux-file-client \
   --host <redacted> \
   --port 19310 \
-  --input /tmp/gridflux-src-64m.bin \
+  --input /tmp/cpnetflux-src-64m.bin \
   --connections 4 \
   --chunk-size 1048576 \
   --buffer-size 65536
@@ -444,15 +444,15 @@ sha256sum /tmp/gridflux-src-64m.bin
 <redacted>一传输结束后：
 
 ```bash
-sha256sum /tmp/gridflux-dst-64m.bin
+sha256sum /tmp/cpnetflux-dst-64m.bin
 ```
 
 实际结果摘要：
 
 ```text
-465b47e2bcf6a7fc5fa22e39356af1c37b734577a76c0f36490d5c6b8b562a79  /tmp/gridflux-src-64m.bin
+465b47e2bcf6a7fc5fa22e39356af1c37b734577a76c0f36490d5c6b8b562a79  /tmp/cpnetflux-src-64m.bin
 file_client sent_bytes=67108864 elapsed_seconds=0.0328935 throughput_gbps=16.3215
-465b47e2bcf6a7fc5fa22e39356af1c37b734577a76c0f36490d5c6b8b562a79  /tmp/gridflux-dst-64m.bin
+465b47e2bcf6a7fc5fa22e39356af1c37b734577a76c0f36490d5c6b8b562a79  /tmp/cpnetflux-dst-64m.bin
 file_server received_bytes=67108864 elapsed_seconds=0.0345263 throughput_gbps=15.5496
 client_status=0 server_status=0
 ```
@@ -517,7 +517,7 @@ connections=8 chunk_size=4194304 throughput_gbps=16.9766 result=pass
 
 ### <redacted>二同步与验证
 
-- 通过：使用 `tools/perf/sync_remote.sh` 同步到 `root@<redacted>:/root/projects/GridFlux/`。
+- 通过：使用 `tools/perf/sync_remote.sh` 同步到 `root@<redacted>:/root/projects/CPNetFlux/`。
 - 同步时 `rsync` 仍提示<redacted>二存在旧的 `build-private-verify-20260515T163633Z` 非空目录未删除；源码同步完成，未影响本次构建和测试。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
@@ -526,7 +526,7 @@ connections=8 chunk_size=4194304 throughput_gbps=16.9766 result=pass
 
 ### 私网文件传输基线采样
 
-- 通过：`tools/perf/run_file_private_once.sh --remote root@<redacted> --server-host <redacted> --local-build-dir /root/projects/GridFlux/build --remote-build-dir /root/projects/GridFlux/build --connections 4 --bytes 268435456 --chunk-size 1048576 --buffer-size 65536 --output-dir tools/perf/results`
+- 通过：`tools/perf/run_file_private_once.sh --remote root@<redacted> --server-host <redacted> --local-build-dir /root/projects/CPNetFlux/build --remote-build-dir /root/projects/CPNetFlux/build --connections 4 --bytes 268435456 --chunk-size 1048576 --buffer-size 65536 --output-dir tools/perf/results`
 - CSV：`tools/perf/results/20260516T014928Z_file_private_c4_chunk1048576_buf65536_bytes268435456_p19600.csv`
 
 结果摘要：
@@ -549,12 +549,12 @@ result=pass
 
 - 新增 `RangeList`，支持严格插入、manifest 加载合并、missing range 计算和 completed bytes 统计。
 - 新增 `TransferManifest` 与 `ManifestStore`，使用无第三方依赖的稳定 `key=value` 文本格式；路径使用 hex 编码，completed ranges 使用半开区间 `begin-end`。
-- Manifest 路径固定为 `<output>.gridflux.manifest`；可恢复 temp 文件路径改为 `<output>.part.<transfer_id>`。
+- Manifest 路径固定为 `<output>.cpnetflux.manifest`；可恢复 temp 文件路径改为 `<output>.part.<transfer_id>`。
 - 新增 `TransferSession` 薄层，隔离 manifest 状态转换、range 进度和恢复计算，不直接处理 socket 或文件 IO。
 - 扩展协议：保留 `Data=1`、`Fin=2`、`Complete=3`、`Error=4`，新增 `SessionInit=5` 与 `ResumeResponse=6`。
 - `transfer_id` 通过 `SessionInit` payload 协商，不塞进 64 字节 Data/Fin header；`ResumeResponse` 返回缺失 range list。
-- `gridflux-file-client` 新增 `--transfer-id`、`--resume`、`--max-chunks`；未指定 transfer id 且非 resume 时自动生成 32 位十六进制 id。
-- `gridflux-file-server` 新增 `--resume`；新传输创建 manifest + stable temp，失败后标记 `Failed` 并保留 temp + manifest，resume 只补传缺失范围。
+- `cpnetflux-file-client` 新增 `--transfer-id`、`--resume`、`--max-chunks`；未指定 transfer id 且非 resume 时自动生成 32 位十六进制 id。
+- `cpnetflux-file-server` 新增 `--resume`；新传输创建 manifest + stable temp，失败后标记 `Failed` 并保留 temp + manifest，resume 只补传缺失范围。
 - 新增 `tools/test/run_file_resume_smoke.sh` 并注册 CTest，覆盖 partial transfer、manifest/temp 保留、resume 补传、sha256/cmp 一致、损坏 manifest 和 total size mismatch 失败路径。
 
 ### 未实现内容
@@ -574,13 +574,13 @@ result=pass
 - 测试结果：69/69 passed。
 - 已对本轮新增/修改的 C++ 头文件、源文件和单元测试执行 `clang-format -i`。
 - 通过：`ctest --test-dir build -R "TransferManifestTest|ManifestStoreTest|RangeListTest|TransferSessionTest|SessionControlTest" --output-on-failure`
-- 通过：`ctest --test-dir build -R "gridflux_file_transfer_smoke|gridflux_file_resume_smoke" --output-on-failure`
+- 通过：`ctest --test-dir build -R "cpnetflux_file_transfer_smoke|cpnetflux_file_resume_smoke" --output-on-failure`
 
 ### 本机 resume smoke 覆盖
 
 - 64MiB / 4 connections 首次传输使用固定 `transfer_id=phase2a-smoke` 与 `--max-chunks 8` 制造中断。
 - 验证最终 output 未提交。
-- 验证 `<output>.gridflux.manifest` 和 `<output>.part.<transfer_id>` 存在。
+- 验证 `<output>.cpnetflux.manifest` 和 `<output>.part.<transfer_id>` 存在。
 - 使用 server/client 双端 `--resume --transfer-id phase2a-smoke` 补传缺失 range。
 - 传输完成后 `cmp` 一致。
 - 损坏 manifest 与 total size mismatch 均按预期失败。
@@ -588,18 +588,18 @@ result=pass
 ### <redacted>二同步与验证
 
 - 本轮未执行<redacted>二同步、构建和私网 resume 验证。
-- 当前 shell 未设置 `GRIDFLUX_SSH_PASSWORD`，且 `ssh -o BatchMode=yes root@<redacted>` 返回 `Permission denied (publickey,password)`。
+- 当前 shell 未设置 `CPNETFLUX_SSH_PASSWORD`，且 `ssh -o BatchMode=yes root@<redacted>` 返回 `Permission denied (publickey,password)`。
 - 待具备远端凭据后可执行：
 
 ```bash
-export GRIDFLUX_SSH_PASSWORD='***'
-tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux
-sshpass -e ssh root@<redacted> 'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
+export CPNETFLUX_SSH_PASSWORD='***'
+tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux
+sshpass -e ssh root@<redacted> 'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
 ```
 
 ### 备注
 
-- 现有 `gridflux-server` / `gridflux-client` memory sink 行为保持不变。
+- 现有 `cpnetflux-server` / `cpnetflux-client` memory sink 行为保持不变。
 - 现有非 resume 文件传输命令保持可用；新握手对 CLI 调用透明。
 - 现有 file perf scripts 未改变调用方式，metric 正则仍可匹配新增 `transfer_id=` 后缀。
 
@@ -612,8 +612,8 @@ sshpass -e ssh root@<redacted> 'cd /root/projects/GridFlux && cmake -S . -B buil
 - `verified_chunks` 成为恢复事实源，`completed_ranges` 仅由 verified chunks 派生用于可读性和恢复响应。
 - `TransferSession` 新增 `recordVerifiedChunk()`、`missingChunks()` 和 `verifyTempChunks()`；resume 前会重新读取 temp 文件中已 verified chunk 并校验 checksum，损坏 chunk 会被移除并重新补传。
 - 协议保持既有编号不变，新增 `ChunkComplete=7`，并在 `SessionInit` payload 中协商 `checksum_algorithm`。
-- `gridflux-file-server` 接收 DATA 时同步计算 chunk CRC32C，收到 `ChunkComplete` 后对比 client checksum；checksum mismatch、manifest corrupt、unsupported checksum 均返回明确 `Error` 状态。
-- `gridflux-file-client` 每个 chunk 完成后发送 `ChunkComplete`；新增 `--checksum <crc32c|none>`、`--corrupt-chunk <chunk_id>`、`--duplicate-corrupt-chunk <chunk_id>`。
+- `cpnetflux-file-server` 接收 DATA 时同步计算 chunk CRC32C，收到 `ChunkComplete` 后对比 client checksum；checksum mismatch、manifest corrupt、unsupported checksum 均返回明确 `Error` 状态。
+- `cpnetflux-file-client` 每个 chunk 完成后发送 `ChunkComplete`；新增 `--checksum <crc32c|none>`、`--corrupt-chunk <chunk_id>`、`--duplicate-corrupt-chunk <chunk_id>`。
 - 新增 `tools/test/run_file_checksum_smoke.sh` 并注册 CTest，覆盖正常 CRC32C、`--checksum none`、partial+resume、temp 损坏修复、manifest checksum 损坏失败、client corrupt chunk 失败、duplicate corrupt chunk 失败。
 - 文件传输 perf 脚本新增 `--checksum` 参数和 CSV 字段 `checksum_enabled` / `checksum_algorithm`。
 - 新增 `tools/test/run_file_checksum_private_once.sh`，用于<redacted>一 server + <redacted>二 client 的 checksum resume 私网 smoke。
@@ -635,7 +635,7 @@ sshpass -e ssh root@<redacted> 'cd /root/projects/GridFlux && cmake -S . -B buil
 - 通过：`cmake --build build`
 - 通过：`ctest --test-dir build --output-on-failure`
 - 测试结果：81/81 passed。
-- 通过：`ctest --test-dir build -R gridflux_file_checksum_smoke --output-on-failure`
+- 通过：`ctest --test-dir build -R cpnetflux_file_checksum_smoke --output-on-failure`
 - 已对本轮新增/修改的 C++ 头文件、源文件和单元测试执行 `clang-format -i`。
 
 ### 本机 checksum 文件传输采样
@@ -689,7 +689,7 @@ source_sha256 == dest_sha256
 ### <redacted>二同步与验证
 
 - 第一次同步尝试失败：从 `AGENTS.md` 表格提取了错误列，导致远端认证失败；未修改远端源码。
-- 通过：修正环境变量来源后，使用 `tools/perf/sync_remote.sh` 同步到 `root@<redacted>:/root/projects/GridFlux/`。
+- 通过：修正环境变量来源后，使用 `tools/perf/sync_remote.sh` 同步到 `root@<redacted>:/root/projects/CPNetFlux/`。
 - 同步时 `rsync` 仍提示<redacted>二存在旧的 `build-private-verify-20260515T163633Z` 非空目录未删除；源码同步完成，未影响本次构建和测试。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
@@ -698,7 +698,7 @@ source_sha256 == dest_sha256
 
 ### 私网 checksum resume smoke
 
-- 通过：`tools/test/run_file_checksum_private_once.sh --remote root@<redacted> --server-host <redacted> --local-build-dir /root/projects/GridFlux/build --remote-build-dir /root/projects/GridFlux/build --connections 4 --bytes 67108864 --chunk-size 1048576 --buffer-size 65536 --checksum crc32c --output-dir tools/perf/results`
+- 通过：`tools/test/run_file_checksum_private_once.sh --remote root@<redacted> --server-host <redacted> --local-build-dir /root/projects/CPNetFlux/build --remote-build-dir /root/projects/CPNetFlux/build --connections 4 --bytes 67108864 --chunk-size 1048576 --buffer-size 65536 --checksum crc32c --output-dir tools/perf/results`
 - 源文件生成在<redacted>二，目标文件生成在<redacted>一。
 - 先用 `--max-chunks 8` 制造中断，再双端 `--resume` 补传。
 - 日志：
@@ -721,7 +721,7 @@ result=pass
 
 ### 备注
 
-- 现有 `gridflux-server` / `gridflux-client` memory sink 行为保持不变。
+- 现有 `cpnetflux-server` / `cpnetflux-client` memory sink 行为保持不变。
 - 现有非 resume 文件传输命令保持可用；不传 `--checksum` 时默认启用 `crc32c`。
 - `--checksum none` 可用于性能对照，但可靠 resume 推荐路径是 CRC32C。
 - 当前 CRC32C 为纯软件 table-driven 实现，本机 loopback 吞吐明显低于 `none`；后续可评估硬件 CRC32C、批量 manifest flush 或异步 checksum worker。
@@ -732,11 +732,11 @@ result=pass
 ### 实现内容
 
 - 新增 CRC32C backend 选择：`auto`、`software`、`hardware`。
-- 新增 x86 SSE4.2 CRC32C 硬件实现文件 `src/checksum/crc32c_hw_x86.cpp`，单独用 `-msse4.2` 编译；非 x86 或不可用编译器走 stub，不给整个 `gridflux_core` 增加 SSE4.2 依赖。
+- 新增 x86 SSE4.2 CRC32C 硬件实现文件 `src/checksum/crc32c_hw_x86.cpp`，单独用 `-msse4.2` 编译；非 x86 或不可用编译器走 stub，不给整个 `cpnetflux_core` 增加 SSE4.2 依赖。
 - `ChecksumComputer` 默认 `auto`，运行时通过 `__builtin_cpu_supports("sse4.2")` 选择 hardware，否则回退 software；显式 `hardware` 不可用时返回明确错误。
-- 新增 `gridflux-checksum-bench` 和 `tools/benchmark/run_checksum_bench.py`，用于记录 CRC32C backend microbenchmark CSV。
+- 新增 `cpnetflux-checksum-bench` 和 `tools/benchmark/run_checksum_bench.py`，用于记录 CRC32C backend microbenchmark CSV。
 - 新增 `TransferSessionConfig`，集中承载 `transfer_id`、total/chunk size、connections、resume、checksum algorithm/backend 和 manifest flush 策略，为后续 GridFTP 控制面映射准备内部入口。
-- `gridflux-file-server/client` 新增 `--checksum-backend auto|software|hardware`；server 新增 `--manifest-flush-interval-chunks <N>`，默认 `16`。
+- `cpnetflux-file-server/client` 新增 `--checksum-backend auto|software|hardware`；server 新增 `--manifest-flush-interval-chunks <N>`，默认 `16`。
 - `TransferSession` 改为批量 flush manifest：每 `16` 个 verified chunk 默认保存一次；失败、resume preflight、commit 前和 `Failed/Committed` 状态转换强制 flush。
 - 新增恢复统计输出：`checksum_backend`、`skipped_bytes`、`resent_bytes`、`verified_bytes`、`loaded_verified_chunks`、`removed_corrupt_chunks`、`missing_chunks`、`manifest_flush_policy`、`manifest_flush_count`。
 - 文件 perf 脚本新增 `--checksum-backend` 和对应 CSV 字段；私网 checksum resume smoke 支持 backend 参数。
@@ -769,13 +769,13 @@ result=pass
 - 手动 smoke：
 
 ```text
-./build/gridflux-checksum-bench --backend software --bytes 67108864 --iterations 5
+./build/cpnetflux-checksum-bench --backend software --bytes 67108864 --iterations 5
 throughput_gbps=2.40673 checksum=908575515
 
-./build/gridflux-checksum-bench --backend auto --bytes 67108864 --iterations 5
+./build/cpnetflux-checksum-bench --backend auto --bytes 67108864 --iterations 5
 backend=hardware throughput_gbps=24.0553 checksum=908575515
 
-./build/gridflux-checksum-bench --backend hardware --bytes 67108864 --iterations 5
+./build/cpnetflux-checksum-bench --backend hardware --bytes 67108864 --iterations 5
 backend=hardware throughput_gbps=17.3772 checksum=908575515
 ```
 
@@ -850,9 +850,9 @@ source_sha256 == dest_sha256
 
 ### <redacted>二同步与验证
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二存在旧的 `build-private-verify-20260515T163633Z` 非空目录未删除；源码同步完成，未影响本次构建和测试。
-- 第一次远程 build 命令因 shell 同行展开导致 `SSHPASS` 未正确设置，返回 `Permission denied, please try again.`；随后分步设置 `GRIDFLUX_SSH_PASSWORD` / `SSHPASS` 后重试通过。
+- 第一次远程 build 命令因 shell 同行展开导致 `SSHPASS` 未正确设置，返回 `Permission denied, please try again.`；随后分步设置 `CPNETFLUX_SSH_PASSWORD` / `SSHPASS` 后重试通过。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
 - 通过：<redacted>二 `ctest --test-dir build --output-on-failure`
@@ -866,8 +866,8 @@ source_sha256 == dest_sha256
 tools/test/run_file_checksum_private_once.sh \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --connections 4 \
   --bytes 67108864 \
   --chunk-size 1048576 \
@@ -894,7 +894,7 @@ result=pass
 
 ### 备注
 
-- 现有 `gridflux-server` / `gridflux-client` memory sink 行为保持不变。
+- 现有 `cpnetflux-server` / `cpnetflux-client` memory sink 行为保持不变。
 - 现有非 resume 文件传输命令保持可用；不传新参数时等价于 `--checksum crc32c --checksum-backend auto --manifest-flush-interval-chunks 16`。
 - `--checksum none` 仍可用于性能对照和兼容回归。
 - manifest v2 `verified_chunks` 仍是恢复事实源；最终 sha256 仍只用于脚本验收。
@@ -904,13 +904,13 @@ result=pass
 
 ### 实现内容
 
-- 新增 `gridflux-gridftp-server` 控制面可执行文件。
-- 新增 `gridflux::protocol::control` parser/options/session/server 模块，支持 `USER`、`PASS`、`TYPE I`、`SYST`、`FEAT`、`PWD`、`NOOP`、`QUIT`、`EPSV`、`PASV`、`OPTS PARALLELISM=<N>`、`OPTS RETR Parallelism=<N>`、`REST GFID:<transfer_id>` 和 `STOR <path>`。
+- 新增 `cpnetflux-gridftp-server` 控制面可执行文件。
+- 新增 `cpnetflux::protocol::control` parser/options/session/server 模块，支持 `USER`、`PASS`、`TYPE I`、`SYST`、`FEAT`、`PWD`、`NOOP`、`QUIT`、`EPSV`、`PASV`、`OPTS PARALLELISM=<N>`、`OPTS RETR Parallelism=<N>`、`REST GFID:<transfer_id>` 和 `STOR <path>`。
 - 控制面回复码覆盖本阶段需要的 `220`、`331`、`230`、`200`、`211`、`215`、`257`、`229`、`227`、`150`、`226`、`350`、`421`、`502`、`530`、`550`。
-- `STOR` 数据连接继续使用 GridFlux framed protocol，不兼容普通 FTP raw stream STOR。
+- `STOR` 数据连接继续使用 CPNetFlux framed protocol，不兼容普通 FTP raw stream STOR。
 - `STOR` path 被限制在 `--root` 内；拒绝绝对路径、`..`、空路径、目录路径和缺失父目录。
 - 新上传由控制面生成 `GFID:<transfer_id>`；resume 使用 `REST GFID:<transfer_id>` 映射到 manifest v2 `verified_chunks` / missing ranges。
-- `gridflux-file-server` 接收逻辑新增 `runFileTransferServerOnListener()`，供控制面复用已准备好的 passive listener；旧 `gridflux-file-server` CLI 仍走原入口。
+- `cpnetflux-file-server` 接收逻辑新增 `runFileTransferServerOnListener()`，供控制面复用已准备好的 passive listener；旧 `cpnetflux-file-server` CLI 仍走原入口。
 - `FileTransferOptions.transferId` 在 server 侧非空时强制校验 data `SessionInit.transfer_id`，旧 CLI 默认空值不受影响。
 - 新增 `tools/test/run_gridftp_control_stor_smoke.py`、`run_gridftp_control_resume_smoke.py` 并注册 CTest。
 - 新增 `tools/test/run_gridftp_control_private_once.py`，用于<redacted>一 control/data server + <redacted>二 framed data client 的私网 STOR/resume smoke。
@@ -930,17 +930,17 @@ result=pass
 - 通过：`cmake --build build`
 - 通过：`ctest --test-dir build --output-on-failure`
 - 测试结果：99/99 passed。
-- 通过：`ctest --test-dir build -R "Gridftp|Control|gridflux_gridftp|file_transfer|resume|checksum" --output-on-failure`
+- 通过：`ctest --test-dir build -R "Gridftp|Control|cpnetflux_gridftp|file_transfer|resume|checksum" --output-on-failure`
 - 过滤测试结果：22/22 passed。
 
 ### 本机 GridFTP control smoke
 
-- CTest `gridflux_gridftp_control_stor_smoke` 通过：
-  - 启动 `gridflux-gridftp-server --host 127.0.0.1 --root <tmp>`。
+- CTest `cpnetflux_gridftp_control_stor_smoke` 通过：
+  - 启动 `cpnetflux-gridftp-server --host 127.0.0.1 --root <tmp>`。
   - Python control client 执行 `USER/PASS/TYPE I/EPSV/STOR uploaded.bin`。
-  - 使用 `gridflux-file-client --transfer-id <id>` 连接 EPSV data port。
+  - 使用 `cpnetflux-file-client --transfer-id <id>` 连接 EPSV data port。
   - 收到 `226` 后校验 sha256 一致。
-- CTest `gridflux_gridftp_control_resume_smoke` 通过：
+- CTest `cpnetflux_gridftp_control_resume_smoke` 通过：
   - 首次 STOR 使用 `--max-chunks` 制造中断，control 返回 `550`。
   - 确认 output 未提交，manifest 和 `.part.<transfer_id>` 存在。
   - 新会话执行 `REST GFID:<transfer_id>` + `STOR`，data client 使用 `--resume` 补传。
@@ -948,7 +948,7 @@ result=pass
 
 ### <redacted>二同步与验证
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二存在旧的 `build-private-verify-20260515T163633Z` 非空目录未删除；源码同步完成，未影响本次构建和测试。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
@@ -963,9 +963,9 @@ result=pass
 tools/test/run_gridftp_control_private_once.py \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
-  --root /tmp/gridflux-gridftp-private-root \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
+  --root /tmp/cpnetflux-gridftp-private-root \
   --port 2141 \
   --data-port-base 20400 \
   --connections 4 \
@@ -1007,25 +1007,25 @@ result=pass
 
 ### 备注
 
-- 现有 `gridflux-server` / `gridflux-client` memory sink 行为保持不变。
-- 现有 `gridflux-file-server` / `gridflux-file-client` CLI 行为保持不变。
-- Phase 3A 的外部 client 必须是 GridFlux-aware client：控制面使用 FTP/GridFTP 风格命令，数据面使用现有 GridFlux framed protocol。
+- 现有 `cpnetflux-server` / `cpnetflux-client` memory sink 行为保持不变。
+- 现有 `cpnetflux-file-server` / `cpnetflux-file-client` CLI 行为保持不变。
+- Phase 3A 的外部 client 必须是 CPNetFlux-aware client：控制面使用 FTP/GridFTP 风格命令，数据面使用现有 CPNetFlux framed protocol。
 - `REST GFID:<transfer_id>` 是控制面映射入口；内部恢复事实源仍是 manifest v2 `verified_chunks`，不退回单 offset。
 
 ## 2026-05-16 Phase 3B GridFTP 控制面 RETR/download framed 映射
 
 ### 实现内容
 
-- `gridflux-gridftp-server` 新增 `RETR <path>` 控制命令。
+- `cpnetflux-gridftp-server` 新增 `RETR <path>` 控制命令。
 - `RETR` 前置条件与 STOR 一致：必须登录、`TYPE I`、已执行 `EPSV` 或 `PASV`。
 - `RETR` path 被限制在 `--root` 内；拒绝绝对路径、`..`、空路径、目录路径和不存在文件。
-- `RETR` 数据连接继续使用 GridFlux framed protocol，不兼容普通 FTP raw stream RETR。
-- 新增 `gridflux-file-download-client`，作为 GridFlux-aware framed RETR 接收端。
+- `RETR` 数据连接继续使用 CPNetFlux framed protocol，不兼容普通 FTP raw stream RETR。
+- 新增 `cpnetflux-file-download-client`，作为 CPNetFlux-aware framed RETR 接收端。
 - 新增 framed download sender/receiver：
   - server-side sender 发送 `SessionInit`、DATA、`ChunkComplete`、FIN。
   - download client 回复完整文件 `ResumeResponse`，按 offset 写入 `<output>.part.<transfer_id>`，校验 chunk checksum 后返回 `Complete + Ok`，成功后 rename 到目标路径。
 - Phase 3B 明确不实现 RETR resume；`REST GFID:<transfer_id>` 后执行 `RETR` 返回 `550`，下载恢复留到 Phase 3C。
-- 新增 `FileDownloadOptions` 和 `gridflux-file-download-client` CLI：
+- 新增 `FileDownloadOptions` 和 `cpnetflux-file-download-client` CLI：
   - `--host`、`--port`、`--output`、`--connections`、`--buffer-size`、`--transfer-id`、`--checksum`、`--checksum-backend`、`--overwrite`。
 - 新增 `tools/test/run_gridftp_control_retr_smoke.py`，覆盖 crc32c/none 两组 loopback framed RETR。
 - 新增 `tools/test/run_gridftp_control_retr_rest_unsupported.py`，覆盖 `REST GFID + RETR` 返回 `550`。
@@ -1042,26 +1042,26 @@ result=pass
 
 - 通过：`python3 -m py_compile tools/test/run_gridftp_control_retr_smoke.py tools/test/run_gridftp_control_retr_rest_unsupported.py tools/test/run_gridftp_control_retr_private_once.py`
 - 通过：`cmake --build build`
-- 通过：`ctest --test-dir build -R "ControlCommandTest|ControlSessionTest|ControlOptionsTest|gridflux_gridftp_control_retr" --output-on-failure`
+- 通过：`ctest --test-dir build -R "ControlCommandTest|ControlSessionTest|ControlOptionsTest|cpnetflux_gridftp_control_retr" --output-on-failure`
 - 过滤测试结果：17/17 passed。
 - 通过：`ctest --test-dir build --output-on-failure`
 - 全量测试结果：106/106 passed。
 
 ### 本机 GridFTP control RETR smoke
 
-- CTest `gridflux_gridftp_control_retr_smoke` 通过：
-  - 启动 `gridflux-gridftp-server --host 127.0.0.1 --root <tmp>`。
+- CTest `cpnetflux_gridftp_control_retr_smoke` 通过：
+  - 启动 `cpnetflux-gridftp-server --host 127.0.0.1 --root <tmp>`。
   - root 内创建 `source.bin`。
   - Python control client 执行 `USER/PASS/TYPE I/EPSV/RETR source.bin`。
-  - 使用 `gridflux-file-download-client --transfer-id <id>` 连接 EPSV data port。
+  - 使用 `cpnetflux-file-download-client --transfer-id <id>` 连接 EPSV data port。
   - crc32c auto 和 checksum none 两组均收到 `226`，sha256 一致。
-- CTest `gridflux_gridftp_control_retr_rest_unsupported` 通过：
+- CTest `cpnetflux_gridftp_control_retr_rest_unsupported` 通过：
   - 执行 `REST GFID:<id>`、`EPSV`、`RETR source.bin`。
   - control server 返回 `550 RETR resume is not supported in Phase 3B`。
 
 ### <redacted>二同步与验证
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二存在旧的 `build-private-verify-20260515T163633Z` 非空目录未删除；源码同步完成，未影响本次构建和测试。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
@@ -1077,10 +1077,10 @@ python3 tools/test/run_gridftp_control_retr_private_once.py \
   --remote root@<redacted> \
   --server-host <redacted> \
   --control-port 2121 \
-  --root /tmp/gridflux-gridftp-retr-private-root \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
-  --download-output /tmp/gridflux-gridftp-private-retr.bin \
+  --root /tmp/cpnetflux-gridftp-retr-private-root \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
+  --download-output /tmp/cpnetflux-gridftp-private-retr.bin \
   --connections 4 \
   --bytes 67108864 \
   --chunk-size 1048576 \
@@ -1105,36 +1105,36 @@ result=pass
 ```
 
 - 私网日志：`tools/perf/results/20260516T094939Z_gridftp_control_retr_private.log`
-- 本机和<redacted>二检查均未发现遗留 `gridflux-gridftp-server`、`gridflux-file-client`、`gridflux-file-download-client` 或 `gridflux-file-server` 进程。
+- 本机和<redacted>二检查均未发现遗留 `cpnetflux-gridftp-server`、`cpnetflux-file-client`、`cpnetflux-file-download-client` 或 `cpnetflux-file-server` 进程。
 
 ### 备注
 
-- 现有 `gridflux-server` / `gridflux-client` memory sink 行为保持不变。
-- 现有 `gridflux-file-server` / `gridflux-file-client` CLI 行为保持不变。
+- 现有 `cpnetflux-server` / `cpnetflux-client` memory sink 行为保持不变。
+- 现有 `cpnetflux-file-server` / `cpnetflux-file-client` CLI 行为保持不变。
 - Phase 3A STOR loopback smoke 和 STOR REST resume smoke 保持在 full CTest 中。
-- Phase 3B 的外部 RETR client 必须是 GridFlux-aware client：控制面使用 FTP/GridFTP 风格命令，数据面使用现有 GridFlux framed protocol。
+- Phase 3B 的外部 RETR client 必须是 CPNetFlux-aware client：控制面使用 FTP/GridFTP 风格命令，数据面使用现有 CPNetFlux framed protocol。
 
 ## 2026-05-16 Phase 3C RETR/download resume
 
 ### 实施内容
 
 - 新增下载端 manifest：
-  - `include/gridflux/checkpoint/download_manifest.h`
+  - `include/cpnetflux/checkpoint/download_manifest.h`
   - `src/checkpoint/download_manifest.cpp`
-  - 路径规则：`<output>.gridflux.download.manifest`，临时文件 `<output>.part.<transfer_id>`。
+  - 路径规则：`<output>.cpnetflux.download.manifest`，临时文件 `<output>.part.<transfer_id>`。
   - 记录 `transfer_id`、`source_path`、`target_path`、`temp_path`、`total_size`、`chunk_size`、`checksum_algorithm`、`verified_chunks` 和 `manifest_body_crc32c`。
 - 新增下载端 session：
-  - `include/gridflux/core/session/download_session.h`
+  - `include/cpnetflux/core/session/download_session.h`
   - `src/core/session/download_session.cpp`
   - 支持 create/resume、verified chunk 记录、missing ranges 派生、temp verified chunk preflight、corrupt chunk 移出 verified set。
 - 扩展 `SessionInitPayload`：
   - 旧 payload 保持兼容。
   - RETR sender 可追加可选 `source_path`，download client resume 用于校验本地 manifest 是否对应同一源路径。
-- `gridflux-file-download-client` 新增：
+- `cpnetflux-file-download-client` 新增：
   - `--resume`
   - `--max-chunks <N>`，用于故障注入。
   - 成功输出 `skipped_bytes`、`resent_bytes`、`verified_bytes`、`removed_corrupt_chunks` 和 `manifest_flush_count`。
-- `gridflux-gridftp-server` 的 `REST GFID:<transfer_id> + RETR <path>` 从 Phase 3B 的 `550 unsupported` 改为支持真正 resume：
+- `cpnetflux-gridftp-server` 的 `REST GFID:<transfer_id> + RETR <path>` 从 Phase 3B 的 `550 unsupported` 改为支持真正 resume：
   - 无 REST 时生成新 transfer id。
   - 有 REST 时复用 token，sender 进入 resume mode。
   - `REST offset` 仍由 parser 拒绝。
@@ -1161,7 +1161,7 @@ result=pass
 - 通过：`cmake --build build`
 - 通过：`ctest --test-dir build --output-on-failure`
 - 全量测试结果：115/115 passed。
-- 通过：`ctest --test-dir build -R "Gridftp|Control|gridflux_gridftp|download|resume|checksum|Manifest" --output-on-failure`
+- 通过：`ctest --test-dir build -R "Gridftp|Control|cpnetflux_gridftp|download|resume|checksum|Manifest" --output-on-failure`
 - 过滤测试结果：43/43 passed。
 - 通过：`python3 -m py_compile tools/test/run_gridftp_control_retr_smoke.py tools/test/run_gridftp_control_retr_resume_smoke.py tools/test/run_gridftp_control_retr_corrupt_resume_smoke.py tools/test/run_gridftp_control_retr_private_once.py`
 
@@ -1182,7 +1182,7 @@ result=pass
 
 ### <redacted>二同步与验证
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二存在旧的 `build-private-verify-20260515T163633Z` 非空目录未删除；源码同步完成，未影响构建和测试。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
@@ -1198,10 +1198,10 @@ python3 tools/test/run_gridftp_control_retr_private_once.py \
   --remote root@<redacted> \
   --server-host <redacted> \
   --control-port 2121 \
-  --root /tmp/gridflux-gridftp-retr-private-root \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
-  --download-output /tmp/gridflux-gridftp-private-retr.bin \
+  --root /tmp/cpnetflux-gridftp-retr-private-root \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
+  --download-output /tmp/cpnetflux-gridftp-private-retr.bin \
   --connections 4 \
   --bytes 67108864 \
   --chunk-size 1048576 \
@@ -1228,21 +1228,21 @@ result=pass
 ```
 
 - 私网日志：`tools/perf/results/20260516T121734Z_gridftp_control_retr_private.log`
-- 本机和<redacted>二检查均未发现遗留 `gridflux-gridftp-server`、`gridflux-file-client`、`gridflux-file-download-client` 或 `gridflux-file-server` 进程。
+- 本机和<redacted>二检查均未发现遗留 `cpnetflux-gridftp-server`、`cpnetflux-file-client`、`cpnetflux-file-download-client` 或 `cpnetflux-file-server` 进程。
 
 ### 备注
 
-- 现有 `gridflux-server` / `gridflux-client` memory sink 行为保持不变。
-- 现有 `gridflux-file-server` / `gridflux-file-client` CLI 行为保持不变。
+- 现有 `cpnetflux-server` / `cpnetflux-client` memory sink 行为保持不变。
+- 现有 `cpnetflux-file-server` / `cpnetflux-file-client` CLI 行为保持不变。
 - STOR full/resume、file transfer resume、checksum smoke 仍在 full CTest 中。
-- Phase 3C 的外部 RETR client 必须是 GridFlux-aware client：控制面使用 FTP/GridFTP 风格命令，数据面使用 GridFlux framed protocol。
+- Phase 3C 的外部 RETR client 必须是 CPNetFlux-aware client：控制面使用 FTP/GridFTP 风格命令，数据面使用 CPNetFlux framed protocol。
 - 下载恢复事实源在 download client 本地 manifest，不退回单 offset，也不做完整重传伪 resume。
 
 ## 2026-05-16 Phase 3D GridFTP 控制面兼容扩展与测试工具收敛
 
 ### 实施内容
 
-- `gridflux-gridftp-server` 新增控制命令：
+- `cpnetflux-gridftp-server` 新增控制命令：
   - `SIZE <path>`
   - `MDTM <path>`
   - `CWD <path>`
@@ -1278,7 +1278,7 @@ result=pass
 - 通过：`cmake --build build`
 - 通过：`ctest --test-dir build --output-on-failure`
 - 全量测试结果：122/122 passed。
-- 通过：`ctest --test-dir build -R "Gridftp|Control|gridflux_gridftp|download|resume|checksum|Manifest|Session|List|Size|Mdtm" --output-on-failure`
+- 通过：`ctest --test-dir build -R "Gridftp|Control|cpnetflux_gridftp|download|resume|checksum|Manifest|Session|List|Size|Mdtm" --output-on-failure`
 - 过滤测试结果：62/62 passed。
 - 通过：`ctest --test-dir build -R "ControlCommandTest|ControlSessionTest|ControlOptionsTest" --output-on-failure`
 - 通过：`python3 -m py_compile tools/test/run_gridftp_control_metadata_smoke.py tools/test/run_gridftp_control_list_smoke.py tools/test/run_gridftp_control_metadata_private_once.py`
@@ -1294,7 +1294,7 @@ result=pass
 
 ### <redacted>二同步与验证
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二存在旧的 `build-private-verify-20260515T163633Z` 非空目录未删除；源码同步完成，未影响构建和测试。本次同步脚本已新增 `__pycache__/` 和 `*.pyc` 排除规则。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
@@ -1310,13 +1310,13 @@ python3 tools/test/run_gridftp_control_metadata_private_once.py \
   --remote root@<redacted> \
   --server-host <redacted> \
   --control-port 2121 \
-  --root /tmp/gridflux-gridftp-metadata-private-root \
-  --local-build-dir /root/projects/GridFlux/build \
+  --root /tmp/cpnetflux-gridftp-metadata-private-root \
+  --local-build-dir /root/projects/CPNetFlux/build \
   --data-port-base 20300 \
   --output-dir tools/perf/results
 ```
 
-- 覆盖<redacted>二控制客户端连接<redacted>一 `gridflux-gridftp-server`，执行 `SIZE`、`MDTM`、`PWD`、`CWD`、`CDUP`、`EPSV + NLST` 和 `EPSV + LIST`。
+- 覆盖<redacted>二控制客户端连接<redacted>一 `cpnetflux-gridftp-server`，执行 `SIZE`、`MDTM`、`PWD`、`CWD`、`CDUP`、`EPSV + NLST` 和 `EPSV + LIST`。
 - 私网日志：`tools/perf/results/20260516T133210Z_gridftp_control_metadata_private.log`
 
 ### 私网 RETR resume 回归
@@ -1328,10 +1328,10 @@ python3 tools/test/run_gridftp_control_retr_private_once.py \
   --remote root@<redacted> \
   --server-host <redacted> \
   --control-port 2121 \
-  --root /tmp/gridflux-gridftp-retr-private-root \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
-  --download-output /tmp/gridflux-gridftp-private-retr.bin \
+  --root /tmp/cpnetflux-gridftp-retr-private-root \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
+  --download-output /tmp/cpnetflux-gridftp-private-retr.bin \
   --connections 4 \
   --bytes 67108864 \
   --chunk-size 1048576 \
@@ -1358,7 +1358,7 @@ result=pass
 
 - 通过：`clang-format --dry-run --Werror` 覆盖本次修改的 C++ 文件。
 - 通过：`bash -n tools/perf/sync_remote.sh`
-- 本机和<redacted>二检查均未发现遗留 `gridflux-gridftp-server`、`gridflux-file-client`、`gridflux-file-download-client` 或 `gridflux-file-server` 业务进程；`pgrep` 输出仅包含检查命令自身。
+- 本机和<redacted>二检查均未发现遗留 `cpnetflux-gridftp-server`、`cpnetflux-file-client`、`cpnetflux-file-download-client` 或 `cpnetflux-file-server` 业务进程；`pgrep` 输出仅包含检查命令自身。
 - 本地 `tools/test`、`tools/perf`、`tools/benchmark` 下无 `__pycache__` 残留。
 
 ## 2026-05-16 Phase 4A 私网性能基线矩阵、指标收敛与 io_uring 前置评估
@@ -1366,8 +1366,8 @@ result=pass
 ### 实施内容
 
 - 新增 `tools/perf/run_gridftp_private_matrix.py`：
-  - 从<redacted>一启动 `gridflux-gridftp-server`。
-  - 通过 SSH 在<redacted>二运行 `gridflux-file-client` 或 `gridflux-file-download-client`。
+  - 从<redacted>一启动 `cpnetflux-gridftp-server`。
+  - 通过 SSH 在<redacted>二运行 `cpnetflux-file-client` 或 `cpnetflux-file-download-client`。
   - 支持 `--smoke` / `--full`，必须显式选择，避免误跑长矩阵。
   - 支持 `stor`、`retr`、`stor-resume`、`retr-resume`。
   - 为每个 case 分配唯一 control/data port、server root、remote/local 临时路径和 transfer id。
@@ -1397,12 +1397,12 @@ result=pass
 - 修复后正式 smoke 通过：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -1434,7 +1434,7 @@ RETR 128MiB conn=4 none            13.4099 Gbps
 - 通过：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions stor,retr \
   --bytes 1073741824 \
@@ -1444,8 +1444,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --checksums crc32c \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -1463,7 +1463,7 @@ RETR 1GiB conn=8 chunk=4MiB buffer=256KiB crc32c hardware throughput_gbps=0.9730
 - 通过：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions stor-resume,retr-resume \
   --bytes 16777216 \
@@ -1474,8 +1474,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --max-chunks 2 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -1501,7 +1501,7 @@ RETR resume throughput_gbps=4.86455 skipped_bytes=5242880 resent_bytes=11534336 
 
 ### <redacted>二同步与验证
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二存在旧的 `build-private-verify-20260515T163633Z` 非空目录未删除；源码同步完成，未影响构建和测试，未强删该历史残留目录。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
@@ -1511,10 +1511,10 @@ RETR resume throughput_gbps=4.86455 skipped_bytes=5242880 resent_bytes=11534336 
 ### 最终检查
 
 - 已清理本机 `tools/perf/__pycache__` 与 `tools/benchmark/__pycache__`。
-- 最终文档/脚本同步已再次执行；首次重试因本地凭据提取字段不匹配而走普通 SSH 失败，随后改用 `AGENTS.md` 表格列解析并通过 `GRIDFLUX_SSH_PASSWORD` 完成同步，未打印密码。
+- 最终文档/脚本同步已再次执行；首次重试因本地凭据提取字段不匹配而走普通 SSH 失败，随后改用 `AGENTS.md` 表格列解析并通过 `CPNETFLUX_SSH_PASSWORD` 完成同步，未打印密码。
 - 同步时仍提示<redacted>二历史残留：`cannot delete non-empty directory: build-private-verify-20260515T163633Z`。该目录按约束未强删。
-- 通过：本机无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
-- 通过：<redacted>二无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
+- 通过：本机无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
+- 通过：<redacted>二无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
 
 ## 2026-05-17 Phase 4D 存储落盘路径优化与 IO 后端抽象前置
 
@@ -1542,7 +1542,7 @@ RETR resume throughput_gbps=4.86455 skipped_bytes=5242880 resent_bytes=11534336 
   - `stage_write_avg_bytes_per_call`
   - `file_io_wait_seconds`
   - `file_io_wait_bytes`
-- `gridflux-storage-bench` 增加 per-iteration raw output、aggregate output、file IO advice 和 call count 指标。
+- `cpnetflux-storage-bench` 增加 per-iteration raw output、aggregate output、file IO advice 和 call count 指标。
 - `tools/benchmark/run_storage_bench.py` 增加 raw CSV + summary CSV。
 - `tools/perf/run_gridftp_private_matrix.py` 增加 `--file-io-buffer-sizes`、`--file-io-advices`、`--file-io-backend`，并将 file IO 参数纳入 summary 分组。
 
@@ -1573,8 +1573,8 @@ ctest --test-dir build -R "FileIo|PosixFile|FileTransferOptions|FileDownloadOpti
 - 通过：
 
 ```bash
-./build/gridflux-storage-bench \
-  --path /tmp/gridflux-storage-phase4d-smoke.bin \
+./build/cpnetflux-storage-bench \
+  --path /tmp/cpnetflux-storage-phase4d-smoke.bin \
   --mode all \
   --bytes 1048576 \
   --buffer-size 65536 \
@@ -1612,7 +1612,7 @@ python3 tools/benchmark/run_storage_bench.py \
 
 ### <redacted>二同步与验证
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二历史残留：`cannot delete non-empty directory: build-private-verify-20260515T163633Z`。该目录未强删。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
@@ -1639,8 +1639,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 1 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -1658,7 +1658,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --modes write,read \
   --preallocates off,full \
@@ -1685,8 +1685,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -1696,8 +1696,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
 - `file_io_buffer_size=0` 与 `file_io_advice=off` 继续保持默认。
 - 后续是否进入 io_uring，应以 Phase 4D median、IO call count、average bytes per call 和 file IO wait time 为依据。
 - 当前目录不是 git 仓库，无法提供 `git status`；这与项目早期记录一致，本次仍使用 rsync 同步<redacted>二。
-- 通过：本机无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
-- 通过：<redacted>二无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
+- 通过：本机无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
+- 通过：<redacted>二无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
 
 ## 2026-05-17 Phase 4E 重型性能验收与 io_uring 设计闸门
 
@@ -1723,7 +1723,7 @@ python3 tools/perf/run_gridftp_private_matrix.py \
 - 通过：本机 `cmake --build build`
 - 通过：本机 `ctest --test-dir build --output-on-failure`
 - 本机全量测试结果：130/130 passed。
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二历史残留：`cannot delete non-empty directory: build-private-verify-20260515T163633Z`。该目录未强删。
 - 通过：<redacted>二 configure/build/full CTest。
 - <redacted>二全量测试结果：130/130 passed。
@@ -1737,7 +1737,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --modes write,read \
   --preallocates off,full \
@@ -1802,8 +1802,8 @@ python3 tools/test/run_gridftp_control_retr_corrupt_resume_smoke.py --build-dir 
 
 ### 最终检查
 
-- 通过：本机无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
-- 通过：<redacted>二无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
+- 通过：本机无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
+- 通过：<redacted>二无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
 
 ## 2026-05-16 Phase 4B 性能瓶颈拆解与低风险优化
 
@@ -1822,7 +1822,7 @@ python3 tools/test/run_gridftp_control_retr_corrupt_resume_smoke.py --build-dir 
   - 失败、resume precheck、commit 前强制 flush。
 - 新增 `tools/perf/run_private_host_baseline.py`：
   - 优先 iperf3/fio。
-  - 缺工具时使用 GridFlux memory sink 与 Python 顺序 IO fallback。
+  - 缺工具时使用 CPNetFlux memory sink 与 Python 顺序 IO fallback。
   - 输出 host/link/disk/checksum baseline CSV 和原始日志。
 - 扩展 `tools/perf/run_gridftp_private_matrix.py`：
   - 新增阶段字段、`host_baseline_csv`、`--final-verify-policy`、`--manifest-flush-interval-chunks`。
@@ -1849,10 +1849,10 @@ python3 tools/test/run_gridftp_control_retr_corrupt_resume_smoke.py --build-dir 
 - 修正为文档中<redacted>二密码后通过：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' tools/perf/sync_remote.sh \
+CPNETFLUX_SSH_PASSWORD='***' tools/perf/sync_remote.sh \
   --host root@<redacted> \
-  --source /root/projects/GridFlux \
-  --target /root/projects/GridFlux
+  --source /root/projects/CPNetFlux \
+  --target /root/projects/CPNetFlux
 ```
 
 - 同步时仍提示<redacted>二历史残留：`cannot delete non-empty directory: build-private-verify-20260515T163633Z`。该目录未强删，源码同步完成。
@@ -1866,11 +1866,11 @@ GRIDFLUX_SSH_PASSWORD='***' tools/perf/sync_remote.sh \
 - 通过：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_private_host_baseline.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_private_host_baseline.py \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --output-dir tools/perf/results
 ```
@@ -1880,7 +1880,7 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_private_host_baseline.py \
 - 摘要：
 
 ```text
-network gridflux_memory_sink 19.1192 Gbps
+network cpnetflux_memory_sink 19.1192 Gbps
 server disk_write python fallback 1.033312 Gbps
 server disk_read  python fallback 0.940298 Gbps
 client disk_write python fallback 1.031349 Gbps
@@ -1894,7 +1894,7 @@ client checksum crc32c hardware 47.6092 Gbps
 - 64MiB STOR/RETR smoke，CRC32C auto：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions stor,retr \
   --bytes 67108864 \
@@ -1906,8 +1906,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --host-baseline-csv tools/perf/results/20260516T155847Z_host-baseline.csv \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -1918,7 +1918,7 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
 - 16MiB STOR/RETR resume smoke：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions stor-resume,retr-resume \
   --bytes 16777216 \
@@ -1931,8 +1931,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --host-baseline-csv tools/perf/results/20260516T155847Z_host-baseline.csv \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -1943,7 +1943,7 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
 - 1GiB STOR/RETR representative，CRC32C auto + none 对照，full final verify：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions stor,retr \
   --bytes 1073741824 \
@@ -1956,8 +1956,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --host-baseline-csv tools/perf/results/20260516T155847Z_host-baseline.csv \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -1975,7 +1975,7 @@ RETR 1GiB none            full 5.23149 Gbps
 - 1GiB RETR opt-in `verified_chunks` final verify 对照：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions retr \
   --bytes 1073741824 \
@@ -1988,8 +1988,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --host-baseline-csv tools/perf/results/20260516T155847Z_host-baseline.csv \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -2010,14 +2010,14 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
 - 通过：本机 full CTest 125/125 passed。
 - 通过：<redacted>二 full CTest 125/125 passed。
 - 通过：本机和<redacted>二私网 STOR/RETR/resume/1GiB 样本均无 sha256 mismatch。
-- 通过：最终同步后再次确认两台<redacted>无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
-- 备注：第一次最终进程检查命令只设置了 `GRIDFLUX_SSH_PASSWORD`，未同步设置 `SSHPASS`，`sshpass -e` 提示环境变量缺失；随后设置 `SSHPASS` 后重试通过。
+- 通过：最终同步后再次确认两台<redacted>无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
+- 备注：第一次最终进程检查命令只设置了 `CPNETFLUX_SSH_PASSWORD`，未同步设置 `SSHPASS`，`sshpass -e` 提示环境变量缺失；随后设置 `SSHPASS` 后重试通过。
 
 ## 2026-05-16 Phase 4C 存储路径优化、重复采样稳定性、verified_chunks 可靠性硬化
 
 ### 实施内容
 
-- 新增 `gridflux-storage-bench`：
+- 新增 `cpnetflux-storage-bench`：
   - 使用项目 `PosixFile::readAtAll` / `writeAtAll` 路径。
   - 支持 `write`、`read`、`rewrite`、`all`。
   - 支持 `--preallocate off|full`。
@@ -2026,9 +2026,9 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   - 支持本机、<redacted>二、双端 storage bench。
   - 输出 CSV 和原始日志到 `tools/perf/results/`。
 - 新增 storage preallocation 选项：
-  - `gridflux-file-server --preallocate off|full`。
-  - `gridflux-gridftp-server --preallocate off|full`，用于控制面 STOR temp 文件。
-  - `gridflux-file-download-client --preallocate off|full`，用于 RETR download temp 文件。
+  - `cpnetflux-file-server --preallocate off|full`。
+  - `cpnetflux-gridftp-server --preallocate off|full`，用于控制面 STOR temp 文件。
+  - `cpnetflux-file-download-client --preallocate off|full`，用于 RETR download temp 文件。
   - 默认 `off`，保持 Phase 4B 行为；`full` 使用 `posix_fallocate`，失败即返回错误，不静默 fallback。
   - resume 打开已有 temp 时不重新 preallocate，不破坏 manifest/temp 事实源。
 - 扩展 `tools/perf/run_gridftp_private_matrix.py`：
@@ -2055,8 +2055,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
 - 通过：
 
 ```bash
-./build/gridflux-storage-bench \
-  --path /tmp/gridflux-storage-bench-smoke.bin \
+./build/cpnetflux-storage-bench \
+  --path /tmp/cpnetflux-storage-bench-smoke.bin \
   --mode all \
   --bytes 1048576 \
   --buffer-size 65536 \
@@ -2098,7 +2098,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --modes write,read \
   --preallocates off,full \
@@ -2138,8 +2138,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 
@@ -2178,21 +2178,21 @@ RETR none   full requested verified_chunks effective full median 3.581370 Gbps
 
 ### <redacted>二同步与验证
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二历史残留：`cannot delete non-empty directory: build-private-verify-20260515T163633Z`。该目录未强删。
 - 通过：<redacted>二 `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13`
 - 通过：<redacted>二 `cmake --build build`
 - 通过：<redacted>二 `ctest --test-dir build --output-on-failure`
 - <redacted>二全量测试结果：126/126 passed。
-- 通过：本机无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
-- 通过：<redacted>二无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
+- 通过：本机无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
+- 通过：<redacted>二无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
 
 ## 2026-05-17 Phase 4F 可选 file-IO-only io_uring prototype
 
 ### 实施内容
 
-- 新增 CMake 选项 `GRIDFLUX_ENABLE_IO_URING`，默认 `OFF`。
-  - 默认构建不查找、不链接 liburing，定义 `GRIDFLUX_HAS_IO_URING=0`。
+- 新增 CMake 选项 `CPNETFLUX_ENABLE_IO_URING`，默认 `OFF`。
+  - 默认构建不查找、不链接 liburing，定义 `CPNETFLUX_HAS_IO_URING=0`。
   - 显式 `ON` 时查找 `liburing.h` 与 `uring` library。
   - `ON` 但缺依赖时不 fatal，输出 CMake warning，继续编译 unavailable stub。
 - 扩展 file IO backend：
@@ -2206,7 +2206,7 @@ RETR none   full requested verified_chunks effective full median 3.581370 Gbps
   - 范围仅 regular file IO，不处理 socket IO，不改变 network epoll。
 - STOR/RETR 文件路径统一使用 `FileIoContext`：upload client source read、STOR server temp write、RETR sender source read、download client temp write。
 - CLI/脚本扩展：
-  - `gridflux-storage-bench --file-io-backend posix|io_uring`。
+  - `cpnetflux-storage-bench --file-io-backend posix|io_uring`。
   - `tools/benchmark/run_storage_bench.py --file-io-backends posix,io_uring`。
   - `tools/perf/run_gridftp_private_matrix.py --file-io-backends posix,io_uring`。
   - 无 liburing 时显式扫描 `io_uring` 会写入 fail row，不静默跳过。
@@ -2223,12 +2223,12 @@ RETR none   full requested verified_chunks effective full median 3.581370 Gbps
 - 通过：`python3 -m py_compile tools/benchmark/run_storage_bench.py tools/perf/run_gridftp_private_matrix.py`
 - 通过：`cmake --build build`
 - 通过：`ctest --test-dir build --output-on-failure`
-- 结果：`133/133` passed；`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 因 `GRIDFLUX_HAS_IO_URING=0` skipped。
+- 结果：`133/133` passed；`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 因 `CPNETFLUX_HAS_IO_URING=0` skipped。
 - 通过：POSIX storage bench 小样本：
 
 ```bash
-./build/gridflux-storage-bench \
-  --path /tmp/gridflux-storage-posix-smoke.bin \
+./build/cpnetflux-storage-bench \
+  --path /tmp/cpnetflux-storage-posix-smoke.bin \
   --mode all \
   --bytes 1048576 \
   --buffer-size 65536 \
@@ -2247,13 +2247,13 @@ RETR none   full requested verified_chunks effective full median 3.581370 Gbps
 cmake -S . -B build-iouring-probe -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_COMPILER=g++-13 \
-  -DGRIDFLUX_ENABLE_IO_URING=ON
+  -DCPNETFLUX_ENABLE_IO_URING=ON
 ```
 
 - Warning 摘要：
 
 ```text
-GRIDFLUX_ENABLE_IO_URING=ON but liburing was not found; building unavailable backend stub
+CPNETFLUX_ENABLE_IO_URING=ON but liburing was not found; building unavailable backend stub
 ```
 
 - 通过：`cmake --build build-iouring-probe`
@@ -2262,8 +2262,8 @@ GRIDFLUX_ENABLE_IO_URING=ON but liburing was not found; building unavailable bac
 - 通过：显式 io_uring backend unavailable probe：
 
 ```bash
-./build-iouring-probe/gridflux-storage-bench \
-  --path /tmp/gridflux-iouring-unavailable.bin \
+./build-iouring-probe/cpnetflux-storage-bench \
+  --path /tmp/cpnetflux-iouring-unavailable.bin \
   --mode write \
   --bytes 1048576 \
   --buffer-size 65536 \
@@ -2302,18 +2302,18 @@ python3 tools/benchmark/run_storage_bench.py \
 
 ### <redacted>二同步与验证结果
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步时仍提示<redacted>二历史残留：`cannot delete non-empty directory: build-private-verify-20260515T163633Z`。该目录未强删。
 - 通过：<redacted>二 default configure/build/full CTest：
 
 ```bash
-cd /root/projects/GridFlux && \
+cd /root/projects/CPNetFlux && \
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && \
 cmake --build build && \
 ctest --test-dir build --output-on-failure
 ```
 
-- <redacted>二结果：`133/133` passed；`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 因 `GRIDFLUX_HAS_IO_URING=0` skipped。
+- <redacted>二结果：`133/133` passed；`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 因 `CPNETFLUX_HAS_IO_URING=0` skipped。
 
 ### Phase 4F 当前结论
 
@@ -2325,8 +2325,8 @@ ctest --test-dir build --output-on-failure
 
 ### Phase 4F 最终清理
 
-- 通过：本机无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
-- 通过：<redacted>二无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
+- 通过：本机无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
+- 通过：<redacted>二无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
 - 已清理本地 `tools/**/__pycache__` 测试缓存目录。
 
 ## 2026-05-17 Phase 4G 真实 liburing 验证与公开发布脱敏闸门
@@ -2336,7 +2336,7 @@ ctest --test-dir build --output-on-failure
 - 公开发布脱敏：
   - 更新 `.gitignore`，排除本地 `AGENTS.md`、`build*/`、`**/_deps/`、`tools/perf/results/`、日志、临时文件、大文件、`.env*`、key/cert/cookie/token 类文件。
   - 新增 `AGENTS.example.md`，作为公开安全协作模板，不包含真实 IP、密码、token、私钥或 cookie。
-  - 新增 `tools/release/check_public_hygiene.py`，扫描私钥块、明文密码/token、`sshpass -p`、`GRIDFLUX_SSH_PASSWORD` 明文赋值、已知私有 IP/密码和服务器登录表。
+  - 新增 `tools/release/check_public_hygiene.py`，扫描私钥块、明文密码/token、`sshpass -p`、`CPNETFLUX_SSH_PASSWORD` 明文赋值、已知私有 IP/密码和服务器登录表。
   - 新增 `tools/release/export_public_repo.py`，导出脱敏公开源码树，排除本地 `AGENTS.md`、build 产物、perf 结果和认证材料，并自动运行 strict hygiene check。
 - io_uring 正确性硬化：
   - `src/storage/file_io_uring.cpp` 将 read/write completion loop 抽为可测试 helper。
@@ -2378,7 +2378,7 @@ ctest --test-dir build --output-on-failure
 cmake -S . -B build-io-uring-real -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER=g++-13 \
-  -DGRIDFLUX_ENABLE_IO_URING=ON
+  -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ```
@@ -2387,8 +2387,8 @@ ctest --test-dir build-io-uring-real --output-on-failure
 - 通过：真实 io_uring CLI smoke：
 
 ```bash
-./build-io-uring-real/gridflux-storage-bench \
-  --path /tmp/gridflux-iouring-smoke.bin \
+./build-io-uring-real/cpnetflux-storage-bench \
+  --path /tmp/cpnetflux-iouring-smoke.bin \
   --mode all \
   --bytes 16777216 \
   --buffer-size 262144 \
@@ -2406,24 +2406,24 @@ ctest --test-dir build-io-uring-real --output-on-failure
 - 通过公开导出：
 
 ```bash
-rm -rf /tmp/gridflux-public
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
-test ! -f /tmp/gridflux-public/AGENTS.md
-test -f /tmp/gridflux-public/AGENTS.example.md
+rm -rf /tmp/cpnetflux-public
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
+test ! -f /tmp/cpnetflux-public/AGENTS.md
+test -f /tmp/cpnetflux-public/AGENTS.example.md
 ```
 
 - 结果：strict hygiene passed；公开导出目录不包含 `AGENTS.md`，包含 `AGENTS.example.md`。
 
 ### <redacted>二同步与验证
 
-- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux`
+- 通过：`tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux`
 - 同步脚本已排除本地 `AGENTS.md`、build 产物、perf results 和认证材料。
 - <redacted>二历史目录 `build-private-verify-20260515T163633Z` 未删除，仍作为环境残留记录。
 - 通过：<redacted>二默认 configure/build/full CTest：
 
 ```bash
-cd /root/projects/GridFlux && \
+cd /root/projects/CPNetFlux && \
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && \
 cmake --build build && \
 ctest --test-dir build --output-on-failure
@@ -2433,8 +2433,8 @@ ctest --test-dir build --output-on-failure
 - 通过：<redacted>二真实 io_uring Release build/full CTest：
 
 ```bash
-cd /root/projects/GridFlux && \
-cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON && \
+cd /root/projects/CPNetFlux && \
+cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON && \
 cmake --build build-io-uring-real && \
 ctest --test-dir build-io-uring-real --output-on-failure
 ```
@@ -2450,7 +2450,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --bytes 1073741824 \
   --modes write,read,all \
   --preallocates off,full \
@@ -2490,8 +2490,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results
 ```
 
@@ -2522,11 +2522,11 @@ python3 tools/perf/run_gridftp_private_matrix.py \
 - 通过：公开导出 strict hygiene 复验：
 
 ```bash
-rm -rf /tmp/gridflux-public
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
-test ! -f /tmp/gridflux-public/AGENTS.md
-test -f /tmp/gridflux-public/AGENTS.example.md
+rm -rf /tmp/cpnetflux-public
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
+test ! -f /tmp/cpnetflux-public/AGENTS.md
+test -f /tmp/cpnetflux-public/AGENTS.example.md
 ```
 
 - 通过：重点回归：
@@ -2537,8 +2537,8 @@ ctest --test-dir build -R "gridftp|resume|checksum|download|Manifest|FileIo|Posi
 
 - 结果：`42/42` passed；默认 build 中 `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 预期 skipped。
 - 已清理本地 `tools/**/__pycache__`。
-- 通过：本机无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
-- 通过：<redacted>二无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
+- 通过：本机无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
+- 通过：<redacted>二无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
 - Phase 4G 已新增报告：`docs/perf/PHASE4G_IO_URING_REAL_VALIDATION.md`。
 
 ## 2026-05-17 Phase 4G-fix + Phase 4H-prep
@@ -2554,7 +2554,7 @@ ctest --test-dir build -R "gridftp|resume|checksum|download|Manifest|FileIo|Posi
   - 构造临时私有 repo，包含私有 `AGENTS.md`、安全 `AGENTS.example.md`、`build-verify-*` 假二进制和 CMake/Ninja 产物。
   - 验证私有 fixture strict hygiene 失败。
   - 验证 public export 不包含 `AGENTS.md`、不包含 build-like 目录、不包含构建产物，且 strict hygiene 通过。
-- `CMakeLists.txt` 注册 `gridflux_release_hygiene`。
+- `CMakeLists.txt` 注册 `cpnetflux_release_hygiene`。
 - 新增 Phase 4H 设计草案：`docs/perf/PHASE4H_IO_URING_QUEUE_DEPTH_PLAN.md`。
   - 仅设计 queue depth / batching，不实现主路径改动。
   - 明确不做网络 io_uring，不改变默认 POSIX，不改变 checksum/manifest/resume/final verify。
@@ -2571,17 +2571,17 @@ python3 tools/release/test_public_hygiene.py
 - 通过：
 
 ```bash
-rm -rf /tmp/gridflux-public
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public --force
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
-test ! -f /tmp/gridflux-public/AGENTS.md
-test -f /tmp/gridflux-public/AGENTS.example.md
-find /tmp/gridflux-public -type d -name 'build*' -print -quit | grep -q . && exit 1 || true
-grep -RIn '<redacted-password>\|<public-ip>\|<private-ip>' /tmp/gridflux-public && exit 1 || true
+rm -rf /tmp/cpnetflux-public
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
+test ! -f /tmp/cpnetflux-public/AGENTS.md
+test -f /tmp/cpnetflux-public/AGENTS.example.md
+find /tmp/cpnetflux-public -type d -name 'build*' -print -quit | grep -q . && exit 1 || true
+grep -RIn '<redacted-password>\|<public-ip>\|<private-ip>' /tmp/cpnetflux-public && exit 1 || true
 ```
 
 - export summary 摘要：`copied_files=167 skipped_files=1 skipped_dirs=11 skipped_build_dirs=7`。
-- 已确认 `/tmp/gridflux-public` 无 `AGENTS.md`，包含 `AGENTS.example.md`，无 `build*` 目录，未检出已知私有 IP/password。
+- 已确认 `/tmp/cpnetflux-public` 无 `AGENTS.md`，包含 `AGENTS.example.md`，无 `build*` 目录，未检出已知私有 IP/password。
 
 ### 回归验证
 
@@ -2593,11 +2593,11 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-- 结果：`136/136` passed；新增 `gridflux_release_hygiene` 通过。
+- 结果：`136/136` passed；新增 `cpnetflux_release_hygiene` 通过。
 - 通过：本机 `build-io-uring-real` Release/full CTest。
 
 ```bash
-cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON
+cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure
@@ -2607,24 +2607,24 @@ ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeW
 - 通过：同步<redacted>二后默认 Debug build/full CTest。
 
 ```bash
-tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux
+tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux
 SSHPASS=<redacted> sshpass -e ssh root@<redacted> \
-  'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
 ```
 
 - 结果：`136/136` passed。
-- 备注：一次远端 ssh 构建命令因 `sshpass -e` 需要 `SSHPASS` 而非 `GRIDFLUX_SSH_PASSWORD` 未执行成功；随后使用 `SSHPASS=<redacted>` 重跑通过，未打印密码。
+- 备注：一次远端 ssh 构建命令因 `sshpass -e` 需要 `SSHPASS` 而非 `CPNETFLUX_SSH_PASSWORD` 未执行成功；随后使用 `SSHPASS=<redacted>` 重跑通过，未打印密码。
 - 通过：<redacted>二 `build-io-uring-real` Release/full CTest。
 
 ```bash
 SSHPASS=<redacted> sshpass -e ssh root@<redacted> \
-  'cd /root/projects/GridFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
 ```
 
 - 结果：`136/136` passed；`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 为 `Passed`，不是 `Skipped`。
 - 已清理本地 `tools/**/__pycache__`。
-- 通过：本机无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
-- 通过：<redacted>二无遗留 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
+- 通过：本机无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
+- 通过：<redacted>二无遗留 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
 - <redacted>二历史目录 `build-private-verify-20260515T163633Z` 未删除。
 
 ### Phase 4G-fix 结论
@@ -2669,23 +2669,23 @@ ctest --test-dir build --output-on-failure
 - 通过：本机 `build-io-uring-real` Release/full CTest。
 
 ```bash
-cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON
+cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure
 ```
 
 - 结果：`139/139` passed；`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 为 `Passed`，不是 `Skipped`。
-- 备注：第一次本机 `build-io-uring-real` full CTest 中 `gridflux_file_transfer_smoke` 出现一次 `connect: Connection refused` 偶发失败；随后单测重跑通过，全量重跑 `139/139` passed。
+- 备注：第一次本机 `build-io-uring-real` full CTest 中 `cpnetflux_file_transfer_smoke` 出现一次 `connect: Connection refused` 偶发失败；随后单测重跑通过，全量重跑 `139/139` passed。
 
 ### Release hygiene
 
 - 通过：公开导出 strict hygiene。
 
 ```bash
-rm -rf /tmp/gridflux-public
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public --force
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
+rm -rf /tmp/cpnetflux-public
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
 ```
 
 - 结果：strict hygiene passed；export summary 摘要 `copied_files=168 skipped_files=1 skipped_dirs=11 skipped_build_dirs=7`。
@@ -2695,14 +2695,14 @@ python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --stri
 - 已同步<redacted>二：
 
 ```bash
-tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux
+tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux
 ```
 
 - 通过：<redacted>二默认 Debug build/full CTest。
 
 ```bash
 SSHPASS=<redacted> sshpass -e ssh root@<redacted> \
-  'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
 ```
 
 - 结果：`139/139` passed；默认 build 中 io_uring real smoke 预期 skipped。
@@ -2710,7 +2710,7 @@ SSHPASS=<redacted> sshpass -e ssh root@<redacted> \
 
 ```bash
 SSHPASS=<redacted> sshpass -e ssh root@<redacted> \
-  'cd /root/projects/GridFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
 ```
 
 - 结果：`139/139` passed；`FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 为 `Passed`，不是 `Skipped`。
@@ -2761,8 +2761,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 1 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 300
 ```
@@ -2792,8 +2792,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 1 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 600
 ```
@@ -2824,8 +2824,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 1 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 300
 ```
@@ -2852,7 +2852,7 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   - remote fs snapshot、remote bench 和 remote cleanup 仅在 `--side remote|both` 时执行。
 - storage bench summary CSV 增加 io_uring submit/wait/completion/SQE/partial/retry/avg bytes per SQE 的 min/median/max 聚合字段。
 - GridFTP-like private matrix summary CSV 增加同样的 io_uring 聚合字段。
-- 新增 `tools/benchmark/test_run_storage_bench.py`，并在 CMake 注册 `gridflux_storage_bench_wrapper_behavior`。
+- 新增 `tools/benchmark/test_run_storage_bench.py`，并在 CMake 注册 `cpnetflux_storage_bench_wrapper_behavior`。
 - 新增 `tools/perf/analyze_phase4i.py`，生成 `docs/perf/PHASE4I_HEAVY_QUEUE_DEPTH_GATE.md`。
 
 ### 本机验证
@@ -2893,7 +2893,7 @@ ctest --test-dir build --output-on-failure
 - 通过：本机 `build-io-uring-real` Release/full CTest。
 
 ```bash
-cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON
+cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure
@@ -2906,7 +2906,7 @@ ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeW
 - 已同步<redacted>二：
 
 ```bash
-GRIDFLUX_SSH_PASSWORD=<redacted> tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux
+CPNETFLUX_SSH_PASSWORD=<redacted> tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux
 ```
 
 - 通过：<redacted>二默认 Debug build/full CTest。
@@ -2921,7 +2921,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --bytes 1073741824 \
   --modes write,read,rewrite \
   --file-io-backends posix,io_uring \
@@ -2960,8 +2960,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 900
 ```
@@ -3027,7 +3027,7 @@ ctest --test-dir build --output-on-failure
 - 默认 build 中 `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 预期 skipped。
 
 ```bash
-cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON
+cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure
@@ -3038,9 +3038,9 @@ ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeW
 ### <redacted>二验证
 
 ```bash
-GRIDFLUX_SSH_PASSWORD=<redacted> tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/GridFlux --target /root/projects/GridFlux
-sshpass -e ssh root@<redacted> 'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
-sshpass -e ssh root@<redacted> 'cd /root/projects/GridFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure'
+CPNETFLUX_SSH_PASSWORD=<redacted> tools/perf/sync_remote.sh --host root@<redacted> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux
+sshpass -e ssh root@<redacted> 'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
+sshpass -e ssh root@<redacted> 'cd /root/projects/CPNetFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure'
 ```
 
 - 结果：<redacted>二默认 Debug build/full CTest `142/142` passed。
@@ -3050,9 +3050,9 @@ sshpass -e ssh root@<redacted> 'cd /root/projects/GridFlux && cmake -S . -B buil
 ### Public export gate
 
 ```bash
-rm -rf /tmp/gridflux-public
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public --force
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
+rm -rf /tmp/cpnetflux-public
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
 ```
 
 - 结果：public export strict hygiene passed。
@@ -3080,8 +3080,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 1 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 300
 ```
@@ -3113,8 +3113,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 900
 ```
@@ -3143,8 +3143,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 900
 ```
@@ -3195,11 +3195,11 @@ python3 tools/perf/analyze_phase4j.py \
   - `direct` 强制绕过 `BufferedFileWriter`，用于 A/B。
   - `coalesced` 强制使用 `BufferedFileWriter`，要求 `file_io_buffer_size > 0`。
 - CLI 覆盖：
-  - `gridflux-file-server`
-  - `gridflux-file-client`
-  - `gridflux-file-download-client`
-  - `gridflux-gridftp-server`
-  - `gridflux-storage-bench`
+  - `cpnetflux-file-server`
+  - `cpnetflux-file-client`
+  - `cpnetflux-file-download-client`
+  - `cpnetflux-gridftp-server`
+  - `cpnetflux-storage-bench`
 - `run_storage_bench.py` 增加 `--posix-write-strategies` 与 `--file-io-buffer-sizes`；raw/summary CSV 增加 write syscall 字段。
 - `run_gridftp_private_matrix.py` 增加 `--posix-write-strategies`；raw/summary CSV 增加 requested/effective strategy 与 writer syscall 字段，同时保留 sender/receiver 双侧指标。
 - 新增 `tools/perf/analyze_phase4k.py`，生成 `docs/perf/PHASE4K_POSIX_WRITEBACK_OPTIMIZATION.md`。
@@ -3214,7 +3214,7 @@ python3 -m py_compile \
   tools/perf/analyze_phase4k.py
 python3 tools/benchmark/test_run_storage_bench.py
 cmake --build build
-./build/gridflux_unit_tests --gtest_filter='FileIoTest.*:FileTransferOptionsTest.*:FileDownloadOptionsTest.*:ControlOptionsTest.*'
+./build/cpnetflux_unit_tests --gtest_filter='FileIoTest.*:FileTransferOptionsTest.*:FileDownloadOptionsTest.*:ControlOptionsTest.*'
 ctest --test-dir build --output-on-failure
 ```
 
@@ -3228,7 +3228,7 @@ ctest --test-dir build --output-on-failure
 cmake -S . -B build-io-uring-real -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER=g++-13 \
-  -DGRIDFLUX_ENABLE_IO_URING=ON
+  -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real \
@@ -3242,19 +3242,19 @@ ctest --test-dir build-io-uring-real \
 ### <redacted>二同步与回归
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' tools/perf/sync_remote.sh \
+CPNETFLUX_SSH_PASSWORD='***' tools/perf/sync_remote.sh \
   --host root@<redacted> \
-  --source /root/projects/GridFlux \
-  --target /root/projects/GridFlux
+  --source /root/projects/CPNetFlux \
+  --target /root/projects/CPNetFlux
 SSHPASS=<redacted> sshpass -e ssh root@<redacted> \
-  'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
 ```
 
 - 结果：同步通过。
 - <redacted>二 Debug full CTest：`144/144` passed。
 - <redacted>二 real io_uring Release full CTest：`144/144` passed。
 - <redacted>二 real io_uring smoke：Passed。
-- 备注：第一次私网 smoke 因当前 shell 未设置 `GRIDFLUX_SSH_PASSWORD` 失败；第二次误取 AGENTS 表格用户列作为密码失败；随后改为取<redacted>二表格第 6 列密码并同步重建远端后通过。未在命令输出中打印密码。
+- 备注：第一次私网 smoke 因当前 shell 未设置 `CPNETFLUX_SSH_PASSWORD` 失败；第二次误取 AGENTS 表格用户列作为密码失败；随后改为取<redacted>二表格第 6 列密码并同步重建远端后通过。未在命令输出中打印密码。
 - <redacted>二历史 `build-private-verify-20260515T163633Z` 仍作为环境残留保留，未删除。
 
 ### Phase 4K smoke / field validation
@@ -3283,7 +3283,7 @@ python3 tools/benchmark/run_storage_bench.py \
 Private STOR/RETR smoke:
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions stor,retr \
   --bytes 8388608 \
@@ -3304,8 +3304,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 1 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 120
 ```
@@ -3317,11 +3317,11 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
 ### Phase 4K storage bench matrix
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/benchmark/run_storage_bench.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --bytes 1073741824 \
   --modes write,read,rewrite \
   --file-io-backends posix \
@@ -3341,7 +3341,7 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/benchmark/run_storage_bench.py \
 ### Phase 4K private matrix
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions stor,retr \
   --bytes 1073741824 \
@@ -3362,8 +3362,8 @@ GRIDFLUX_SSH_PASSWORD='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 900
 ```
@@ -3398,9 +3398,9 @@ python3 -m py_compile \
   tools/benchmark/run_storage_bench.py \
   tools/perf/run_gridftp_private_matrix.py \
   tools/perf/analyze_phase4k.py
-rm -rf /tmp/gridflux-public
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public --force
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
+rm -rf /tmp/cpnetflux-public
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
 ps -eo pid=,args= | grep -E '[g]ridflux-(gridftp-server|file-)' || true
 SSHPASS=<redacted> sshpass -e ssh root@<redacted> \
   "ps -eo pid=,args= | grep -E '[g]ridflux-(gridftp-server|file-)' || true"
@@ -3409,8 +3409,8 @@ SSHPASS=<redacted> sshpass -e ssh root@<redacted> \
 - 结果：py_compile 通过。
 - Public export strict hygiene：passed。
 - Export summary：`copied_files=180 skipped_files=1 skipped_dirs=11 skipped_build_dirs=7`。
-- 本机最终无 `gridflux-gridftp-server` / `gridflux-file-*` 残留进程。
-- <redacted>二最终无 `gridflux-gridftp-server` / `gridflux-file-*` 残留进程。
+- 本机最终无 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 残留进程。
+- <redacted>二最终无 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 残留进程。
 
 ### 状态说明
 
@@ -3442,7 +3442,7 @@ python3 -m py_compile tools/perf/run_gridftp_private_matrix.py tools/perf/analyz
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13
 cmake --build build
 ctest --test-dir build --output-on-failure
-cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON
+cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure
@@ -3454,33 +3454,33 @@ ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeW
 - `build-io-uring-real` Release configure/build: passed.
 - `build-io-uring-real` Release full CTest: `144/144` passed.
 - Real io_uring smoke: `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` passed.
-- Note: one earlier local Debug CTest was run concurrently with Release CTest and hit a fixed-port `gridflux_file_transfer_smoke` `Connection refused`; the sequential rerun above passed `144/144`.
+- Note: one earlier local Debug CTest was run concurrently with Release CTest and hit a fixed-port `cpnetflux_file_transfer_smoke` `Connection refused`; the sequential rerun above passed `144/144`.
 
 ### Remote validation
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' SSHPASS='***' tools/perf/sync_remote.sh \
+CPNETFLUX_SSH_PASSWORD='***' SSHPASS='***' tools/perf/sync_remote.sh \
   --host root@<redacted> \
-  --source /root/projects/GridFlux \
-  --target /root/projects/GridFlux
+  --source /root/projects/CPNetFlux \
+  --target /root/projects/CPNetFlux
 
 SSHPASS='***' sshpass -e ssh root@<redacted> \
-  'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
 
 SSHPASS='***' sshpass -e ssh root@<redacted> \
-  'cd /root/projects/GridFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
 ```
 
 - Sync to machine two: passed.
 - Machine two default Debug configure/build/full CTest: `144/144` passed.
 - Machine two `build-io-uring-real` Release configure/build/full CTest: `144/144` passed.
 - Machine two real io_uring smoke: passed.
-- Note: one earlier remote Release CTest was run concurrently with Debug CTest and hit the same fixed-port `gridflux_file_transfer_smoke` `Connection refused`; the sequential rerun above passed `144/144`.
+- Note: one earlier remote Release CTest was run concurrently with Debug CTest and hit the same fixed-port `cpnetflux_file_transfer_smoke` `Connection refused`; the sequential rerun above passed `144/144`.
 
 ### Phase 4L private matrix
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' SSHPASS='***' python3 tools/perf/run_gridftp_private_matrix.py \
+CPNETFLUX_SSH_PASSWORD='***' SSHPASS='***' python3 tools/perf/run_gridftp_private_matrix.py \
   --smoke \
   --directions stor,retr \
   --bytes 1073741824 \
@@ -3501,8 +3501,8 @@ GRIDFLUX_SSH_PASSWORD='***' SSHPASS='***' python3 tools/perf/run_gridftp_private
   --repeat 5 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build-io-uring-real \
-  --remote-build-dir /root/projects/GridFlux/build-io-uring-real \
+  --local-build-dir /root/projects/CPNetFlux/build-io-uring-real \
+  --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real \
   --output-dir tools/perf/results \
   --case-timeout 900
 ```
@@ -3546,7 +3546,7 @@ python3 tools/perf/analyze_phase4l.py \
 - Added `tools/release/check_remote_artifact_sync.py`.
   - Checks selected docs, JSON, raw/summary CSV, and CSV referenced sidecar logs on local and remote trees by SHA256.
   - Reports missing/mismatch artifacts and does not delete remote files.
-- Added `tools/release/test_alpha_release_helpers.py` and registered `gridflux_alpha_release_helper_behavior` in CMake.
+- Added `tools/release/test_alpha_release_helpers.py` and registered `cpnetflux_alpha_release_helper_behavior` in CMake.
 - Added release docs:
   - `docs/release/README.md`
   - `docs/release/ALPHA_READINESS.md`
@@ -3564,7 +3564,7 @@ python3 tools/perf/analyze_phase4l.py \
   - `final_verify_policy=full`
   - `manifest_flush_policy=every_n_chunks`
   - `commit_sync_policy=none`
-- Network epoll, GridFlux framed STOR/RETR, checksum, manifest, resume, and final verify semantics are unchanged.
+- Network epoll, CPNetFlux framed STOR/RETR, checksum, manifest, resume, and final verify semantics are unchanged.
 
 ### Local validation
 
@@ -3583,7 +3583,7 @@ ctest --test-dir build --output-on-failure
 cmake -S . -B build-io-uring-real -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER=g++-13 \
-  -DGRIDFLUX_ENABLE_IO_URING=ON
+  -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure
@@ -3592,7 +3592,7 @@ ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeW
 - `py_compile`: passed.
 - `tools/release/test_alpha_release_helpers.py`: passed.
 - Default Debug configure/build: passed.
-- Default Debug full CTest: `145/145` passed. The new `gridflux_alpha_release_helper_behavior` CTest passed.
+- Default Debug full CTest: `145/145` passed. The new `cpnetflux_alpha_release_helper_behavior` CTest passed.
 - `build-io-uring-real` Release configure/build: passed.
 - `build-io-uring-real` Release full CTest: `145/145` passed.
 - Real io_uring smoke: `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` passed.
@@ -3626,14 +3626,14 @@ python3 tools/release/run_alpha_release_gate.py \
   - `list_smoke`
 - Private baseline was not run in quick mode.
 - Artifact sync check in remote quick gate: passed.
-- Residual process check: no local or remote GridFlux business processes.
+- Residual process check: no local or remote CPNetFlux business processes.
 
 ### Public hygiene
 
 ```bash
-rm -rf /tmp/gridflux-public-phase4m-check
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public-phase4m-check --force
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public-phase4m-check --strict
+rm -rf /tmp/cpnetflux-public-phase4m-check
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public-phase4m-check --force
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public-phase4m-check --strict
 ```
 
 - Public export strict hygiene: passed.
@@ -3643,16 +3643,16 @@ python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public-phase4
 ### Remote validation
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' SSHPASS='***' tools/perf/sync_remote.sh \
+CPNETFLUX_SSH_PASSWORD='***' SSHPASS='***' tools/perf/sync_remote.sh \
   --host <remote> \
-  --source /root/projects/GridFlux \
-  --target /root/projects/GridFlux
+  --source /root/projects/CPNetFlux \
+  --target /root/projects/CPNetFlux
 
 SSHPASS='***' sshpass -e ssh <remote> \
-  'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
 
 SSHPASS='***' sshpass -e ssh <remote> \
-  'cd /root/projects/GridFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
 ```
 
 - Sync to machine two: passed.
@@ -3663,12 +3663,12 @@ SSHPASS='***' sshpass -e ssh <remote> \
 ### Remaining full validation
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' SSHPASS='***' python3 tools/release/run_alpha_release_gate.py \
+CPNETFLUX_SSH_PASSWORD='***' SSHPASS='***' python3 tools/release/run_alpha_release_gate.py \
   --full \
   --build-dir build \
   --io-uring-build-dir build-io-uring-real \
   --remote <remote> \
-  --remote-root /root/projects/GridFlux \
+  --remote-root /root/projects/CPNetFlux \
   --server-host <server-host> \
   --results-dir tools/perf/results
 ```
@@ -3684,7 +3684,7 @@ GRIDFLUX_SSH_PASSWORD='***' SSHPASS='***' python3 tools/release/run_alpha_releas
   - STOR crc32c/full/defaults median throughput `0.919468 Gbps`, spread `19.548261%`.
   - RETR crc32c/full/defaults median throughput `3.395120 Gbps`, spread `40.870720%`.
 - Remote artifact sync check: passed, `152` artifacts checked, including raw/summary CSV and sidecar logs.
-- Final residual process check: no local or remote `gridflux-gridftp-server` / `gridflux-file-*` processes.
+- Final residual process check: no local or remote `cpnetflux-gridftp-server` / `cpnetflux-file-*` processes.
 
 ### 2026-05-18 Phase 5B release artifact manifest freshness fix
 
@@ -3702,10 +3702,10 @@ GRIDFLUX_SSH_PASSWORD='***' SSHPASS='***' python3 tools/release/run_alpha_releas
 ### 2026-05-18 Remote SSH/sync reliability fix
 
 - Added `tools/release/remote_auth.py` as a shared remote-auth helper for release and sync tools.
-- The helper uses `GRIDFLUX_SSH_PASSWORD` / `SSHPASS` when present; otherwise it can read the local private `AGENTS.md` topology table and inject the password through `sshpass -e` without printing or storing the secret.
+- The helper uses `CPNETFLUX_SSH_PASSWORD` / `SSHPASS` when present; otherwise it can read the local private `AGENTS.md` topology table and inject the password through `sshpass -e` without printing or storing the secret.
 - Updated `tools/perf/sync_remote.sh`, `tools/release/sync_remote_artifacts.py`, `tools/release/check_remote_artifact_sync.py`, and `tools/release/run_alpha_release_gate.py` to use the shared helper.
 - Added release helper regression coverage for selecting the correct AGENTS row by remote host and username.
-- Verified that `tools/perf/sync_remote.sh` works with `GRIDFLUX_SSH_PASSWORD` and `SSHPASS` unset.
+- Verified that `tools/perf/sync_remote.sh` works with `CPNETFLUX_SSH_PASSWORD` and `SSHPASS` unset.
 - After this tool change, the artifact manifest must be regenerated because the release tool hashes changed.
 
 ### Alpha readiness conclusion
@@ -3740,7 +3740,7 @@ GRIDFLUX_SSH_PASSWORD='***' SSHPASS='***' python3 tools/release/run_alpha_releas
   - Added an exclusive alpha gate lock under `tools/perf/results/.alpha-release-gate.lock` so two release gates cannot concurrently rewrite the generated report and invalidate remote artifact hashes.
 - Extended `tools/release/test_alpha_release_helpers.py`.
   - Covers manifest path filtering, CSV sidecar inclusion, verify-only missing/mismatch detection, sync repair, and traversal/sensitive path rejection.
-  - Registered `gridflux_alpha_artifact_sync_behavior` in CMake.
+  - Registered `cpnetflux_alpha_artifact_sync_behavior` in CMake.
 - Updated `docs/release/README.md`, `docs/release/ALPHA_READINESS.md`, `INDEX.md`, `docs/ROADMAP.md`, and `docs/perf/README.md`.
 
 ### Defaults and boundaries
@@ -3754,7 +3754,7 @@ GRIDFLUX_SSH_PASSWORD='***' SSHPASS='***' python3 tools/release/run_alpha_releas
   - `final_verify_policy=full`
   - `manifest_flush_policy=every_n_chunks`
   - `commit_sync_policy=none`
-- Network epoll, GridFlux framed STOR/RETR, checksum, manifest, resume, and final verify semantics are unchanged.
+- Network epoll, CPNetFlux framed STOR/RETR, checksum, manifest, resume, and final verify semantics are unchanged.
 - `AGENTS.md`, passwords, tokens, keys, cookies, build outputs, `_deps`, and private auth materials are not included in artifact manifests or public export.
 
 ### Local script validation
@@ -3775,15 +3775,15 @@ ctest --test-dir build -R "alpha|release" --output-on-failure
 - `py_compile`: passed.
 - `tools/release/test_alpha_release_helpers.py`: passed.
 - Default Debug full CTest: `146/146` passed.
-- Release helper CTest subset: `3/3` passed, including `gridflux_alpha_artifact_sync_behavior`.
+- Release helper CTest subset: `3/3` passed, including `cpnetflux_alpha_artifact_sync_behavior`.
 - `build-io-uring-real` Release full CTest: `146/146` passed.
 - Real io_uring smoke: `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` passed.
-- Public export strict hygiene: passed for `/tmp/gridflux-public-phase4n`.
+- Public export strict hygiene: passed for `/tmp/cpnetflux-public-phase4n`.
 - Local quick alpha gate: passed.
   - JSON: `tools/perf/results/20260518T031105Z_alpha-release-gate.json`.
   - Markdown: `docs/release/ALPHA_RELEASE_GATE.md`.
   - quick mode does not generate an artifact manifest because no private matrix artifacts are produced.
-- Residual process check after local validation: no local `gridflux-gridftp-server` / `gridflux-file-*` processes.
+- Residual process check after local validation: no local `cpnetflux-gridftp-server` / `cpnetflux-file-*` processes.
 
 ### Remote and full gate validation
 
@@ -3795,26 +3795,26 @@ cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure
 
-tools/perf/sync_remote.sh --host <remote> --source /root/projects/GridFlux --target /root/projects/GridFlux
+tools/perf/sync_remote.sh --host <remote> --source /root/projects/CPNetFlux --target /root/projects/CPNetFlux
 sshpass -e ssh <remote> \
-  'cd /root/projects/GridFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build && ctest --test-dir build --output-on-failure'
 sshpass -e ssh <remote> \
-  'cd /root/projects/GridFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
+  'cd /root/projects/CPNetFlux && cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON && cmake --build build-io-uring-real && ctest --test-dir build-io-uring-real --output-on-failure && ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure'
 
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_gate.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_gate.py \
   --full \
   --build-dir build \
   --io-uring-build-dir build-io-uring-real \
   --remote <remote> \
-  --remote-root /root/projects/GridFlux \
+  --remote-root /root/projects/CPNetFlux \
   --server-host <server-host> \
   --results-dir tools/perf/results
 
 python3 tools/release/sync_remote_artifacts.py \
   --manifest tools/perf/results/20260518T034842Z_alpha-artifacts.json \
   --remote <remote> \
-  --local-root /root/projects/GridFlux \
-  --remote-root /root/projects/GridFlux \
+  --local-root /root/projects/CPNetFlux \
+  --remote-root /root/projects/CPNetFlux \
   --verify-only \
   --json-output tools/perf/results/20260518T034842Z_artifact-verify-manual.json
 ```
@@ -3833,8 +3833,8 @@ python3 tools/release/sync_remote_artifacts.py \
   - Artifact sync summary: `checked=162`, `synced=3`, `missing=0`, `mismatch=0`, `status=pass`.
   - Artifact verify summary: `checked=162`, `missing=0`, `mismatch=0`, `status=pass`.
   - Manual `--verify-only` artifact check: `checked=162`, `missing=0`, `mismatch=0`, `status=pass`.
-- Public export strict hygiene: passed for `/tmp/gridflux-public-phase4n-final`.
-- Final residual process check: no local or remote `gridflux-gridftp-server` / `gridflux-file-*` processes.
+- Public export strict hygiene: passed for `/tmp/cpnetflux-public-phase4n-final`.
+- Final residual process check: no local or remote `cpnetflux-gridftp-server` / `cpnetflux-file-*` processes.
 
 ### Notes
 
@@ -3848,12 +3848,12 @@ python3 tools/release/sync_remote_artifacts.py \
 - Added alpha directory transfer support on top of existing framed STOR/RETR.
 - New tree manifest and scanner modules:
   - `TreeManifest` records mode, logical root, checksum policy, and per-file relative path, size, mtime, transfer_id, status, and error.
-  - Upload manifest path: `<source_dir>.gridflux.tree.upload.manifest`.
-  - Download manifest path: `<dest_dir>.gridflux.tree.download.manifest`.
+  - Upload manifest path: `<source_dir>.cpnetflux.tree.upload.manifest`.
+  - Download manifest path: `<dest_dir>.cpnetflux.tree.download.manifest`.
   - `scanLocalTree()` scans regular files, rejects symlinks and unsafe relative paths, and returns stable sorted paths.
 - New CLIs:
-  - `gridflux-tree-upload-client --source-dir <local_dir> --dest-dir <remote_dir>`.
-  - `gridflux-tree-download-client --source-dir <remote_dir> --dest-dir <local_dir>`.
+  - `cpnetflux-tree-upload-client --source-dir <local_dir> --dest-dir <remote_dir>`.
+  - `cpnetflux-tree-download-client --source-dir <remote_dir> --dest-dir <local_dir>`.
 - Directory transfer is file-level orchestration only. Each file still uses existing control `STOR` / `RETR`, `REST GFID`, per-file manifest, CRC32C, and final verify logic.
 - Control STOR path resolver now creates missing parent directories inside server `--root`; root escape and symlink escape remain rejected.
 - Added loopback tree upload/download/resume/corrupt-manifest smokes and a private tree helper.
@@ -3861,7 +3861,7 @@ python3 tools/release/sync_remote_artifacts.py \
 ### Validation
 
 ```bash
-cmake --build build --target gridflux_unit_tests gridflux-tree-upload-client gridflux-tree-download-client
+cmake --build build --target cpnetflux_unit_tests cpnetflux-tree-upload-client cpnetflux-tree-download-client
 ctest --test-dir build -R "Tree|ControlOptions" --output-on-failure
 python3 tools/test/run_gridftp_tree_upload_smoke.py --build-dir build
 python3 tools/test/run_gridftp_tree_download_smoke.py --build-dir build
@@ -3870,11 +3870,11 @@ python3 tools/test/run_gridftp_tree_manifest_corrupt_smoke.py --build-dir build
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13
 cmake --build build
 ctest --test-dir build --output-on-failure
-cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON
+cmake -S . -B build-io-uring-real -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-io-uring-real
 ctest --test-dir build-io-uring-real --output-on-failure
 python3 tools/release/run_alpha_release_gate.py --quick --build-dir build --io-uring-build-dir build-io-uring-real --results-dir tools/perf/results
-python3 tools/test/run_gridftp_tree_private_once.py --remote <remote> --server-host <server-host> --local-build-dir /root/projects/GridFlux/build --remote-build-dir /root/projects/GridFlux/build --connections 2 --output-dir tools/perf/results
+python3 tools/test/run_gridftp_tree_private_once.py --remote <remote> --server-host <server-host> --local-build-dir /root/projects/CPNetFlux/build --remote-build-dir /root/projects/CPNetFlux/build --connections 2 --output-dir tools/perf/results
 ```
 
 - Targeted tree/control unit tests: passed.
@@ -3886,7 +3886,7 @@ python3 tools/test/run_gridftp_tree_private_once.py --remote <remote> --server-h
 - Local `build-io-uring-real` Release full CTest: `160/160` passed; `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` passed, not skipped.
 - Machine two default Debug full CTest after sync: `160/160` passed.
 - Machine two `build-io-uring-real` Release full CTest after sync: `160/160` passed; real io_uring smoke passed.
-- Public export strict hygiene: passed for `/tmp/gridflux-public-phase5a`.
+- Public export strict hygiene: passed for `/tmp/cpnetflux-public-phase5a`.
 - Quick alpha release gate: passed.
   - JSON: `tools/perf/results/20260518T050140Z_alpha-release-gate.json`.
 - Full alpha release gate: passed.
@@ -3902,7 +3902,7 @@ python3 tools/test/run_gridftp_tree_private_once.py --remote <remote> --server-h
   - Total bytes: `1,179,670`.
   - Tree hash: `fcc6ed5a7de263a23097b5ee20519f093781f5601cf462827fae5d3606e3afdb`.
   - Upload, download, upload resume, and download resume tree hashes matched.
-- Final residual process check: no local or remote `gridflux-gridftp-server` / `gridflux-file-*` processes.
+- Final residual process check: no local or remote `cpnetflux-gridftp-server` / `cpnetflux-file-*` processes.
 
 ### Defaults and boundaries
 
@@ -3916,7 +3916,7 @@ python3 tools/test/run_gridftp_tree_private_once.py --remote <remote> --server-h
 
 ### Implementation
 
-- `gridflux-tree-upload-client` and `gridflux-tree-download-client` now use a bounded file-level scheduler for `--file-parallelism`.
+- `cpnetflux-tree-upload-client` and `cpnetflux-tree-download-client` now use a bounded file-level scheduler for `--file-parallelism`.
 - Each worker opens an independent GridFTP-like control session and still delegates file content to the existing single-file framed STOR/RETR path.
 - Tree manifest updates are serialized and atomically saved on `Transferring`, `Completed`, `Failed`, and `Changed` transitions.
 - Resume now runs a tree-level changed-file preflight before dispatching new file tasks:
@@ -3924,8 +3924,8 @@ python3 tools/test/run_gridftp_tree_private_once.py --remote <remote> --server-h
   - download compares remote `SIZE`/`MDTM` and completed local target size/mtime with manifest records.
 - Download completion aligns local file mtime with the remote manifest mtime so later completed-file validation is meaningful.
 - New loopback smokes:
-  - `gridflux_tree_parallel_smoke`;
-  - `gridflux_tree_changed_file_smoke`.
+  - `cpnetflux_tree_parallel_smoke`;
+  - `cpnetflux_tree_changed_file_smoke`.
 - New private dataset matrix tooling:
   - `tools/perf/run_gridftp_tree_private_matrix.py`;
   - `tools/perf/analyze_phase5b.py`;
@@ -3934,16 +3934,16 @@ python3 tools/test/run_gridftp_tree_private_once.py --remote <remote> --server-h
 ### Validation
 
 ```bash
-cmake --build build --target gridflux-tree-upload-client gridflux-tree-download-client gridflux_unit_tests
+cmake --build build --target cpnetflux-tree-upload-client cpnetflux-tree-download-client cpnetflux_unit_tests
 python3 -m py_compile tools/test/run_gridftp_tree_parallel_smoke.py tools/test/run_gridftp_tree_changed_file_smoke.py tools/perf/run_gridftp_tree_private_matrix.py tools/perf/analyze_phase5b.py tools/release/run_alpha_release_gate.py
-ctest --test-dir build -R "Tree|gridflux_tree" --output-on-failure
+ctest --test-dir build -R "Tree|cpnetflux_tree" --output-on-failure
 ctest --test-dir build --output-on-failure
 ctest --test-dir build-io-uring-real --output-on-failure
 ctest --test-dir build-io-uring-real -R FileIoTest.IoUringContextReadWriteSmokeWhenAvailable --output-on-failure
-python3 tools/test/run_gridftp_tree_private_once.py --remote <remote> --server-host <server-host> --local-build-dir /root/projects/GridFlux/build --remote-build-dir /root/projects/GridFlux/build --connections 2 --output-dir tools/perf/results
-python3 tools/perf/run_gridftp_tree_private_matrix.py --remote <remote> --server-host <server-host> --local-build-dir /root/projects/GridFlux/build-io-uring-real --remote-build-dir /root/projects/GridFlux/build-io-uring-real --directions upload,download --datasets mixed --file-parallelisms 1,2,4 --connections 2 --checksums crc32c,none --repeat 3 --output-dir tools/perf/results --case-timeout 900
-python3 tools/release/run_alpha_release_gate.py --quick --build-dir build --io-uring-build-dir build-io-uring-real --remote <remote> --remote-root /root/projects/GridFlux --results-dir tools/perf/results
-python3 tools/release/run_alpha_release_gate.py --full --build-dir build --io-uring-build-dir build-io-uring-real --remote <remote> --remote-root /root/projects/GridFlux --server-host <server-host> --results-dir tools/perf/results
+python3 tools/test/run_gridftp_tree_private_once.py --remote <remote> --server-host <server-host> --local-build-dir /root/projects/CPNetFlux/build --remote-build-dir /root/projects/CPNetFlux/build --connections 2 --output-dir tools/perf/results
+python3 tools/perf/run_gridftp_tree_private_matrix.py --remote <remote> --server-host <server-host> --local-build-dir /root/projects/CPNetFlux/build-io-uring-real --remote-build-dir /root/projects/CPNetFlux/build-io-uring-real --directions upload,download --datasets mixed --file-parallelisms 1,2,4 --connections 2 --checksums crc32c,none --repeat 3 --output-dir tools/perf/results --case-timeout 900
+python3 tools/release/run_alpha_release_gate.py --quick --build-dir build --io-uring-build-dir build-io-uring-real --remote <remote> --remote-root /root/projects/CPNetFlux --results-dir tools/perf/results
+python3 tools/release/run_alpha_release_gate.py --full --build-dir build --io-uring-build-dir build-io-uring-real --remote <remote> --remote-root /root/projects/CPNetFlux --server-host <server-host> --results-dir tools/perf/results
 ```
 
 - Tree unit and loopback smoke subset: `17/17` passed.
@@ -3982,9 +3982,9 @@ python3 tools/release/run_alpha_release_gate.py --full --build-dir build --io-ur
   - Hardened artifact manifest: `tools/perf/results/20260518T073545Z_alpha-artifacts.json`.
   - Hardened artifact sync summary: `checked=250`, `synced=75`, `missing=0`, `mismatch=0`, `status=pass`.
   - Hardened artifact verify summary: `checked=250`, `missing=0`, `mismatch=0`, `status=pass`.
-- Public export strict hygiene: passed for `/tmp/gridflux-public-phase5b`.
-- Final public export strict hygiene after artifact hardening: passed for `/tmp/gridflux-public-phase5b-final`.
-- Final residual process check: no local or remote `gridflux-gridftp-server` / `gridflux-file-*` processes.
+- Public export strict hygiene: passed for `/tmp/cpnetflux-public-phase5b`.
+- Final public export strict hygiene after artifact hardening: passed for `/tmp/cpnetflux-public-phase5b-final`.
+- Final residual process check: no local or remote `cpnetflux-gridftp-server` / `cpnetflux-file-*` processes.
 
 ### Defaults and boundaries
 
@@ -4003,17 +4003,17 @@ python3 tools/release/run_alpha_release_gate.py --full --build-dir build --io-ur
 - 新增 tree CLI opt-in JSON summary：`--json-summary <path>`，并支持 `--summary-json` 别名。
 - JSON summary 覆盖 direction/source/dest、文件计数、completed/skipped/failed/changed、bytes、file_parallelism、connections、checksum、resume、elapsed、throughput、tree verification hash 和 error 对象。
 - Changed-file fail-safe 失败时，JSON error 写入 changed path、manifest/current size 和 mtime。
-- 新增 `gridflux_tree_edge_cases_smoke`，覆盖特殊字符路径、深层目录、大量小文件、空目录不保留、symlink 拒绝和 same-size mtime drift fail-safe。
+- 新增 `cpnetflux_tree_edge_cases_smoke`，覆盖特殊字符路径、深层目录、大量小文件、空目录不保留、symlink 拒绝和 same-size mtime drift fail-safe。
 - `run_gridftp_tree_private_matrix.py` 现在为每个 tree CLI case 传入 JSON summary，优先读取 JSON，stdout key=value 仅作为 fallback，并把关键 summary 字段写入 raw/summary CSV。
 - `run_alpha_release_gate.py` 增加 artifact manifest freshness check；`sync_remote_artifacts.py` JSON 增加 pre/post sync missing/mismatch 字段。
 
 ### 已执行验证
 
 - 通过：`python3 -m py_compile tools/perf/run_gridftp_tree_private_matrix.py tools/release/run_alpha_release_gate.py tools/release/sync_remote_artifacts.py tools/test/run_gridftp_tree_edge_cases_smoke.py tools/perf/analyze_phase5c.py`
-- 通过：`cmake --build build --target gridflux-tree-upload-client gridflux-tree-download-client gridflux_unit_tests`
+- 通过：`cmake --build build --target cpnetflux-tree-upload-client cpnetflux-tree-download-client cpnetflux_unit_tests`
 - 通过：`python3 tools/release/test_alpha_release_helpers.py`
-- 通过：`ctest --test-dir build -R "TreeTransferOptions|gridflux_tree_edge_cases_smoke|gridflux_alpha_release_helper_behavior" --output-on-failure`，5/5 passed。
-- 通过：`ctest --test-dir build -R "gridflux_tree_upload_smoke|gridflux_tree_download_smoke|gridflux_tree_resume_smoke|gridflux_tree_changed_file_smoke|gridflux_tree_edge_cases_smoke" --output-on-failure`，5/5 passed。
+- 通过：`ctest --test-dir build -R "TreeTransferOptions|cpnetflux_tree_edge_cases_smoke|cpnetflux_alpha_release_helper_behavior" --output-on-failure`，5/5 passed。
+- 通过：`ctest --test-dir build -R "cpnetflux_tree_upload_smoke|cpnetflux_tree_download_smoke|cpnetflux_tree_resume_smoke|cpnetflux_tree_changed_file_smoke|cpnetflux_tree_edge_cases_smoke" --output-on-failure`，5/5 passed。
 
 ### 构建与 CTest 验证
 
@@ -4089,18 +4089,18 @@ Phase 5C 不改变默认传输策略：`file_io_backend=posix`、`final_verify_p
 
 ### 默认策略
 
-Phase 5D 不改变默认传输策略：`file_io_backend=posix`、`final_verify_policy=full`、`manifest_flush_policy=every_n_chunks`、`preallocate=off`、`posix_write_strategy=auto`。STOR/RETR 文件数据仍只走 GridFlux framed data channel；demo runner 只编排已有能力，不复制 chunk 级传输逻辑。
+Phase 5D 不改变默认传输策略：`file_io_backend=posix`、`final_verify_policy=full`、`manifest_flush_policy=every_n_chunks`、`preallocate=off`、`posix_write_strategy=auto`。STOR/RETR 文件数据仍只走 CPNetFlux framed data channel；demo runner 只编排已有能力，不复制 chunk 级传输逻辑。
 
 ## 2026-05-18 Phase 6A security/auth alpha 进行中
 
 ### 实现范围
 
 - 新增控制面 auth 配置：`--auth-mode anonymous|token` 和 `--auth-token-file <path>`。
-- 默认 `anonymous`，保持现有 `USER gridflux` / `PASS gridflux` 占位认证兼容。
+- 默认 `anonymous`，保持现有 `USER cpnetflux` / `PASS cpnetflux` 占位认证兼容。
 - `token` 模式要求 `USER token` + `PASS <token>`；token 只从权限受限文件读取，空文件、不可读文件和 group/world 可访问文件会被拒绝。
 - Protected commands 在未认证时返回 `530`；`FEAT`、`SYST`、`NOOP`、`QUIT`、`USER`、`PASS` 保持未登录可用。
 - Tree upload/download clients 新增 `--auth-mode` / `--auth-token-file`，token 模式下内部登录不把 token 写入 JSON summary。
-- 新增 `gridflux_gridftp_control_token_smoke` 和 private token auth smoke helper。
+- 新增 `cpnetflux_gridftp_control_token_smoke` 和 private token auth smoke helper。
 - `run_alpha_release_gate.py --quick` 增加本地 token auth smoke；`--full` 增加 private token auth smoke。
 - 新增 `docs/SECURITY.md`，明确 Phase 6A 不是 TLS/GSI/生产认证。
 - Public hygiene 增加 token leak fixture；token-like artifact path 继续被 release sync 拒绝。
@@ -4109,7 +4109,7 @@ Phase 5D 不改变默认传输策略：`file_io_backend=posix`、`final_verify_p
 
 - 通过：`python3 -m py_compile tools/test/run_gridftp_control_token_smoke.py tools/test/run_gridftp_control_token_private_once.py tools/test/run_gridftp_control_private_once.py tools/test/run_gridftp_control_retr_private_once.py tools/test/run_gridftp_tree_private_once.py tools/demo/run_alpha_demo.py tools/release/run_alpha_release_gate.py tools/release/check_public_hygiene.py tools/release/test_public_hygiene.py`。
 - 通过：`cmake --build build -j2`。
-- 通过：`ctest --test-dir build -R "Control(Session|Options)|TreeTransferOptions|gridflux_gridftp_control_token_smoke|release_hygiene" --output-on-failure`，24/24 passed。
+- 通过：`ctest --test-dir build -R "Control(Session|Options)|TreeTransferOptions|cpnetflux_gridftp_control_token_smoke|release_hygiene" --output-on-failure`，24/24 passed。
 
 ### 默认策略
 
@@ -4119,9 +4119,9 @@ Phase 6A 不改变默认传输策略：`file_io_backend=posix`、`final_verify_p
 
 ### 实现范围
 
-- 新增轻量 JSONL event log 模块：`gridflux::core::metrics::EventLogger` / `EventRecord`。
+- 新增轻量 JSONL event log 模块：`cpnetflux::core::metrics::EventLogger` / `EventRecord`。
 - 新增稳定 alpha error code helper，覆盖 `ok`、`auth_required`、`auth_failed`、`path_rejected`、`manifest_corrupt`、`checksum_mismatch`、`changed_file`、`remote_sync_failed`、`io_error`、`protocol_error`、`config_error`、`unknown_error`。
-- `gridflux-gridftp-server`、`gridflux-file-client`、`gridflux-file-server`、`gridflux-file-download-client`、`gridflux-tree-upload-client`、`gridflux-tree-download-client` 新增 opt-in `--event-log <path>`。
+- `cpnetflux-gridftp-server`、`cpnetflux-file-client`、`cpnetflux-file-server`、`cpnetflux-file-download-client`、`cpnetflux-tree-upload-client`、`cpnetflux-tree-download-client` 新增 opt-in `--event-log <path>`。
 - Control server 记录 server start、auth success/failure、protected command rejected、STOR/RETR start/complete/fail 和 metadata/list failure。
 - Tree JSON summary 增加 top-level `error_code`；changed-file failure 的 error object 也包含 stable error code。
 - `tools/demo/run_alpha_demo.py` 支持 `--event-log`，local mode 支持 anonymous/token；demo JSON 增加 `event_summary`、`error_code_counts` 和 `first_error`。
@@ -4144,8 +4144,8 @@ Phase 6A 不改变默认传输策略：`file_io_backend=posix`、`final_verify_p
 - 通过 quick alpha gate：`tools/perf/results/20260518T133832Z_alpha-release-gate.json`，29/29 steps passed。
 - 通过 full alpha gate：`tools/perf/results/20260518T140606Z_alpha-release-gate.json`，29/29 steps passed；artifact manifest 为 `tools/perf/results/20260518T140606Z_alpha-artifacts.json`。
 - 通过手动 artifact verify：`python3 tools/release/check_remote_artifact_sync.py --manifest tools/perf/results/20260518T140606Z_alpha-artifacts.json`，608 artifacts checked，missing=0，mismatch=0，status=pass。
-- 通过 public export strict hygiene：`python3 tools/release/export_public_repo.py --output /tmp/gridflux-public --force` 后 `check_public_hygiene.py --strict` passed。
-- 完成残留进程检查：本机与<redacted>二均无 `gridflux-gridftp-server` / `gridflux-file-*` 业务进程。
+- 通过 public export strict hygiene：`python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force` 后 `check_public_hygiene.py --strict` passed。
+- 完成残留进程检查：本机与<redacted>二均无 `cpnetflux-gridftp-server` / `cpnetflux-file-*` 业务进程。
 - 发现并修复 release artifact verify 运维瓶颈：`sync_remote_artifacts.py` / `check_remote_artifact_sync.py` 从逐文件 SSH hash 改为单次 SSH 批量 size/sha256 查询；不改变 artifact 安全校验语义。
 
 ### 默认策略
@@ -4159,7 +4159,7 @@ Phase 6B 不改变默认传输策略：`auth-mode=anonymous`、`file_io_backend=
 - 新增 opt-in control-plane TLS 配置：`--tls-mode off|explicit|required`、`--tls-cert-file`、`--tls-key-file`、`--tls-ca-file`。
 - 默认 `--tls-mode off`；`explicit` 作为未来 AUTH TLS 设计保留并在 Phase 6C 拒绝启动。
 - CMake 默认探测 OpenSSL；有 OpenSSL 时编译真实 TLS backend，无 OpenSSL 时默认非 TLS 构建仍可用，显式 TLS 返回清晰配置错误。
-- `gridflux-gridftp-server` 在 `required` 模式下对控制连接立即执行 TLS handshake；TLS 成功后继续使用现有 FTP-like `USER/PASS/TYPE/EPSV/STOR/RETR/...` 流程。
+- `cpnetflux-gridftp-server` 在 `required` 模式下对控制连接立即执行 TLS handshake；TLS 成功后继续使用现有 FTP-like `USER/PASS/TYPE/EPSV/STOR/RETR/...` 流程。
 - Tree upload/download clients 和 Python control helpers 支持 TLS-required 控制连接。
 - Token auth 可以叠加 TLS：TLS 握手后仍执行 `USER token` / `PASS <token>`。
 - 新增 `tls_required` / `tls_failed` 稳定错误码；event log 可记录 TLS 结果但不记录证书私钥、token 或密码。

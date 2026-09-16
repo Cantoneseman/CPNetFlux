@@ -21,20 +21,20 @@ remains plaintext metadata in this alpha.
 ## Example
 
 ```bash
-./build/gridflux-gridftp-server \
-  --root /tmp/gridflux-root \
+./build/cpnetflux-gridftp-server \
+  --root /tmp/cpnetflux-root \
   --host 127.0.0.1 \
   --port 2121 \
   --tls-mode required \
-  --tls-cert-file /tmp/gridflux-cert.pem \
-  --tls-key-file /tmp/gridflux-key.pem \
+  --tls-cert-file /tmp/cpnetflux-cert.pem \
+  --tls-key-file /tmp/cpnetflux-key.pem \
   --data-tls-mode required
 ```
 
-GridFlux-aware file clients then pass:
+CPNetFlux-aware file clients then pass:
 
 ```bash
---data-tls-mode required --tls-ca-file /tmp/gridflux-cert.pem
+--data-tls-mode required --tls-ca-file /tmp/cpnetflux-cert.pem
 ```
 
 Tree clients pass the same flags together with `--tls-mode required` and the CA

@@ -8,7 +8,7 @@ Usage: run_private_once.sh [options]
 Options:
   --remote <user@host>          default: root@<redacted>
   --server-host <ip>            default: <redacted>
-  --build-dir <path>            default: /root/projects/GridFlux/build
+  --build-dir <path>            default: /root/projects/CPNetFlux/build
   --output-dir <path>           default: tools/perf/results
   --port <port>                 default: 19000
   --connections <N>             default: 8
@@ -19,7 +19,7 @@ USAGE
 
 remote="root@<redacted>"
 server_host="<redacted>"
-build_dir="/root/projects/GridFlux/build"
+build_dir="/root/projects/CPNetFlux/build"
 output_dir="tools/perf/results"
 port="19000"
 connections="8"
@@ -49,8 +49,8 @@ server_log="${output_dir}/${case_id}_server.log"
 client_log="${output_dir}/${case_id}_client.log"
 csv_path="${output_dir}/${case_id}.csv"
 
-server_bin="${build_dir%/}/gridflux-server"
-remote_client_bin="${build_dir%/}/gridflux-client"
+server_bin="${build_dir%/}/cpnetflux-server"
+remote_client_bin="${build_dir%/}/cpnetflux-client"
 
 if [[ ! -x "$server_bin" ]]; then
     echo "missing executable: ${server_bin}" >&2
@@ -58,17 +58,17 @@ if [[ ! -x "$server_bin" ]]; then
 fi
 
 ssh_cmd=(ssh -o StrictHostKeyChecking=no "$remote")
-if [[ -n "${GRIDFLUX_SSH_PASSWORD:-}" ]]; then
+if [[ -n "${CPNETFLUX_SSH_PASSWORD:-}" ]]; then
     if ! command -v sshpass >/dev/null 2>&1; then
-        echo "sshpass is required when GRIDFLUX_SSH_PASSWORD is set" >&2
+        echo "sshpass is required when CPNETFLUX_SSH_PASSWORD is set" >&2
         exit 1
     fi
     ssh_cmd=(sshpass -e ssh -o StrictHostKeyChecking=no "$remote")
-    export SSHPASS="$GRIDFLUX_SSH_PASSWORD"
+    export SSHPASS="$CPNETFLUX_SSH_PASSWORD"
 fi
 
 if ! "${ssh_cmd[@]}" "test -x '$remote_client_bin'"; then
-    echo "remote gridflux-client is missing; run sync_remote.sh and build on ${remote}" >&2
+    echo "remote cpnetflux-client is missing; run sync_remote.sh and build on ${remote}" >&2
     exit 1
 fi
 

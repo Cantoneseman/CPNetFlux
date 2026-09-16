@@ -14,11 +14,11 @@ Phase 4B did not introduce io_uring. The goal was to instrument the current epol
 
 ## Host And Link Baseline
 
-`iperf3` / `fio` were not assumed. This run used GridFlux memory sink for the network baseline and Python sequential IO fallback for disk.
+`iperf3` / `fio` were not assumed. This run used CPNetFlux memory sink for the network baseline and Python sequential IO fallback for disk.
 
 | Category | Tool | Result |
 |---|---:|---:|
-| Network memory sink | `gridflux-server/client` | 19.1192 Gbps |
+| Network memory sink | `cpnetflux-server/client` | 19.1192 Gbps |
 | Server sequential write | Python fallback | 1.033312 Gbps |
 | Server sequential read | Python fallback | 0.940298 Gbps |
 | Client sequential write | Python fallback | 1.031349 Gbps |

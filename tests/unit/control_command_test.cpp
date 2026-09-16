@@ -1,18 +1,18 @@
-#include "gridflux/protocol/control/control_command.h"
+#include "cpnetflux/protocol/control/control_command.h"
 
 #include <gtest/gtest.h>
 
 namespace {
 
-using gridflux::protocol::control::ControlCommandType;
-using gridflux::protocol::control::parseControlCommand;
+using cpnetflux::protocol::control::ControlCommandType;
+using cpnetflux::protocol::control::parseControlCommand;
 
 TEST(ControlCommandTest, ParsesCaseWhitespaceAndArguments) {
-    auto parsed = parseControlCommand("  uSeR   gridflux  \r\n");
+    auto parsed = parseControlCommand("  uSeR   cpnetflux  \r\n");
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
     EXPECT_EQ(parsed.value().type, ControlCommandType::User);
     EXPECT_EQ(parsed.value().verb, "USER");
-    EXPECT_EQ(parsed.value().argument, "gridflux");
+    EXPECT_EQ(parsed.value().argument, "cpnetflux");
 
     parsed = parseControlCommand("STOR nested/file.bin\r\n");
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();

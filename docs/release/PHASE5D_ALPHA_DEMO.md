@@ -3,7 +3,7 @@
 ## Scope
 
 Phase 5D adds a demo/operator handoff layer only. It does not change the
-GridFlux framed STOR/RETR data path, checksum, manifest, resume, final verify,
+CPNetFlux framed STOR/RETR data path, checksum, manifest, resume, final verify,
 or default transfer configuration.
 
 ## Implemented

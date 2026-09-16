@@ -1,9 +1,9 @@
-#include "gridflux/core/chunk/chunk_planner.h"
+#include "cpnetflux/core/chunk/chunk_planner.h"
 
 #include <algorithm>
 #include <limits>
 
-namespace gridflux::core::chunk {
+namespace cpnetflux::core::chunk {
 namespace {
 
 constexpr std::uint32_t kMaxConnections = 64;
@@ -43,4 +43,4 @@ common::Result<std::vector<ChunkRange>> planChunks(std::uint64_t fileSize, std::
     return chunks;
 }
 
-}  // namespace gridflux::core::chunk
+}  // namespace cpnetflux::core::chunk

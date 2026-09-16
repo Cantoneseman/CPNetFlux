@@ -16,6 +16,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from gridftp_port_window import assert_epsv_port_in_window, clamp_passive_data_port_base
+
 
 def make_file(path: Path, total_bytes: int) -> None:
     block = bytes((index * 23) % 251 for index in range(1024 * 1024))
@@ -155,10 +157,12 @@ def read_data(host: str, port: int) -> str:
     return b"".join(chunks).decode("utf-8", errors="replace")
 
 
-def run_listing(sock: ssl.SSLSocket, buffer: bytearray, command: str) -> str:
+def run_listing(sock: ssl.SSLSocket, buffer: bytearray, command: str,
+                data_port_base: int) -> str:
     epsv = send_command(sock, buffer, "EPSV")
     assert reply_code(epsv) == 229, epsv
     data_port = parse_epsv_port(epsv)
+    assert_epsv_port_in_window(data_port, data_port_base)
     sock.sendall((command + "\r\n").encode("utf-8"))
     opening = read_reply(sock, buffer)
     assert reply_code(opening) == 150, opening
@@ -170,16 +174,16 @@ def run_listing(sock: ssl.SSLSocket, buffer: bytearray, command: str) -> str:
 
 def run_smoke(args: argparse.Namespace) -> int:
     build_dir = Path(args.build_dir)
-    server_bin = build_dir / "gridflux-gridftp-server"
-    upload_bin = build_dir / "gridflux-file-client"
-    download_bin = build_dir / "gridflux-file-download-client"
-    tree_upload_bin = build_dir / "gridflux-tree-upload-client"
-    tree_download_bin = build_dir / "gridflux-tree-download-client"
+    server_bin = build_dir / "cpnetflux-gridftp-server"
+    upload_bin = build_dir / "cpnetflux-file-client"
+    download_bin = build_dir / "cpnetflux-file-download-client"
+    tree_upload_bin = build_dir / "cpnetflux-tree-upload-client"
+    tree_download_bin = build_dir / "cpnetflux-tree-download-client"
     for binary in (server_bin, upload_bin, download_bin, tree_upload_bin, tree_download_bin):
         if not binary.exists():
-            raise FileNotFoundError(f"missing GridFlux binary: {binary}")
+            raise FileNotFoundError(f"missing CPNetFlux binary: {binary}")
 
-    with tempfile.TemporaryDirectory(prefix="gridflux-gridftp-data-tls.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-gridftp-data-tls.") as temp_text:
         temp_dir = Path(temp_text)
         cert = temp_dir / "cert.pem"
         key = temp_dir / "key.pem"
@@ -199,11 +203,11 @@ def run_smoke(args: argparse.Namespace) -> int:
         event_log = temp_dir / "data-tls-events.jsonl"
         server_log = temp_dir / "gridftp-data-tls.log"
         control_port = free_port()
-        data_port_base = free_port()
+        data_port_base = clamp_passive_data_port_base(free_port())
         server_cmd = [
             str(server_bin),
             "--host",
-            "127.0.0.1",
+            "0.0.0.0",
             "--port",
             str(control_port),
             "--root",
@@ -233,13 +237,14 @@ def run_smoke(args: argparse.Namespace) -> int:
             sock, buffer, greeting = tls_connect(control_port, cert)
             with sock:
                 assert reply_code(greeting) == 220, greeting
-                assert reply_code(send_command(sock, buffer, "USER gridflux")) == 331
-                assert reply_code(send_command(sock, buffer, "PASS gridflux")) == 230
+                assert reply_code(send_command(sock, buffer, "USER cpnetflux")) == 331
+                assert reply_code(send_command(sock, buffer, "PASS cpnetflux")) == 230
                 assert reply_code(send_command(sock, buffer, "TYPE I")) == 200
 
                 epsv = send_command(sock, buffer, "EPSV")
                 assert reply_code(epsv) == 229, epsv
                 data_port = parse_epsv_port(epsv)
+                assert_epsv_port_in_window(data_port, data_port_base)
                 stor = send_command(sock, buffer, "STOR uploaded.bin")
                 assert reply_code(stor) == 150, stor
                 transfer_id = parse_transfer_id(stor)
@@ -271,6 +276,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                 epsv = send_command(sock, buffer, "EPSV")
                 assert reply_code(epsv) == 229, epsv
                 data_port = parse_epsv_port(epsv)
+                assert_epsv_port_in_window(data_port, data_port_base)
                 retr = send_command(sock, buffer, "RETR uploaded.bin")
                 assert reply_code(retr) == 150, retr
                 transfer_id = parse_transfer_id(retr)
@@ -303,6 +309,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                 epsv = send_command(sock, buffer, "EPSV")
                 assert reply_code(epsv) == 229, epsv
                 data_port = parse_epsv_port(epsv)
+                assert_epsv_port_in_window(data_port, data_port_base)
                 stor = send_command(sock, buffer, "STOR plaintext-should-fail.bin")
                 assert reply_code(stor) == 150, stor
                 transfer_id = parse_transfer_id(stor)
@@ -332,7 +339,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                     raise RuntimeError("plaintext data client unexpectedly succeeded")
                 assert reply_code(read_reply(sock, buffer)) == 550
 
-                listing = run_listing(sock, buffer, "NLST")
+                listing = run_listing(sock, buffer, "NLST", data_port_base)
                 if "uploaded.bin" not in listing:
                     raise RuntimeError(f"plain LIST/NLST metadata data missing upload: {listing!r}")
 
@@ -439,7 +446,7 @@ def run_smoke(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux framed data TLS smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux framed data TLS smoke.")
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--bytes", type=int, default=1024 * 1024)
     args = parser.parse_args()

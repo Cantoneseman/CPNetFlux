@@ -1,4 +1,4 @@
-#include "gridflux/protocol/control/control_command.h"
+#include "cpnetflux/protocol/control/control_command.h"
 
 #include <algorithm>
 #include <cctype>
@@ -6,9 +6,9 @@
 #include <string>
 #include <string_view>
 
-#include "gridflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/checkpoint/transfer_manifest.h"
 
-namespace gridflux::protocol::control {
+namespace cpnetflux::protocol::control {
 namespace {
 
 std::string trim(std::string_view value) {
@@ -414,4 +414,4 @@ void ControlSession::setWorkingDirectory(std::string directory) {
     }
 }
 
-}  // namespace gridflux::protocol::control
+}  // namespace cpnetflux::protocol::control

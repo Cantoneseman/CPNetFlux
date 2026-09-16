@@ -1,10 +1,10 @@
-#include "gridflux/core/session/download_session.h"
+#include "cpnetflux/core/session/download_session.h"
 
 #include <algorithm>
 #include <utility>
 #include <vector>
 
-namespace gridflux::core::session {
+namespace cpnetflux::core::session {
 namespace {
 
 common::Status validateInputs(const std::string& targetPath, const std::string& sourcePath,
@@ -329,4 +329,4 @@ void DownloadSession::setPhaseStats(metrics::TransferPhaseStats* phaseStats) noe
     phaseStats_ = phaseStats;
 }
 
-}  // namespace gridflux::core::session
+}  // namespace cpnetflux::core::session

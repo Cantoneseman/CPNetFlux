@@ -8,8 +8,8 @@ Usage: run_file_private_once.sh [options]
 Options:
   --remote <user@host>              default: root@<redacted>
   --server-host <ip>                default: <redacted>
-  --local-build-dir <path>          default: /root/projects/GridFlux/build
-  --remote-build-dir <path>         default: /root/projects/GridFlux/build
+  --local-build-dir <path>          default: /root/projects/CPNetFlux/build
+  --remote-build-dir <path>         default: /root/projects/CPNetFlux/build
   --output-dir <path>               default: tools/perf/results
   --port <port>                     default: 19600
   --connections <N>                 default: 4
@@ -25,8 +25,8 @@ USAGE
 
 remote="root@<redacted>"
 server_host="<redacted>"
-local_build_dir="/root/projects/GridFlux/build"
-remote_build_dir="/root/projects/GridFlux/build"
+local_build_dir="/root/projects/CPNetFlux/build"
+remote_build_dir="/root/projects/CPNetFlux/build"
 output_dir="tools/perf/results"
 port="19600"
 connections="4"
@@ -72,8 +72,8 @@ case_id="${timestamp}_file_private_c${connections}_chunk${chunk_size}_buf${buffe
 server_log="${output_dir}/${case_id}_server.log"
 client_log="${output_dir}/${case_id}_client.log"
 csv_path="${output_dir}/${case_id}.csv"
-local_server_bin="${local_build_dir%/}/gridflux-file-server"
-remote_client_bin="${remote_build_dir%/}/gridflux-file-client"
+local_server_bin="${local_build_dir%/}/cpnetflux-file-server"
+remote_client_bin="${remote_build_dir%/}/cpnetflux-file-client"
 remote_source="/tmp/${case_id}.src"
 local_dest="/tmp/${case_id}.dst"
 
@@ -83,17 +83,17 @@ if [[ ! -x "$local_server_bin" ]]; then
 fi
 
 ssh_cmd=(ssh -o StrictHostKeyChecking=no "$remote")
-if [[ -n "${GRIDFLUX_SSH_PASSWORD:-}" ]]; then
+if [[ -n "${CPNETFLUX_SSH_PASSWORD:-}" ]]; then
     if ! command -v sshpass >/dev/null 2>&1; then
-        echo "sshpass is required when GRIDFLUX_SSH_PASSWORD is set" >&2
+        echo "sshpass is required when CPNETFLUX_SSH_PASSWORD is set" >&2
         exit 1
     fi
     ssh_cmd=(sshpass -e ssh -o StrictHostKeyChecking=no "$remote")
-    export SSHPASS="$GRIDFLUX_SSH_PASSWORD"
+    export SSHPASS="$CPNETFLUX_SSH_PASSWORD"
 fi
 
 if ! "${ssh_cmd[@]}" "test -x '$remote_client_bin'"; then
-    echo "remote gridflux-file-client is missing; run sync_remote.sh and build on ${remote}" >&2
+    echo "remote cpnetflux-file-client is missing; run sync_remote.sh and build on ${remote}" >&2
     exit 1
 fi
 

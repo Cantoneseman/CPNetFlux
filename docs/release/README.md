@@ -1,6 +1,6 @@
-# GridFlux Release Gate
+# CPNetFlux Release Gate
 
-This directory records the alpha release gate for GridFlux. The gate packages
+This directory records the alpha release gate for CPNetFlux. The gate packages
 existing build, CTest, smoke, hygiene, and private baseline checks into one
 repeatable flow. It does not change transfer defaults or run new protocol code.
 
@@ -14,7 +14,7 @@ python3 tools/release/run_alpha_release_gate.py \
   --build-dir build \
   --io-uring-build-dir build-io-uring-real \
   --remote <remote> \
-  --remote-root /root/projects/GridFlux \
+  --remote-root /root/projects/CPNetFlux \
   --results-dir tools/perf/results
 ```
 
@@ -34,12 +34,12 @@ a tiny private alpha demo, a short local soak smoke, and a private 1GiB repeat=3
 STOR/RETR baseline matrix:
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_gate.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_gate.py \
   --full \
   --build-dir build \
   --io-uring-build-dir build-io-uring-real \
   --remote <remote> \
-  --remote-root /root/projects/GridFlux \
+  --remote-root /root/projects/CPNetFlux \
   --server-host <server-host> \
   --results-dir tools/perf/results
 ```
@@ -91,7 +91,7 @@ Manual verification:
 python3 tools/release/sync_remote_artifacts.py \
   --manifest tools/perf/results/<timestamp>_alpha-artifacts.json \
   --remote <remote> \
-  --local-root /root/projects/GridFlux \
+  --local-root /root/projects/CPNetFlux \
   --remote-root <remote-root> \
   --verify-only \
   --json-output tools/perf/results/<timestamp>_artifact-verify.json
@@ -113,11 +113,11 @@ Phase 6E adds a full release-candidate wrapper. It runs the full gate, then adds
 a longer local soak with token auth, control TLS, and STOR/RETR data TLS enabled:
 
 ```bash
-GRIDFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_candidate.py \
+CPNETFLUX_SSH_PASSWORD='***' python3 tools/release/run_alpha_release_candidate.py \
   --build-dir build \
   --io-uring-build-dir build-io-uring-real \
   --remote <remote> \
-  --remote-root /root/projects/GridFlux \
+  --remote-root /root/projects/CPNetFlux \
   --server-host <server-host> \
   --results-dir tools/perf/results
 ```
@@ -138,9 +138,9 @@ certification: see `docs/release/ALPHA_LIMITATIONS.md`.
 use:
 
 ```bash
-rm -rf /tmp/gridflux-public
-python3 tools/release/export_public_repo.py --output /tmp/gridflux-public --force
-python3 tools/release/check_public_hygiene.py --path /tmp/gridflux-public --strict
+rm -rf /tmp/cpnetflux-public
+python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force
+python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
 ```
 
 Do not place passwords, tokens, private keys, cookies, or real private topology

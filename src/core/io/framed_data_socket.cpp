@@ -1,4 +1,4 @@
-#include "gridflux/core/io/framed_data_socket.h"
+#include "cpnetflux/core/io/framed_data_socket.h"
 
 #include <netdb.h>
 #include <sys/socket.h>
@@ -8,7 +8,7 @@
 #include <string>
 #include <utility>
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 namespace {
 
 common::Status systemStatus(const char* operation, int errorNumber) {
@@ -190,4 +190,4 @@ common::Result<FramedDataSocket> acceptFramedDataSocket(UniqueFd fd, DataTlsMode
     return FramedDataSocket(std::move(tlsConnection.value()));
 }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

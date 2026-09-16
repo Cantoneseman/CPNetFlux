@@ -1,24 +1,24 @@
-#include "gridflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/checkpoint/transfer_manifest.h"
 
 #include <gtest/gtest.h>
 
 #include <string>
 
 TEST(TransferManifestTest, ValidatesTransferId) {
-    EXPECT_TRUE(gridflux::checkpoint::isValidTransferId("phase2a-smoke_01"));
-    EXPECT_FALSE(gridflux::checkpoint::isValidTransferId(""));
-    EXPECT_FALSE(gridflux::checkpoint::isValidTransferId("../bad"));
-    EXPECT_FALSE(gridflux::checkpoint::isValidTransferId("bad/id"));
+    EXPECT_TRUE(cpnetflux::checkpoint::isValidTransferId("phase2a-smoke_01"));
+    EXPECT_FALSE(cpnetflux::checkpoint::isValidTransferId(""));
+    EXPECT_FALSE(cpnetflux::checkpoint::isValidTransferId("../bad"));
+    EXPECT_FALSE(cpnetflux::checkpoint::isValidTransferId("bad/id"));
 }
 
 TEST(TransferManifestTest, BuildsManifestAndTempPaths) {
-    EXPECT_EQ(gridflux::checkpoint::manifestPathForOutput("/tmp/out"),
-              "/tmp/out.gridflux.manifest");
-    EXPECT_EQ(gridflux::checkpoint::tempPathForOutput("/tmp/out", "abc"), "/tmp/out.part.abc");
+    EXPECT_EQ(cpnetflux::checkpoint::manifestPathForOutput("/tmp/out"),
+              "/tmp/out.cpnetflux.manifest");
+    EXPECT_EQ(cpnetflux::checkpoint::tempPathForOutput("/tmp/out", "abc"), "/tmp/out.part.abc");
 }
 
 TEST(TransferManifestTest, SerializesAndParsesStableTextFormat) {
-    gridflux::checkpoint::TransferManifest manifest;
+    cpnetflux::checkpoint::TransferManifest manifest;
     manifest.transferId = "phase2a";
     manifest.outputPath = "/tmp/grid flux/out.bin";
     manifest.tempPath = "/tmp/grid flux/out.bin.part.phase2a";
@@ -26,19 +26,19 @@ TEST(TransferManifestTest, SerializesAndParsesStableTextFormat) {
     manifest.chunkSize = 1024;
     manifest.createdAtUnixNanos = 10;
     manifest.updatedAtUnixNanos = 20;
-    manifest.state = gridflux::checkpoint::ManifestState::Transferring;
+    manifest.state = cpnetflux::checkpoint::ManifestState::Transferring;
     manifest.verifiedChunks = {
-        {0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::Crc32c, 0x11111111U}},
-        {2, 2048, 2048, {gridflux::checksum::ChecksumAlgorithm::Crc32c, 0x22222222U}},
+        {0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::Crc32c, 0x11111111U}},
+        {2, 2048, 2048, {cpnetflux::checksum::ChecksumAlgorithm::Crc32c, 0x22222222U}},
     };
 
-    const auto serialized = gridflux::checkpoint::serializeTransferManifest(manifest);
+    const auto serialized = cpnetflux::checkpoint::serializeTransferManifest(manifest);
     ASSERT_TRUE(serialized.isOk()) << serialized.status().message();
     EXPECT_NE(serialized.value().find("manifest_version=2"), std::string::npos);
     EXPECT_NE(serialized.value().find("checksum_algorithm=crc32c"), std::string::npos);
     EXPECT_NE(serialized.value().find("manifest_body_crc32c="), std::string::npos);
 
-    const auto parsed = gridflux::checkpoint::parseTransferManifest(serialized.value());
+    const auto parsed = cpnetflux::checkpoint::parseTransferManifest(serialized.value());
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
     EXPECT_EQ(parsed.value().transferId, "phase2a");
     EXPECT_EQ(parsed.value().outputPath, "/tmp/grid flux/out.bin");
@@ -53,9 +53,9 @@ TEST(TransferManifestTest, SerializesAndParsesStableTextFormat) {
 }
 
 TEST(TransferManifestTest, RejectsCorruptManifest) {
-    EXPECT_FALSE(gridflux::checkpoint::parseTransferManifest("not-a-manifest\n").isOk());
+    EXPECT_FALSE(cpnetflux::checkpoint::parseTransferManifest("not-a-manifest\n").isOk());
 
-    gridflux::checkpoint::TransferManifest manifest;
+    cpnetflux::checkpoint::TransferManifest manifest;
     manifest.transferId = "phase2a";
     manifest.outputPath = "/tmp/out";
     manifest.tempPath = "/tmp/out.part.phase2a";
@@ -64,14 +64,14 @@ TEST(TransferManifestTest, RejectsCorruptManifest) {
     manifest.createdAtUnixNanos = 1;
     manifest.updatedAtUnixNanos = 1;
     manifest.verifiedChunks = {
-        {0, 0, 2048, {gridflux::checksum::ChecksumAlgorithm::Crc32c, 0}},
+        {0, 0, 2048, {cpnetflux::checksum::ChecksumAlgorithm::Crc32c, 0}},
     };
 
-    EXPECT_FALSE(gridflux::checkpoint::serializeTransferManifest(manifest).isOk());
+    EXPECT_FALSE(cpnetflux::checkpoint::serializeTransferManifest(manifest).isOk());
 }
 
 TEST(TransferManifestTest, RejectsModifiedBodyChecksum) {
-    gridflux::checkpoint::TransferManifest manifest;
+    cpnetflux::checkpoint::TransferManifest manifest;
     manifest.transferId = "phase2b";
     manifest.outputPath = "/tmp/out";
     manifest.tempPath = "/tmp/out.part.phase2b";
@@ -80,17 +80,17 @@ TEST(TransferManifestTest, RejectsModifiedBodyChecksum) {
     manifest.createdAtUnixNanos = 1;
     manifest.updatedAtUnixNanos = 1;
     manifest.verifiedChunks = {
-        {0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::Crc32c, 0x12345678U}},
+        {0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::Crc32c, 0x12345678U}},
     };
 
-    auto serialized = gridflux::checkpoint::serializeTransferManifest(manifest);
+    auto serialized = cpnetflux::checkpoint::serializeTransferManifest(manifest);
     ASSERT_TRUE(serialized.isOk()) << serialized.status().message();
     std::string corrupt = serialized.value();
     const std::size_t offset = corrupt.find("total_size=1024");
     ASSERT_NE(offset, std::string::npos);
     corrupt.replace(offset, std::string("total_size=1024").size(), "total_size=2048");
 
-    EXPECT_FALSE(gridflux::checkpoint::parseTransferManifest(corrupt).isOk());
+    EXPECT_FALSE(cpnetflux::checkpoint::parseTransferManifest(corrupt).isOk());
 }
 
 TEST(TransferManifestTest, ParsesVersionOneManifestForChecksumNoneCompatibility) {
@@ -106,10 +106,10 @@ TEST(TransferManifestTest, ParsesVersionOneManifestForChecksumNoneCompatibility)
         "state=failed\n"
         "completed_ranges=0-1024\n";
 
-    const auto parsed = gridflux::checkpoint::parseTransferManifest(manifest);
+    const auto parsed = cpnetflux::checkpoint::parseTransferManifest(manifest);
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
-    EXPECT_EQ(parsed.value().version, gridflux::checkpoint::kTransferManifestVersionV1);
-    EXPECT_EQ(parsed.value().checksumAlgorithm, gridflux::checksum::ChecksumAlgorithm::None);
+    EXPECT_EQ(parsed.value().version, cpnetflux::checkpoint::kTransferManifestVersionV1);
+    EXPECT_EQ(parsed.value().checksumAlgorithm, cpnetflux::checksum::ChecksumAlgorithm::None);
     ASSERT_EQ(parsed.value().completedRanges.size(), 1U);
     EXPECT_TRUE(parsed.value().verifiedChunks.empty());
 }

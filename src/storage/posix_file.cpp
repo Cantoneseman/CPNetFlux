@@ -1,4 +1,4 @@
-#include "gridflux/storage/posix_file.h"
+#include "cpnetflux/storage/posix_file.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -11,7 +11,7 @@
 #include <string>
 #include <utility>
 
-namespace gridflux::storage {
+namespace cpnetflux::storage {
 namespace {
 
 common::Status systemStatus(const char* operation, int errorNumber) {
@@ -237,4 +237,4 @@ common::Status PosixFile::writeAtAll(std::uint64_t offset, const std::uint8_t* d
     return common::Status::ok();
 }
 
-}  // namespace gridflux::storage
+}  // namespace cpnetflux::storage

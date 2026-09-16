@@ -70,10 +70,18 @@ rsync_cmd=(
     "$target"
 )
 
+# Keep SSH password discovery aligned with release artifact sync helpers.
 python3 "$repo_root/tools/release/remote_auth.py" \
     --remote "$remote_host" \
     --repo-root "$repo_root" \
     --sshpass-prefix \
     -- "${rsync_cmd[@]}"
+
+python3 "$repo_root/tools/release/remote_auth.py" \
+    --remote "$remote_host" \
+    --repo-root "$repo_root" \
+    --sshpass-prefix \
+    -- ssh -o StrictHostKeyChecking=no "$remote_host" \
+    "chmod 755 '$target_path/tools/perf/sync_remote.sh'"
 
 echo "synced ${source_path} to ${remote_host}:${target_path%/}/"

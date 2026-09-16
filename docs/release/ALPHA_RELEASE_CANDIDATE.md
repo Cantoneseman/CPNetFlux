@@ -1,4 +1,4 @@
-# GridFlux Alpha Release Candidate
+# CPNetFlux Alpha Release Candidate
 
 - Timestamp: `2026-05-19T03:35:18Z`
 - Result: `pass`
@@ -19,16 +19,16 @@
 
 | Step | Status | Error Code | Seconds | Log |
 |------|--------|------------|---------|-----|
-| `alpha_release_gate_full` | `pass` | `ok` | `457.98` | `/root/projects/GridFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/alpha_release_gate_full.log` |
-| `alpha_long_soak` | `pass` | `ok` | `33.15` | `/root/projects/GridFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/alpha_long_soak.log` |
-| `public_export_hygiene` | `pass` | `ok` | `0.39` | `/root/projects/GridFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/public_export_hygiene.log` |
-| `remote_artifact_sync` | `pass` | `ok` | `0.77` | `/root/projects/GridFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/remote_artifact_sync.log` |
-| `remote_artifact_verify` | `pass` | `ok` | `0.32` | `/root/projects/GridFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/remote_artifact_verify.log` |
+| `alpha_release_gate_full` | `pass` | `ok` | `457.98` | `/root/projects/CPNetFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/alpha_release_gate_full.log` |
+| `alpha_long_soak` | `pass` | `ok` | `33.15` | `/root/projects/CPNetFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/alpha_long_soak.log` |
+| `public_export_hygiene` | `pass` | `ok` | `0.39` | `/root/projects/CPNetFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/public_export_hygiene.log` |
+| `remote_artifact_sync` | `pass` | `ok` | `0.77` | `/root/projects/CPNetFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/remote_artifact_sync.log` |
+| `remote_artifact_verify` | `pass` | `ok` | `0.32` | `/root/projects/CPNetFlux/tools/perf/results/20260519T032706Z_alpha-release-candidate/remote_artifact_verify.log` |
 
 ## Nested Full Gate
 
-- Gate JSON: `/root/projects/GridFlux/tools/perf/results/20260519T032706Z_alpha-release-gate.json`
-- Gate artifact manifest: `/root/projects/GridFlux/tools/perf/results/20260519T032706Z_alpha-artifacts.json`
+- Gate JSON: `/root/projects/CPNetFlux/tools/perf/results/20260519T032706Z_alpha-release-gate.json`
+- Gate artifact manifest: `/root/projects/CPNetFlux/tools/perf/results/20260519T032706Z_alpha-artifacts.json`
 - Gate passed: `True`
 - Gate total steps: `33`
 - Gate failed steps: `0`

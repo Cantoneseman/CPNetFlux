@@ -1,4 +1,4 @@
-#include "gridflux/core/metrics/event_log.h"
+#include "cpnetflux/core/metrics/event_log.h"
 
 #include <chrono>
 #include <filesystem>
@@ -8,7 +8,7 @@
 #include <sstream>
 #include <utility>
 
-namespace gridflux::core::metrics {
+namespace cpnetflux::core::metrics {
 namespace {
 
 std::string timestampUtc() {
@@ -165,4 +165,4 @@ common::Status writeEventLog(const std::string& path, const EventRecord& record)
     return common::Status::ok();
 }
 
-}  // namespace gridflux::core::metrics
+}  // namespace cpnetflux::core::metrics

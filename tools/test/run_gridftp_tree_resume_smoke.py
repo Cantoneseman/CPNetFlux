@@ -19,7 +19,7 @@ def run_upload_resume(build_dir: Path, temp: Path) -> None:
     server = start_server(build_dir, server_root, control_port, data_port, server_log)
     try:
         base_cmd = [
-            str(build_dir / "gridflux-tree-upload-client"),
+            str(build_dir / "cpnetflux-tree-upload-client"),
             "--host",
             "127.0.0.1",
             "--port",
@@ -53,7 +53,7 @@ def run_download_resume(build_dir: Path, temp: Path) -> None:
     server = start_server(build_dir, server_root, control_port, data_port, server_log)
     try:
         base_cmd = [
-            str(build_dir / "gridflux-tree-download-client"),
+            str(build_dir / "cpnetflux-tree-download-client"),
             "--host",
             "127.0.0.1",
             "--port",
@@ -76,11 +76,11 @@ def run_download_resume(build_dir: Path, temp: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux tree resume smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux tree resume smoke.")
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     build_dir = Path(args.build_dir)
-    with tempfile.TemporaryDirectory(prefix="gridflux-tree-resume.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-resume.") as temp_text:
         temp = Path(temp_text)
         run_upload_resume(build_dir, temp)
         run_download_resume(build_dir, temp)

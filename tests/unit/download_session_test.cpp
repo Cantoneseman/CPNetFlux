@@ -1,4 +1,4 @@
-#include "gridflux/core/session/download_session.h"
+#include "cpnetflux/core/session/download_session.h"
 
 #include <gtest/gtest.h>
 #include <unistd.h>
@@ -7,9 +7,9 @@
 #include <string>
 #include <vector>
 
-#include "gridflux/checkpoint/download_manifest.h"
-#include "gridflux/checkpoint/manifest_store.h"
-#include "gridflux/storage/posix_file.h"
+#include "cpnetflux/checkpoint/download_manifest.h"
+#include "cpnetflux/checkpoint/manifest_store.h"
+#include "cpnetflux/storage/posix_file.h"
 
 namespace {
 
@@ -20,30 +20,30 @@ std::string outputPath(const char* name) {
 }
 
 void cleanupDownloadFiles(const std::string& path, const std::string& transferId) {
-    (void)gridflux::storage::PosixFile::removePath(
-        gridflux::checkpoint::downloadManifestPathForOutput(path));
-    (void)gridflux::storage::PosixFile::removePath(
-        gridflux::checkpoint::downloadTempPathForOutput(path, transferId));
+    (void)cpnetflux::storage::PosixFile::removePath(
+        cpnetflux::checkpoint::downloadManifestPathForOutput(path));
+    (void)cpnetflux::storage::PosixFile::removePath(
+        cpnetflux::checkpoint::downloadTempPathForOutput(path, transferId));
 }
 
 }  // namespace
 
 TEST(DownloadSessionTest, CreatesManifestAndComputesMissingRanges) {
-    const std::string path = outputPath("gridflux-download-session-create");
+    const std::string path = outputPath("cpnetflux-download-session-create");
     const std::string transferId = "download-session-create";
     cleanupDownloadFiles(path, transferId);
 
-    auto session = gridflux::core::session::DownloadSession::createNew(
-        path, "source.bin", transferId, 4096, 1024, gridflux::checksum::ChecksumAlgorithm::None);
+    auto session = cpnetflux::core::session::DownloadSession::createNew(
+        path, "source.bin", transferId, 4096, 1024, cpnetflux::checksum::ChecksumAlgorithm::None);
     ASSERT_TRUE(session.isOk()) << session.status().message();
     ASSERT_TRUE(session.value().save().isOk());
     EXPECT_TRUE(
         session.value()
-            .recordVerifiedChunk(0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::None, 0})
+            .recordVerifiedChunk(0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::None, 0})
             .isOk());
     EXPECT_TRUE(
         session.value()
-            .recordVerifiedChunk(2, 2048, 1024, {gridflux::checksum::ChecksumAlgorithm::None, 0})
+            .recordVerifiedChunk(2, 2048, 1024, {cpnetflux::checksum::ChecksumAlgorithm::None, 0})
             .isOk());
 
     const auto missing = session.value().missingRanges();
@@ -57,51 +57,51 @@ TEST(DownloadSessionTest, CreatesManifestAndComputesMissingRanges) {
 }
 
 TEST(DownloadSessionTest, ResumesAndRejectsMetadataMismatch) {
-    const std::string path = outputPath("gridflux-download-session-resume");
+    const std::string path = outputPath("cpnetflux-download-session-resume");
     const std::string transferId = "download-session-resume";
     cleanupDownloadFiles(path, transferId);
 
-    auto created = gridflux::core::session::DownloadSession::createNew(
-        path, "source.bin", transferId, 2048, 1024, gridflux::checksum::ChecksumAlgorithm::None);
+    auto created = cpnetflux::core::session::DownloadSession::createNew(
+        path, "source.bin", transferId, 2048, 1024, cpnetflux::checksum::ChecksumAlgorithm::None);
     ASSERT_TRUE(created.isOk()) << created.status().message();
     ASSERT_TRUE(created.value().save().isOk());
     ASSERT_TRUE(
         created.value()
-            .recordVerifiedChunk(0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::None, 0})
+            .recordVerifiedChunk(0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::None, 0})
             .isOk());
     ASSERT_TRUE(created.value().flushManifest().isOk());
 
-    auto resumed = gridflux::core::session::DownloadSession::resume(
-        path, "source.bin", transferId, 2048, 1024, gridflux::checksum::ChecksumAlgorithm::None);
+    auto resumed = cpnetflux::core::session::DownloadSession::resume(
+        path, "source.bin", transferId, 2048, 1024, cpnetflux::checksum::ChecksumAlgorithm::None);
     ASSERT_TRUE(resumed.isOk()) << resumed.status().message();
     EXPECT_EQ(resumed.value().bytesCompleted(), 1024U);
 
     EXPECT_FALSE(
-        gridflux::core::session::DownloadSession::resume(
-            path, "other.bin", transferId, 2048, 1024, gridflux::checksum::ChecksumAlgorithm::None)
+        cpnetflux::core::session::DownloadSession::resume(
+            path, "other.bin", transferId, 2048, 1024, cpnetflux::checksum::ChecksumAlgorithm::None)
             .isOk());
 
     cleanupDownloadFiles(path, transferId);
 }
 
 TEST(DownloadSessionTest, VerifiesTempChunksAndMarksCorruptChunkMissing) {
-    const std::string path = outputPath("gridflux-download-session-verify");
+    const std::string path = outputPath("cpnetflux-download-session-verify");
     const std::string transferId = "download-session-verify";
     cleanupDownloadFiles(path, transferId);
 
-    auto fileResult = gridflux::storage::PosixFile::openReadWriteExclusive(
-        gridflux::checkpoint::downloadTempPathForOutput(path, transferId));
+    auto fileResult = cpnetflux::storage::PosixFile::openReadWriteExclusive(
+        cpnetflux::checkpoint::downloadTempPathForOutput(path, transferId));
     ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
-    gridflux::storage::PosixFile file = std::move(fileResult.value());
+    cpnetflux::storage::PosixFile file = std::move(fileResult.value());
 
     const std::vector<std::uint8_t> good(1024, 7);
     ASSERT_TRUE(file.writeAtAll(0, good.data(), good.size()).isOk());
 
-    gridflux::checksum::ChecksumComputer computer(gridflux::checksum::ChecksumAlgorithm::Crc32c);
+    cpnetflux::checksum::ChecksumComputer computer(cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
     computer.update(good.data(), good.size());
 
-    auto session = gridflux::core::session::DownloadSession::createNew(
-        path, "source.bin", transferId, 1024, 1024, gridflux::checksum::ChecksumAlgorithm::Crc32c);
+    auto session = cpnetflux::core::session::DownloadSession::createNew(
+        path, "source.bin", transferId, 1024, 1024, cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
     ASSERT_TRUE(session.isOk()) << session.status().message();
     ASSERT_TRUE(session.value().recordVerifiedChunk(0, 0, 1024, computer.finalize()).isOk());
 
@@ -119,54 +119,54 @@ TEST(DownloadSessionTest, VerifiesTempChunksAndMarksCorruptChunkMissing) {
 }
 
 TEST(DownloadSessionTest, DuplicateChecksumIsIdempotentButMismatchFails) {
-    const std::string path = outputPath("gridflux-download-session-duplicate");
+    const std::string path = outputPath("cpnetflux-download-session-duplicate");
     const std::string transferId = "download-session-duplicate";
     cleanupDownloadFiles(path, transferId);
 
-    auto session = gridflux::core::session::DownloadSession::createNew(
-        path, "source.bin", transferId, 1024, 1024, gridflux::checksum::ChecksumAlgorithm::Crc32c);
+    auto session = cpnetflux::core::session::DownloadSession::createNew(
+        path, "source.bin", transferId, 1024, 1024, cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
     ASSERT_TRUE(session.isOk()) << session.status().message();
     EXPECT_TRUE(session.value()
                     .recordVerifiedChunk(
-                        0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::Crc32c, 0x11111111U})
+                        0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::Crc32c, 0x11111111U})
                     .isOk());
     EXPECT_TRUE(session.value()
                     .recordVerifiedChunk(
-                        0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::Crc32c, 0x11111111U})
+                        0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::Crc32c, 0x11111111U})
                     .isOk());
     EXPECT_FALSE(session.value()
                      .recordVerifiedChunk(
-                         0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::Crc32c, 0x22222222U})
+                         0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::Crc32c, 0x22222222U})
                      .isOk());
 
     cleanupDownloadFiles(path, transferId);
 }
 
 TEST(DownloadSessionTest, FlushesManifestAfterConfiguredVerifiedChunkInterval) {
-    const std::string path = outputPath("gridflux-download-session-flush-interval");
+    const std::string path = outputPath("cpnetflux-download-session-flush-interval");
     const std::string transferId = "download-session-flush-interval";
     cleanupDownloadFiles(path, transferId);
 
-    auto created = gridflux::core::session::DownloadSession::createNew(
+    auto created = cpnetflux::core::session::DownloadSession::createNew(
         path, "source.bin", transferId, 2048, 1024,
-        gridflux::checksum::ChecksumAlgorithm::None, gridflux::checksum::ChecksumBackend::Auto,
-        gridflux::core::session::ManifestFlushPolicy::EveryNChunks, 2);
+        cpnetflux::checksum::ChecksumAlgorithm::None, cpnetflux::checksum::ChecksumBackend::Auto,
+        cpnetflux::core::session::ManifestFlushPolicy::EveryNChunks, 2);
     ASSERT_TRUE(created.isOk()) << created.status().message();
     ASSERT_TRUE(created.value().save().isOk());
 
     ASSERT_TRUE(
         created.value()
-            .recordVerifiedChunk(0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::None, 0})
+            .recordVerifiedChunk(0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::None, 0})
             .isOk());
-    auto loaded = gridflux::checkpoint::loadDownloadManifest(created.value().manifestPath());
+    auto loaded = cpnetflux::checkpoint::loadDownloadManifest(created.value().manifestPath());
     ASSERT_TRUE(loaded.isOk()) << loaded.status().message();
     EXPECT_TRUE(loaded.value().verifiedChunks.empty());
 
     ASSERT_TRUE(
         created.value()
-            .recordVerifiedChunk(1, 1024, 1024, {gridflux::checksum::ChecksumAlgorithm::None, 0})
+            .recordVerifiedChunk(1, 1024, 1024, {cpnetflux::checksum::ChecksumAlgorithm::None, 0})
             .isOk());
-    loaded = gridflux::checkpoint::loadDownloadManifest(created.value().manifestPath());
+    loaded = cpnetflux::checkpoint::loadDownloadManifest(created.value().manifestPath());
     ASSERT_TRUE(loaded.isOk()) << loaded.status().message();
     EXPECT_EQ(loaded.value().verifiedChunks.size(), 2U);
     EXPECT_EQ(created.value().stats().manifestFlushCount, 2U);
@@ -175,31 +175,31 @@ TEST(DownloadSessionTest, FlushesManifestAfterConfiguredVerifiedChunkInterval) {
 }
 
 TEST(DownloadSessionTest, FinalOnlyManifestFlushDefersUntilForcedFlush) {
-    const std::string path = outputPath("gridflux-download-session-final-only");
+    const std::string path = outputPath("cpnetflux-download-session-final-only");
     const std::string transferId = "download-session-final-only";
     cleanupDownloadFiles(path, transferId);
 
-    auto created = gridflux::core::session::DownloadSession::createNew(
+    auto created = cpnetflux::core::session::DownloadSession::createNew(
         path, "source.bin", transferId, 2048, 1024,
-        gridflux::checksum::ChecksumAlgorithm::None, gridflux::checksum::ChecksumBackend::Auto,
-        gridflux::core::session::ManifestFlushPolicy::FinalOnly, 1);
+        cpnetflux::checksum::ChecksumAlgorithm::None, cpnetflux::checksum::ChecksumBackend::Auto,
+        cpnetflux::core::session::ManifestFlushPolicy::FinalOnly, 1);
     ASSERT_TRUE(created.isOk()) << created.status().message();
     ASSERT_TRUE(created.value().save().isOk());
 
     ASSERT_TRUE(
         created.value()
-            .recordVerifiedChunk(0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::None, 0})
+            .recordVerifiedChunk(0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::None, 0})
             .isOk());
     ASSERT_TRUE(
         created.value()
-            .recordVerifiedChunk(1, 1024, 1024, {gridflux::checksum::ChecksumAlgorithm::None, 0})
+            .recordVerifiedChunk(1, 1024, 1024, {cpnetflux::checksum::ChecksumAlgorithm::None, 0})
             .isOk());
-    auto loaded = gridflux::checkpoint::loadDownloadManifest(created.value().manifestPath());
+    auto loaded = cpnetflux::checkpoint::loadDownloadManifest(created.value().manifestPath());
     ASSERT_TRUE(loaded.isOk()) << loaded.status().message();
     EXPECT_TRUE(loaded.value().verifiedChunks.empty());
 
     ASSERT_TRUE(created.value().flushManifest().isOk());
-    loaded = gridflux::checkpoint::loadDownloadManifest(created.value().manifestPath());
+    loaded = cpnetflux::checkpoint::loadDownloadManifest(created.value().manifestPath());
     ASSERT_TRUE(loaded.isOk()) << loaded.status().message();
     EXPECT_EQ(loaded.value().verifiedChunks.size(), 2U);
 
@@ -207,26 +207,26 @@ TEST(DownloadSessionTest, FinalOnlyManifestFlushDefersUntilForcedFlush) {
 }
 
 TEST(DownloadSessionTest, FailureAndCommitForceManifestFlush) {
-    const std::string path = outputPath("gridflux-download-session-force-flush");
+    const std::string path = outputPath("cpnetflux-download-session-force-flush");
     const std::string transferId = "download-session-force-flush";
     cleanupDownloadFiles(path, transferId);
 
-    auto session = gridflux::core::session::DownloadSession::createNew(
+    auto session = cpnetflux::core::session::DownloadSession::createNew(
         path, "source.bin", transferId, 1024, 1024,
-        gridflux::checksum::ChecksumAlgorithm::None, gridflux::checksum::ChecksumBackend::Auto,
-        gridflux::core::session::ManifestFlushPolicy::EveryNChunks, 16);
+        cpnetflux::checksum::ChecksumAlgorithm::None, cpnetflux::checksum::ChecksumBackend::Auto,
+        cpnetflux::core::session::ManifestFlushPolicy::EveryNChunks, 16);
     ASSERT_TRUE(session.isOk()) << session.status().message();
     ASSERT_TRUE(session.value().save().isOk());
     ASSERT_TRUE(
         session.value()
-            .recordVerifiedChunk(0, 0, 1024, {gridflux::checksum::ChecksumAlgorithm::None, 0})
+            .recordVerifiedChunk(0, 0, 1024, {cpnetflux::checksum::ChecksumAlgorithm::None, 0})
             .isOk());
     ASSERT_TRUE(session.value().markCommitted().isOk());
 
-    auto loaded = gridflux::checkpoint::loadDownloadManifest(session.value().manifestPath());
+    auto loaded = cpnetflux::checkpoint::loadDownloadManifest(session.value().manifestPath());
     ASSERT_TRUE(loaded.isOk()) << loaded.status().message();
     EXPECT_EQ(loaded.value().verifiedChunks.size(), 1U);
-    EXPECT_EQ(loaded.value().state, gridflux::checkpoint::ManifestState::Committed);
+    EXPECT_EQ(loaded.value().state, cpnetflux::checkpoint::ManifestState::Committed);
 
     cleanupDownloadFiles(path, transferId);
 }

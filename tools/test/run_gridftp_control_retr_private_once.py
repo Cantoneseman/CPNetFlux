@@ -10,6 +10,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from gridftp_port_window import assert_epsv_port_in_window, clamp_passive_data_port_base
+
 
 def read_line(sock: socket.socket, buffer: bytearray) -> str:
     while b"\n" not in buffer:
@@ -68,15 +70,15 @@ def sha256_file(path: Path) -> str:
 
 
 def ssh_prefix() -> list[str]:
-    if os.environ.get("GRIDFLUX_SSH_PASSWORD"):
+    if os.environ.get("CPNETFLUX_SSH_PASSWORD"):
         return ["sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=no"]
     return ["ssh", "-o", "StrictHostKeyChecking=no"]
 
 
 def run_remote(remote: str, command: str) -> str:
     env = os.environ.copy()
-    if env.get("GRIDFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
-        env["SSHPASS"] = env["GRIDFLUX_SSH_PASSWORD"]
+    if env.get("CPNETFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
+        env["SSHPASS"] = env["CPNETFLUX_SSH_PASSWORD"]
     completed = subprocess.run(
         [*ssh_prefix(), remote, command],
         text=True,
@@ -112,12 +114,14 @@ def login_and_epsv(host: str, port: int, args: argparse.Namespace) -> tuple[sock
         assert reply_code(send_command(sock, buffer, "USER token")) == 331
         assert reply_code(send_command(sock, buffer, "PASS " + token)) == 230
     else:
-        assert reply_code(send_command(sock, buffer, "USER gridflux")) == 331
-        assert reply_code(send_command(sock, buffer, "PASS gridflux")) == 230
+        assert reply_code(send_command(sock, buffer, "USER cpnetflux")) == 331
+        assert reply_code(send_command(sock, buffer, "PASS cpnetflux")) == 230
     assert reply_code(send_command(sock, buffer, "TYPE I")) == 200
     epsv = send_command(sock, buffer, "EPSV")
     assert reply_code(epsv) == 229, epsv
-    return sock, buffer, parse_epsv_port(epsv)
+    data_port = parse_epsv_port(epsv)
+    assert_epsv_port_in_window(data_port, args.data_port_base)
+    return sock, buffer, data_port
 
 
 def main() -> int:
@@ -125,10 +129,10 @@ def main() -> int:
     parser.add_argument("--remote", default="root@<redacted>")
     parser.add_argument("--server-host", default="<redacted>")
     parser.add_argument("--control-port", type=int, default=2121)
-    parser.add_argument("--root", default="/tmp/gridflux-gridftp-retr-private-root")
-    parser.add_argument("--local-build-dir", default="/root/projects/GridFlux/build")
-    parser.add_argument("--remote-build-dir", default="/root/projects/GridFlux/build")
-    parser.add_argument("--download-output", default="/tmp/gridflux-gridftp-private-retr.bin")
+    parser.add_argument("--root", default="/tmp/cpnetflux-gridftp-retr-private-root")
+    parser.add_argument("--local-build-dir", default="/root/projects/CPNetFlux/build")
+    parser.add_argument("--remote-build-dir", default="/root/projects/CPNetFlux/build")
+    parser.add_argument("--download-output", default="/tmp/cpnetflux-gridftp-private-retr.bin")
     parser.add_argument("--connections", type=int, default=4)
     parser.add_argument("--bytes", type=int, default=64 * 1024 * 1024)
     parser.add_argument("--chunk-size", type=int, default=1024 * 1024)
@@ -142,18 +146,19 @@ def main() -> int:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--max-chunks", type=int, default=8)
     args = parser.parse_args()
+    args.data_port_base = clamp_passive_data_port_base(args.data_port_base)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     server_log = output_dir / f"{timestamp}_gridftp_control_retr_private.log"
 
-    server_bin = f"{args.local_build_dir.rstrip('/')}/gridflux-gridftp-server"
-    client_bin = f"{args.remote_build_dir.rstrip('/')}/gridflux-file-download-client"
+    server_bin = f"{args.local_build_dir.rstrip('/')}/cpnetflux-gridftp-server"
+    client_bin = f"{args.remote_build_dir.rstrip('/')}/cpnetflux-file-download-client"
     root = Path(args.root)
     source_name = "private-retr-source.bin"
     source_path = root / source_name
-    with tempfile.TemporaryDirectory(prefix="gridflux-private-retr.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-private-retr.") as temp_text:
         temp_dir = Path(temp_text)
         local_source = temp_dir / source_name
         block = bytes((index * 31) % 251 for index in range(1024 * 1024))
@@ -172,13 +177,13 @@ def main() -> int:
         run_remote(
             args.remote,
             f"rm -f {args.download_output} {args.download_output}.part.* "
-            f"{args.download_output}.gridflux.download.manifest",
+            f"{args.download_output}.cpnetflux.download.manifest",
         )
 
         server_cmd = [
             server_bin,
             "--host",
-            args.server_host,
+            "0.0.0.0",
             "--port",
             str(args.control_port),
             "--root",
@@ -219,7 +224,7 @@ def main() -> int:
                         text=True,
                         capture_output=True,
                         check=False,
-                        env={**os.environ, "SSHPASS": os.environ.get("GRIDFLUX_SSH_PASSWORD", "")},
+                        env={**os.environ, "SSHPASS": os.environ.get("CPNETFLUX_SSH_PASSWORD", "")},
                     )
                     if partial.returncode == 0:
                         raise RuntimeError("partial private RETR unexpectedly succeeded")

@@ -6,7 +6,7 @@ Phase 4C keeps the existing epoll + `pread/pwrite` framed STOR/RETR path. It doe
 
 ## Implemented
 
-- Added native `gridflux-storage-bench`.
+- Added native `cpnetflux-storage-bench`.
   - Uses `PosixFile::readAtAll` / `writeAtAll`.
   - Supports `write`, `read`, `rewrite`, `all`.
   - Supports `--preallocate off|full`.
@@ -15,9 +15,9 @@ Phase 4C keeps the existing epoll + `pread/pwrite` framed STOR/RETR path. It doe
   - Supports local, remote, and both sides.
   - Writes CSV and raw logs under `tools/perf/results/`.
 - Added temp preallocation option.
-  - `gridflux-file-server --preallocate off|full`.
-  - `gridflux-gridftp-server --preallocate off|full` for STOR temp files.
-  - `gridflux-file-download-client --preallocate off|full` for RETR download temp files.
+  - `cpnetflux-file-server --preallocate off|full`.
+  - `cpnetflux-gridftp-server --preallocate off|full` for STOR temp files.
+  - `cpnetflux-file-download-client --preallocate off|full` for RETR download temp files.
   - Default remains `off`.
 - Extended `tools/perf/run_gridftp_private_matrix.py`.
   - `--repeat N`.
@@ -50,8 +50,8 @@ Result:
 Native storage bench smoke:
 
 ```bash
-./build/gridflux-storage-bench \
-  --path /tmp/gridflux-storage-bench-smoke.bin \
+./build/cpnetflux-storage-bench \
+  --path /tmp/cpnetflux-storage-bench-smoke.bin \
   --mode all \
   --bytes 1048576 \
   --buffer-size 65536 \
@@ -84,7 +84,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --modes write,read \
   --preallocates off,full \
@@ -130,8 +130,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 

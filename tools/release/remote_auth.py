@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Private remote auth helper.
 
-The helper never stores or prints secrets. It uses GRIDFLUX_SSH_PASSWORD/SSHPASS
+The helper never stores or prints secrets. It uses CPNETFLUX_SSH_PASSWORD/SSHPASS
 when present, and otherwise may read the local private AGENTS.md topology table.
 AGENTS.md is excluded from public export.
 """
@@ -73,10 +73,20 @@ def password_from_agents(remote: str, root: Path | None = None) -> RemoteAuth | 
 
 
 def resolve_auth(remote: str, root: Path | None = None) -> RemoteAuth | None:
-    if os.environ.get("GRIDFLUX_SSH_PASSWORD"):
-        return RemoteAuth(password=os.environ["GRIDFLUX_SSH_PASSWORD"], source="GRIDFLUX_SSH_PASSWORD")
+    if os.environ.get("CPNETFLUX_SSH_PASSWORD"):
+        return RemoteAuth(password=os.environ["CPNETFLUX_SSH_PASSWORD"], source="CPNETFLUX_SSH_PASSWORD")
     if os.environ.get("SSHPASS"):
         return RemoteAuth(password=os.environ["SSHPASS"], source="SSHPASS")
+    password_file = os.environ.get("CPNETFLUX_SSH_PASSWORD_FILE")
+    if password_file:
+        path = Path(password_file).expanduser()
+        try:
+            if path.is_file() and not (path.stat().st_mode & 0o077):
+                password = path.read_text(encoding="utf-8").rstrip("\r\n")
+                if password:
+                    return RemoteAuth(password=password, source="CPNETFLUX_SSH_PASSWORD_FILE")
+        except OSError:
+            return None
     return password_from_agents(remote, root)
 
 
@@ -131,7 +141,7 @@ def status(remote: str, root: Path | None = None) -> dict[str, str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a command with GridFlux private remote auth if available.")
+    parser = argparse.ArgumentParser(description="Run a command with CPNetFlux private remote auth if available.")
     parser.add_argument("--remote", required=True)
     parser.add_argument("--repo-root", default="")
     parser.add_argument("--status", action="store_true")

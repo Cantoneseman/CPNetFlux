@@ -1,8 +1,8 @@
-#include "gridflux/core/chunk/transfer_progress.h"
+#include "cpnetflux/core/chunk/transfer_progress.h"
 
 #include <algorithm>
 
-namespace gridflux::core::chunk {
+namespace cpnetflux::core::chunk {
 
 common::Status TransferProgress::begin(std::uint64_t totalSize) {
     totalSize_ = totalSize;
@@ -89,4 +89,4 @@ std::uint64_t TransferProgress::bytesCompleted() const noexcept { return bytesCo
 
 TransferProgressError TransferProgress::lastError() const noexcept { return lastError_; }
 
-}  // namespace gridflux::core::chunk
+}  // namespace cpnetflux::core::chunk

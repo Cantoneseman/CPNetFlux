@@ -1,9 +1,9 @@
-#include "gridflux/core/chunk/range_list.h"
+#include "cpnetflux/core/chunk/range_list.h"
 
 #include <algorithm>
 #include <limits>
 
-namespace gridflux::core::chunk {
+namespace cpnetflux::core::chunk {
 namespace {
 
 std::uint64_t rangeLength(const CompletedRange& range) noexcept { return range.end - range.begin; }
@@ -123,4 +123,4 @@ void RangeList::clear() noexcept {
     bytesCompleted_ = 0;
 }
 
-}  // namespace gridflux::core::chunk
+}  // namespace cpnetflux::core::chunk

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export a sanitized GridFlux source tree for public publishing."""
+"""Export a sanitized CPNetFlux source tree for public publishing."""
 
 from __future__ import annotations
 
@@ -192,7 +192,7 @@ def run_hygiene_check(destination: Path, source: Path) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Export sanitized GridFlux public source tree.")
+    parser = argparse.ArgumentParser(description="Export sanitized CPNetFlux public source tree.")
     parser.add_argument("--output", help="destination directory; default uses a temporary directory")
     parser.add_argument("--source", help="source directory; default is this repository")
     parser.add_argument("--force", action="store_true", help="remove output directory if it exists")
@@ -208,7 +208,7 @@ def main() -> int:
             shutil.rmtree(destination)
         destination.mkdir(parents=True)
     else:
-        destination = Path(tempfile.mkdtemp(prefix="gridflux-public-"))
+        destination = Path(tempfile.mkdtemp(prefix="cpnetflux-public-"))
 
     stats = copy_tree(source, destination, read_private_values(source))
     result = run_hygiene_check(destination, source)

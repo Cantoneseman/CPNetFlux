@@ -1,8 +1,8 @@
-#include "gridflux/checksum/crc32c.h"
+#include "cpnetflux/checksum/crc32c.h"
 
 #include <array>
 
-namespace gridflux::checksum {
+namespace cpnetflux::checksum {
 namespace {
 
 constexpr std::uint32_t kCrc32cPolynomial = 0x82F63B78U;
@@ -63,4 +63,4 @@ std::uint32_t crc32c(const std::uint8_t* data, std::size_t size, ChecksumBackend
     return crc32cFinalize(crc32cUpdate(crc32cInitialState(), data, size, backend));
 }
 
-}  // namespace gridflux::checksum
+}  // namespace cpnetflux::checksum

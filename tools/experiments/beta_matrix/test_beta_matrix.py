@@ -18,7 +18,7 @@ from tools.experiments.beta_matrix.model import (  # noqa: E402
     classify_regime,
     choose_b5_preset,
     choose_b6_preset,
-    plan_gridflux_method,
+    plan_cpnetflux_method,
 )
 from tools.experiments.beta_matrix.runner import run_dry_run  # noqa: E402
 from tools.experiments.beta_matrix.staging import stage_blocks  # noqa: E402
@@ -31,9 +31,9 @@ class BetaMatrixPlannerTest(unittest.TestCase):
         )
         self.assertEqual(classify_regime(profile), "small_files")
 
-        plan = plan_gridflux_method(profile, LinkProfile(), "gridflux_b1_control_reuse")
+        plan = plan_cpnetflux_method(profile, LinkProfile(), "cpnetflux_b1_control_reuse")
 
-        self.assertEqual(plan.method, "gridflux_b1_control_reuse")
+        self.assertEqual(plan.method, "cpnetflux_b1_control_reuse")
         self.assertEqual(plan.control_reuse_mode, "worker")
         self.assertEqual(plan.transfer_params.session_reuse, True)
         self.assertEqual(plan.planner_preset, "B1_session_reuse")
@@ -42,16 +42,16 @@ class BetaMatrixPlannerTest(unittest.TestCase):
         profile = WorkloadProfile.from_manifest_row(
             "globus_mix", {"file_count": 48, "total_mb": 60.0, "domain": "Globus"}
         )
-        plan = plan_gridflux_method(profile, LinkProfile(), "gridflux_b2_read_pipeline_proxy")
+        plan = plan_cpnetflux_method(profile, LinkProfile(), "cpnetflux_b2_read_pipeline_proxy")
 
         self.assertEqual(plan.status, "unsupported")
         self.assertIn("read pipeline", plan.reason)
 
-    def test_method_matrix_contains_gridflux_and_gridftp_compression_rows(self) -> None:
+    def test_method_matrix_contains_cpnetflux_and_gridftp_compression_rows(self) -> None:
         methods = [row.method for row in build_method_matrix()]
 
-        self.assertIn("gridflux_b0_baseline", methods)
-        self.assertIn("gridflux_cpss", methods)
+        self.assertIn("cpnetflux_b0_baseline", methods)
+        self.assertIn("cpnetflux_cpss", methods)
         self.assertIn("gridftp_raw", methods)
         self.assertIn("gridftp_lz4", methods)
 
@@ -68,7 +68,7 @@ class BetaMatrixPlannerTest(unittest.TestCase):
 
 class BetaMatrixDryRunTest(unittest.TestCase):
     def test_dry_run_writes_required_report_files(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="gridflux-beta-matrix.") as temp_text:
+        with tempfile.TemporaryDirectory(prefix="cpnetflux-beta-matrix.") as temp_text:
             temp = Path(temp_text)
             manifest = temp / "manifest.json"
             manifest.write_text(
@@ -103,10 +103,10 @@ class BetaMatrixDryRunTest(unittest.TestCase):
 
             with (output / "summary.csv").open(newline="", encoding="utf-8") as handle:
                 rows = list(csv.DictReader(handle))
-            self.assertTrue(any(row["method"] == "gridflux_b2_read_pipeline_proxy" and row["status"] == "unsupported" for row in rows))
+            self.assertTrue(any(row["method"] == "cpnetflux_b2_read_pipeline_proxy" and row["status"] == "unsupported" for row in rows))
 
     def test_gzip_staging_roundtrip_records_per_block_sha256(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="gridflux-beta-staging.") as temp_text:
+        with tempfile.TemporaryDirectory(prefix="cpnetflux-beta-staging.") as temp_text:
             temp = Path(temp_text)
             source = temp / "source.bin"
             source.write_bytes((b"alpha-beta-gamma\n" * 8) + b"tail")

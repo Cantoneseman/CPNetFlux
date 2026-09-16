@@ -1,4 +1,4 @@
-# GridFlux Observability Alpha
+# CPNetFlux Observability Alpha
 
 Phase 6B adds opt-in structured observability for the alpha system. It does not
 change transfer defaults, the framed STOR/RETR data path, checksum, manifest,
@@ -9,24 +9,24 @@ resume, or final verify semantics.
 Most alpha executables accept:
 
 ```bash
---event-log /tmp/gridflux/events.jsonl
+--event-log /tmp/cpnetflux/events.jsonl
 ```
 
 Covered components:
 
-- `gridflux-gridftp-server`
-- `gridflux-file-client`
-- `gridflux-file-server`
-- `gridflux-file-download-client`
-- `gridflux-tree-upload-client`
-- `gridflux-tree-download-client`
+- `cpnetflux-gridftp-server`
+- `cpnetflux-file-client`
+- `cpnetflux-file-server`
+- `cpnetflux-file-download-client`
+- `cpnetflux-tree-upload-client`
+- `cpnetflux-tree-download-client`
 
 Each line is one JSON object:
 
 ```json
 {
   "timestamp": "2026-05-18T12:00:00Z",
-  "component": "gridflux-gridftp-server",
+  "component": "cpnetflux-gridftp-server",
   "event": "stor_complete",
   "transfer_id": "abc123",
   "direction": "upload",

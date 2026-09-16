@@ -2,24 +2,24 @@
 
 #include <string>
 
-#include "gridflux/protocol/control/control_command.h"
-#include "gridflux/protocol/control/control_auth.h"
+#include "cpnetflux/protocol/control/control_command.h"
+#include "cpnetflux/protocol/control/control_auth.h"
 
 namespace {
 
-using gridflux::protocol::control::ControlAction;
-using gridflux::protocol::control::ControlSession;
-using gridflux::protocol::control::parseControlCommand;
-using gridflux::protocol::control::replyCode;
+using cpnetflux::protocol::control::ControlAction;
+using cpnetflux::protocol::control::ControlSession;
+using cpnetflux::protocol::control::parseControlCommand;
+using cpnetflux::protocol::control::replyCode;
 
-gridflux::protocol::control::ControlResponse handle(ControlSession* session, const char* line) {
+cpnetflux::protocol::control::ControlResponse handle(ControlSession* session, const char* line) {
     auto command = parseControlCommand(line);
     EXPECT_TRUE(command.isOk()) << command.status().message();
     return session->handleCommand(command.value());
 }
 
 TEST(ControlSessionTest, RequiresLoginForTransferCommands) {
-    ControlSession session("gridflux", "secret", 4);
+    ControlSession session("cpnetflux", "secret", 4);
     EXPECT_EQ(replyCode(handle(&session, "STOR file.bin")), 530);
     EXPECT_EQ(replyCode(handle(&session, "RETR file.bin")), 530);
     EXPECT_EQ(replyCode(handle(&session, "EPSV")), 530);
@@ -33,8 +33,8 @@ TEST(ControlSessionTest, RequiresLoginForTransferCommands) {
 }
 
 TEST(ControlSessionTest, LogsInAndSetsType) {
-    ControlSession session("gridflux", "secret", 4);
-    EXPECT_EQ(replyCode(handle(&session, "USER gridflux")), 331);
+    ControlSession session("cpnetflux", "secret", 4);
+    EXPECT_EQ(replyCode(handle(&session, "USER cpnetflux")), 331);
     EXPECT_EQ(replyCode(handle(&session, "PASS secret")), 230);
     EXPECT_TRUE(session.authenticated());
     EXPECT_EQ(replyCode(handle(&session, "TYPE I")), 200);
@@ -42,8 +42,8 @@ TEST(ControlSessionTest, LogsInAndSetsType) {
 }
 
 TEST(ControlSessionTest, TokenAuthAllowsPublicCommandsAndProtectsTransfers) {
-    gridflux::protocol::control::ControlAuthConfig auth;
-    auth.mode = gridflux::protocol::control::AuthMode::Token;
+    cpnetflux::protocol::control::ControlAuthConfig auth;
+    auth.mode = cpnetflux::protocol::control::AuthMode::Token;
     auth.token = "alpha-token";
     ControlSession session(auth, 4);
 
@@ -52,7 +52,7 @@ TEST(ControlSessionTest, TokenAuthAllowsPublicCommandsAndProtectsTransfers) {
     EXPECT_EQ(replyCode(handle(&session, "NOOP")), 200);
     EXPECT_EQ(replyCode(handle(&session, "SIZE file.bin")), 530);
 
-    EXPECT_EQ(replyCode(handle(&session, "USER gridflux")), 530);
+    EXPECT_EQ(replyCode(handle(&session, "USER cpnetflux")), 530);
     EXPECT_FALSE(session.authenticated());
     EXPECT_EQ(replyCode(handle(&session, "USER token")), 331);
     EXPECT_EQ(replyCode(handle(&session, "PASS wrong-token")), 530);
@@ -64,8 +64,8 @@ TEST(ControlSessionTest, TokenAuthAllowsPublicCommandsAndProtectsTransfers) {
 }
 
 TEST(ControlSessionTest, PassiveAndStorFlow) {
-    ControlSession session("gridflux", "secret", 4);
-    EXPECT_EQ(replyCode(handle(&session, "USER gridflux")), 331);
+    ControlSession session("cpnetflux", "secret", 4);
+    EXPECT_EQ(replyCode(handle(&session, "USER cpnetflux")), 331);
     EXPECT_EQ(replyCode(handle(&session, "PASS secret")), 230);
     EXPECT_EQ(replyCode(handle(&session, "TYPE I")), 200);
 
@@ -82,8 +82,8 @@ TEST(ControlSessionTest, PassiveAndStorFlow) {
 }
 
 TEST(ControlSessionTest, PassiveAndRetrFlow) {
-    ControlSession session("gridflux", "secret", 4);
-    EXPECT_EQ(replyCode(handle(&session, "USER gridflux")), 331);
+    ControlSession session("cpnetflux", "secret", 4);
+    EXPECT_EQ(replyCode(handle(&session, "USER cpnetflux")), 331);
     EXPECT_EQ(replyCode(handle(&session, "PASS secret")), 230);
 
     EXPECT_EQ(replyCode(handle(&session, "RETR file.bin")), 550);
@@ -102,8 +102,8 @@ TEST(ControlSessionTest, PassiveAndRetrFlow) {
 }
 
 TEST(ControlSessionTest, MetadataActionsAndWorkingDirectory) {
-    ControlSession session("gridflux", "secret", 4);
-    EXPECT_EQ(replyCode(handle(&session, "USER gridflux")), 331);
+    ControlSession session("cpnetflux", "secret", 4);
+    EXPECT_EQ(replyCode(handle(&session, "USER cpnetflux")), 331);
     EXPECT_EQ(replyCode(handle(&session, "PASS secret")), 230);
 
     auto response = handle(&session, "PWD");
@@ -130,8 +130,8 @@ TEST(ControlSessionTest, MetadataActionsAndWorkingDirectory) {
 }
 
 TEST(ControlSessionTest, ListAndNlstRequirePassive) {
-    ControlSession session("gridflux", "secret", 4);
-    EXPECT_EQ(replyCode(handle(&session, "USER gridflux")), 331);
+    ControlSession session("cpnetflux", "secret", 4);
+    EXPECT_EQ(replyCode(handle(&session, "USER cpnetflux")), 331);
     EXPECT_EQ(replyCode(handle(&session, "PASS secret")), 230);
     EXPECT_EQ(replyCode(handle(&session, "LIST")), 550);
     EXPECT_EQ(replyCode(handle(&session, "NLST")), 550);
@@ -154,8 +154,8 @@ TEST(ControlSessionTest, ListAndNlstRequirePassive) {
 }
 
 TEST(ControlSessionTest, OptionsAndRestAffectNextStor) {
-    ControlSession session("gridflux", "secret", 1);
-    EXPECT_EQ(replyCode(handle(&session, "USER gridflux")), 331);
+    ControlSession session("cpnetflux", "secret", 1);
+    EXPECT_EQ(replyCode(handle(&session, "USER cpnetflux")), 331);
     EXPECT_EQ(replyCode(handle(&session, "PASS secret")), 230);
     EXPECT_EQ(replyCode(handle(&session, "TYPE I")), 200);
     EXPECT_EQ(replyCode(handle(&session, "OPTS RETR Parallelism=8")), 200);
@@ -183,7 +183,7 @@ TEST(ControlSessionTest, OptionsAndRestAffectNextStor) {
 }
 
 TEST(ControlSessionTest, UnsupportedReturns502) {
-    ControlSession session("gridflux", "secret", 1);
+    ControlSession session("cpnetflux", "secret", 1);
     EXPECT_EQ(replyCode(handle(&session, "SITE HELP")), 502);
 }
 

@@ -118,10 +118,10 @@ def run_case(
     checksum: str,
     checksum_backend: str,
 ) -> dict[str, str]:
-    server_bin = build_dir / "gridflux-file-server"
-    client_bin = build_dir / "gridflux-file-client"
+    server_bin = build_dir / "cpnetflux-file-server"
+    client_bin = build_dir / "cpnetflux-file-client"
     if not server_bin.exists() or not client_bin.exists():
-        raise FileNotFoundError(f"missing gridflux-file-server/client in {build_dir}")
+        raise FileNotFoundError(f"missing cpnetflux-file-server/client in {build_dir}")
 
     case_id = (
         f"{timestamp()}_{mode}_c{connections}_chunk{chunk_size}_"
@@ -130,7 +130,7 @@ def run_case(
     server_log = output_dir / f"{case_id}_server.log"
     client_log = output_dir / f"{case_id}_client.log"
 
-    with tempfile.TemporaryDirectory(prefix="gridflux-file-loopback.") as temp_dir_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-file-loopback.") as temp_dir_text:
         temp_dir = Path(temp_dir_text)
         source = temp_dir / "source.bin"
         dest = temp_dir / "dest.bin"
@@ -249,7 +249,7 @@ def run_case(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux file loopback matrix.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux file loopback matrix.")
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--bytes", type=int)
     parser.add_argument("--smoke", action="store_true")

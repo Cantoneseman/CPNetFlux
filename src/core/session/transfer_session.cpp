@@ -1,13 +1,13 @@
-#include "gridflux/core/session/transfer_session.h"
+#include "cpnetflux/core/session/transfer_session.h"
 
 #include <algorithm>
 #include <utility>
 #include <vector>
 
-#include "gridflux/checkpoint/manifest_store.h"
-#include "gridflux/checksum/checksum.h"
+#include "cpnetflux/checkpoint/manifest_store.h"
+#include "cpnetflux/checksum/checksum.h"
 
-namespace gridflux::core::session {
+namespace cpnetflux::core::session {
 namespace {
 
 common::Status validateSessionInputs(const std::string& outputPath, const std::string& transferId,
@@ -358,4 +358,4 @@ void TransferSession::setPhaseStats(metrics::TransferPhaseStats* phaseStats) noe
     phaseStats_ = phaseStats;
 }
 
-}  // namespace gridflux::core::session
+}  // namespace cpnetflux::core::session

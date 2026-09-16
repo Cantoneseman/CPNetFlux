@@ -4,7 +4,7 @@ Phase 4F implements an optional file-IO-only `io_uring` backend prototype. It do
 
 ## Scope
 
-- Build option: `GRIDFLUX_ENABLE_IO_URING`, default `OFF`.
+- Build option: `CPNETFLUX_ENABLE_IO_URING`, default `OFF`.
 - Runtime backend option: `--file-io-backend posix|io_uring`, default `posix`.
 - io_uring prototype scope:
   - regular file `readAtAll` / `writeAtAll` equivalent semantics;
@@ -31,20 +31,20 @@ Current local and machine two environment:
 Because liburing is unavailable on both machines, Phase 4F validation focuses on:
 
 - default POSIX build and CTest remain green;
-- `GRIDFLUX_ENABLE_IO_URING=ON` configures and builds without failing;
+- `CPNETFLUX_ENABLE_IO_URING=ON` configures and builds without failing;
 - explicit `--file-io-backend io_uring` returns a clear unavailable error.
 
 ## Build Behavior
 
-- `GRIDFLUX_ENABLE_IO_URING=OFF`:
+- `CPNETFLUX_ENABLE_IO_URING=OFF`:
   - does not search for or link liburing;
   - compiles `src/storage/file_io_uring_stub.cpp`;
-  - defines `GRIDFLUX_HAS_IO_URING=0`.
-- `GRIDFLUX_ENABLE_IO_URING=ON` and liburing found:
+  - defines `CPNETFLUX_HAS_IO_URING=0`.
+- `CPNETFLUX_ENABLE_IO_URING=ON` and liburing found:
   - compiles `src/storage/file_io_uring.cpp`;
   - links `uring`;
-  - defines `GRIDFLUX_HAS_IO_URING=1`.
-- `GRIDFLUX_ENABLE_IO_URING=ON` and liburing missing:
+  - defines `CPNETFLUX_HAS_IO_URING=1`.
+- `CPNETFLUX_ENABLE_IO_URING=ON` and liburing missing:
   - emits a CMake warning;
   - compiles the unavailable stub;
   - keeps default POSIX build/test usable.
@@ -59,12 +59,12 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Result: `133/133` passed. `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` was skipped because `GRIDFLUX_HAS_IO_URING=0`.
+Result: `133/133` passed. `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` was skipped because `CPNETFLUX_HAS_IO_URING=0`.
 
 Local fallback probe:
 
 ```text
-cmake -S . -B build-iouring-probe -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 -DGRIDFLUX_ENABLE_IO_URING=ON
+cmake -S . -B build-iouring-probe -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++-13 -DCPNETFLUX_ENABLE_IO_URING=ON
 cmake --build build-iouring-probe
 ctest --test-dir build-iouring-probe --output-on-failure
 ```
@@ -74,7 +74,7 @@ Result: CMake warned that liburing was not found, then build and `133/133` CTest
 Explicit unavailable backend probe:
 
 ```text
-./build-iouring-probe/gridflux-storage-bench --path /tmp/gridflux-iouring-unavailable.bin --mode write --bytes 1048576 --buffer-size 65536 --iterations 1 --preallocate off --file-io-backend io_uring
+./build-iouring-probe/cpnetflux-storage-bench --path /tmp/cpnetflux-iouring-unavailable.bin --mode write --bytes 1048576 --buffer-size 65536 --iterations 1 --preallocate off --file-io-backend io_uring
 ```
 
 Result: nonzero exit with `result=fail` and `error=file IO backend unavailable: io_uring`.

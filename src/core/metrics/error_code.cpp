@@ -1,9 +1,9 @@
-#include "gridflux/core/metrics/error_code.h"
+#include "cpnetflux/core/metrics/error_code.h"
 
 #include <algorithm>
 #include <cctype>
 
-namespace gridflux::core::metrics {
+namespace cpnetflux::core::metrics {
 namespace {
 
 std::string lower(std::string value) {
@@ -129,4 +129,4 @@ ErrorCode classifyStatus(const common::Status& status) {
     return classifyMessage(status.message());
 }
 
-}  // namespace gridflux::core::metrics
+}  // namespace cpnetflux::core::metrics

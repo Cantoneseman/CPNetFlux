@@ -36,12 +36,12 @@ def run_recovery_case(build_dir: Path, temp: Path) -> None:
         control_port,
         data_port,
         server_log,
-        extra_env={"GRIDFLUX_TEST_DELAY_BEFORE_DATA_COMPLETE_MS": "1500"},
+        extra_env={"CPNETFLUX_TEST_DELAY_BEFORE_DATA_COMPLETE_MS": "1500"},
     )
     try:
         run_checked(
             [
-                str(build_dir / "gridflux-tree-upload-client"),
+                str(build_dir / "cpnetflux-tree-upload-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -95,7 +95,7 @@ def run_non_final_error_case(build_dir: Path, temp: Path) -> None:
     unused_control_port = free_port()
     completed = run_checked(
         [
-            str(build_dir / "gridflux-tree-upload-client"),
+            str(build_dir / "cpnetflux-tree-upload-client"),
             "--host",
             "127.0.0.1",
             "--port",
@@ -129,12 +129,12 @@ def run_non_final_error_case(build_dir: Path, temp: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run GridFlux tree data final status timeout smoke."
+        description="Run CPNetFlux tree data final status timeout smoke."
     )
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     build_dir = Path(args.build_dir)
-    with tempfile.TemporaryDirectory(prefix="gridflux-tree-final-status.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-final-status.") as temp_text:
         temp = Path(temp_text)
         run_recovery_case(build_dir, temp)
         run_non_final_error_case(build_dir, temp)

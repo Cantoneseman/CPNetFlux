@@ -24,7 +24,7 @@ Phase 4D keeps the existing epoll + framed STOR/RETR path. It does not introduce
   - `stage_write_avg_bytes_per_call`
   - `file_io_wait_seconds`
   - `file_io_wait_bytes`
-- Extended `gridflux-storage-bench`:
+- Extended `cpnetflux-storage-bench`:
   - per-iteration raw lines
   - aggregate line
   - call count and average bytes per call
@@ -61,8 +61,8 @@ Result:
 Storage bench smoke:
 
 ```bash
-./build/gridflux-storage-bench \
-  --path /tmp/gridflux-storage-phase4d-smoke.bin \
+./build/cpnetflux-storage-bench \
+  --path /tmp/cpnetflux-storage-phase4d-smoke.bin \
   --mode all \
   --bytes 1048576 \
   --buffer-size 65536 \
@@ -132,7 +132,7 @@ python3 tools/benchmark/run_storage_bench.py \
   --side both \
   --remote root@<redacted> \
   --build-dir build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --bytes 1073741824 \
   --modes write,read \
   --preallocates off,full \
@@ -157,8 +157,8 @@ python3 tools/perf/run_gridftp_private_matrix.py \
   --repeat 3 \
   --remote root@<redacted> \
   --server-host <redacted> \
-  --local-build-dir /root/projects/GridFlux/build \
-  --remote-build-dir /root/projects/GridFlux/build \
+  --local-build-dir /root/projects/CPNetFlux/build \
+  --remote-build-dir /root/projects/CPNetFlux/build \
   --output-dir tools/perf/results
 ```
 

@@ -54,7 +54,7 @@ def run_edge_transfer(build_dir: Path, temp: Path) -> None:
         upload_summary = temp / "upload-summary.json"
         run_checked(
             [
-                str(build_dir / "gridflux-tree-upload-client"),
+                str(build_dir / "cpnetflux-tree-upload-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -81,7 +81,7 @@ def run_edge_transfer(build_dir: Path, temp: Path) -> None:
         download_summary = temp / "download-summary.json"
         run_checked(
             [
-                str(build_dir / "gridflux-tree-download-client"),
+                str(build_dir / "cpnetflux-tree-download-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -121,7 +121,7 @@ def run_symlink_rejected(build_dir: Path, temp: Path) -> None:
     try:
         completed = run_checked(
             [
-                str(build_dir / "gridflux-tree-upload-client"),
+                str(build_dir / "cpnetflux-tree-upload-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -152,7 +152,7 @@ def run_same_size_mtime_changed(build_dir: Path, temp: Path) -> None:
     try:
         summary = temp / "mtime-fail-summary.json"
         base = [
-            str(build_dir / "gridflux-tree-upload-client"),
+            str(build_dir / "cpnetflux-tree-upload-client"),
             "--host",
             "127.0.0.1",
             "--port",
@@ -186,11 +186,11 @@ def run_same_size_mtime_changed(build_dir: Path, temp: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux tree edge-case smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux tree edge-case smoke.")
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     build_dir = Path(args.build_dir)
-    with tempfile.TemporaryDirectory(prefix="gridflux-tree-edge.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-edge.") as temp_text:
         temp = Path(temp_text)
         run_edge_transfer(build_dir, temp)
         run_symlink_rejected(build_dir, temp)

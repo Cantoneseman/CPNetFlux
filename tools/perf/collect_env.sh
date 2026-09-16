@@ -74,7 +74,7 @@ primary_interfaces() {
 }
 
 {
-    echo "# GridFlux Environment Snapshot"
+    echo "# CPNetFlux Environment Snapshot"
     echo
     echo "- timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "- hostname: $(hostname)"

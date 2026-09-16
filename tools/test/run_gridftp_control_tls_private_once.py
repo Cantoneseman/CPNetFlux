@@ -14,9 +14,11 @@ import sys
 import time
 from pathlib import Path
 
+from gridftp_port_window import clamp_passive_data_port_base
+
 
 def ssh_prefix(remote: str) -> list[str]:
-    if os.environ.get("GRIDFLUX_SSH_PASSWORD") or os.environ.get("SSHPASS"):
+    if os.environ.get("CPNETFLUX_SSH_PASSWORD") or os.environ.get("SSHPASS"):
         return ["sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=no", remote]
     return ["ssh", "-o", "StrictHostKeyChecking=no", remote]
 
@@ -29,8 +31,8 @@ def run_remote(
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    if env.get("GRIDFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
-        env["SSHPASS"] = env["GRIDFLUX_SSH_PASSWORD"]
+    if env.get("CPNETFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
+        env["SSHPASS"] = env["CPNETFLUX_SSH_PASSWORD"]
     completed = subprocess.run(
         ssh_prefix(remote) + [command],
         input=input_text,
@@ -139,7 +141,7 @@ def wait_tls(host: str, port: int, cafile: Path) -> None:
 
 def plaintext_must_fail(host: str, port: int) -> None:
     with socket.create_connection((host, port), timeout=3.0) as sock:
-        sock.sendall(b"USER gridflux\r\n")
+        sock.sendall(b"USER cpnetflux\r\n")
         try:
             data = sock.recv(128)
         except ConnectionResetError:
@@ -192,7 +194,7 @@ def send(sock, buffer, command):
 def plaintext_must_fail():
     try:
         with socket.create_connection((host, port), timeout=3.0) as sock:
-            sock.sendall(b"USER gridflux\r\n")
+            sock.sendall(b"USER cpnetflux\r\n")
             data = sock.recv(128)
             if data.startswith(b"220") or data.startswith(b"331"):
                 raise RuntimeError("plaintext control unexpectedly succeeded")
@@ -223,8 +225,8 @@ else:
 
 with sock:
     assert code(greeting) == 220, greeting
-    assert code(send(sock, buffer, "USER gridflux")) == 331
-    assert code(send(sock, buffer, "PASS gridflux")) == 230
+    assert code(send(sock, buffer, "USER cpnetflux")) == 331
+    assert code(send(sock, buffer, "PASS cpnetflux")) == 230
     size = send(sock, buffer, "SIZE alpha.bin")
     assert code(size) == 213, size
     assert code(send(sock, buffer, "QUIT")) == 221
@@ -240,11 +242,12 @@ def main() -> int:
     parser.add_argument("--remote", required=True)
     parser.add_argument("--server-host", required=True)
     parser.add_argument("--control-port", type=int, default=2121)
-    parser.add_argument("--root", default="/tmp/gridflux-gridftp-tls-private-root")
-    parser.add_argument("--local-build-dir", default="/root/projects/GridFlux/build")
+    parser.add_argument("--root", default="/tmp/cpnetflux-gridftp-tls-private-root")
+    parser.add_argument("--local-build-dir", default="/root/projects/CPNetFlux/build")
     parser.add_argument("--data-port-base", type=int, default=20300)
     parser.add_argument("--output-dir", "--results-dir", dest="output_dir", default="tools/perf/results")
     args = parser.parse_args()
+    args.data_port_base = clamp_passive_data_port_base(args.data_port_base)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -252,7 +255,7 @@ def main() -> int:
     server_log = output_dir / f"{timestamp}_gridftp-tls-private.log"
     cert = output_dir / f"{timestamp}_tls-cert.pem"
     key = output_dir / f"{timestamp}_tls-key.pem"
-    remote_ca = f"/tmp/gridflux-tls-private-{timestamp}-{os.getpid()}-ca.pem"
+    remote_ca = f"/tmp/cpnetflux-tls-private-{timestamp}-{os.getpid()}-ca.pem"
     generate_cert(cert, key)
     write_remote_text(args.remote, remote_ca, cert.read_text(encoding="utf-8"))
 
@@ -262,9 +265,9 @@ def main() -> int:
     (root / "alpha.bin").write_bytes(b"private tls metadata smoke")
     run_remote(args.remote, "true")
     server_cmd = [
-        str(Path(args.local_build_dir) / "gridflux-gridftp-server"),
+        str(Path(args.local_build_dir) / "cpnetflux-gridftp-server"),
         "--host",
-        args.server_host,
+        "0.0.0.0",
         "--port",
         str(args.control_port),
         "--root",
@@ -288,8 +291,8 @@ def main() -> int:
         sock, buffer, greeting = tls_connect(args.server_host, args.control_port, cert)
         with sock:
             assert reply_code(greeting) == 220, greeting
-            assert reply_code(send_command(sock, buffer, "USER gridflux")) == 331
-            assert reply_code(send_command(sock, buffer, "PASS gridflux")) == 230
+            assert reply_code(send_command(sock, buffer, "USER cpnetflux")) == 331
+            assert reply_code(send_command(sock, buffer, "PASS cpnetflux")) == 230
             size = send_command(sock, buffer, "SIZE alpha.bin")
             assert reply_code(size) == 213, size
             assert reply_code(send_command(sock, buffer, "QUIT")) == 221

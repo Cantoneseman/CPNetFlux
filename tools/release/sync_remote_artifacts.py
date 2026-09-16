@@ -480,7 +480,7 @@ def main() -> int:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--remote", required=True)
     parser.add_argument("--local-root", default=".")
-    parser.add_argument("--remote-root", default="/root/projects/GridFlux")
+    parser.add_argument("--remote-root", default="/root/projects/CPNetFlux")
     parser.add_argument("--json-output")
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--verify-only", action="store_true")

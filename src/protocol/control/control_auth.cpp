@@ -1,4 +1,4 @@
-#include "gridflux/protocol/control/control_auth.h"
+#include "cpnetflux/protocol/control/control_auth.h"
 
 #include <sys/stat.h>
 
@@ -9,7 +9,7 @@
 #include <sstream>
 #include <string_view>
 
-namespace gridflux::protocol::control {
+namespace cpnetflux::protocol::control {
 namespace {
 
 std::string lower(std::string_view value) {
@@ -87,4 +87,4 @@ common::Result<std::string> loadTokenFile(const std::string& path) {
     return token;
 }
 
-}  // namespace gridflux::protocol::control
+}  // namespace cpnetflux::protocol::control

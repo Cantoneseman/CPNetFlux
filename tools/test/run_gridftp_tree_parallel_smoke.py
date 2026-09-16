@@ -20,7 +20,7 @@ def run_once(build_dir: Path, parallelism: int, temp: Path) -> None:
     try:
         run_checked(
             [
-                str(build_dir / "gridflux-tree-upload-client"),
+                str(build_dir / "cpnetflux-tree-upload-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -38,7 +38,7 @@ def run_once(build_dir: Path, parallelism: int, temp: Path) -> None:
         dest = temp / f"download-p{parallelism}"
         run_checked(
             [
-                str(build_dir / "gridflux-tree-download-client"),
+                str(build_dir / "cpnetflux-tree-download-client"),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -67,11 +67,11 @@ def run_once(build_dir: Path, parallelism: int, temp: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux tree parallel smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux tree parallel smoke.")
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     build_dir = Path(args.build_dir)
-    with tempfile.TemporaryDirectory(prefix="gridflux-tree-parallel.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-parallel.") as temp_text:
         temp = Path(temp_text)
         run_once(build_dir, 2, temp)
         run_once(build_dir, 4, temp)

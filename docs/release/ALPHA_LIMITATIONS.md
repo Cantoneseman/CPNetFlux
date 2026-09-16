@@ -1,4 +1,4 @@
-# GridFlux Alpha Limitations
+# CPNetFlux Alpha Limitations
 
 This document is the final alpha limitation checklist. It describes current
 behavior, risk, and intended follow-up work. It is not a production security or
@@ -12,7 +12,7 @@ performance guarantee.
 - Risk: directory names and metadata returned by listing commands can be visible
   on the passive data socket.
 - Follow-up: add an explicit metadata data-channel TLS design, or replace the
-  listing compatibility path with a structured GridFlux metadata API.
+  listing compatibility path with a structured CPNetFlux metadata API.
 
 ## GSI And Production Auth
 
@@ -24,8 +24,8 @@ performance guarantee.
 
 ## Raw FTP And Recursive FTP
 
-- Current behavior: STOR/RETR file data uses GridFlux framed protocol only.
-  Directory transfer is GridFlux orchestration over per-file framed STOR/RETR.
+- Current behavior: STOR/RETR file data uses CPNetFlux framed protocol only.
+  Directory transfer is CPNetFlux orchestration over per-file framed STOR/RETR.
 - Risk: generic FTP clients and raw recursive FTP workflows are not compatible.
 - Follow-up: evaluate raw FTP compatibility only after alpha framed behavior is
   stable.

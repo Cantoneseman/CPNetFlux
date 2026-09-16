@@ -1,4 +1,4 @@
-# GridFlux Security Alpha
+# CPNetFlux Security Alpha
 
 Phase 6A adds opt-in control-plane token authentication. Phase 6C adds
 opt-in control-plane TLS. Phase 6D adds opt-in TLS for the STOR/RETR framed
@@ -12,28 +12,28 @@ implemented.
 Default mode remains anonymous:
 
 ```bash
-./build/gridflux-gridftp-server \
-  --root /tmp/gridflux-root \
+./build/cpnetflux-gridftp-server \
+  --root /tmp/cpnetflux-root \
   --host 127.0.0.1 \
   --port 2121 \
   --auth-mode anonymous
 ```
 
-Anonymous mode preserves the existing `USER gridflux` / `PASS gridflux`
+Anonymous mode preserves the existing `USER cpnetflux` / `PASS cpnetflux`
 placeholder behavior for demos and compatibility tests.
 
 Token mode is explicit:
 
 ```bash
 umask 077
-printf '%s\n' '<token-value>' > /tmp/gridflux-token.txt
+printf '%s\n' '<token-value>' > /tmp/cpnetflux-token.txt
 
-./build/gridflux-gridftp-server \
-  --root /tmp/gridflux-root \
+./build/cpnetflux-gridftp-server \
+  --root /tmp/cpnetflux-root \
   --host 127.0.0.1 \
   --port 2121 \
   --auth-mode token \
-  --auth-token-file /tmp/gridflux-token.txt
+  --auth-token-file /tmp/cpnetflux-token.txt
 ```
 
 The token is read once at startup. Token files must be regular files, non-empty,
@@ -42,7 +42,7 @@ on the command line.
 
 ## Client Login
 
-In token mode a GridFlux-aware control client logs in with:
+In token mode a CPNetFlux-aware control client logs in with:
 
 ```text
 USER token
@@ -61,8 +61,8 @@ login so clients can discover capabilities and complete authentication.
 TLS is opt-in and disabled by default:
 
 ```bash
-./build/gridflux-gridftp-server \
-  --root /tmp/gridflux-root \
+./build/cpnetflux-gridftp-server \
+  --root /tmp/cpnetflux-root \
   --host 127.0.0.1 \
   --port 2121 \
   --tls-mode off
@@ -73,17 +73,17 @@ Required TLS mode starts the control listener with an immediate TLS handshake:
 ```bash
 umask 077
 openssl req -x509 -newkey rsa:2048 \
-  -keyout /tmp/gridflux-control-key.pem \
-  -out /tmp/gridflux-control-cert.pem \
+  -keyout /tmp/cpnetflux-control-key.pem \
+  -out /tmp/cpnetflux-control-cert.pem \
   -sha256 -days 1 -nodes -subj '/CN=localhost'
 
-./build/gridflux-gridftp-server \
-  --root /tmp/gridflux-root \
+./build/cpnetflux-gridftp-server \
+  --root /tmp/cpnetflux-root \
   --host 127.0.0.1 \
   --port 2121 \
   --tls-mode required \
-  --tls-cert-file /tmp/gridflux-control-cert.pem \
-  --tls-key-file /tmp/gridflux-control-key.pem
+  --tls-cert-file /tmp/cpnetflux-control-cert.pem \
+  --tls-key-file /tmp/cpnetflux-control-key.pem
 ```
 
 `--tls-mode required` requires `--tls-cert-file` and `--tls-key-file`.
@@ -96,13 +96,13 @@ rejected in Phase 6C.
 Tree clients can connect to a TLS-required control server with:
 
 ```bash
-./build/gridflux-tree-upload-client \
+./build/cpnetflux-tree-upload-client \
   --host 127.0.0.1 \
   --port 2121 \
   --source-dir /tmp/demo-tree \
   --dest-dir demo-tree \
   --tls-mode required \
-  --tls-ca-file /tmp/gridflux-control-cert.pem
+  --tls-ca-file /tmp/cpnetflux-control-cert.pem
 ```
 
 Token auth and TLS can be combined: TLS is established first, then the existing
@@ -113,45 +113,45 @@ Token auth and TLS can be combined: TLS is established first, then the existing
 Phase 6D can wrap framed STOR/RETR file data sockets in TLS:
 
 ```bash
-./build/gridflux-gridftp-server \
-  --root /tmp/gridflux-root \
+./build/cpnetflux-gridftp-server \
+  --root /tmp/cpnetflux-root \
   --host 127.0.0.1 \
   --port 2121 \
   --tls-mode required \
-  --tls-cert-file /tmp/gridflux-control-cert.pem \
-  --tls-key-file /tmp/gridflux-control-key.pem \
+  --tls-cert-file /tmp/cpnetflux-control-cert.pem \
+  --tls-key-file /tmp/cpnetflux-control-key.pem \
   --data-tls-mode required
 ```
 
 Clients opt in per framed data connection:
 
 ```bash
-./build/gridflux-file-client \
+./build/cpnetflux-file-client \
   --host 127.0.0.1 \
   --port <epsv-data-port> \
   --input /tmp/source.bin \
   --transfer-id <transfer-id> \
   --data-tls-mode required \
-  --tls-ca-file /tmp/gridflux-control-cert.pem
+  --tls-ca-file /tmp/cpnetflux-control-cert.pem
 ```
 
-`--data-tls-mode required` is valid on `gridflux-gridftp-server` only when
+`--data-tls-mode required` is valid on `cpnetflux-gridftp-server` only when
 `--tls-mode required` is also enabled. It reuses the control-plane certificate
 and key for the passive STOR/RETR data sockets. The TLS wrapper is socket-only:
-GridFlux frame layout, CRC32C checksums, manifest/verified_chunks, resume, and
+CPNetFlux frame layout, CRC32C checksums, manifest/verified_chunks, resume, and
 final verify semantics are unchanged.
 
 Directory upload/download clients pass the same setting through to each
 per-file STOR/RETR operation:
 
 ```bash
-./build/gridflux-tree-upload-client \
+./build/cpnetflux-tree-upload-client \
   --host 127.0.0.1 \
   --port 2121 \
   --source-dir /tmp/demo-tree \
   --dest-dir demo-tree \
   --tls-mode required \
-  --tls-ca-file /tmp/gridflux-control-cert.pem \
+  --tls-ca-file /tmp/cpnetflux-control-cert.pem \
   --data-tls-mode required
 ```
 
@@ -166,13 +166,13 @@ replacement.
 Directory clients support the same auth settings:
 
 ```bash
-./build/gridflux-tree-upload-client \
+./build/cpnetflux-tree-upload-client \
   --host 127.0.0.1 \
   --port 2121 \
   --source-dir /tmp/demo-tree \
   --dest-dir demo-tree \
   --auth-mode token \
-  --auth-token-file /tmp/gridflux-token.txt
+  --auth-token-file /tmp/cpnetflux-token.txt
 ```
 
 `--auth-token-file` is read locally by the client and is never written to JSON

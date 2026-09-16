@@ -1,8 +1,8 @@
-#include "gridflux/version.h"
+#include "cpnetflux/version.h"
 
 #include <spdlog/spdlog.h>
 
 int main() {
-    spdlog::info("{} {}", gridflux::projectName(), gridflux::projectVersion());
+    spdlog::info("{} {}", cpnetflux::projectName(), cpnetflux::projectVersion());
     return 0;
 }

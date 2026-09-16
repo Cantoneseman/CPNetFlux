@@ -74,7 +74,7 @@ def run_soak(args: argparse.Namespace) -> int:
     token_file = args.auth_token_file
     auth_mode = "token" if args.token else args.auth_mode
     if auth_mode == "token" and not token_file:
-        token_context = tempfile.TemporaryDirectory(prefix="gridflux-soak-token.")
+        token_context = tempfile.TemporaryDirectory(prefix="cpnetflux-soak-token.")
         path = Path(token_context.name) / "auth-token.txt"
         path.write_text("phase6b-alpha-soak-token\n", encoding="utf-8")
         path.chmod(0o600)
@@ -151,7 +151,7 @@ def run_soak(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a short local GridFlux alpha soak smoke.")
+    parser = argparse.ArgumentParser(description="Run a short local CPNetFlux alpha soak smoke.")
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--duration-seconds", type=float, default=0.0)

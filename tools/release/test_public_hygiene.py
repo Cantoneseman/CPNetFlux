@@ -46,7 +46,7 @@ def write_fixture(root: Path) -> None:
         "-----BEGIN PRIVATE KEY-----\nredacted fixture\n-----END PRIVATE KEY-----\n",
         encoding="utf-8",
     )
-    (root / "build-verify-20260515T163633Z" / "gridflux_unit_tests").write_bytes(
+    (root / "build-verify-20260515T163633Z" / "cpnetflux_unit_tests").write_bytes(
         b"\x7fELF fake binary with 10.0.0.10"
     )
     (root / "cmake-build-debug" / "CMakeCache.txt").write_text(
@@ -69,7 +69,7 @@ def assert_exists(path: Path) -> None:
 def main() -> int:
     export_script = script_dir() / "export_public_repo.py"
     check_script = script_dir() / "check_public_hygiene.py"
-    with tempfile.TemporaryDirectory(prefix="gridflux-release-test-") as temp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-release-test-") as temp:
         temp_root = Path(temp)
         private_repo = temp_root / "private"
         public_repo = temp_root / "public"

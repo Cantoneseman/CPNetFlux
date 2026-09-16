@@ -1,4 +1,4 @@
-#include "gridflux/checkpoint/manifest_store.h"
+#include "cpnetflux/checkpoint/manifest_store.h"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -9,9 +9,9 @@
 #include <sstream>
 #include <string>
 
-#include "gridflux/storage/posix_file.h"
+#include "cpnetflux/storage/posix_file.h"
 
-namespace gridflux::checkpoint {
+namespace cpnetflux::checkpoint {
 namespace {
 
 common::Status systemStatus(const char* operation, int errorNumber) {
@@ -90,4 +90,4 @@ common::Result<TransferManifest> ManifestStore::load(const std::string& path) {
     return parseTransferManifest(buffer.str());
 }
 
-}  // namespace gridflux::checkpoint
+}  // namespace cpnetflux::checkpoint

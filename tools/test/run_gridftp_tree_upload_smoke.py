@@ -15,11 +15,11 @@ from tree_smoke_common import (
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux tree upload smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux tree upload smoke.")
     parser.add_argument("--build-dir", default="build")
     args = parser.parse_args()
     build_dir = Path(args.build_dir)
-    with tempfile.TemporaryDirectory(prefix="gridflux-tree-upload.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-upload.") as temp_text:
         temp = Path(temp_text)
         source = temp / "source"
         source.mkdir()
@@ -33,7 +33,7 @@ def main() -> int:
         try:
             run_checked(
                 [
-                    str(build_dir / "gridflux-tree-upload-client"),
+                    str(build_dir / "cpnetflux-tree-upload-client"),
                     "--host",
                     "127.0.0.1",
                     "--port",

@@ -9,6 +9,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from gridftp_port_window import assert_epsv_port_in_window, clamp_passive_data_port_base
+
 
 def make_file(path: Path, total_bytes: int) -> None:
     block = bytes((index * 19) % 251 for index in range(1024 * 1024))
@@ -100,8 +102,8 @@ def connect_control(port: int) -> tuple[socket.socket, bytearray, list[str]]:
 def login_and_epsv(control_port: int) -> tuple[socket.socket, bytearray, int]:
     sock, buffer, greeting = connect_control(control_port)
     assert reply_code(greeting) == 220, greeting
-    assert reply_code(send_command(sock, buffer, "USER gridflux")) == 331
-    assert reply_code(send_command(sock, buffer, "PASS gridflux")) == 230
+    assert reply_code(send_command(sock, buffer, "USER cpnetflux")) == 331
+    assert reply_code(send_command(sock, buffer, "PASS cpnetflux")) == 230
     assert reply_code(send_command(sock, buffer, "TYPE I")) == 200
     epsv = send_command(sock, buffer, "EPSV")
     assert reply_code(epsv) == 229, epsv
@@ -110,12 +112,12 @@ def login_and_epsv(control_port: int) -> tuple[socket.socket, bytearray, int]:
 
 def run_smoke(args: argparse.Namespace) -> int:
     build_dir = Path(args.build_dir)
-    server_bin = build_dir / "gridflux-gridftp-server"
-    client_bin = build_dir / "gridflux-file-download-client"
+    server_bin = build_dir / "cpnetflux-gridftp-server"
+    client_bin = build_dir / "cpnetflux-file-download-client"
     if not server_bin.exists() or not client_bin.exists():
         raise FileNotFoundError(f"missing gridftp server or download client in {build_dir}")
 
-    with tempfile.TemporaryDirectory(prefix="gridflux-gridftp-retr-resume.") as temp_text:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-gridftp-retr-resume.") as temp_text:
         temp_dir = Path(temp_text)
         root = temp_dir / "root"
         root.mkdir()
@@ -125,12 +127,12 @@ def run_smoke(args: argparse.Namespace) -> int:
         expected_sha = sha256_file(source)
 
         control_port = free_port()
-        data_port_base = free_port()
+        data_port_base = clamp_passive_data_port_base(free_port())
         server_log = temp_dir / "gridftp-retr-resume.log"
         server_cmd = [
             str(server_bin),
             "--host",
-            "127.0.0.1",
+            "0.0.0.0",
             "--port",
             str(control_port),
             "--root",
@@ -152,6 +154,7 @@ def run_smoke(args: argparse.Namespace) -> int:
             server = subprocess.Popen(server_cmd, stdout=log_handle, stderr=subprocess.STDOUT)
         try:
             sock, buffer, data_port = login_and_epsv(control_port)
+            assert_epsv_port_in_window(data_port, data_port_base)
             with sock:
                 retr = send_command(sock, buffer, "RETR source.bin")
                 assert reply_code(retr) == 150, retr
@@ -185,9 +188,10 @@ def run_smoke(args: argparse.Namespace) -> int:
 
             assert not output.exists()
             assert Path(str(output) + f".part.{transfer_id}").exists()
-            assert Path(str(output) + ".gridflux.download.manifest").exists()
+            assert Path(str(output) + ".cpnetflux.download.manifest").exists()
 
             sock, buffer, data_port = login_and_epsv(control_port)
+            assert_epsv_port_in_window(data_port, data_port_base)
             with sock:
                 assert reply_code(send_command(sock, buffer, f"REST GFID:{transfer_id}")) == 350
                 retr = send_command(sock, buffer, "RETR source.bin")
@@ -239,7 +243,7 @@ def run_smoke(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GridFlux GridFTP control RETR resume smoke.")
+    parser = argparse.ArgumentParser(description="Run CPNetFlux GridFTP control RETR resume smoke.")
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--bytes", type=int, default=8 * 1024 * 1024)
     parser.add_argument("--connections", type=int, default=2)

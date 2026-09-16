@@ -23,10 +23,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-server_bin="${build_dir%/}/gridflux-file-server"
-client_bin="${build_dir%/}/gridflux-file-client"
-memory_server_bin="${build_dir%/}/gridflux-server"
-memory_client_bin="${build_dir%/}/gridflux-client"
+server_bin="${build_dir%/}/cpnetflux-file-server"
+client_bin="${build_dir%/}/cpnetflux-file-client"
+memory_server_bin="${build_dir%/}/cpnetflux-server"
+memory_client_bin="${build_dir%/}/cpnetflux-client"
 
 for bin in "$server_bin" "$client_bin" "$memory_server_bin" "$memory_client_bin"; do
     if [[ ! -x "$bin" ]]; then
@@ -35,7 +35,7 @@ for bin in "$server_bin" "$client_bin" "$memory_server_bin" "$memory_client_bin"
     fi
 done
 
-tmp_dir="$(mktemp -d /tmp/gridflux-file-smoke.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/cpnetflux-file-smoke.XXXXXX)"
 server_pid=""
 
 cleanup() {
@@ -150,4 +150,4 @@ run_file_case "tail" 5255225 3 1048576 65536 "$((port_base + 3))"
 run_memory_sink_case "$((port_base + 4))"
 run_existing_output_reject_case "$((port_base + 5))"
 
-echo "gridflux file transfer smoke passed"
+echo "cpnetflux file transfer smoke passed"

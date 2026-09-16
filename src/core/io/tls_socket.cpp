@@ -1,4 +1,4 @@
-#include "gridflux/core/io/tls_socket.h"
+#include "cpnetflux/core/io/tls_socket.h"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -13,7 +13,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 namespace {
 
 common::Status systemStatus(const char* operation, int errorNumber) {
@@ -413,4 +413,4 @@ common::Result<TlsConnection> TlsClientContext::connect(UniqueFd fd,
     return TlsConnection(std::move(fd), std::move(connectionImpl));
 }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

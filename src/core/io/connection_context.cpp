@@ -1,6 +1,6 @@
-#include "gridflux/core/io/connection_context.h"
+#include "cpnetflux/core/io/connection_context.h"
 
-namespace gridflux::core::io {
+namespace cpnetflux::core::io {
 
 ConnectionContext::ConnectionContext(int fd) noexcept : fd_(fd) {}
 
@@ -40,4 +40,4 @@ void ConnectionContext::addBytesReceived(std::uint64_t bytes) noexcept { bytesRe
 
 void ConnectionContext::addBytesSent(std::uint64_t bytes) noexcept { bytesSent_ += bytes; }
 
-}  // namespace gridflux::core::io
+}  // namespace cpnetflux::core::io

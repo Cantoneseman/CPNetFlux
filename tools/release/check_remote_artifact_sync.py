@@ -26,6 +26,12 @@ KNOWN_LOG_FIELDS = {
     "server_env_after_log",
     "client_env_before_log",
     "client_env_after_log",
+    "json_summary",
+    "scheduler_summary_csv",
+    "scheduler_events_jsonl",
+    "scheduler_samples_csv",
+    "auth_preflight_audit",
+    "process_audit",
 }
 
 
@@ -186,7 +192,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Check release artifact sync between local and remote trees.")
     parser.add_argument("--remote", required=True)
     parser.add_argument("--local-root", default=".")
-    parser.add_argument("--remote-root", default="/root/projects/GridFlux")
+    parser.add_argument("--remote-root", default="/root/projects/CPNetFlux")
     parser.add_argument("--manifest", help="alpha artifact manifest path")
     parser.add_argument("--path", action="append", default=[], help="relative artifact path to verify")
     parser.add_argument("--csv", action="append", default=[], help="CSV path; referenced *_log files are verified too")

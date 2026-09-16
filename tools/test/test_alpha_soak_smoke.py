@@ -53,7 +53,7 @@ def test_demo_command_adds_token_tls_and_data_tls() -> None:
 
 
 def test_duration_stops_after_completed_iteration(monkeypatch=None) -> None:
-    with tempfile.TemporaryDirectory(prefix="gridflux-soak-test.") as temp:
+    with tempfile.TemporaryDirectory(prefix="cpnetflux-soak-test.") as temp:
         root = Path(temp)
         output = root / "summary.json"
         calls = {"count": 0}

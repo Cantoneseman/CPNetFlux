@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the complete GridFlux alpha release-candidate validation package."""
+"""Run the complete CPNetFlux alpha release-candidate validation package."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def write_candidate_markdown(path: Path, report: dict[str, object]) -> None:
     artifact_verify = report.get("artifact_verify_summary", {})
     freshness = report.get("artifact_manifest_freshness", {})
     lines = [
-        "# GridFlux Alpha Release Candidate",
+        "# CPNetFlux Alpha Release Candidate",
         "",
         f"- Timestamp: `{report.get('timestamp', '')}`",
         f"- Result: `{'pass' if report.get('passed') else 'fail'}`",
@@ -195,11 +195,11 @@ def candidate_artifact_paths(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the complete GridFlux alpha release-candidate package.")
+    parser = argparse.ArgumentParser(description="Run the complete CPNetFlux alpha release-candidate package.")
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--io-uring-build-dir", default="build-io-uring-real")
     parser.add_argument("--remote")
-    parser.add_argument("--remote-root", default="/root/projects/GridFlux")
+    parser.add_argument("--remote-root", default="/root/projects/CPNetFlux")
     parser.add_argument("--server-host")
     parser.add_argument("--results-dir", default="tools/perf/results")
     parser.add_argument("--soak-iterations", type=int, default=5)
@@ -283,7 +283,7 @@ def main() -> int:
             sys.executable,
             "tools/release/export_public_repo.py",
             "--output",
-            f"/tmp/gridflux-public-alpha-rc-{timestamp}",
+            f"/tmp/cpnetflux-public-alpha-rc-{timestamp}",
             "--force",
         ],
         log_dir,

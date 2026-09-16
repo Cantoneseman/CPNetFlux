@@ -9,6 +9,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from gridftp_port_window import assert_epsv_port_in_window, clamp_passive_data_port_base
+
 
 def read_line(sock: socket.socket, buffer: bytearray) -> str:
     while b"\n" not in buffer:
@@ -63,15 +65,15 @@ def read_data(host: str, port: int) -> str:
 
 
 def ssh_prefix() -> list[str]:
-    if os.environ.get("GRIDFLUX_SSH_PASSWORD"):
+    if os.environ.get("CPNETFLUX_SSH_PASSWORD"):
         return ["sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=no"]
     return ["ssh", "-o", "StrictHostKeyChecking=no"]
 
 
 def run_remote(remote: str, command: str) -> str:
     env = os.environ.copy()
-    if env.get("GRIDFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
-        env["SSHPASS"] = env["GRIDFLUX_SSH_PASSWORD"]
+    if env.get("CPNETFLUX_SSH_PASSWORD") and not env.get("SSHPASS"):
+        env["SSHPASS"] = env["CPNETFLUX_SSH_PASSWORD"]
     completed = subprocess.run(
         [*ssh_prefix(), remote, command],
         text=True,
@@ -102,15 +104,17 @@ def connect_control(host: str, port: int) -> tuple[socket.socket, bytearray, lis
 def login(host: str, port: int) -> tuple[socket.socket, bytearray]:
     sock, buffer, greeting = connect_control(host, port)
     assert reply_code(greeting) == 220, greeting
-    assert reply_code(send_command(sock, buffer, "USER gridflux")) == 331
-    assert reply_code(send_command(sock, buffer, "PASS gridflux")) == 230
+    assert reply_code(send_command(sock, buffer, "USER cpnetflux")) == 331
+    assert reply_code(send_command(sock, buffer, "PASS cpnetflux")) == 230
     return sock, buffer
 
 
-def run_listing(sock: socket.socket, buffer: bytearray, host: str, command: str) -> str:
+def run_listing(sock: socket.socket, buffer: bytearray, host: str, command: str,
+                data_port_base: int) -> str:
     epsv = send_command(sock, buffer, "EPSV")
     assert reply_code(epsv) == 229, epsv
     port = parse_epsv_port(epsv)
+    assert_epsv_port_in_window(port, data_port_base)
     sock.sendall((command + "\r\n").encode("utf-8"))
     opening = read_reply(sock, buffer)
     assert reply_code(opening) == 150, opening
@@ -125,18 +129,19 @@ def main() -> int:
     parser.add_argument("--remote", default="root@<redacted>")
     parser.add_argument("--server-host", default="<redacted>")
     parser.add_argument("--control-port", type=int, default=2121)
-    parser.add_argument("--root", default="/tmp/gridflux-gridftp-metadata-private-root")
-    parser.add_argument("--local-build-dir", default="/root/projects/GridFlux/build")
+    parser.add_argument("--root", default="/tmp/cpnetflux-gridftp-metadata-private-root")
+    parser.add_argument("--local-build-dir", default="/root/projects/CPNetFlux/build")
     parser.add_argument("--data-port-base", type=int, default=20300)
     parser.add_argument("--output-dir", default="tools/perf/results")
     args = parser.parse_args()
+    args.data_port_base = clamp_passive_data_port_base(args.data_port_base)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     server_log = output_dir / f"{timestamp}_gridftp_control_metadata_private.log"
 
-    server_bin = f"{args.local_build_dir.rstrip('/')}/gridflux-gridftp-server"
+    server_bin = f"{args.local_build_dir.rstrip('/')}/cpnetflux-gridftp-server"
     root = Path(args.root)
     subprocess.run(["rm", "-rf", str(root)], check=True)
     (root / "subdir").mkdir(parents=True)
@@ -147,7 +152,7 @@ def main() -> int:
     server_cmd = [
         server_bin,
         "--host",
-        args.server_host,
+        "0.0.0.0",
         "--port",
         str(args.control_port),
         "--root",
@@ -174,9 +179,9 @@ def main() -> int:
             assert reply_code(pwd) == 257 and '"/subdir"' in pwd[0], pwd
             assert reply_code(send_command(sock, buffer, "CDUP")) == 250
 
-            nlst = run_listing(sock, buffer, args.server_host, "NLST")
+            nlst = run_listing(sock, buffer, args.server_host, "NLST", args.data_port_base)
             assert nlst.splitlines() == ["alpha.bin", "subdir"], nlst
-            listing = run_listing(sock, buffer, args.server_host, "LIST")
+            listing = run_listing(sock, buffer, args.server_host, "LIST", args.data_port_base)
             assert " alpha.bin" in listing and " subdir" in listing, listing
             assert str(root) not in listing, listing
             assert reply_code(send_command(sock, buffer, "QUIT")) == 221

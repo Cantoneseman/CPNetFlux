@@ -23,8 +23,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-server_bin="${build_dir%/}/gridflux-file-server"
-client_bin="${build_dir%/}/gridflux-file-client"
+server_bin="${build_dir%/}/cpnetflux-file-server"
+client_bin="${build_dir%/}/cpnetflux-file-client"
 
 for bin in "$server_bin" "$client_bin"; do
     if [[ ! -x "$bin" ]]; then
@@ -33,7 +33,7 @@ for bin in "$server_bin" "$client_bin"; do
     fi
 done
 
-tmp_dir="$(mktemp -d /tmp/gridflux-file-resume.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/cpnetflux-file-resume.XXXXXX)"
 server_pid=""
 
 cleanup() {
@@ -68,7 +68,7 @@ run_partial_then_resume() {
     local transfer_id="phase2a-smoke"
     local port="$port_base"
     make_file "$src" 67108864
-    rm -f "$dst" "$dst.gridflux.manifest" "$dst.part.$transfer_id"
+    rm -f "$dst" "$dst.cpnetflux.manifest" "$dst.part.$transfer_id"
 
     "$server_bin" \
         --host 127.0.0.1 \
@@ -100,7 +100,7 @@ run_partial_then_resume() {
         exit 1
     fi
     test ! -f "$dst"
-    test -f "$dst.gridflux.manifest"
+    test -f "$dst.cpnetflux.manifest"
     test -f "$dst.part.$transfer_id"
 
     "$server_bin" \
@@ -134,7 +134,7 @@ run_corrupt_manifest_case() {
     local transfer_id="phase2a-corrupt"
     local port="$((port_base + 1))"
     make_file "$src" 1048576
-    printf 'not-a-manifest\n' >"$dst.gridflux.manifest"
+    printf 'not-a-manifest\n' >"$dst.cpnetflux.manifest"
 
     "$server_bin" \
         --host 127.0.0.1 \
@@ -236,4 +236,4 @@ run_partial_then_resume
 run_corrupt_manifest_case
 run_size_mismatch_case
 
-echo "gridflux file resume smoke passed"
+echo "cpnetflux file resume smoke passed"

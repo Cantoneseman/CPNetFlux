@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.secrets/
+*.password
+*.secret
+results/
