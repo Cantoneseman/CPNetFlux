@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-**路线重置（2026-09-17）：** 控制连接复用重测已完成。结果显示单文件差距约 8–12%，目录差距约 33–49%；worker 复用有效但没有解决目录数据面瓶颈。阶段 0 的证据分类、compression 开关传播和资源治理已经落地，见 [`docs/DECISIONS/2026-09-17-retest-route-reset.md`](DECISIONS/2026-09-17-retest-route-reset.md)。下一步用固定提交补足代表性小矩阵并拆解目录阶段耗时，之后再决定 scheduler 是否值得继续优化。
+**路线重置（2026-09-17）：** 控制连接复用重测已完成。结果显示单文件差距约 8–12%，目录差距约 33–49%；worker 复用有效但没有解决目录数据面瓶颈。阶段 0 的证据分类、compression 开关传播和资源治理已经落地，见 [`docs/DECISIONS/2026-09-17-retest-route-reset.md`](DECISIONS/2026-09-17-retest-route-reset.md)。下一步按 [`docs/DECISIONS/2026-09-17-directory-data-plane-profiling.md`](DECISIONS/2026-09-17-directory-data-plane-profiling.md) 用固定提交补足代表性小矩阵并拆解目录阶段耗时，之后再决定 scheduler 是否值得继续优化。
 
 **阶段：** CPNetFlux 路线重置 — 控制连接复用已验证，目录数据面 profiling 待开始
 
