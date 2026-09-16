@@ -66,6 +66,7 @@ def validate_metrics(
     *,
     expect_raw_fallback: bool,
     expect_compressed: bool,
+    expect_compression_decision: bool,
     policy: str,
 ) -> None:
     summary_lines = (metrics_dir / "scheduler_summary.csv").read_text(encoding="utf-8").splitlines()
@@ -114,7 +115,10 @@ def validate_metrics(
         raise RuntimeError("scheduler events missing executor_complete")
     if policy == "adaptive" and not any("queue_low" in line for line in events_lines):
         raise RuntimeError("adaptive scheduler events missing queue_low evidence")
-    if not any(("compression_candidate" in line) or ("compression_reject" in line) for line in events_lines):
+    if expect_compression_decision and not any(
+        ("compression_candidate" in line) or ("compression_reject" in line)
+        for line in events_lines
+    ):
         raise RuntimeError("scheduler events missing compression decision")
     if expect_compressed and not any("compression_dispatch" in line for line in events_lines):
         raise RuntimeError("scheduler upload events missing compression_dispatch")
@@ -176,14 +180,16 @@ def run_phase(
 
     transfer_root = source_root if upload else destination
     assert transfer_root is not None
+    compression_args = ["--compression", "auto"] if upload else []
     bad_metrics = transfer_root / "scheduler-metrics"
-    run_checked(base_cmd + scheduler_args(bad_metrics, policy), expect_success=False)
-    run_checked(base_cmd + scheduler_args(metrics_dir, policy) + ["--max-files", "1"], expect_success=False)
-    run_checked(base_cmd + scheduler_args(metrics_dir, policy) + ["--resume"])
+    run_checked(base_cmd + compression_args + scheduler_args(bad_metrics, policy), expect_success=False)
+    run_checked(base_cmd + compression_args + scheduler_args(metrics_dir, policy) + ["--max-files", "1"], expect_success=False)
+    run_checked(base_cmd + compression_args + scheduler_args(metrics_dir, policy) + ["--resume"])
     validate_metrics(
         metrics_dir,
         expect_raw_fallback=expect_raw_fallback,
         expect_compressed=upload,
+        expect_compression_decision=upload,
         policy=policy,
     )
 

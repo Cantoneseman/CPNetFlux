@@ -27,6 +27,11 @@ enum class TreeSchedulerMode {
     Global,
 };
 
+enum class CompressionMode {
+    Off,
+    Auto,
+};
+
 [[nodiscard]] common::Result<ControlReuseMode> parseControlReuseMode(std::string_view value);
 [[nodiscard]] const char* controlReuseModeName(ControlReuseMode mode) noexcept;
 [[nodiscard]] common::Result<TreeSchedulerMode> parseTreeSchedulerMode(std::string_view value);
@@ -63,6 +68,7 @@ struct TreeTransferOptions {
     std::uint64_t schedulerWorkItemMaxBytes = 256ULL * 1024ULL * 1024ULL;
     std::uint64_t schedulerDefaultRttMs = 10;
     double schedulerMinCompressGbps = 1.0;
+    CompressionMode compressionMode = CompressionMode::Off;
     core::io::HotPathCompressionOptions hotPathCompression;
     core::io::TlsConfig tls;
     core::io::DataTlsMode dataTlsMode = core::io::DataTlsMode::Off;

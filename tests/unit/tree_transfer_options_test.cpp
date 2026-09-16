@@ -68,7 +68,9 @@ TEST(TreeTransferOptionsTest, ParsesUploadOptions) {
                           "--scheduler-default-rtt-ms",
                           "20",
                           "--scheduler-min-compress-gbps",
-                          "0.5"};
+                          "0.5",
+                          "--compression",
+                          "auto"};
     auto parsed = cpnetflux::config::parseTreeTransferOptions(
         static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
@@ -98,6 +100,7 @@ TEST(TreeTransferOptionsTest, ParsesUploadOptions) {
     EXPECT_EQ(parsed.value().schedulerWorkItemMaxBytes, 2097152U);
     EXPECT_EQ(parsed.value().schedulerDefaultRttMs, 20U);
     EXPECT_DOUBLE_EQ(parsed.value().schedulerMinCompressGbps, 0.5);
+    EXPECT_EQ(parsed.value().compressionMode, cpnetflux::config::CompressionMode::Auto);
     std::filesystem::remove_all(root);
 }
 
@@ -125,6 +128,7 @@ TEST(TreeTransferOptionsTest, DefaultsControlReuseOff) {
     EXPECT_EQ(parsed.value().schedulerWorkItemMaxBytes, 256ULL * 1024ULL * 1024ULL);
     EXPECT_EQ(parsed.value().schedulerDefaultRttMs, 10U);
     EXPECT_DOUBLE_EQ(parsed.value().schedulerMinCompressGbps, 1.0);
+    EXPECT_EQ(parsed.value().compressionMode, cpnetflux::config::CompressionMode::Off);
     EXPECT_FALSE(parsed.value().hotPathCompression.enabled);
     std::filesystem::remove_all(root);
 }

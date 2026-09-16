@@ -15,7 +15,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from tools.experiments.gridftp_compare.analyze import classify_transfer_result, summarize_rows  # noqa: E402
+from tools.experiments.gridftp_compare.analyze import (  # noqa: E402
+    classify_evidence,
+    classify_transfer_result,
+    summarize_rows,
+)
 from tools.experiments.gridftp_compare.dataset import (  # noqa: E402
     DATASET_PROFILES,
     dataset_specs,
@@ -386,6 +390,37 @@ class ResultAndSummaryTest(unittest.TestCase):
         self.assertEqual(classify_transfer_result(exit_code=1, hash_match=True), STATUS_FAIL_RUNTIME)
         self.assertEqual(classify_transfer_result(exit_code=0, hash_match=True, timed_out=True), STATUS_FAIL_RUNTIME)
 
+    def test_evidence_does_not_turn_hash_valid_transfer_into_failure(self) -> None:
+        evidence = classify_evidence(
+            system="cpnetflux",
+            dataset_kind="tree",
+            checksum="none",
+            logical_bytes=1024,
+            wire_bytes="",
+            manifest_evidence=[],
+            tree_manifest_evidence=[],
+            verified_chunks="",
+        )
+
+        self.assertEqual(evidence["wire_accounting_status"], "missing")
+        self.assertEqual(evidence["evidence_status"], "partial")
+        self.assertIn("wire_bytes missing", evidence["evidence_errors"])
+
+    def test_compressed_wire_bytes_are_not_an_evidence_error(self) -> None:
+        evidence = classify_evidence(
+            system="cpnetflux",
+            dataset_kind="tree",
+            checksum="none",
+            logical_bytes=1024,
+            wire_bytes="512",
+            manifest_evidence=["file.manifest"],
+            tree_manifest_evidence=[],
+            verified_chunks="",
+        )
+
+        self.assertEqual(evidence["wire_accounting_status"], "compressed")
+        self.assertNotIn("wire_bytes", evidence["evidence_errors"])
+
     def test_result_row_has_complete_csv_schema(self) -> None:
         with tempfile.TemporaryDirectory(prefix="gridftp-compare-row.") as text:
             temp = Path(text)
@@ -419,6 +454,9 @@ class ResultAndSummaryTest(unittest.TestCase):
             self.assertEqual(set(row), set(RESULT_FIELDS))
             self.assertEqual(row["logical_goodput_mbps"], "0.008192")
             self.assertEqual(row["hash_match"], "true")
+            self.assertEqual(row["result"], STATUS_PASS)
+            self.assertEqual(row["integrity_status"], "pass")
+            self.assertEqual(row["evidence_status"], "partial")
 
     def test_summary_marks_unstable_spread(self) -> None:
         rows = [

@@ -23,11 +23,13 @@
 
 ## 阶段 0 验收
 
-- [ ] 将 transfer status、integrity status、evidence status、wire accounting 分列。
-- [ ] `compression=off` 时禁止 scheduler 创建 compression work item，并加入参数传播测试。
-- [ ] 每个 case 完成后清理可再生 payload；运行前检查磁盘预算；失败时保留最小诊断包。
+- [x] 将 transfer status、integrity status、evidence status、wire accounting 分列。
+- [x] `compression=off` 时禁止 scheduler 创建 compression work item，并加入参数传播测试。
+- [x] 每个 case 完成后清理可再生 payload；运行前检查磁盘预算；失败时保留最小诊断包。
 - [ ] 正式实验只接受固定 commit/归档构建，记录工作树状态和二进制 hash。
 - [ ] 用代表性小矩阵重测：单文件 1/8 connections、dense/mixed 目录 1/4/8 file parallelism、scheduler 三策略各 3 次。
+
+实现验证：云端隔离构建的 C++/CTest 通过；完整 CTest 中 token-auth/event-log 两个 smoke 因未提供测试 token 未通过本次环境验收，scheduler smoke 已改为显式 `--compression auto` 并通过。代表性小矩阵仍需在固定构建上执行。
 
 ## 阶段 1 之后的顺序
 

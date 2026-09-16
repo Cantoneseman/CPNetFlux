@@ -28,6 +28,7 @@ struct SchedulerConfig {
     std::uint64_t workItemMaxBytes = 256ULL * 1024ULL * 1024ULL;
     std::uint64_t defaultRttMs = 10;
     double minCompressGbps = 1.0;
+    bool enableCompression = false;
     SchedulerMetricsPaths metricsPaths;
 };
 

@@ -11,6 +11,7 @@ STATUS_FAIL_RUNTIME = "fail_runtime"
 STATUS_BLOCKED_EXTERNAL_GRIDFTP = "blocked_external_gridftp"
 STATUS_BLOCKED_REMOTE_AUTH = "blocked_remote_auth"
 STATUS_BLOCKED_IO_URING = "blocked_io_uring"
+STATUS_BLOCKED_RESOURCE = "blocked_resource"
 STATUS_SKIPPED = "skipped"
 STATUS_INCONCLUSIVE_UNSTABLE = "inconclusive_unstable"
 
@@ -46,12 +47,16 @@ RESULT_FIELDS = [
     "wire_goodput_mbps",
     "wire_bytes",
     "wire_bytes_equal_logical",
+    "wire_accounting_status",
     "verified_chunks",
     "manifest_evidence",
     "tree_manifest_evidence",
+    "evidence_status",
+    "evidence_errors",
     "source_tree_hash",
     "destination_tree_hash",
     "hash_match",
+    "integrity_status",
     "source_file_count",
     "destination_file_count",
     "exit_code",

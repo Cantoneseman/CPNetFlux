@@ -2181,6 +2181,8 @@ common::Status runGlobalTreeScheduler(core::tree::TreeManifest* manifest,
     schedulerConfig.workItemMaxBytes = options.schedulerWorkItemMaxBytes;
     schedulerConfig.defaultRttMs = options.schedulerDefaultRttMs;
     schedulerConfig.minCompressGbps = options.schedulerMinCompressGbps;
+    schedulerConfig.enableCompression =
+        options.compressionMode == config::CompressionMode::Auto;
     schedulerConfig.metricsPaths = metricsPaths.value();
 
     auto schedulerResult = core::scheduler::GlobalScheduler::create(std::move(schedulerConfig));

@@ -230,6 +230,14 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return parsed.status();
             }
             options.controlReuseMode = parsed.value();
+        } else if (option == "--compression") {
+            if (value == "off") {
+                options.compressionMode = CompressionMode::Off;
+            } else if (value == "auto") {
+                options.compressionMode = CompressionMode::Auto;
+            } else {
+                return common::Status::invalidArgument("--compression must be off or auto");
+            }
         } else if (option == "--chunk-size") {
             auto parsed = parseUnsigned(value, "--chunk-size");
             if (!parsed.isOk()) {
@@ -467,7 +475,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            " [--connections <N>] [--file-parallelism <N>] [--chunk-size <bytes>] "
            "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
            "[--checksum-backend <auto|software|hardware>] [--resume] [--max-files <N>] "
-           "[--control-reuse off|worker] [--planner-preset <name>] "
+           "[--control-reuse off|worker] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
            "[--event-log <path>] [--scheduler off|global] "

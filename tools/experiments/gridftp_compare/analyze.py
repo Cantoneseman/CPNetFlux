@@ -8,12 +8,64 @@ from .schemas import (
     STATUS_BLOCKED_EXTERNAL_GRIDFTP,
     STATUS_BLOCKED_IO_URING,
     STATUS_BLOCKED_REMOTE_AUTH,
+    STATUS_BLOCKED_RESOURCE,
     STATUS_FAIL_CORRECTNESS,
     STATUS_FAIL_RUNTIME,
     STATUS_INCONCLUSIVE_UNSTABLE,
     STATUS_PASS,
     SUMMARY_FIELDS,
 )
+
+
+def classify_evidence(
+    *,
+    system: str,
+    dataset_kind: str,
+    checksum: str,
+    logical_bytes: int,
+    wire_bytes: str,
+    manifest_evidence: list[str],
+    tree_manifest_evidence: list[str],
+    verified_chunks: str,
+) -> dict[str, str]:
+    """Classify observability evidence without changing transfer correctness.
+
+    A transfer with exit code zero and matching independent hashes remains a
+    successful transfer even when optional metrics are absent. Wire bytes may
+    legitimately be smaller than logical bytes when compression is active.
+    """
+    if system != "cpnetflux":
+        return {
+            "wire_accounting_status": "not_applicable",
+            "evidence_status": "not_applicable",
+            "evidence_errors": "",
+        }
+
+    errors: list[str] = []
+    if not wire_bytes or wire_bytes == "0":
+        wire_status = "missing"
+        errors.append("wire_bytes missing")
+    else:
+        try:
+            wire_value = int(wire_bytes)
+        except ValueError:
+            wire_status = "invalid"
+            errors.append("wire_bytes invalid")
+        else:
+            wire_status = "equal" if wire_value == logical_bytes else "compressed"
+
+    if not manifest_evidence:
+        errors.append("manifest evidence missing")
+    if checksum != "none" and not verified_chunks:
+        errors.append("verified_chunks evidence missing")
+    if dataset_kind == "tree" and not tree_manifest_evidence:
+        errors.append("tree manifest evidence missing")
+
+    return {
+        "wire_accounting_status": wire_status,
+        "evidence_status": "complete" if not errors else "partial",
+        "evidence_errors": "; ".join(errors),
+    }
 
 
 def classify_transfer_result(*, exit_code: int, hash_match: bool, timed_out: bool = False) -> str:
@@ -59,6 +111,7 @@ def summarize_rows(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
         STATUS_BLOCKED_EXTERNAL_GRIDFTP,
         STATUS_BLOCKED_REMOTE_AUTH,
         STATUS_BLOCKED_IO_URING,
+        STATUS_BLOCKED_RESOURCE,
     }
     for key, group in sorted(grouped.items()):
         goodputs = [

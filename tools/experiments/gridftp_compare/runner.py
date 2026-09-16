@@ -19,7 +19,7 @@ from typing import Any
 from tools.release import remote_auth
 from tools.test.gridftp_port_window import MAX_PASSIVE_DATA_PORT_BASE, passive_data_port_window_end
 
-from .analyze import classify_transfer_result, summarize_rows
+from .analyze import classify_evidence, classify_transfer_result, summarize_rows
 from .dataset import (
     dataset_kind,
     dataset_specs,
@@ -45,6 +45,7 @@ from .schemas import (
     STATUS_BLOCKED_EXTERNAL_GRIDFTP,
     STATUS_BLOCKED_IO_URING,
     STATUS_BLOCKED_REMOTE_AUTH,
+    STATUS_BLOCKED_RESOURCE,
     STATUS_DRY_RUN,
     STATUS_FAIL_CORRECTNESS,
     STATUS_FAIL_RUNTIME,
@@ -1421,6 +1422,8 @@ def build_tree_client_command(
         str(args.buffer_size),
         "--checksum",
         case.checksum,
+        "--compression",
+        case.compression,
         "--checksum-backend",
         args.checksum_backend,
         "--control-reuse",
@@ -2295,22 +2298,20 @@ def result_row(
     tree_manifest_evidence = [path for path in manifest_evidence if ".cpnetflux.tree." in path]
     verified_chunk_count = sum(manifest_verified_chunk_count(Path(path)) for path in manifest_evidence)
     verified_chunks = str(verified_chunk_count) if verified_chunk_count else ""
-    if result == STATUS_PASS and case.system == "cpnetflux" and (
-        client_log_path.is_file() or server_log_path.is_file() or summary_path.is_file()
-    ):
-        evidence_errors: list[str] = []
-        if wire_matches != "true":
-            evidence_errors.append("wire_bytes did not equal logical_bytes")
-        if not manifest_evidence:
-            evidence_errors.append("manifest evidence missing")
-        if not verified_chunks:
-            evidence_errors.append("verified_chunks evidence missing")
-        if dataset_kind(case.dataset) == "tree" and not tree_manifest_evidence:
-            evidence_errors.append("tree manifest evidence missing")
-        if evidence_errors:
-            result = STATUS_FAIL_CORRECTNESS
-            error = (error + " " + "; ".join(evidence_errors)).strip()
+    evidence = classify_evidence(
+        system=case.system,
+        dataset_kind=dataset_kind(case.dataset),
+        checksum=case.checksum,
+        logical_bytes=logical_bytes,
+        wire_bytes=wire_bytes,
+        manifest_evidence=manifest_evidence,
+        tree_manifest_evidence=tree_manifest_evidence,
+        verified_chunks=verified_chunks,
+    )
     goodput = logical_bytes * 8.0 / elapsed / 1_000_000.0 if elapsed > 0 and result == STATUS_PASS else ""
+    integrity_status = "pass" if source_hash and dest_hash and source_hash == dest_hash else "fail" if source_hash or dest_hash else "unknown"
+    if evidence["evidence_errors"] and not error:
+        error = evidence["evidence_errors"]
     row = {
         "run_id": run_id,
         "case_id": case.case_id,
@@ -2343,12 +2344,16 @@ def result_row(
         "wire_goodput_mbps": "",
         "wire_bytes": wire_bytes,
         "wire_bytes_equal_logical": wire_matches,
+        "wire_accounting_status": evidence["wire_accounting_status"],
         "verified_chunks": verified_chunks,
         "manifest_evidence": json.dumps(manifest_evidence, ensure_ascii=False),
         "tree_manifest_evidence": json.dumps(tree_manifest_evidence, ensure_ascii=False),
+        "evidence_status": evidence["evidence_status"],
+        "evidence_errors": evidence["evidence_errors"],
         "source_tree_hash": source_hash,
         "destination_tree_hash": dest_hash,
         "hash_match": "true" if source_hash and dest_hash and source_hash == dest_hash else "false",
+        "integrity_status": integrity_status,
         "source_file_count": str(source_count),
         "destination_file_count": str(dest_count),
         "exit_code": str(exit_code),
@@ -2395,9 +2400,41 @@ def blocked_row(
     )
 
 
+def disk_budget_error(args: argparse.Namespace, output_dir: Path) -> str:
+    minimum_bytes = int(float(args.min_free_gib) * 1024**3)
+    local_free = shutil.disk_usage(output_dir).free
+    if local_free < minimum_bytes:
+        return f"local free space below budget: {local_free / 1024**3:.2f} GiB"
+    if not getattr(args, "remote_access_ok", False):
+        return ""
+    completed = run_remote_capture(args.remote, "df -Pk /tmp | tail -1", timeout=20)
+    if completed.returncode != 0:
+        return f"remote disk budget probe failed: {completed.stderr.strip()}"
+    fields = completed.stdout.split()
+    if len(fields) < 4:
+        return f"remote disk budget probe returned unexpected output: {completed.stdout.strip()}"
+    remote_free = int(fields[3]) * 1024
+    if remote_free < minimum_bytes:
+        return f"remote free space below budget: {remote_free / 1024**3:.2f} GiB"
+    return ""
+
+
+def cleanup_case_resources(args: argparse.Namespace, run_id: str, case: ExperimentCase, case_dir: Path) -> None:
+    if getattr(args, "retain_payloads", False):
+        return
+    for name in ("source_payload", "dest_payload"):
+        shutil.rmtree(case_dir / name, ignore_errors=True)
+    if getattr(args, "remote_access_ok", False):
+        remote_root = remote_case_root(args, run_id, case)
+        run_remote_capture(args.remote, f"rm -rf {shlex.quote(remote_root)}", timeout=60)
+
+
 def collect_environment(args: argparse.Namespace, output_dir: Path, run_id: str) -> dict[str, Any]:
     def local(command: list[str]) -> str:
-        completed = subprocess.run(command, text=True, capture_output=True, check=False, timeout=10)
+        try:
+            completed = subprocess.run(command, text=True, capture_output=True, check=False, timeout=10)
+        except FileNotFoundError:
+            return f"unavailable: {command[0]}"
         return (completed.stdout + completed.stderr).strip()
 
     environment: dict[str, Any] = {
@@ -2433,6 +2470,8 @@ def collect_environment(args: argparse.Namespace, output_dir: Path, run_id: str)
             "remote_work_root": args.remote_work_root,
             "local_build_dir": args.local_build_dir,
             "remote_build_dir": args.remote_build_dir,
+            "min_free_gib": args.min_free_gib,
+            "retain_payloads": args.retain_payloads,
         },
     }
     if args.dry_run:
@@ -2809,15 +2848,28 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
     for index, case in enumerate(cases):
         if case.case_id in completed_case_ids:
             continue
-        row = run_case(
-            args=args,
-            output_dir=output_dir,
-            run_id=run_id,
-            case=case,
-            case_index=index,
-            gridftp_preflight=gridftp_preflight,
-        )
+        budget_error = disk_budget_error(args, output_dir)
+        if budget_error:
+            row = blocked_row(
+                args=args,
+                run_id=run_id,
+                case=case,
+                case_index=index,
+                case_dir=output_dir / "cases" / case.case_id,
+                status=STATUS_BLOCKED_RESOURCE,
+                error=budget_error,
+            )
+        else:
+            row = run_case(
+                args=args,
+                output_dir=output_dir,
+                run_id=run_id,
+                case=case,
+                case_index=index,
+                gridftp_preflight=gridftp_preflight,
+            )
         rows.append(row)
+        cleanup_case_resources(args, run_id, case, output_dir / "cases" / case.case_id)
         write_csv(results_path, RESULT_FIELDS, rows)
         write_csv(output_dir / "summary.csv", SUMMARY_FIELDS, summarize_rows(rows))
         write_final_summary(output_dir, rows, gridftp_preflight)
@@ -2906,6 +2958,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--iperf-duration", type=int, default=15)
     parser.add_argument("--dataset-timeout", type=int, default=1800)
     parser.add_argument("--case-timeout", type=int, default=3600)
+    parser.add_argument("--min-free-gib", type=float, default=10.0, help="minimum free space required on local and remote /tmp before each case")
+    parser.add_argument("--retain-payloads", action="store_true", help="retain source/destination payloads for forensic inspection")
     parser.add_argument("--socket-sample-interval", type=float, default=0.5)
     parser.add_argument("--resume-max-files", type=int, default=1)
     parser.add_argument("--resume-interrupt-after-s", type=int, default=10)

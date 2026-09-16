@@ -144,7 +144,7 @@ common::Result<std::vector<FilePlan>> GlobalScheduler::planManifest(
         sample.fileId = record.transferId;
         sample.reason = "sample_unavailable";
         sample.decision = compressionDispositionName(CompressionDisposition::Raw);
-        if (allowSampling && direction == SchedulerDirection::Upload) {
+        if (config_.enableCompression && allowSampling && direction == SchedulerDirection::Upload) {
             auto analyzed = compressionAdvisor_.analyzeFile(rootPath / record.relativePath,
                                                             record.transferId, record.size,
                                                             resumeGeneration, 0.0,
