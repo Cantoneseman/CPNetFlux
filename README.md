@@ -16,10 +16,10 @@ CPNetFlux 是面向算力网的大规模可靠数据传输底座。它提供 Gri
 
 ## 开发入口
 
-1. 阅读 `docs/DESIGN.md`、`docs/ROADMAP.md`、`docs/ENGINEERING.md`。
-2. 阅读 `docs/RESEARCH_BASELINE.md`，了解现有实验真正证明和没有证明的内容。
-3. 阅读 `docs/AI_COLLABORATION.md` 和 `docs/tasks/README.md`，确认自己属于哪个协作角色。
-4. 先运行本地构建和单元测试，再开始新的任务。
-5. 每个任务使用独立分支，并在任务规格中写明验收标准。
+1. 从 [总指挥与五角色入口](docs/coordination/START_HERE.md) 接手，读取项目简报、环境和任务板。
+2. 按角色/任务读取 `docs/DESIGN.md`、`docs/ENGINEERING.md`、最近有效的决策及实验原始证据；旧 ROADMAP 保留历史，不能当作自动执行清单。
+3. 用户主要与总指挥沟通；总指挥派给架构、实验、实现、质量、运维五个独立角色。[六份完整初始 prompt](docs/coordination/START_HERE.md) 保存在仓库中。
+4. 修改前固定任务范围、输入提交和验收。Windows 本地开发；Linux 测试使用经过资源检查的云端隔离构建，未运行的测试不能宣称通过。
+5. 代码任务使用独立 `codex/<task-id>` 分支/worktree；协作规则见 `docs/AI_COLLABORATION.md`。
 
 CPNetFlux 不等同于完整 GridFTP 实现；`GridFTP` 在文档中仅表示外部兼容协议和对照工具名称。
