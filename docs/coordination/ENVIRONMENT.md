@@ -22,6 +22,8 @@
 
 两个别名当时均能非交互登录。上海磁盘满是 **新实验阻塞项**；SSH 可登录不代表可运行实验。
 
+22:03 的运维接手复核见 [05-operations.md](receipts/05-operations.md)：深圳仍余约 51.07 GiB，上海仍为 0；两端已有 liburing 开发包，但没有新固定构建/运行验收。系统 OpenSSH 本轮返回 255，现有 Git OpenSSH 可用。可显式调用 `D:\Software\Git\usr\bin\ssh.exe -F "$env:USERPROFILE/.ssh/config"`，保留 BatchMode 与 StrictHostKeyChecking=yes；不要将客户端调用失败误判为服务器失联。
+
 可以直接在 PowerShell 运行以下只读检查（不要把它们当成实验启动脚本）：
 
 ```powershell
