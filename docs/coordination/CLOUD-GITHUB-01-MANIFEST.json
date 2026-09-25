@@ -1,0 +1,20 @@
+{
+  "schema_version": "cpnetflux-cloud-github-01.v1",
+  "source_head": "a076c532640ba06de016ed7ed20f7d2a6d48a0a7",
+  "uploaded_file_count": 548,
+  "worktree_archive_sha256": "efd76e5e107e18bb6ff153a6bd28b72a2fe117e4edb5827981d6f8e132e4ed09",
+  "git_bundle_sha256": "f98afc32b2faa51d398b4988865385b9ca4337f43a280b3c5368c020fe65e77b",
+  "exclusions": [
+    ".git",
+    "build",
+    "tools/perf/results",
+    "tools/experiments/gridftp_compare/manual-plans",
+    "**/__pycache__"
+  ],
+  "source_path": "D:\\Project\\CPNetFlux",
+  "remote_path": "/root/projects/CPNetFlux",
+  "old_tree": "/root/projects/GridFlux-Beta",
+  "protected_path": "/root/projects/CPSS(DCC)",
+  "verified_by": "00",
+  "generated_at_utc": "2026-09-25T02:53:52.6646987Z"
+}
