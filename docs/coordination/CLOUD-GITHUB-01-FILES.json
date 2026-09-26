@@ -1,0 +1,2758 @@
+{
+  "schema_version": "cpnetflux-cloud-github-01.files.v1",
+  "source_head": "a076c532640ba06de016ed7ed20f7d2a6d48a0a7",
+  "destination_head_before_manifest": "2523956be60217df377306f3493fa749397662b4",
+  "source_path": "D:/Project/CPNetFlux",
+  "destination_path": "/root/projects/CPNetFlux",
+  "generated_at_utc": "2026-09-25T08:34:47.441341+00:00",
+  "exclusions": [
+    ".git",
+    "build",
+    "tools/perf/results",
+    "tools/experiments/gridftp_compare/manual-plans",
+    "**/__pycache__",
+    "cloud-only migration marker and validation artifacts"
+  ],
+  "entries": [
+    {
+      "path": ".clang-format",
+      "size": 200,
+      "sha256": "4eb53f3fb03bb1bc6a82e8b3573ced3230e450869e704e6fba234f688e8abceb"
+    },
+    {
+      "path": ".clang-tidy",
+      "size": 704,
+      "sha256": "d6618bca392cd706c5f682e15295eebde6248e3ca99df48719c19d4cbbd08c0f"
+    },
+    {
+      "path": ".codex/config.toml",
+      "size": 40,
+      "sha256": "49aceac99c4286435471c26351b5a90363c11c7e270e80274e9e6db9902b6a94"
+    },
+    {
+      "path": ".gitignore",
+      "size": 604,
+      "sha256": "e54fbe256bc5cbc19db1ba10b2de16d7a475aacad2e438043b6c5632cad839a2"
+    },
+    {
+      "path": "2026-08-31-phase4-gridftp-comparison-experiment-design.md",
+      "size": 26197,
+      "sha256": "4ef321b1029fa23aacb9128449a44ca007335633771fdede9855e80c804799bd"
+    },
+    {
+      "path": "AGENTS.example.md",
+      "size": 1638,
+      "sha256": "0af8da3380292f35aa690e3198e8660416f765d557744c8da4bcc15e1fe467bd"
+    },
+    {
+      "path": "AGENTS.md",
+      "size": 4372,
+      "sha256": "d70b52b816f06ab0fcf75c8c058e3e96cb7d54d4cf5c7364e511a33d1a9557cd"
+    },
+    {
+      "path": "CMakeLists.txt",
+      "size": 14893,
+      "sha256": "86491dd03bc9472c2ab9c4d4848b24e31b27dfebe44c3c3d6c18b3259ff786cb"
+    },
+    {
+      "path": "INDEX.md",
+      "size": 2297,
+      "sha256": "4813670882b139eb191eca0b0e6a8a900fa010f5635471c11b5c4ad6c2ca250a"
+    },
+    {
+      "path": "README.md",
+      "size": 1608,
+      "sha256": "808132dffcfb27c02a58040471926a69583049b87d031adf4f673111c116ebae"
+    },
+    {
+      "path": "cmake/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "docs/AI_COLLABORATION.md",
+      "size": 4623,
+      "sha256": "84e50daf297ec83a2eee95ab02d28501b28eb4a27b525cdfcf2b2a82272698f6"
+    },
+    {
+      "path": "docs/ARCHITECTURE_ALPHA.md",
+      "size": 3178,
+      "sha256": "2273e1d7410aaaf342b6bdc9def9603661e71cd40c97031cc1e714d68d36a937"
+    },
+    {
+      "path": "docs/BETA_MATRIX.md",
+      "size": 5939,
+      "sha256": "8d778dc3b8f1d2948def485cfb766b1619c517902eba8e2106aeae4d4027eb89"
+    },
+    {
+      "path": "docs/CONCURRENT_TRANSFER_RESEARCH.md",
+      "size": 46924,
+      "sha256": "727108754d2a8fdaec9312c35971f17250a70cfe23398916cf8f4f02ef9f9419"
+    },
+    {
+      "path": "docs/DECISIONS/2026-09-17-directory-data-plane-profiling.md",
+      "size": 5462,
+      "sha256": "b34ef64e643e03f7b348e36dfae5a9dd03e1fe07f20215601c75b0c870b20e6b"
+    },
+    {
+      "path": "docs/DECISIONS/2026-09-17-retest-route-reset.md",
+      "size": 3142,
+      "sha256": "a0a48e2a9de4083080814300b7efb94c568d62f9bc04cc189a8da5b412138a85"
+    },
+    {
+      "path": "docs/DECISIONS/2026-09-23-100m-evidence-driven-optimization.md",
+      "size": 5015,
+      "sha256": "752391d5649a985e58c27998aef58a170dfe344011bc2ad4c656680878fa9c30"
+    },
+    {
+      "path": "docs/DECISIONS/2026-09-23-lower-level-dataplane-route.md",
+      "size": 4260,
+      "sha256": "06bbdf9d25835eaa6bf477cd1a8352dd45a726fbb4451cbbe97f0f4c4366997e"
+    },
+    {
+      "path": "docs/DECISIONS/2026-09-23-lowlevel-design.md",
+      "size": 4478,
+      "sha256": "8411a728cc939c23e480be4f777d20a1b438f0e14ce0a2903a5e44e130cb4684"
+    },
+    {
+      "path": "docs/DECISIONS/2026-09-23-lowlevel-sendv-gate.md",
+      "size": 1079,
+      "sha256": "43b74d03a45c865a0d7c4306a9d785844b6787a97f8148ba0653ee895a0f8d13"
+    },
+    {
+      "path": "docs/DECISIONS/2026-09-23-tree-telemetry-contract.md",
+      "size": 9764,
+      "sha256": "c55991cd0781b24b24e6b05c295329b41b5dff23f6149868366ff8a8596f928c"
+    },
+    {
+      "path": "docs/DECISIONS/2026-09-24-cloud-first-development-and-github-backup.md",
+      "size": 4715,
+      "sha256": "5b3e10963abbc9dbc35860e5e1ec8154c1d9cdba2ff0ca25c724e9fb962e3205"
+    },
+    {
+      "path": "docs/DECISIONS/2026-09-24-lowlevel-tree-lookahead-resource-contract.md",
+      "size": 12001,
+      "sha256": "ab4e30ce9cce11abefedcd10b289481ee7f59f7c30cf7e0f60920906c091e502"
+    },
+    {
+      "path": "docs/DEMO.md",
+      "size": 10457,
+      "sha256": "67a436435637a7839628a9b99d464fe9d93304f4115cfb65fb8dafe538e63128"
+    },
+    {
+      "path": "docs/DESIGN.md",
+      "size": 16961,
+      "sha256": "5d971d5b96e5a0884ebd2967a1dbfbd05d52524551514248097cf1a46c76f55a"
+    },
+    {
+      "path": "docs/DIRECTORY_TRANSFER.md",
+      "size": 5185,
+      "sha256": "bedf7ed3cd0d3b26546c2fec2c7b5535882d152ad6fdf4e0d16cab42995bfb49"
+    },
+    {
+      "path": "docs/ENGINEERING.md",
+      "size": 11090,
+      "sha256": "09490ceb7987c1b1d3d27b7a44c2357a2388386ee8e6b2717ea87a4927e9074b"
+    },
+    {
+      "path": "docs/GridFTP传输源码学习笔记.md",
+      "size": 15074,
+      "sha256": "c5ad4653696b32ae95e7cda33f39b0eb5074caff6a9a71db7f191d9561632a9a"
+    },
+    {
+      "path": "docs/OBSERVABILITY.md",
+      "size": 4218,
+      "sha256": "6c89c6500ff216bdc23dc0a936c15cd8cf5ce92573ba53ef3bb83d917fef17eb"
+    },
+    {
+      "path": "docs/PERF_README.md",
+      "size": 42420,
+      "sha256": "c4f84ab93fc0b9107c5d8c477ee72da07bb45b689303f6c04b08bb17e2d20557"
+    },
+    {
+      "path": "docs/PLAN_100M_PERFORMANCE.md",
+      "size": 12515,
+      "sha256": "60b185caf3ed6498832beda5979dd59fb73100700e4145351ee3f2ce816a907d"
+    },
+    {
+      "path": "docs/PROJECT_STATE.md",
+      "size": 215124,
+      "sha256": "5a2fd7a333bfc73c269af7da0057389e98887b3af64fdb62c27ca2aab1febaad"
+    },
+    {
+      "path": "docs/RESEARCH_BASELINE.md",
+      "size": 6658,
+      "sha256": "8477b96cb2427293374e99e76357892b85faef066f7f1407e602ef75d8981fbf"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "size": 57033,
+      "sha256": "40158dbf49d9f77a098b64ed80f6a36c28f921d8bae51092a478c20f8487f7d1"
+    },
+    {
+      "path": "docs/SECURITY.md",
+      "size": 6728,
+      "sha256": "57776f525f62fe53b61f8fdddbe6d0232ca4a29935c8536b8e8a1d3a7dff8f6b"
+    },
+    {
+      "path": "docs/coordination/BOARD.md",
+      "size": 22062,
+      "sha256": "4c634bb0369d73f0acf03ddbbb81e2a6e07e64d409a6c27c8834d734bf555f2b"
+    },
+    {
+      "path": "docs/coordination/CURRENT_HANDOFF.md",
+      "size": 2456,
+      "sha256": "c80a60d383764e3354173e80e83a76f4aae83b98b7fdab91ef52d43f810a0137"
+    },
+    {
+      "path": "docs/coordination/DISPATCH.md",
+      "size": 3883,
+      "sha256": "ae31e2d9572cffd3f16f6205c5ff21bb6feae72223e211c1955a82209755465a"
+    },
+    {
+      "path": "docs/coordination/ENVIRONMENT.md",
+      "size": 7949,
+      "sha256": "de6eb6fce18b4824d3c7b99d776de07206c883e2c9c07828f6e8bde2c84cd9f8"
+    },
+    {
+      "path": "docs/coordination/PROJECT_BRIEF.md",
+      "size": 5408,
+      "sha256": "a4e25d89bf9bfb369153b9479808b2c438688b81ff08ee08a7fee65b709410d0"
+    },
+    {
+      "path": "docs/coordination/ROSTER.md",
+      "size": 5112,
+      "sha256": "c4f84ed218c4b379e6bfab681028e66172df7ebba0c73546af932d92d6fbf181"
+    },
+    {
+      "path": "docs/coordination/SETUP_STATUS.md",
+      "size": 4066,
+      "sha256": "79424152f4abbac02234319eb6d21d94c165c877a5d97d9819c2e9add2f709e5"
+    },
+    {
+      "path": "docs/coordination/START_HERE.md",
+      "size": 4968,
+      "sha256": "7a9074d686499574a96b87f682e4c8b172c9b0504a90bd451d5f78953431b753"
+    },
+    {
+      "path": "docs/coordination/TASK_TEMPLATE.md",
+      "size": 1427,
+      "sha256": "a59428064db0a7f7790dd2f0aeddea154463882c5e15e0a1eb6abb38b0a7e333"
+    },
+    {
+      "path": "docs/coordination/prompts/00-commander.md",
+      "size": 5525,
+      "sha256": "f594359734589c65c355700c3afcb1944ad519562d9f78cc8da7ef669ca02a7b"
+    },
+    {
+      "path": "docs/coordination/prompts/01-architecture.md",
+      "size": 3753,
+      "sha256": "7ce62858250a769f4be60a94e6ad16d46e7b9b7484ede7ef906505c6d6074e34"
+    },
+    {
+      "path": "docs/coordination/prompts/02-experiments.md",
+      "size": 3924,
+      "sha256": "2e94ca1c4ed2ea29b330bad78d2b9e631e09e1976d7862b0f335163f1cf648bd"
+    },
+    {
+      "path": "docs/coordination/prompts/03-implementation.md",
+      "size": 3533,
+      "sha256": "3f7e54e4d1076b52bbeada5120e4b4eea38675a7d03a07f9c2c9c9bfc67d0cac"
+    },
+    {
+      "path": "docs/coordination/prompts/04-quality.md",
+      "size": 3516,
+      "sha256": "e97711434572e19e48a585ba0456888fc94764e03ca631f57cb9a18840101461"
+    },
+    {
+      "path": "docs/coordination/prompts/05-operations.md",
+      "size": 4068,
+      "sha256": "b7d380a738b82c93d48d06aff8059470e416fe949c34ff5684a790758e0b6724"
+    },
+    {
+      "path": "docs/coordination/receipts/00-commander.md",
+      "size": 9533,
+      "sha256": "77ff29dbfdb8f0f8921559e1260edabacd81ff8fd0ef92537161f711a40cb282"
+    },
+    {
+      "path": "docs/coordination/receipts/01-architecture.md",
+      "size": 5520,
+      "sha256": "80fe3b11b4c3ac33846356606c7204b92abe0d5b4bea884fe4cedadf273fa984"
+    },
+    {
+      "path": "docs/coordination/receipts/02-experiments.md",
+      "size": 95370,
+      "sha256": "8794cfbe5b27f7ee02d265999f47eecb57053000ef423a58d338d187f882040a"
+    },
+    {
+      "path": "docs/coordination/receipts/03-implementation.md",
+      "size": 67254,
+      "sha256": "b2a2fb01cb2bcbe7b2c35374ff371264152a67221cd1a76f0ad6c2f1dff06435"
+    },
+    {
+      "path": "docs/coordination/receipts/04-quality.md",
+      "size": 76557,
+      "sha256": "cb49f97aa957cee6162990d062c7e994faee517599cf56b289e7b7c9dc47f607"
+    },
+    {
+      "path": "docs/coordination/receipts/05-operations.md",
+      "size": 50109,
+      "sha256": "824cb41c8d20331d22d2e0cd34352cbd5d176fe54fce5d21fe210de9eb928bba"
+    },
+    {
+      "path": "docs/coordination/receipts/README.md",
+      "size": 545,
+      "sha256": "a8f8f1e62d681330593a25eeafd71c32cb752bbe2f8a26a4d389916ace91542f"
+    },
+    {
+      "path": "docs/perf/BETA_MATRIX.md",
+      "size": 5939,
+      "sha256": "8d778dc3b8f1d2948def485cfb766b1619c517902eba8e2106aeae4d4027eb89"
+    },
+    {
+      "path": "docs/perf/PHASE1_GLOBAL_SCHEDULER_MVP.md",
+      "size": 3403,
+      "sha256": "829ae7832c94c4fc9339d907e284bbc15cac7133337ba2969037a76e95b856d7"
+    },
+    {
+      "path": "docs/perf/PHASE2_GLOBAL_SCHEDULER.md",
+      "size": 14307,
+      "sha256": "7ef84c6e595e26c4976964b45de0d2a3c2e2a552b587f660a55d6803c8be2685"
+    },
+    {
+      "path": "docs/perf/PHASE3_HOT_PATH_COMPRESSION.md",
+      "size": 4632,
+      "sha256": "116fa7ad2bd74b80c11caa0653b338b128541a2fd3754732d4d88a94cbafa82b"
+    },
+    {
+      "path": "docs/perf/PHASE4A_BASELINE.md",
+      "size": 5573,
+      "sha256": "19e65a93dbe91a4912831842b4397d0d3907a7c45a0ba3c8d9c63aa4086872e2"
+    },
+    {
+      "path": "docs/perf/PHASE4B_BOTTLENECKS.md",
+      "size": 4664,
+      "sha256": "3437de1e7cb119f1a2161396e7819d31e51b121c6f331f31a12373aad03dcd74"
+    },
+    {
+      "path": "docs/perf/PHASE4C_STORAGE.md",
+      "size": 6392,
+      "sha256": "a9adcf70125094e69d4b54968b6e312c576cd9d4a16940f831a199b0629efb97"
+    },
+    {
+      "path": "docs/perf/PHASE4D_FILE_IO.md",
+      "size": 5730,
+      "sha256": "478044eccaf103970ca439cb6abb845239d186115dfe977458e213494b62a598"
+    },
+    {
+      "path": "docs/perf/PHASE4E_IO_URING_GATE.md",
+      "size": 40112,
+      "sha256": "60d6e16f0cdea237557b07530b2c8938925ccfd0a1e0e016226587ac81ddac89"
+    },
+    {
+      "path": "docs/perf/PHASE4F_IO_URING_PROTOTYPE.md",
+      "size": 4570,
+      "sha256": "5f06edd4b4a182d2a2b5735627bf18768b79d4f482c6257fb86ff5c147c7465a"
+    },
+    {
+      "path": "docs/perf/PHASE4G_IO_URING_REAL_VALIDATION.md",
+      "size": 9089,
+      "sha256": "bfb64ec8b43bab906c3fdab8f5c7c19b1efff31d342023fb0ba802a7e8bd1346"
+    },
+    {
+      "path": "docs/perf/PHASE4H_IO_URING_QUEUE_DEPTH_PLAN.md",
+      "size": 4114,
+      "sha256": "a301ccc96aed092402d97a059b8025f1b3f1022cceb59e73f03ad3e425039486"
+    },
+    {
+      "path": "docs/perf/PHASE4H_IO_URING_QUEUE_DEPTH_RESULTS.md",
+      "size": 8570,
+      "sha256": "6e0750bccaa628fbd7b454306c876440e3a37d77eb0ba3e0166c0c143ffd215c"
+    },
+    {
+      "path": "docs/perf/PHASE4I_HEAVY_QUEUE_DEPTH_GATE.md",
+      "size": 55181,
+      "sha256": "b25307d3ec0f3486e64e7c40539c4410bc842a2230e069f6ee07f9f9ef0fa035"
+    },
+    {
+      "path": "docs/perf/PHASE4J_POSIX_PIPELINE_DIAGNOSIS.md",
+      "size": 6587,
+      "sha256": "1e8ee5beed05f4c585466211b2e334752b8cb6fe349c99e9a93880f59b30f911"
+    },
+    {
+      "path": "docs/perf/PHASE4K_POSIX_WRITEBACK_OPTIMIZATION.md",
+      "size": 18970,
+      "sha256": "2b880714040463710b2de0edadd46d66a0e108620a3a5be79c8fa7026e3f9364"
+    },
+    {
+      "path": "docs/perf/PHASE4L_STABILITY_AND_RETR_BREAKDOWN.md",
+      "size": 12633,
+      "sha256": "524840989e27e3ba49d88ba8b36a39df052df1cfff310e4ce83b8536ae81cd89"
+    },
+    {
+      "path": "docs/perf/PHASE5B_TREE_DATASET_MATRIX.md",
+      "size": 2717,
+      "sha256": "b88a42aa464002d7d575d2bc1781b6c414d8f4dfcb280eb7b21aaf3e8d3a3514"
+    },
+    {
+      "path": "docs/perf/PHASE5C_TREE_ALPHA_HARDENING.md",
+      "size": 3838,
+      "sha256": "95e5701ce3044ffdea07752f136e73d69d2d78276461db697b912d54f241d97e"
+    },
+    {
+      "path": "docs/perf/README.md",
+      "size": 43201,
+      "sha256": "336dd308fa44f69db37dc23ea91b12759dbf491aa285c4c729c6a38e61e00480"
+    },
+    {
+      "path": "docs/release/ALPHA_LIMITATIONS.md",
+      "size": 2948,
+      "sha256": "be06b5dd20aaf8f792473090f2204e0a5c181cb74e36fa70ab5b2c174b3e963b"
+    },
+    {
+      "path": "docs/release/ALPHA_READINESS.md",
+      "size": 2766,
+      "sha256": "8e4b690fc491bf192af1dc095adb43358c3aad2b1a166d03ce79184445f4f92a"
+    },
+    {
+      "path": "docs/release/ALPHA_RELEASE_CANDIDATE.md",
+      "size": 2089,
+      "sha256": "08ed625b35fe1b69e3452d1bf1e6a6b3ba0320db2637390dbead45d5d1e0af51"
+    },
+    {
+      "path": "docs/release/ALPHA_RELEASE_GATE.md",
+      "size": 4500,
+      "sha256": "a3afa604acb30654d69b168465af8d95e70538c2522378a71f9ee91182401285"
+    },
+    {
+      "path": "docs/release/PHASE5D_ALPHA_DEMO.md",
+      "size": 1862,
+      "sha256": "53ebcdab9b530a901f8a65a148b88f22026e4dd76d64af414ee602369fbb60bb"
+    },
+    {
+      "path": "docs/release/PHASE6C_TLS_ALPHA.md",
+      "size": 2021,
+      "sha256": "4525f7d742a56d1275b52fb87bea7274c7deab986140ed2c617e910842b3b306"
+    },
+    {
+      "path": "docs/release/PHASE6D_DATA_TLS.md",
+      "size": 2028,
+      "sha256": "1f466d219b52cbc78c7d8e8c63efb9519a124de6f67fd31a3aef1d325a78044c"
+    },
+    {
+      "path": "docs/release/PHASE6E_ALPHA_RC.md",
+      "size": 2944,
+      "sha256": "38c6849dc781775a3099d3882c5cfaf045a97149f137b7e9bdee1091c0a82d25"
+    },
+    {
+      "path": "docs/release/README.md",
+      "size": 6143,
+      "sha256": "6961e43df9772a49ab05ec7af14180d83d1cc7b3c3762cd5e177eaef3882f184"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-05-global-scheduler-design.md",
+      "size": 16950,
+      "sha256": "ffe06305381c93ba375cca60c3876bdaabcc5aa89b645dba17ddc1e67af2b0a8"
+    },
+    {
+      "path": "docs/tasks/2026-09-17-role-charters.md",
+      "size": 2472,
+      "sha256": "e1aa2d1c84248e18598518ab871b17570d350715e87aaf84823b3467c073184a"
+    },
+    {
+      "path": "docs/tasks/2026-09-17-setup-dispatch-check.md",
+      "size": 1212,
+      "sha256": "941e9112aceeccb98a235fdd6c511101481d562b4f7db5997d6ac5ab20c23cd9"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-dir-perf-source-01-result.md",
+      "size": 790,
+      "sha256": "20c417391ea853c7f42fc8b1d40110f981afaab56c2f78b3c690515164543f99"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-dir-perf-source-01.md",
+      "size": 3691,
+      "sha256": "468002443299673acfb76207e6a1232b6ffc98f61b41ecac993318680901123a"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-env-01.md",
+      "size": 3682,
+      "sha256": "0c37866fc20e7382de7dae77a917a8548c8c6f79a408dd74404f232184d1c3fc"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-env-preflight-02-result.md",
+      "size": 1209,
+      "sha256": "6edeb7d4b04ad5b643dda0f8c2ffb742ff2478ebc6a164fbab59e71a6eb636b7"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-env-preflight-02.md",
+      "size": 2208,
+      "sha256": "c2fec7e809254d33bf3864d7cdebf3569edf284b175d36b4d1423fd73538ceb7"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-env-space-plan-01.md",
+      "size": 3214,
+      "sha256": "ecf154be226d6d0360bf84f5f01be083352b49a8878b3f2d86827ec75224fc37"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-g100-sendv-01.md",
+      "size": 4246,
+      "sha256": "fdace6f301e683086f06666b7295a804d46e3c4d1d2c4177c0abdf42f9782bdb"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-hist-forensic-01-result.md",
+      "size": 21694,
+      "sha256": "6673d41be76a169697ab17f8170e25a3a5c5da7aaf31e9680906259ac22475d9"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-hist-forensic-01.md",
+      "size": 2840,
+      "sha256": "99aa74d482f4371d8310997116c645864a377c528d8251d9e833d015798f4576"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-hist-forensic-restore-01-last-message.md",
+      "size": 971,
+      "sha256": "b4ca08ddd3b52f3f5f537a49f22fa851b1b427b6edd97b4e3b3b702ea19f20b9"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-hist-forensic-restore-01.md",
+      "size": 3339,
+      "sha256": "79aa015daa199b70f94b3372616504ca1ecfa27a81927882af2c6afac1d613cf"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-hist-qa-01-result.md",
+      "size": 14824,
+      "sha256": "2a14f1852e11f5f7085bd0c573a460c4250c487a9c5e30ccf5670ec259aa62cb"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-hist-qa-01.md",
+      "size": 3596,
+      "sha256": "d4980673c1f48a39c31e0f585db762e09e9b415b91a5c3341f23e7f374571fec"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-hist-qa-restore-01-last-message.md",
+      "size": 896,
+      "sha256": "d6e8f59b75118cd5118128853984dd7817550372dd699f47af902d83c3a377b4"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-hist-qa-restore-01.md",
+      "size": 2653,
+      "sha256": "dcc63556a4ddf32ce6a8c365567eb8b53057a5f2f3cac4a0f5739f2f979d65da"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-cloud-preflight-01-last-message.md",
+      "size": 1188,
+      "sha256": "c84842fcad8211588e136eb8b75a9534ebcdbd2e910e1cf291524a1460f04bcb"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-cloud-preflight-01-result.md",
+      "size": 13059,
+      "sha256": "9320cfa2e42e786768845af2add934a0ede99069f31c913fc0f0def45692ea3e"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-cloud-preflight-01.md",
+      "size": 4201,
+      "sha256": "780b59ab0761b0eb0c84f4415395602f042242dbafb2671415dcf02653031907"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-design-01-last-message.md",
+      "size": 604,
+      "sha256": "53286ac529ba49590d3c4d4f1c93aca042ed6a0df7fa7104cef8acba3f49561a"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-design-01-result.md",
+      "size": 18714,
+      "sha256": "3ad23ab2447c93dbbd9370e1c850bbc435169d8178732461761ce0e4977228f4"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-design-01.md",
+      "size": 3743,
+      "sha256": "1ff486f8a19cf5103212679e95ace3b029f7719079a71a87c49a270e6cbb8a6d"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-design-qa-01-last-message.md",
+      "size": 742,
+      "sha256": "c89d9ac6820781ffc5c4c1ae9bed3b5d16b93986eb35989252d70644673865ad"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-design-qa-01-result.md",
+      "size": 9296,
+      "sha256": "2df76e9006294aabe98255088f35ac1b62b186470c4f7ef1a460565f74b861f0"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-design-qa-01.md",
+      "size": 2749,
+      "sha256": "3cd15579bc206c803212d60adee6c20e48fc1db1d6a74aca382e35a960ab657f"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-sendv-impl-01-last-message.md",
+      "size": 1541,
+      "sha256": "b37a9179e3f680e1445c820fed188937824ca65f7b9999413f780c2401a69df8"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-sendv-impl-01-result.md",
+      "size": 9614,
+      "sha256": "b4958aff95b97b1820b1a6531dbcdfda43e5c0280e9fd37a633a797c90fcde88"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-sendv-impl-01.md",
+      "size": 4396,
+      "sha256": "d9147870f868cd47857dc9548d893a7051ef4641e8206339afbc8badf6647b32"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-sendv-qa-01-last-message.md",
+      "size": 1037,
+      "sha256": "03e7ee6942359aafab6ac8057fe816e6040e913233a5f7770d4cb467295a4840"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-sendv-qa-01-result.md",
+      "size": 9771,
+      "sha256": "244fb16bba61270ce2cde776ab7a814d0dd15f44034be7f85bb667051d1bd995"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-sendv-qa-01.md",
+      "size": 3968,
+      "sha256": "284a9a73500294e24a2a1e961635bad24cf654eb41fde10b87bda5936a5b5615"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-single-profile-00-result.md",
+      "size": 3691,
+      "sha256": "d5bfe4e6780aea5a817afe3be4d75f19181cf6201d08d9989591c999942c43d8"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-single-profile-01-last-message.md",
+      "size": 661,
+      "sha256": "bea47060f77e11a0fa1b32cc8655c10efba07acf468b01b169bfe585223d51ac"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-single-profile-01-result.md",
+      "size": 5448,
+      "sha256": "085fb2bbb33d44c52f1dd12c59079fff477c86139b3e87011c09658f9c5493a1"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-single-profile-01.md",
+      "size": 5489,
+      "sha256": "b6b563ccb50927484f8a0c68d93a97909ec33bceb54a4485247aaeac84955d50"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-stage-profile-00-supplement.md",
+      "size": 2704,
+      "sha256": "bcc1efffe2f6437572e761aa8a14ac0ee97f4c9f4ba8ec83868680b3deb825ac"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-stage-profile-01-last-message.md",
+      "size": 610,
+      "sha256": "c4e2257cbb67def29f3c4257917f91222972973d491330710de53429032a1a89"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-stage-profile-01-result.md",
+      "size": 8316,
+      "sha256": "c7de25820f426f162a2b617deea868c90388013a9b75946217a4a9e4c3cae59c"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-stage-profile-01.md",
+      "size": 3559,
+      "sha256": "0f48cab010a43b1f3845da8b31d527c6678b651371c3e9fa922882bdd28e4926"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-arch-review-01-last-message.md",
+      "size": 1057,
+      "sha256": "39318515c3d04cdf37c00c2b9e8959e8fbe05756b2b87fa89d0d13db3af5917d"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-arch-review-01-result.md",
+      "size": 21748,
+      "sha256": "ed9d7b0fdfa4da29003f224377b654a7a9caf39146cbf7ce47bd618cdd7780f0"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-arch-review-01.md",
+      "size": 3632,
+      "sha256": "85b3727d5d2ca20fa323e5ab5474d9500caa8f20fb8a0939ac589c42abfa3366"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-arch-review-02-result.md",
+      "size": 20220,
+      "sha256": "4b36b58556dba20f24ecfaa3a3939f9d89236f5086bfacc47c64226ade55d1df"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-arch-review-02.md",
+      "size": 4791,
+      "sha256": "3f533c9063efb54cbd1288a312c816fff07733fd2de9587b0103dd1beec90cce"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-lifecycle-decision.md",
+      "size": 4033,
+      "sha256": "df9d358821f33c7899886957be1e0ebfdbee98088e0ddd7baedf0688e8925dc2"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-plan-01-last-message.md",
+      "size": 786,
+      "sha256": "7ecfcfe17658400cd40ff0f357f2ebd81c223eccf6ed2dd24f4bb58ec08b4764"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-plan-01-result.md",
+      "size": 23358,
+      "sha256": "560d7ee289598e50ac55a05af47ffbab5ef494f62f804430b9c85739da487666"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-plan-01.md",
+      "size": 4308,
+      "sha256": "baf35a4bd9cc2ed9e28d87ef05724e45c65c4aabeac276c5c5ceb56f6bf4cb97"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-plan-02-last-message.md",
+      "size": 752,
+      "sha256": "b1a1b02ed49ad3e50f2a83681ff2e1220dc08b351d33cc0d2f057593dbc15efa"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-plan-02-result.md",
+      "size": 21535,
+      "sha256": "d6937098852001e67cee1f0c3f751dd301793a6fee1370722e0a22134262095f"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-plan-02.md",
+      "size": 2673,
+      "sha256": "ab6e93ae51f50e1f85d0922d8456a8c1f0a0e54f23d5b97f8d1c8e2d48214746"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-plan-03-last-message.md",
+      "size": 965,
+      "sha256": "1d1a81500710575e3597cdd279ef7c639cf3c2374f260c5d05effee42291e40d"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-plan-03-result.md",
+      "size": 11464,
+      "sha256": "10c0cb19ad61747fea7c6fc478e126306fbdcb247aef7fdc14fb3835211bb97f"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-plan-03.md",
+      "size": 3947,
+      "sha256": "68512813c552cf9edafff3b447f144ea2dc077a5cd3c5a98b8ce87da602a2a4c"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-qa-01-last-message.md",
+      "size": 865,
+      "sha256": "9ddced7de51d236429cce492ef713547425c641cd6357b61cb40d84b6af518c6"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-qa-01-result.md",
+      "size": 9642,
+      "sha256": "1eef7fd2cca879b29c73671c2f878b7d330429d378af2daf5e6dd095b2e8f108"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-qa-01.md",
+      "size": 3723,
+      "sha256": "276cb37481e3ae753ca333ce0f78387209d1a0cf5593ae21fdc774ebc57a3c57"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-qa-02-last-message.md",
+      "size": 730,
+      "sha256": "10974975f22be634004a1387395accfe9111491ad2228e8373724246fc22bd12"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-qa-02-result.md",
+      "size": 11252,
+      "sha256": "173b4ae17d4721db90a7e46eeeb5e0aa7aff5de62cc28851b54408243cc8d910"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-lowlevel-tree-telemetry-qa-02.md",
+      "size": 3478,
+      "sha256": "2a59b2b7dc3b57f97d0174a3cbddaf065be1b717dd38342e612ab5852a72d605"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-env-evidence-02.md",
+      "size": 2911,
+      "sha256": "b8926f19acdb786b1ffd90351e8fa335c0df92c405930102011d6bba82946a18"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-impl-adapter-01.md",
+      "size": 2574,
+      "sha256": "a2f336bdb0aa312683365b5d6dcf1c03230819ad9fea24e064a4075394cbddfd"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-impl-contract-02.md",
+      "size": 2372,
+      "sha256": "86d1e46e140b299749b7a5a50ade482efa8e181c7f7496ccd6a88baafc8a9920"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-impl-plan-01.md",
+      "size": 4260,
+      "sha256": "db2a776f0f90e8e6c6ed2ead992cfd69590fedca4305d3459faa96aa3ad6b747"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-matrix-plan.md",
+      "size": 3536,
+      "sha256": "f571f5a567a98b368af66517bb058e99749afd7a9566869c24e88538eb5704d0"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-plan-qa-01.md",
+      "size": 2995,
+      "sha256": "069580c0a6f955b448cb6433759d100ddafbe1c9e130da971ebdc610bb993e3b"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-qa-01.md",
+      "size": 4258,
+      "sha256": "0ab463addd62b51174c17c6496ae65daeaefa6378d45d3b069617bcdcaac66da"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-qa-contract-04.md",
+      "size": 2518,
+      "sha256": "812bc3f09d927be0d690224d2c18f76d8138587f5d4037ca256c02b78889e120"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-qa-vector-01.md",
+      "size": 2498,
+      "sha256": "d20f4b1c705b2dc500b33d8b1e4161ec0c57fd167abd6c1c6fe263d13afaa631"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-route.md",
+      "size": 3674,
+      "sha256": "78de9951796725e5bcd3ab3f39c38f3e326dec03b4ab37ac7c4b544ae2614b30"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-tool-plan-01.md",
+      "size": 4174,
+      "sha256": "7d9de4d149dbdbbed62ec045299bc24d922ebc189aaee5bbced604314b1f3e50"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-tool-plan-02.md",
+      "size": 4009,
+      "sha256": "175fed0099d2386ff46fe9a88ebeb6cca82c8056edfd10709b043e756c1bda70"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-tool-plan-03.md",
+      "size": 2417,
+      "sha256": "023adaec98c29d8dae32ad8323afe5d8a960b1b1f4064fe512eae531a0442def"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-tool-qa-01.md",
+      "size": 3003,
+      "sha256": "d80a0507f2590a1139354cb2ff585cadd04a72be8442da9f45c1b223a46cbe80"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-tool-qa-02.md",
+      "size": 3707,
+      "sha256": "5c782a5c37f98274fc190f9807e584c783a96512145aaac6efa0c5714297f7b9"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-perf-tool-qa-03.md",
+      "size": 2938,
+      "sha256": "192c53c8356b00a4ed1676d8de67440f9dc7206c5a929caf9856aa3aee73e7e2"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-route-qa-02-result.md",
+      "size": 745,
+      "sha256": "a1e5bf2aeb1f1af138bd7cbe981ac327d59f8991b13327e2242afa8f49d45634"
+    },
+    {
+      "path": "docs/tasks/2026-09-23-route-qa-02.md",
+      "size": 1580,
+      "sha256": "7856416fbb2c8acb61f7af4088ca4cce38b4b026be9347399d9cc9d334fc9c8d"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-cloud-github-01.md",
+      "size": 2891,
+      "sha256": "221041610152d34b9339f3a77d3b7dc0130f65bfae7621b13693733b16b74df3"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-sendv-qa-recheck-02-last-message.md",
+      "size": 532,
+      "sha256": "a4a4b1776003d7612073c7ed76520ee6dbd12c8793fe1616f1a5419cbb59c15a"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-sendv-qa-recheck-02-result.md",
+      "size": 8521,
+      "sha256": "fb6337e718c6d185120569bb3b201289595a1e02f8e8256f120d65b40360b9af"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-sendv-qa-recheck-02.md",
+      "size": 4244,
+      "sha256": "35733c8e3111d378e4be3dc9bfdf28563096a945ba61cd37decc3177b54ca2e7"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-dense-profile-local-01-result.md",
+      "size": 4410,
+      "sha256": "925769cbdc4f1ccec181056eb717a73d16aaff7d216f8bfa33511854fc4b38b0"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-dense-profile-local-01.md",
+      "size": 3238,
+      "sha256": "b89fc90c249ffb536dc86b5c6c26d80ade4052cf2940bb0bb712aa0fd89d8ad5"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-design-01-last-message.md",
+      "size": 622,
+      "sha256": "578b24e347ec7a7ace192be26d12b6d326e231bff86aba4d805e379466f7429a"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-design-01-result.md",
+      "size": 18380,
+      "sha256": "2164ef84aebfcd58f83c92928a8cda9991048593330be346355d506e3e3968ae"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-design-01.md",
+      "size": 2722,
+      "sha256": "70cb0af99c920bcf9686ed650097a8958b900cb9f14a06e6cb6793e52fb33464"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-design-revision-02-last-message.md",
+      "size": 893,
+      "sha256": "a5e4b4b03d2875c6e12691cfd98620906be45ab02cb46d547ee972c81836a808"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-design-revision-02-result.md",
+      "size": 18650,
+      "sha256": "49bfc7846f7d5871270ddca29fb3ef782c593b52176808290bedcb74899d8222"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-design-revision-02.md",
+      "size": 3439,
+      "sha256": "994378d10ffc77fb56e75c9c76133d980253544a646ad895020f4b5d5fe5cb9a"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-05-last-message.md",
+      "size": 1224,
+      "sha256": "e56e34a0fdb6896516c5fadfad897ef09328bca0f7e230f54acda32a3941e762"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-05.md",
+      "size": 7255,
+      "sha256": "d2651053276a1bed900c636711af67c608d8c8ff2ff4184f12d2203eb3eeabe8"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-qa-05-last-message.md",
+      "size": 987,
+      "sha256": "0c6af140cee00c6f4f31893f96db4f90f321a5e25988a50c8006e5a65d88e45a"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-qa-05-result.md",
+      "size": 11848,
+      "sha256": "6438eda44abc248545a60732adde994672ab3777885e4807866aa5401a3f3fae"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-qa-05.md",
+      "size": 2018,
+      "sha256": "02c2b297be7dab1737946499b904a0e579450d387cb28be1f40b5a148a782609"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-06-last-message.md",
+      "size": 1024,
+      "sha256": "d3941ab9570ef7eb74bb635bece5a16ee5c626a64c43093059abbdb144a5d254"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-06-qa-last-message.md",
+      "size": 893,
+      "sha256": "1c41dcbbc7c1e24fc830793f74bd01051f7bd25dfbf3aba662e57f802db68c34"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-06-qa-result.md",
+      "size": 8691,
+      "sha256": "e6edaaf31ae4461d8af0b6c153df1ab0ea5e14a222d0a99636891fc001f76c53"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-06-qa.md",
+      "size": 2956,
+      "sha256": "34b6043563ee62937c2ff73f25adf909830345f10fcdb991dfc5a077f948b728"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-06.md",
+      "size": 4739,
+      "sha256": "02ab0acddaf5cc79b77e2556eb952ccd241c4ec7626eadc3fa6bc25445cb23c2"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-07-last-message.md",
+      "size": 946,
+      "sha256": "3d0955bd4230807b206af10637a025d495caa9e9d6d137ee7178deb5ff7e392b"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-07-qa-last-message.md",
+      "size": 817,
+      "sha256": "6497dbe5f1ede0d1c5c708f660861a32a21e2b17edb93460a39ec2e3652776ab"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-07-qa-result.md",
+      "size": 7655,
+      "sha256": "b6efb4be7dc5bd4352371825a3378edc61066867932896e84c4d27debc0c343a"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-07-qa.md",
+      "size": 1985,
+      "sha256": "a874635376fb6920d4a015ec4ab10b772547eed65c1424ecfd0d270b627318dd"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-07.md",
+      "size": 2627,
+      "sha256": "03f97759e7a9e7253691584448e7ed2981aa19347f7da797ea9c63bb4abd60db"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-08-last-message.md",
+      "size": 836,
+      "sha256": "ed699bbb9099730ddef8a353845725f4edb5fd4986283abe9ced165d578e60c7"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-08.md",
+      "size": 1119,
+      "sha256": "da46cde07fac3413d6554e1b3a0eaf6847fb7a3c2bc90e5563240e790c017d8b"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-ops-08-last-message.md",
+      "size": 631,
+      "sha256": "2c057d5bc063fa767fb3f1f948f0b39928d4d3bee411afbcbaab3c9880a9e872"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-ops-08-result.md",
+      "size": 15373,
+      "sha256": "c05f28e12d3dd9b6dfd698fd438111821d0b6737540f9cdbe703b742fdc1568e"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-ops-08.md",
+      "size": 2259,
+      "sha256": "bfcc3e83c883b4c2b64d2dc02abcdd85aa6b5a77a08de6bf7eebc276457e57a7"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-ops-revision-09-last-message.md",
+      "size": 829,
+      "sha256": "99cdfc9a75701acd5eef0868b1f73851d60260803107b79627b8b72a8d9cdb05"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-ops-revision-09.md",
+      "size": 1601,
+      "sha256": "99f31ded1bb18b49a7b17f0cd60d34730693684700be2b71636a27c96ae8c512"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-ops-revision-10-last-message.md",
+      "size": 2316,
+      "sha256": "b29d2b320cd45a174f3a156d865beaddcfda3712ac25921e9c9cf54234bb97fd"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-ops-revision-10-result.md",
+      "size": 15449,
+      "sha256": "596635935ad80f4b5962c283ac970934bcfc0fef3886858ff95536e83664386a"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-ops-revision-10.md",
+      "size": 6490,
+      "sha256": "1846e12f53b8efb61c59ebe235f538d40e9db700743923a321867f425893f75d"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-03-last-message.md",
+      "size": 724,
+      "sha256": "db7b8b5291a61c163bb94ee6aa7e6ea280d12793f6dabf3ff56e787832834d20"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-03-result.md",
+      "size": 18281,
+      "sha256": "d802fbf0023fd6bfcf36635a293cf92cf411e77056f441c6f5a5020090601eca"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-03.md",
+      "size": 3318,
+      "sha256": "4a02154fca4825612b1f85ad6e0b40f7b599c47ddbd4f2835e9b81b3eba0fa37"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-qa-03-last-message.md",
+      "size": 784,
+      "sha256": "209c1743acc512ac2b4f681915e3db086068ec5fbb51fb5d4d3c311bccfc5ee9"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-qa-03-result.md",
+      "size": 8769,
+      "sha256": "4c8859045047118792112589497cfebd86e579f8d1572640e5629068b91fd40e"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-qa-03.md",
+      "size": 2262,
+      "sha256": "3a9ba4308efb9474e09eebbb2f009a1b4250ec13c3305fa8464bcf74ef2550fd"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-revision-04-last-message.md",
+      "size": 1007,
+      "sha256": "9970df66fb729c12f5821fd77d9bbe60952a4c362b04036fdd2f33324b5aba2b"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-revision-04-result.md",
+      "size": 20089,
+      "sha256": "c70be695ffabe086724d744b9109a4f2c46428251a76a4f7ee13699446a9f53e"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-revision-04.md",
+      "size": 3738,
+      "sha256": "6f33ae3dc61017e6ecfdbf9565d675f0b5aa3b9fd01bef3630feda249d7fc98d"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-revision-qa-04-last-message.md",
+      "size": 894,
+      "sha256": "a53b54d73b81726a7a29d921c46d7e40185c9800db5c89e3d0e7f558bb17beb7"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-revision-qa-04-result.md",
+      "size": 6562,
+      "sha256": "9461993f3b504d446123763a8339a2fb066944650b6884db33bebb0f8b983482"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-plan-revision-qa-04.md",
+      "size": 2967,
+      "sha256": "d6f65de9ab30c860c2cba514ac43f866ba777f568804c9a9a2c60bfda9732f51"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-qa-01-last-message.md",
+      "size": 625,
+      "sha256": "a5dbf710f270d7aeba60fb62489728a19f8703b82a033cce1445c6a136d2f62f"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-qa-01-result.md",
+      "size": 8493,
+      "sha256": "ee29073b0db383325dea36536d735a4192cbee827361c332f2ab85e3a9f861af"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-qa-01.md",
+      "size": 2076,
+      "sha256": "cfdae1bbad0543291ac5e24edf2f136d66de66ba3bc6ec1ba9bb88d2e9a1d75c"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-qa-revision-08-last-message.md",
+      "size": 810,
+      "sha256": "0e4bb046db0a24b98d0ef1efed953e7205b99514d034018e58f6ca277e3f2d5a"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-qa-revision-08-result.md",
+      "size": 6925,
+      "sha256": "4db4fb02a695ea8b7d782cb744a7e95bbd6a35f835a5fe5952b8909627ac41d4"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-qa-revision-08.md",
+      "size": 1386,
+      "sha256": "1395b8d96da6aae28262ad027def083c1dcba6f8ca5ba5253406bce9337ae4f0"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-qa-revision-09-last-message.md",
+      "size": 937,
+      "sha256": "806ed76e6b494643c916f74bced969b192f2406769111a5db62aa1bb0ffec0fb"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-qa-revision-09-result.md",
+      "size": 13691,
+      "sha256": "7684d3c6529ba5f062762e78bde00d1ea391fc6995b4a7a3cc1d547702a545ee"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-qa-revision-09.md",
+      "size": 3669,
+      "sha256": "8c75142e9b736ed876bb7d7e5e9d2d82bf334cc7024aea8f74145f8e7ba2432e"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-resource-contract-01-last-message.md",
+      "size": 674,
+      "sha256": "72c883e7542a23f47fce1bd0f8278775fc80ec6697cd102048a0bf8421db52cc"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-resource-contract-01-result.md",
+      "size": 4530,
+      "sha256": "a8574b616a7c9832e4253f6e412ff77ab3a7ee6e2637bee63ed7f0f691fc1f3d"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-resource-contract-01.md",
+      "size": 4875,
+      "sha256": "5c723b501bb6fcb782a893a4039255e2c545b476a380f889f77d942ee5f89ed5"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-revision-qa-02-last-message.md",
+      "size": 694,
+      "sha256": "22d9da06e705067ca755f5b07dd57d9d91856a2e0f73d1f3b07fd8a75913d16c"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-revision-qa-02-result.md",
+      "size": 7288,
+      "sha256": "3489a8726e02308a3904128883e93d5b764438ce81af7c515d8fc1e356603cd2"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-lookahead-revision-qa-02.md",
+      "size": 2221,
+      "sha256": "6b950a2d48bf3571aab95ec71d4f2645f50290bfcd40d1eec3cdcf1d4c54bda3"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-arbitration-02.md",
+      "size": 4414,
+      "sha256": "4a34917fafec16e8b7ddd3819be453b4cd53ec4ea5c64f9f4a2e019cc8c3ef80"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-arbitration-03-last-message.md",
+      "size": 943,
+      "sha256": "51b2668656115056e0b93af625e870ea055b8337cc90f0563239df9999578473"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-arbitration-03-result.md",
+      "size": 22836,
+      "sha256": "75a3fe5dfbf82d2d3237fa0205f23b99470235d361a82fc84ccd4c2313bcc9fc"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-arbitration-03.md",
+      "size": 3043,
+      "sha256": "b500c9bfcdfe98a6d2528da5b9c6c2627ed9a954399daa784ac286894c51075b"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-arch-review-02-last-message.md",
+      "size": 603,
+      "sha256": "3b1f31b7514dc32b40e3d21ee3a754b67d87fe2db6c3aa68f3ac0b465e3bb391"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-arch-review-02-restore.md",
+      "size": 3834,
+      "sha256": "681dc47fd9405375c2d946d2b583de6cf45de4a2fd2c0a5921605e0c3fe637de"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-impl-01-last-message.md",
+      "size": 940,
+      "sha256": "f9a392a2f2f4e6377df99b081f4c98c8d8700d01c7a3b3e73dcd799d24f04cb8"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-impl-01.md",
+      "size": 5454,
+      "sha256": "0e73418b5029af70a07e109a38d8804487e21a80f8ea235d7548dbbc7fab47d2"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-04-last-message.md",
+      "size": 796,
+      "sha256": "cd0a622ccd441fae7bd790027e80ab683b8b5def41ed7e20e922e0be1286f4e6"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-04-result.md",
+      "size": 39026,
+      "sha256": "4fcc510dfb7ef20d4fac86d26b2a9a5b26caa51496fa3365da52959148924246"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-04.md",
+      "size": 5563,
+      "sha256": "466ed134c13791e679d32dadeadb05fb33aeeec66f463508a843a331dcf35c48"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-05-last-message.md",
+      "size": 774,
+      "sha256": "58dc953d06474730825a0606c98b41b63310cceb48a114c8df3f9a0fb65b36ae"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-05-result.md",
+      "size": 24029,
+      "sha256": "09356e014cab4cb9df097c3728ae055faa929eebadf08f104b09cf4d7aafed0a"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-05.md",
+      "size": 2927,
+      "sha256": "b26ad2844ffb00f6aa56127b68c6c7aa815f3c4eab5b79951a4dea9ba3cd92e5"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-06-last-message.md",
+      "size": 1007,
+      "sha256": "b5013ff1025ce7b76ede3e4bdf721c4f6c02d1fd92080303942eb6a574c162bd"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-06-result.md",
+      "size": 49991,
+      "sha256": "8fe5440b33b777fb395c99101c9bd804fc036af6b80435f0ec12d4de65083bc2"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-06.md",
+      "size": 2650,
+      "sha256": "10aec18c0467699b751060c787c2cec5cc138f89cb3060ec27895104d6666df3"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-07-last-message.md",
+      "size": 639,
+      "sha256": "beb43f1253e39753464daf682b447f8ceb5711951e31de0e8893b0917d2ce92b"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-07-result.md",
+      "size": 51450,
+      "sha256": "2deddf4fecb60c221cb47428014f9550386fcf7dff848e2b7eb282dfa3bf8eef"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-plan-07.md",
+      "size": 1751,
+      "sha256": "5388e82deba3f2a02c0357053a7dc5e6ed4f53238a3393a4f558bf2fa09c5cd2"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-04-last-message.md",
+      "size": 582,
+      "sha256": "11968b7e6ca7c89ee1d48287ad99264682016d8496ecde971a729bc977000bbf"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-04-result.md",
+      "size": 12174,
+      "sha256": "e54629f0932fff98a2d1b47614ba958aa4bc6ae6460deb03e15d486b11fc10e6"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-04.md",
+      "size": 3579,
+      "sha256": "643cb952635be42c6fe95d0b4e434837cba4103492039dd164ba8f56aa6e5023"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-05-last-message.md",
+      "size": 764,
+      "sha256": "16abbd6aac3ff0aa4ca777238d10ae70d6e61fc2ec0c939c52976a4da3b1a0e7"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-05-result.md",
+      "size": 11408,
+      "sha256": "08b4ebfe0ebe8b87bb5d43a66ee0fb51b0f5ff8dce4de97cf483fabb6e429f81"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-05.md",
+      "size": 2357,
+      "sha256": "e1071dcc185f469f897bf740cf9f1441b370e6952d37794144eba8a960c39716"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-06-last-message.md",
+      "size": 749,
+      "sha256": "e69287aff8543a0d7e506e9e478060a92a02682a02307d6df9c28c70671dc571"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-06-result.md",
+      "size": 9889,
+      "sha256": "e1619b1bade79ad63a63f4600e89cd81ca91677b05f7e4e10ab10e225bb4dbc7"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-06.md",
+      "size": 2415,
+      "sha256": "2fa2e7f56e886f4a70ffc162b6222cf7e5bb7bb26fbfaa68f8a21d6a8e8815d9"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-07-last-message.md",
+      "size": 451,
+      "sha256": "4efb41db8018f9e186677080470b784cd52516e9fcebaceb6f44e5b639b73196"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-07-result.md",
+      "size": 5004,
+      "sha256": "39891b0d168166fcbc21c81009804ab788b76b39d259bdf8deefe705324df7fe"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-07.md",
+      "size": 3622,
+      "sha256": "7c159a814ab08a3b098974049daadb78ec395dc6dcd0d91aa0f95cd8f1b5be9c"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-08-last-message.md",
+      "size": 781,
+      "sha256": "52afbecd3a9b5ee2424b7168922138a89030af85bde376db29ec1d3ab5cc1bc4"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-08-result.md",
+      "size": 14056,
+      "sha256": "0f4e40d278d5c58d479902bd14ed317844d7f177109a1c601140462bc1f754ca"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-lowlevel-tree-telemetry-qa-08.md",
+      "size": 3724,
+      "sha256": "51bb8ee1b64da70637a7219a3b1f8d7bf493bcd866ae0cb7e7869105e13209c5"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-manual-cross-domain-experiment-package-01-last-message.md",
+      "size": 1089,
+      "sha256": "b3991a2c0072d43fcef8fd3769b4638772e55bdac946d4eac5e142546a44e6be"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-manual-cross-domain-experiment-package-01-result.md",
+      "size": 3539,
+      "sha256": "81c855cddccfe79aaae9b197cb8579d611e74ea7c493ebd62fdd88d2e743c5b8"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-manual-cross-domain-experiment-package-01.md",
+      "size": 3362,
+      "sha256": "a6a546f4c9cf9cf646507d194940259ac6a519ec44002bafa74303f61409bc34"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-manual-cross-domain-experiment-topology-02-last-message.md",
+      "size": 1086,
+      "sha256": "34021808514e5fe128f8e12084884935fe3cf11368d630802957999ee8297a07"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-manual-cross-domain-experiment-topology-02-result.md",
+      "size": 3766,
+      "sha256": "8792cf6f897de12ee614c8fc676e7d818f10bab63738b24e7b800acc02cc043d"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-manual-cross-domain-experiment-topology-02.md",
+      "size": 3892,
+      "sha256": "641cc990c18b29c5668a2917f27752cd95ec2a6d3881f647fb2a5937b8bf1653"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-manual-cross-domain-experiment-topology-revision-02-last-message.md",
+      "size": 600,
+      "sha256": "109354efe3a7f5dd9913de6e2dbca1c08ed6cc922cf52888dd2449c1eecac013"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-manual-cross-domain-experiment-topology-revision-02-result.md",
+      "size": 4485,
+      "sha256": "bcf78e4d206da380d07dcee00b8088be40bb15a3a3a0db4a22b92c9db161a944"
+    },
+    {
+      "path": "docs/tasks/2026-09-24-manual-cross-domain-experiment-topology-revision-02.md",
+      "size": 4426,
+      "sha256": "63eeb6ba5f0097db6e00c5f89d4b222ae9c67fa66248a906ac60e1914629022c"
+    },
+    {
+      "path": "docs/tasks/README.md",
+      "size": 874,
+      "sha256": "56ba60be17dab89ac17181722a6ce1a0dfb558962039262f555f607851f78ea8"
+    },
+    {
+      "path": "include/cpnetflux/checkpoint/download_manifest.h",
+      "size": 1748,
+      "sha256": "4d22ef39236230f8228a69ec805d93dc597d1561c4123916c0ffe89cab088282"
+    },
+    {
+      "path": "include/cpnetflux/checkpoint/manifest_store.h",
+      "size": 501,
+      "sha256": "097e4dbdce95408cc6429bc2d6c3739d768b78799301cc7b1bb733bc8467d954"
+    },
+    {
+      "path": "include/cpnetflux/checkpoint/transfer_manifest.h",
+      "size": 2003,
+      "sha256": "5bcae5ac4c8bcdaea84874b4d676575caa278c93a483b08b1e2c61c4bb8d6fc5"
+    },
+    {
+      "path": "include/cpnetflux/checksum/checksum.h",
+      "size": 1709,
+      "sha256": "b3d193e13d608e3dd921d932ebca9fe2c3131bf3b50dfcbfb0dd27c42ec9c7f6"
+    },
+    {
+      "path": "include/cpnetflux/checksum/crc32c.h",
+      "size": 1142,
+      "sha256": "b33b1cd3e6f92553b778c8c345d93890a48e6c9e23a77c041b8cee4ac8cc0d84"
+    },
+    {
+      "path": "include/cpnetflux/common/status.h",
+      "size": 1936,
+      "sha256": "5d533f3bb2de89d56ab98ae322666aaf55dc1633a54c0cd1a8e8e2809079855f"
+    },
+    {
+      "path": "include/cpnetflux/common/throughput_counter.h",
+      "size": 819,
+      "sha256": "7d4a1ccc8670dec8a400e1d736898ad7e2d793917de8261fca203deca129f149"
+    },
+    {
+      "path": "include/cpnetflux/config/file_download_options.h",
+      "size": 2114,
+      "sha256": "8f6a8ba1fe8775ffe5fdbbdf47d42c66e215a41530e4242792f52e8163bb7a1d"
+    },
+    {
+      "path": "include/cpnetflux/config/file_transfer_options.h",
+      "size": 2439,
+      "sha256": "f0cdfdc382a640c3d8e11d7aba97f95983b3cb17a935102ea95e00a3b08fd99b"
+    },
+    {
+      "path": "include/cpnetflux/config/sink_options.h",
+      "size": 571,
+      "sha256": "a2000c6d1ee95ba10ac7f11f7cb62b200d260fb157543cce94f6d8030b401f9e"
+    },
+    {
+      "path": "include/cpnetflux/config/tree_transfer_options.h",
+      "size": 2754,
+      "sha256": "dfd2507580df724f0edf85737fffc67a5142e2e32ed760f14af2e69ee5a63afa"
+    },
+    {
+      "path": "include/cpnetflux/core/chunk/chunk_planner.h",
+      "size": 512,
+      "sha256": "ae7b49577e3c986d42032bd4d99ed70783287d3bd4ea77c2f4c972cfa60179a3"
+    },
+    {
+      "path": "include/cpnetflux/core/chunk/range_list.h",
+      "size": 1043,
+      "sha256": "5329241c9e90eeff3507604d73dce10f32680caa29b99607d25e859f3127efb1"
+    },
+    {
+      "path": "include/cpnetflux/core/chunk/transfer_progress.h",
+      "size": 1067,
+      "sha256": "eda08d51f7a3232e1d2b42efcf34d0e5c6bebdcb7758516cf76a485fb13af2f2"
+    },
+    {
+      "path": "include/cpnetflux/core/io/connection_context.h",
+      "size": 1273,
+      "sha256": "e57bbfab27f00c83d1469b7a2725e1d8766ccd3614a7cf801e967e6ccf772d68"
+    },
+    {
+      "path": "include/cpnetflux/core/io/file_download_client.h",
+      "size": 266,
+      "sha256": "8fbd461dd5e494f12c830c902d4e39bc1b81106a78ffdb63668c7631f0cd8e02"
+    },
+    {
+      "path": "include/cpnetflux/core/io/file_download_sender.h",
+      "size": 1242,
+      "sha256": "9579482b178970881823c5c2c0ac1ed80d3cf4d87d39a2ec1c29dec4502b8028"
+    },
+    {
+      "path": "include/cpnetflux/core/io/file_transfer_client.h",
+      "size": 266,
+      "sha256": "be4afc3b350d525b7a23882cdc2562428e0a20a1972f2355e1d2ec3c0974d8f8"
+    },
+    {
+      "path": "include/cpnetflux/core/io/file_transfer_server.h",
+      "size": 471,
+      "sha256": "dc07923abce0ac2d4944ed839f92805a0cb4315550b2c9021f618dedabd97a7e"
+    },
+    {
+      "path": "include/cpnetflux/core/io/framed_data_socket.h",
+      "size": 1506,
+      "sha256": "4bba17ac5d6a05458af3438e0ee106720db1702343892b67df7795ad9ace148c"
+    },
+    {
+      "path": "include/cpnetflux/core/io/hot_path_compression.h",
+      "size": 352,
+      "sha256": "4c412e36ee96b2c6a0e04dcccc5077ea8ad65fb87f1fe5f7e044f50e41247126"
+    },
+    {
+      "path": "include/cpnetflux/core/io/socket_utils.h",
+      "size": 1200,
+      "sha256": "0a1a785eaa2a530ddad3b1f4df184daf4460464c377f6f9df82d2e7561dff0a3"
+    },
+    {
+      "path": "include/cpnetflux/core/io/tcp_sink_client.h",
+      "size": 244,
+      "sha256": "97a7735a4a0c2e8ae44b5c0ae808133332c764a4216822cd98effcb0acac34e7"
+    },
+    {
+      "path": "include/cpnetflux/core/io/tcp_sink_server.h",
+      "size": 244,
+      "sha256": "a445d17e8b0c795df8396ebcc43da2dd86f19a86243e646994578809abcb502c"
+    },
+    {
+      "path": "include/cpnetflux/core/io/tls_socket.h",
+      "size": 3750,
+      "sha256": "28f9cbf8e90889e143e240df06d22372427bc3bc0f988ea15b1fd4cd0ca37f35"
+    },
+    {
+      "path": "include/cpnetflux/core/io/transfer_runtime_metrics.h",
+      "size": 787,
+      "sha256": "e3f38b59302fb4b417713e71c48fc97f788466eca8ab1656f9a628d42eec30ff"
+    },
+    {
+      "path": "include/cpnetflux/core/io/tree_transfer_client.h",
+      "size": 375,
+      "sha256": "740229bc32e99139c88a9c2c553e1013a591caae206faf88a90f75bf5842d9be"
+    },
+    {
+      "path": "include/cpnetflux/core/metrics/error_code.h",
+      "size": 696,
+      "sha256": "55fa8fbac4c7145b9f6d3b465ff515777fea2db9fcd7ea94d6b199007336d27d"
+    },
+    {
+      "path": "include/cpnetflux/core/metrics/event_log.h",
+      "size": 1417,
+      "sha256": "7cc93e11704ec5265b2e9c912f5afa4083e0548909828a78673b04bbcb70030b"
+    },
+    {
+      "path": "include/cpnetflux/core/metrics/transfer_phase_stats.h",
+      "size": 2157,
+      "sha256": "cfc5ebccd2eb6d71d0bc819ed906765c56f7058469cafd9045a9d6a634dd9c18"
+    },
+    {
+      "path": "include/cpnetflux/core/protocol/compressed_data.h",
+      "size": 767,
+      "sha256": "60f2ac2d28e431fe9a40bafa18e5addfff63b6b450c63742d8c033686914af4f"
+    },
+    {
+      "path": "include/cpnetflux/core/protocol/frame.h",
+      "size": 3597,
+      "sha256": "78822882b491a64b4ea0017851c585384a6d9b5066121fd6ce127a6ddacf5e3c"
+    },
+    {
+      "path": "include/cpnetflux/core/scheduler/compression_advisor.h",
+      "size": 1642,
+      "sha256": "0664d2219a744f00876b22d8189c7d30efc4492178fc4da1e76fd9651d43d18a"
+    },
+    {
+      "path": "include/cpnetflux/core/scheduler/feedback_controller.h",
+      "size": 2220,
+      "sha256": "c14e0ff259beb447c9d8b232f165648267d2117d5e8fa59435ec2b51f2a7c498"
+    },
+    {
+      "path": "include/cpnetflux/core/scheduler/link_manager.h",
+      "size": 2804,
+      "sha256": "047ce39c898acef3867c40316835213d59a54f579c46783fb7094fb0f951360b"
+    },
+    {
+      "path": "include/cpnetflux/core/scheduler/link_profile.h",
+      "size": 1248,
+      "sha256": "5cd9eacd42fe26e732cf7191b9902cbd161aacd70e6ccdca11b4306ee85e9494"
+    },
+    {
+      "path": "include/cpnetflux/core/scheduler/metrics_writer.h",
+      "size": 3599,
+      "sha256": "ef4d51e15d361bf9d26ac634140d0b9511e589b65cc0ccb010d19ffc2bcc6a19"
+    },
+    {
+      "path": "include/cpnetflux/core/scheduler/scheduler.h",
+      "size": 3670,
+      "sha256": "c5e2a87e727bb6cebd78cbe207f1464af9c7c89b26f99e2826c77740779f89a9"
+    },
+    {
+      "path": "include/cpnetflux/core/scheduler/task_queue.h",
+      "size": 847,
+      "sha256": "dfba38fcd1468a6b9aaed2c078eb749f52f90815b54159fda0fe81930068a9d0"
+    },
+    {
+      "path": "include/cpnetflux/core/scheduler/work_item.h",
+      "size": 1299,
+      "sha256": "a14593bc496be46c3bbb870829f997d74b261eb86b1dc1dc828d42b742cc92e0"
+    },
+    {
+      "path": "include/cpnetflux/core/scheduler/work_item_planner.h",
+      "size": 2183,
+      "sha256": "bfa1d56cf9659b95952e54f10d08a97140620aa05b446f010275444f687df867"
+    },
+    {
+      "path": "include/cpnetflux/core/session/commit_sync_policy.h",
+      "size": 439,
+      "sha256": "aa21dcfcadab23cedb8bb2d6506e1e0ed75b72ddfb20bf2a5350ab72ee4c32b8"
+    },
+    {
+      "path": "include/cpnetflux/core/session/download_session.h",
+      "size": 3800,
+      "sha256": "3c4787634f329faf81af84d7e538c240eb7b3cc285a2fc1b27fa801fc812177c"
+    },
+    {
+      "path": "include/cpnetflux/core/session/final_verify_policy.h",
+      "size": 1435,
+      "sha256": "eacf461e9ad19452179ef3315f5c53ada05762821407a8cf544210294da9f495"
+    },
+    {
+      "path": "include/cpnetflux/core/session/manifest_flush_policy.h",
+      "size": 446,
+      "sha256": "c6850ac075c60db6cfa0d7a8f4a75aa70e32b514ca6f9b43bf52516baf4760ad"
+    },
+    {
+      "path": "include/cpnetflux/core/session/transfer_session.h",
+      "size": 3897,
+      "sha256": "5475cf7be2f9786390d5817dc8d96c7d4966ea83000bbd8bd36e936853d7654b"
+    },
+    {
+      "path": "include/cpnetflux/core/session/transfer_session_config.h",
+      "size": 930,
+      "sha256": "5c793be6607dbb513f63a6ef0925c70ea8a4e4ccc86bb38dde0710957b760af0"
+    },
+    {
+      "path": "include/cpnetflux/core/tree/tree_manifest.h",
+      "size": 2120,
+      "sha256": "1eec50d95c9377e6bfeaf1562feb10382fb8796c05928709c3766b63c500ec02"
+    },
+    {
+      "path": "include/cpnetflux/core/tree/tree_scan.h",
+      "size": 536,
+      "sha256": "c5dd737935ef13e22fca2738aa882115890b578441a72f40207f66a9c7620bbd"
+    },
+    {
+      "path": "include/cpnetflux/protocol/control/control_auth.h",
+      "size": 674,
+      "sha256": "c5cb7a728f1afeb6eabb3828049098c1f507675004ceff582289e0d2f8bda8ce"
+    },
+    {
+      "path": "include/cpnetflux/protocol/control/control_command.h",
+      "size": 2536,
+      "sha256": "001ae9b05d48da7a8729690083c2b7df7c961aa404a0dfc387327e8e9b4cf9b5"
+    },
+    {
+      "path": "include/cpnetflux/protocol/control/control_options.h",
+      "size": 4194,
+      "sha256": "357fd696448b7e2f47ab287b514d1ad1d447bd64abf757638ac565f640b3257a"
+    },
+    {
+      "path": "include/cpnetflux/protocol/control/control_server.h",
+      "size": 290,
+      "sha256": "69d96d69e29afb93d5ce167f33610073fafc84fa7096e68b62f6383ee2cc069e"
+    },
+    {
+      "path": "include/cpnetflux/storage/file_io.h",
+      "size": 8825,
+      "sha256": "5e50a894268be07f42998c66ea4e57c301fe686be075f2e569e8b965a651a760"
+    },
+    {
+      "path": "include/cpnetflux/storage/posix_file.h",
+      "size": 2134,
+      "sha256": "384f59e5510822eb805ed309f9616e504bed044b583c584f5f18b54a49295cff"
+    },
+    {
+      "path": "include/cpnetflux/storage/preallocate_mode.h",
+      "size": 392,
+      "sha256": "2d20c4f5c6db91dac6cfc0f6fc47f0db03b92a85105bdc3f4f03d233e56d8ad3"
+    },
+    {
+      "path": "include/cpnetflux/version.h",
+      "size": 342,
+      "sha256": "bda805e594a7a463ffddb83bdc6cd2fdf9cad296ef83c34c146ea8d31acf287a"
+    },
+    {
+      "path": "proto/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/apps/cpnetflux_checksum_bench.cpp",
+      "size": 5640,
+      "sha256": "d186ed961378780cf686606b9ebdb1f5c0de726dd89e149d5ba172d871385c45"
+    },
+    {
+      "path": "src/apps/cpnetflux_client.cpp",
+      "size": 713,
+      "sha256": "838d5ad582ad509c3a999bf560027beb4106ff8af4266233afeab7506f390175"
+    },
+    {
+      "path": "src/apps/cpnetflux_file_client.cpp",
+      "size": 2248,
+      "sha256": "88cf7ba7ba381ed4170b063590ea891897286801278bc28484756c377631120a"
+    },
+    {
+      "path": "src/apps/cpnetflux_file_download_client.cpp",
+      "size": 2093,
+      "sha256": "df7327aefed2180a63c76e75be9572c98984771d52b0b6c586e3c09f18a83e72"
+    },
+    {
+      "path": "src/apps/cpnetflux_file_server.cpp",
+      "size": 2246,
+      "sha256": "faea3551d4c598c21e3a0b6cf71adfc036af90706495da5ca7079c15b7d678b5"
+    },
+    {
+      "path": "src/apps/cpnetflux_gridftp_server.cpp",
+      "size": 997,
+      "sha256": "ceb52faf6cade57bbe6d75ca9ec0d60a1516ac5acf40b86666ec157fa104faed"
+    },
+    {
+      "path": "src/apps/cpnetflux_server.cpp",
+      "size": 713,
+      "sha256": "fa42943b6e3a524a46627d64ef5e88f929c1ac71f70bca2103e1bf60ebf7c1e1"
+    },
+    {
+      "path": "src/apps/cpnetflux_storage_bench.cpp",
+      "size": 20622,
+      "sha256": "63700906abf91b9b99c61e1eada7509af2fed8a8462933bc3c5b443ff3841411"
+    },
+    {
+      "path": "src/apps/cpnetflux_tree_download_client.cpp",
+      "size": 2189,
+      "sha256": "0460c7c56665a67b877512b55dae57520d238f24a988322f51ad128d6b9cb389"
+    },
+    {
+      "path": "src/apps/cpnetflux_tree_upload_client.cpp",
+      "size": 2179,
+      "sha256": "9a42c8e0bf447c5db3bab999dcffcee99269491da12bf46e99fa2cfe89b64058"
+    },
+    {
+      "path": "src/checkpoint/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/checkpoint/download_manifest.cpp",
+      "size": 21717,
+      "sha256": "be19dbf440d4a4f328d392d3dc3db00714e86034c043730fb82624c4af6922f1"
+    },
+    {
+      "path": "src/checkpoint/manifest_store.cpp",
+      "size": 2966,
+      "sha256": "cfb333ffa896f3b616d1c7eb7bdd79f6475afae3b5d92bdaf0dd7a2b28823b57"
+    },
+    {
+      "path": "src/checkpoint/transfer_manifest.cpp",
+      "size": 20637,
+      "sha256": "704611c2673db44a908bdca729cbbd12fc0ebb2d268e54a55fe3afb404ecdaa8"
+    },
+    {
+      "path": "src/checksum/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/checksum/checksum.cpp",
+      "size": 3987,
+      "sha256": "76c308d0df0eb6bf9fd24c762fd8971afaff8ac156a8993c41d7fb2c27d42d19"
+    },
+    {
+      "path": "src/checksum/crc32c.cpp",
+      "size": 2215,
+      "sha256": "d4eeeea1022e54c0dca61c30680217a3624ebd1ab4928828b57f157c9737cc9a"
+    },
+    {
+      "path": "src/checksum/crc32c_hw_stub.cpp",
+      "size": 381,
+      "sha256": "f81f353a2cd98aa9bc19db89a2361be7cfe885454fd288088a8e26149312d5cf"
+    },
+    {
+      "path": "src/checksum/crc32c_hw_x86.cpp",
+      "size": 1286,
+      "sha256": "119015fdca6988c0fbe276d31506821122b8f2b8c9b35e6dfd83dec84689e14a"
+    },
+    {
+      "path": "src/common/throughput_counter.cpp",
+      "size": 1219,
+      "sha256": "427f306e9f1d8f62d5b0d70fdfc21537a233a5e369d7ced6de4ac65f03812a35"
+    },
+    {
+      "path": "src/common/version.cpp",
+      "size": 240,
+      "sha256": "44fb7a75c587bb76c8a53dc2bd3368085cff50051aaebfb93848252c8015b5d1"
+    },
+    {
+      "path": "src/config/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/config/file_download_options.cpp",
+      "size": 12961,
+      "sha256": "9b08f13d1e62c7dc1245397a58d2d72d3b0e45013fdd8ffb5d1ba5a6d085dc2b"
+    },
+    {
+      "path": "src/config/file_transfer_options.cpp",
+      "size": 20248,
+      "sha256": "db99d788504cec7ff3abd48afbe3ca55525454a9d058c9c08e304af6c531ed3c"
+    },
+    {
+      "path": "src/config/sink_options.cpp",
+      "size": 4496,
+      "sha256": "48bfc6225c4941247d2743132ce60aa5ee4c790b19f099f9296562c5d6d3eb8d"
+    },
+    {
+      "path": "src/config/tree_transfer_options.cpp",
+      "size": 20518,
+      "sha256": "60b69f05b8901f83ad0fe59d66257e9441bbb9b6236c6bbbb0728263f8a7ff45"
+    },
+    {
+      "path": "src/core/buffer/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/core/chunk/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/core/chunk/chunk_planner.cpp",
+      "size": 1552,
+      "sha256": "eec4c60acdfc5b9f0c08ff3eb714f84074d8263b7960a6ed992e5959f0d4b54f"
+    },
+    {
+      "path": "src/core/chunk/range_list.cpp",
+      "size": 4521,
+      "sha256": "dd2d87fb3168a0701abcac89fb77bad92ff8d054357ceadd9a12537624b3b9d2"
+    },
+    {
+      "path": "src/core/chunk/transfer_progress.cpp",
+      "size": 3538,
+      "sha256": "c10a97968503df624765142bb0417794acfbab305b8dd6322dbd256a290fdbb7"
+    },
+    {
+      "path": "src/core/engine/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/core/io/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/core/io/connection_context.cpp",
+      "size": 1535,
+      "sha256": "b6bdd114fadae1f727c1efab944af0c11bb2e4b9e2dfc4838d65232ab74493da"
+    },
+    {
+      "path": "src/core/io/file_download_client.cpp",
+      "size": 40042,
+      "sha256": "a5ecde2d4429288db305c205cdbce5ead53d630fbe6fd0cd63b08601d4e6c643"
+    },
+    {
+      "path": "src/core/io/file_download_sender.cpp",
+      "size": 25575,
+      "sha256": "94ae87653d96a5db94ae2a7abc07717154ca3d9df27284a6568b02f878baa39b"
+    },
+    {
+      "path": "src/core/io/file_transfer_client.cpp",
+      "size": 28612,
+      "sha256": "ad9e03b51368bd66284059af7291962e8314590ea6b690042044a96ae1982939"
+    },
+    {
+      "path": "src/core/io/file_transfer_server.cpp",
+      "size": 68075,
+      "sha256": "57b19d7c9f26eafd22d47d285930b98b6a391eee6fccdb4898a0e3df180e50b9"
+    },
+    {
+      "path": "src/core/io/framed_data_socket.cpp",
+      "size": 7040,
+      "sha256": "be04c4ca39c1509d97b3c1ecd9862b960ec5a0523f09d7dac3ea80ad24fdea17"
+    },
+    {
+      "path": "src/core/io/socket_utils.cpp",
+      "size": 5946,
+      "sha256": "4dfdbaeeed516850093145e03757156a814ae0d1f76bec872de02c2403dcb391"
+    },
+    {
+      "path": "src/core/io/tcp_sink_client.cpp",
+      "size": 5652,
+      "sha256": "694193509d421d0b113d9450acd56198f245f311b561cca184f3a92281d7eee9"
+    },
+    {
+      "path": "src/core/io/tcp_sink_server.cpp",
+      "size": 6312,
+      "sha256": "fba7fb340c3cb1c2f78b9d5133ac194ccf4946b3fbf299694321e014bf845b9d"
+    },
+    {
+      "path": "src/core/io/tls_socket.cpp",
+      "size": 15038,
+      "sha256": "0ee0e7ad442610eaaeec4e2786bfdbc8976d8ff224262872886b5e3b84ba073c"
+    },
+    {
+      "path": "src/core/io/tls_socket_stub.cpp",
+      "size": 7015,
+      "sha256": "a63c9c892a29a4426fbc210a5bb065cf97e13fe47dfb573cba0d82098712ced5"
+    },
+    {
+      "path": "src/core/io/tree_transfer_client.cpp",
+      "size": 113300,
+      "sha256": "e46447f442f237b0346a1e1955fa1f3c9dba0eb94ff1dcfe501abf08f197bfaa"
+    },
+    {
+      "path": "src/core/metrics/error_code.cpp",
+      "size": 5030,
+      "sha256": "8f5f3a32720d95e40f997a7973c9ddeb19a71ce771835dff40af550ce8af6781"
+    },
+    {
+      "path": "src/core/metrics/event_log.cpp",
+      "size": 5717,
+      "sha256": "3b3a923fce5c2c3d645428ed63d7d39ea9a7461a58fdf11e86e5004ee5d0fc77"
+    },
+    {
+      "path": "src/core/metrics/transfer_phase_stats.cpp",
+      "size": 6076,
+      "sha256": "0afb26593430005a16d3bd217e2dd0428d07a25289fe3cc54da9942a4712af56"
+    },
+    {
+      "path": "src/core/protocol/compressed_data.cpp",
+      "size": 4557,
+      "sha256": "702674cc4894e5455150b770729fc80dc29337bc6149ec552b805eccfd98de11"
+    },
+    {
+      "path": "src/core/protocol/frame.cpp",
+      "size": 21756,
+      "sha256": "576656b5418039b785c40b1639d19e0cff5e54d753865bfba766389de40b814e"
+    },
+    {
+      "path": "src/core/scheduler/compression_advisor.cpp",
+      "size": 7717,
+      "sha256": "fc27d23970e3cf5d8bb4d371bcc249e6eec81d50d732f06e022f2bfcb5a353cf"
+    },
+    {
+      "path": "src/core/scheduler/feedback_controller.cpp",
+      "size": 5899,
+      "sha256": "a086c53805a9c9334b5ebc84503bb2b280ef79c918d6c91617351e2b76e10625"
+    },
+    {
+      "path": "src/core/scheduler/link_manager.cpp",
+      "size": 9323,
+      "sha256": "00d2fc32fff3b8e6bdf8b34a49cfd51c8fb7803671f5aeaaee170efceaf92b0f"
+    },
+    {
+      "path": "src/core/scheduler/metrics_writer.cpp",
+      "size": 10643,
+      "sha256": "ee10dc340db817b7059881a4243a6ec53c45f88c7eb208a766c5365bd2d5a827"
+    },
+    {
+      "path": "src/core/scheduler/scheduler.cpp",
+      "size": 12666,
+      "sha256": "d908dcfeb8375f47465058bb3a41189ce801e9500ccdd13e2803b2681a9b2972"
+    },
+    {
+      "path": "src/core/scheduler/task_queue.cpp",
+      "size": 2565,
+      "sha256": "f26ef43f63d1986b52d0995df8fa5d82faf4ee2ed924378e4e8d89a3f065349e"
+    },
+    {
+      "path": "src/core/scheduler/work_item_planner.cpp",
+      "size": 5178,
+      "sha256": "5864e5941c512b5c0e31af323257c6606fd0d36c60acb8d57e27c2ac425a44b4"
+    },
+    {
+      "path": "src/core/session/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/core/session/commit_sync_policy.cpp",
+      "size": 959,
+      "sha256": "1f4c44fc6f7b2ebeb81f8ebafd19a6c0e675469b68707ede010949b97815d7af"
+    },
+    {
+      "path": "src/core/session/download_session.cpp",
+      "size": 14741,
+      "sha256": "4efc711e2dc6998148241c1ce38d7c01339223483452f7ed7bf4d8467673030e"
+    },
+    {
+      "path": "src/core/session/final_verify_policy.cpp",
+      "size": 1917,
+      "sha256": "50ae83cddc0ded58f315d0c4006c8fe1a96601e61eb84675c596ea8352af23bb"
+    },
+    {
+      "path": "src/core/session/manifest_flush_policy.cpp",
+      "size": 834,
+      "sha256": "ecb32e7e3de3699d3579785c29dce2a291875199e1241a5a88eae12648b2468d"
+    },
+    {
+      "path": "src/core/session/transfer_session.cpp",
+      "size": 15684,
+      "sha256": "cc71fd1ec03e33daf2e7fb4010b02663956ee1b5a25c3723d635284b85320318"
+    },
+    {
+      "path": "src/core/tree/tree_manifest.cpp",
+      "size": 17302,
+      "sha256": "cdba5a09c350744858bf2257d4da1724848b84ff55e85e6d9294f0d26acada6b"
+    },
+    {
+      "path": "src/core/tree/tree_scan.cpp",
+      "size": 5696,
+      "sha256": "295332ec55256653d206f802ab5c1813523eee1bd869bc1aec69cc4cbd9a8fc9"
+    },
+    {
+      "path": "src/main.cpp",
+      "size": 179,
+      "sha256": "0f7f649f2029ef80ca4a8320c7a16352c09eb74c43954b1ce9d063ae276c0f31"
+    },
+    {
+      "path": "src/metrics/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/protocol/auth/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/protocol/command/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/protocol/control/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/protocol/control/control_auth.cpp",
+      "size": 2848,
+      "sha256": "f2edcba12131e07687e755e5a8ac605f3ab283046adb918a0aae6c3f3971f548"
+    },
+    {
+      "path": "src/protocol/control/control_command.cpp",
+      "size": 15903,
+      "sha256": "22b9bc90fa934deb8a6570df6d522fc4c4e91247e8cfe4ca2b4202cbfdd95b7b"
+    },
+    {
+      "path": "src/protocol/control/control_options.cpp",
+      "size": 23677,
+      "sha256": "d4d9de6d0e41842b91d76bccf326894be2ca674244833f5e749827da92011d5a"
+    },
+    {
+      "path": "src/protocol/control/control_server.cpp",
+      "size": 35590,
+      "sha256": "b8505bb35eaf1fd6061339da5669e4817db91caaab3b9837962608b6a37d2714"
+    },
+    {
+      "path": "src/storage/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "src/storage/file_io.cpp",
+      "size": 22451,
+      "sha256": "e1ea43ae95052dde5900b8422018e5b95727344d76937dae22977a2b643613a5"
+    },
+    {
+      "path": "src/storage/file_io_uring.cpp",
+      "size": 17604,
+      "sha256": "81251816c0b2e48b2106e27712914e2608498b6cc8ac4952a5f744dfced9eab4"
+    },
+    {
+      "path": "src/storage/file_io_uring_stub.cpp",
+      "size": 5356,
+      "sha256": "06cfb5661f61074bc71937e82ad4299a4d3b9640664c634f99ccfed3ee826d60"
+    },
+    {
+      "path": "src/storage/posix_file.cpp",
+      "size": 8300,
+      "sha256": "081e5a6996d6ec885838a2d13349169e65bb660269dd2819a687bc6eaf66d898"
+    },
+    {
+      "path": "src/storage/preallocate_mode.cpp",
+      "size": 671,
+      "sha256": "6d5c7beb5a6751db729073ee7b57499475202a31947250ce2042ffd1f46625f5"
+    },
+    {
+      "path": "tests/benchmark/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "tests/integration/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "tests/unit/checksum_test.cpp",
+      "size": 5134,
+      "sha256": "8beff591495b5895a99396685813bde4d8b2414d9314e5fb121e3e344fcd7a60"
+    },
+    {
+      "path": "tests/unit/chunk_planner_test.cpp",
+      "size": 3107,
+      "sha256": "5c843bd24104e1ae3fcf88df749aac05e3cdff5a6fa97de5544b00f04fd1e00a"
+    },
+    {
+      "path": "tests/unit/compressed_data_test.cpp",
+      "size": 4009,
+      "sha256": "ca7b059668fa1aed71d357b82a5a23a529e4f3d689aab738eca656e2bfd0f92a"
+    },
+    {
+      "path": "tests/unit/connection_context_test.cpp",
+      "size": 1492,
+      "sha256": "28ef6fe540c982bc4b221c9ff88bea9dd2a5da4f5c292af9e6b4c58c9da1b266"
+    },
+    {
+      "path": "tests/unit/control_command_test.cpp",
+      "size": 3931,
+      "sha256": "d01c36b101f817b5ad4d15201d561c9bbfc206a41d7d88b3a8abd23f64aa18ba"
+    },
+    {
+      "path": "tests/unit/control_options_test.cpp",
+      "size": 24378,
+      "sha256": "efac4dbc1c08cadc0a068202f1530dc78f0fc67b87b19dcaaa17ff03a7ff959f"
+    },
+    {
+      "path": "tests/unit/control_session_test.cpp",
+      "size": 8060,
+      "sha256": "3181214d7fbb37403c2d89ee42d0ec7a855ec8d5d37dfcdfa8090ba6ba091dde"
+    },
+    {
+      "path": "tests/unit/download_manifest_test.cpp",
+      "size": 3246,
+      "sha256": "a53b1e563f1ca2ebdea68fc3a57a6e49fe584d43eb79b30e4b2da05e2bc995b7"
+    },
+    {
+      "path": "tests/unit/download_session_test.cpp",
+      "size": 10604,
+      "sha256": "1e3ba0fd6147e84919d452620cb721e5cafb8228cef15c5b1510edcbdd43cd3c"
+    },
+    {
+      "path": "tests/unit/event_log_test.cpp",
+      "size": 4440,
+      "sha256": "f0c00c37adeeb62795f0e74a42db0164520966054453636543f961dd9b16d880"
+    },
+    {
+      "path": "tests/unit/file_download_options_test.cpp",
+      "size": 14300,
+      "sha256": "3542d9adb6d8b26dddc3341675462967747ade3353b0e3c700f512761fe22420"
+    },
+    {
+      "path": "tests/unit/file_io_test.cpp",
+      "size": 15101,
+      "sha256": "7096b624b82dd42c15dbd07fca37192433af7c228231395e889b66e068b4098b"
+    },
+    {
+      "path": "tests/unit/file_transfer_options_test.cpp",
+      "size": 19860,
+      "sha256": "580e245645f59d9c90854dd08f7ad7c13bd1e3231cc3ce12d9c03ee6818b828b"
+    },
+    {
+      "path": "tests/unit/frame_test.cpp",
+      "size": 14360,
+      "sha256": "da330656b1622d5e3b942a55c128ccb7c6b91e746f58683ed092990e0afb49e8"
+    },
+    {
+      "path": "tests/unit/hot_path_compression_test.cpp",
+      "size": 11935,
+      "sha256": "4744b77776f5f8ad6d814097b3ec6d820eedee9e18f743ba874f609aaca53855"
+    },
+    {
+      "path": "tests/unit/manifest_store_test.cpp",
+      "size": 2131,
+      "sha256": "ade11214df471e5a727e142d89f40f9a203e329191096a9a442bd9af9f2873eb"
+    },
+    {
+      "path": "tests/unit/posix_file_test.cpp",
+      "size": 6602,
+      "sha256": "fd27380abc5dfd62a452f72d9d85fc37efba87805a51da62aa1e3671252b1cb0"
+    },
+    {
+      "path": "tests/unit/range_list_test.cpp",
+      "size": 2007,
+      "sha256": "f286b8d24df5822710a1c564f5f2b6dc5d11a5341b7f55276113f48bb7a7f4bb"
+    },
+    {
+      "path": "tests/unit/scheduler_compression_advisor_test.cpp",
+      "size": 2437,
+      "sha256": "2ec31d3dbb586166f3769ac9491bd15d24362d77eec36ecd31fde5c0392133eb"
+    },
+    {
+      "path": "tests/unit/scheduler_feedback_controller_test.cpp",
+      "size": 3997,
+      "sha256": "9d83ec2972ff8ffb179c6da94a6af9e31065d4831bdb204d1333624755aa1715"
+    },
+    {
+      "path": "tests/unit/scheduler_link_manager_test.cpp",
+      "size": 3054,
+      "sha256": "6d3dbc796baecdabc7a8656f4f4171bd47217066f1f2e26f3b3b05823bb6f0a3"
+    },
+    {
+      "path": "tests/unit/scheduler_metrics_writer_test.cpp",
+      "size": 5473,
+      "sha256": "d41cf1c13543c4f916d39f198e2b9fe98967f49b9a682e0626ff694bce05dae0"
+    },
+    {
+      "path": "tests/unit/scheduler_task_queue_test.cpp",
+      "size": 1468,
+      "sha256": "d6acab12ecb6b38f24243a7bb7e8396e7495193a1cd9f886e1f0162183d7ac94"
+    },
+    {
+      "path": "tests/unit/scheduler_work_item_test.cpp",
+      "size": 3629,
+      "sha256": "36848758824a5e4fb87bc336cb34f7d5c3f0b5215152c36ee2894a492fe68bc5"
+    },
+    {
+      "path": "tests/unit/sink_options_test.cpp",
+      "size": 2909,
+      "sha256": "31e6504b8b2fcf6e4f7385e2ac3c8cbdc7e9bf54d637095d1f2f389b715d8b7b"
+    },
+    {
+      "path": "tests/unit/throughput_counter_test.cpp",
+      "size": 1013,
+      "sha256": "9c5a3e6deb6b278c4e130740d5c8f8065fe10c504b2b76acb63b39e52a710760"
+    },
+    {
+      "path": "tests/unit/transfer_manifest_test.cpp",
+      "size": 5250,
+      "sha256": "cf96e8adec01d354958edc15196e3dd2360107c92e2f9e2813b0af51d619e182"
+    },
+    {
+      "path": "tests/unit/transfer_progress_test.cpp",
+      "size": 3020,
+      "sha256": "f9fd16e9c2bede34428a2227b30a702d15fb0b58d7af591a283f7941e0af35b5"
+    },
+    {
+      "path": "tests/unit/transfer_session_test.cpp",
+      "size": 13735,
+      "sha256": "90da2169cadc9365b30d4a1ff76551108584453d5c1a47bd42243ea59b3d67fb"
+    },
+    {
+      "path": "tests/unit/tree_manifest_test.cpp",
+      "size": 4331,
+      "sha256": "37aa47139543f414692bccd64b0e796a444305bc3514824a1ab29377f2fdf682"
+    },
+    {
+      "path": "tests/unit/tree_scan_test.cpp",
+      "size": 2227,
+      "sha256": "683f38ee81911abb95a5befedfa527eb6863af333afd061f9cfd3ec40cabe4df"
+    },
+    {
+      "path": "tests/unit/tree_transfer_options_test.cpp",
+      "size": 17522,
+      "sha256": "c4089882c71c96569db0af7bf1669b317e9c423e467f2e07c4bb54e541a37efb"
+    },
+    {
+      "path": "tests/unit/version_test.cpp",
+      "size": 327,
+      "sha256": "c7d06d00b6b0b938b7fbd5a6cae09084dc5bed32eab778a09353b8b629f0b8d3"
+    },
+    {
+      "path": "third_party/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "tools/benchmark/run_checksum_bench.py",
+      "size": 5495,
+      "sha256": "b4ba78036480f29d65363e612a2b0758cde0172f546ac1d3b911901cf0b44b4c"
+    },
+    {
+      "path": "tools/benchmark/run_storage_bench.py",
+      "size": 24928,
+      "sha256": "ef73fe4c829c5df8aefe1681c38af1adbf1df8a4fef8ed58239792f6d6aa8f16"
+    },
+    {
+      "path": "tools/benchmark/test_run_storage_bench.py",
+      "size": 9323,
+      "sha256": "9564ebf86f8cb2e56eecc315c72cf9a0da089b5d8d7074f922e602aa07bd10e7"
+    },
+    {
+      "path": "tools/demo/make_demo_dataset.py",
+      "size": 6542,
+      "sha256": "65f384c0c670d4e9e45b0459e8b10c003932135137f881664399721be6de8125"
+    },
+    {
+      "path": "tools/demo/run_alpha_demo.py",
+      "size": 44422,
+      "sha256": "76c78962a1a16028fbef0e976c6a1551cb921c43dc942649087efc652483f6f1"
+    },
+    {
+      "path": "tools/demo/run_recovery_demo.py",
+      "size": 32605,
+      "sha256": "96032154f7533b3489e2e2ef0b0b8acd8e395724123b86b9a717383c9154cfe3"
+    },
+    {
+      "path": "tools/demo/test_alpha_demo.py",
+      "size": 3579,
+      "sha256": "4e7f9a481ed6dc0fa5085958d6f16c5013079ebab81ffdd3b7e68688ffe975b1"
+    },
+    {
+      "path": "tools/deploy/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "tools/experiments/beta_matrix/__init__.py",
+      "size": 51,
+      "sha256": "3eff50063385157a061e24fe62d06da56954df13962ad4ce6643290b1e81e016"
+    },
+    {
+      "path": "tools/experiments/beta_matrix/model.py",
+      "size": 14208,
+      "sha256": "54185eb0d155567b46c7055806016b2b65a9854286e4bb29e034fe1b780e7205"
+    },
+    {
+      "path": "tools/experiments/beta_matrix/results/.gitignore",
+      "size": 14,
+      "sha256": "240a3e0d37d2e86b614063f5347eb02d4f99ca6c254de6b82871ff8d95532a7d"
+    },
+    {
+      "path": "tools/experiments/beta_matrix/run_beta_matrix.py",
+      "size": 319,
+      "sha256": "30de17b2861d0329083562298eb15bb107bae744c55cc2f8647afbb92afb7212"
+    },
+    {
+      "path": "tools/experiments/beta_matrix/runner.py",
+      "size": 10403,
+      "sha256": "a889c05e6a0826de8049a0c157522f329ba0acc6117cf13232777e020da8dff1"
+    },
+    {
+      "path": "tools/experiments/beta_matrix/staging.py",
+      "size": 6708,
+      "sha256": "55e3ebca5d1861a58e89a33bf07ef5710546035daa707e9667f1222b773416b0"
+    },
+    {
+      "path": "tools/experiments/beta_matrix/test_beta_matrix.py",
+      "size": 5074,
+      "sha256": "8fac20e213c723e59c77ac38667841190942e2ac7ce36e61410b7ef3f5f04f4b"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/.gitignore",
+      "size": 58,
+      "sha256": "25495c1a8b3ea51f24e517a12e91526b45ce2edb6583747eb61968ab9c74b5ef"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/MANUAL_CROSS_DOMAIN_EXPERIMENT.md",
+      "size": 6292,
+      "sha256": "d22be4efe17e87add51548e459aafc5a31f66a6bd37ccf650ddd1a2a7c1e207d"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/__init__.py",
+      "size": 51,
+      "sha256": "c2bbcb6737adcee4c1289eb0ad4177b258a0f9bb5cbd2d25a461f9d1aa64b06e"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/analyze.py",
+      "size": 5928,
+      "sha256": "c37a4e40aba9cf12e491d572d942f0dee7a2cec69d617d1cccd6a7336858ec52"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/dataset.py",
+      "size": 8475,
+      "sha256": "6285b9239e86bfeac818c92e03588da1438606bf4a58b095da92de20fe2e5779"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/manual_cross_domain_experiment.ps1",
+      "size": 8774,
+      "sha256": "c5374ede43ac2216404c8638d5d6b7003b3163e27e86525a95bb314d74f176e5"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/plot_core_compare.py",
+      "size": 8334,
+      "sha256": "0c56eda4aa8765eaf5d866af34dd35c66bc5b079bfd8579f79daab0d621c7097"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/preflight.py",
+      "size": 16413,
+      "sha256": "f64477eda3432bbb9914b1bd433dfe99c29cbb5ec6e3cae2299c70f1bd1f0a26"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/run_gridftp_compare_experiment.py",
+      "size": 323,
+      "sha256": "9511215b3cdeab7a789b3dc10e5800ae15b90460c4f034fdddc56efcdae0c354"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/runner.py",
+      "size": 113909,
+      "sha256": "ec70f97ac7f55228e0f6e5a4a41951b9b7924cdd8a4f5f4b3be9721998eca618"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/schemas.py",
+      "size": 4215,
+      "sha256": "8bb05a566afd046d306f6bfc61869ef15312c49b34f9bf0997a04cb7cba92b2e"
+    },
+    {
+      "path": "tools/experiments/gridftp_compare/test_gridftp_compare.py",
+      "size": 23137,
+      "sha256": "4c7496bcebac482d38ff024b0428b3cbd9d5dd801d85130b4de9ea55ab101b27"
+    },
+    {
+      "path": "tools/perf/.gitkeep",
+      "size": 2,
+      "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+    },
+    {
+      "path": "tools/perf/analyze_phase1_global_scheduler.py",
+      "size": 13248,
+      "sha256": "e4b910f6469b6d4bfd02806238419e5d20fe4cf8d60ad7afdea3cbf90dc47b17"
+    },
+    {
+      "path": "tools/perf/analyze_phase2_global_scheduler.py",
+      "size": 12209,
+      "sha256": "3ba49135dc214f9961382e3fa1b865967c6099310881208607b4d4363f51f5f5"
+    },
+    {
+      "path": "tools/perf/analyze_phase4e.py",
+      "size": 18397,
+      "sha256": "ba65d9ff0c7892acd298b338966ebf4f3d7eb2f3ab22640a278d9b36b9224c1a"
+    },
+    {
+      "path": "tools/perf/analyze_phase4i.py",
+      "size": 12877,
+      "sha256": "f5d748effab2b62c6f2466095134250bfce231585f1ba199169ef9a4b1896558"
+    },
+    {
+      "path": "tools/perf/analyze_phase4j.py",
+      "size": 10029,
+      "sha256": "c99f578ed091c05b5520e4303e475a488eea947784b014eab69f00d5fa4a390b"
+    },
+    {
+      "path": "tools/perf/analyze_phase4k.py",
+      "size": 8475,
+      "sha256": "988463a4eced96232ea9b5348afc671954ed6cbf510354c7f521b10ca268a30e"
+    },
+    {
+      "path": "tools/perf/analyze_phase4l.py",
+      "size": 14038,
+      "sha256": "3eb2fa47f481093f4c37abd30cdbaed97516d0041628fecc3af9e83f31bf2963"
+    },
+    {
+      "path": "tools/perf/analyze_phase5b.py",
+      "size": 6064,
+      "sha256": "30e7285d1f59faefeee889784457b2bd4b8360bcf2b4682c7277c21f38ae644a"
+    },
+    {
+      "path": "tools/perf/analyze_phase5c.py",
+      "size": 4858,
+      "sha256": "e7612c42fd544e6c94562950af6760110e367467f2efe0f475b9d1c14cbfd02f"
+    },
+    {
+      "path": "tools/perf/collect_env.sh",
+      "size": 2825,
+      "sha256": "1064efe93c4bb83bc609d2e38e1e601744d6c0a57b2dd10c7fcaa8ebb019b225"
+    },
+    {
+      "path": "tools/perf/run_file_loopback_matrix.py",
+      "size": 11204,
+      "sha256": "8b0bb041f9346e08eb89ed7c1c84fa1e680ba0fd672e38ff40d4728adbaf448b"
+    },
+    {
+      "path": "tools/perf/run_file_private_once.sh",
+      "size": 8490,
+      "sha256": "c351aacbce4232c04bbaf71f694947ef23adc6186c7b34f93961b3c889b8ce8d"
+    },
+    {
+      "path": "tools/perf/run_gridftp_private_matrix.py",
+      "size": 65469,
+      "sha256": "a5e3dcc2bb736588994cf2d8272dee749c1f21d785025454019aa8aabc78e087"
+    },
+    {
+      "path": "tools/perf/run_gridftp_tree_private_matrix.py",
+      "size": 54851,
+      "sha256": "a5bde78c572479707117c2da55b7eb53bfe9bba141ab249fd0ae776506a47609"
+    },
+    {
+      "path": "tools/perf/run_loopback_matrix.py",
+      "size": 6583,
+      "sha256": "410e88a2fca7ab9d644a3f973b6da45c2168ad779dd3ef153181b9bc8fbb4f8a"
+    },
+    {
+      "path": "tools/perf/run_private_host_baseline.py",
+      "size": 20324,
+      "sha256": "cdee874963d73f0946f26981c490e0a5a7071b76ea01d1f9a187a0f0cd9fea86"
+    },
+    {
+      "path": "tools/perf/run_private_once.sh",
+      "size": 4561,
+      "sha256": "b0e5c2d7d2ad11f51d06433a7cd02d409ed905efd11b74013e5bf6792e3c80f0"
+    },
+    {
+      "path": "tools/perf/sync_remote.sh",
+      "size": 1983,
+      "sha256": "39bab05cbf4a44c8595283613500fdeccb59f6f1865e91561de2866be1d0ac08"
+    },
+    {
+      "path": "tools/release/check_public_hygiene.py",
+      "size": 6888,
+      "sha256": "3b61113746c3be3c5a54593823f4b0030d01e5cd00240e74e31f9c224f2f452b"
+    },
+    {
+      "path": "tools/release/check_remote_artifact_sync.py",
+      "size": 9373,
+      "sha256": "eace34942aecbbc4c0a116312f7d427995bf21d52d94befb21269e8d24204981"
+    },
+    {
+      "path": "tools/release/export_public_repo.py",
+      "size": 7525,
+      "sha256": "d1db491609cdebc8edafee7e3c33405b023daa30099d5d2f796b5b9e16c1b5ad"
+    },
+    {
+      "path": "tools/release/remote_auth.py",
+      "size": 6096,
+      "sha256": "5113cad1239b4b81a144588b4b772243f83320764a78c1fdcde634914f4bb8c9"
+    },
+    {
+      "path": "tools/release/run_alpha_release_candidate.py",
+      "size": 21550,
+      "sha256": "ac27242e80166547951ed1779fe36894e20b3fb5a381c5cd67e368459911b75a"
+    },
+    {
+      "path": "tools/release/run_alpha_release_gate.py",
+      "size": 50398,
+      "sha256": "d736f21efd742ab3f90e78bf530069e9987e1edb48f0134e44cf99a1c35dcda7"
+    },
+    {
+      "path": "tools/release/sync_remote_artifacts.py",
+      "size": 18922,
+      "sha256": "dcab56e4ea4ca2435cdb3035b9af8096f0ee86fa1448c801d239ffbc72bd5977"
+    },
+    {
+      "path": "tools/release/test_alpha_release_helpers.py",
+      "size": 19209,
+      "sha256": "ac12710934471c90a58a91ca7af5930a2b3ecbcb07bbebc8c13552d45db130f9"
+    },
+    {
+      "path": "tools/release/test_public_hygiene.py",
+      "size": 4114,
+      "sha256": "7c36fa3f1a3582a57bce258a5631f9f7796558da79c877e5779cabcfff428985"
+    },
+    {
+      "path": "tools/test/gridftp_port_window.py",
+      "size": 800,
+      "sha256": "510ce03b440c38db748bf4071829b61703d0f83ce0ef3e865f2856990a7a8b55"
+    },
+    {
+      "path": "tools/test/run_alpha_soak_smoke.py",
+      "size": 7123,
+      "sha256": "06a03632eb1d35ad9ed3fb3a2c2d5b16a0450f207683345db97deaa039265c2a"
+    },
+    {
+      "path": "tools/test/run_file_checksum_private_once.sh",
+      "size": 6867,
+      "sha256": "dedb24cbf5358c1cbb14feba6d03251cadc98ee9b709853de70ea0c8f73cb29e"
+    },
+    {
+      "path": "tools/test/run_file_checksum_smoke.sh",
+      "size": 8153,
+      "sha256": "cf6e71a160a2cc40fc45932f5aadd375c7361a2a03de8bb452b11953b41afb6d"
+    },
+    {
+      "path": "tools/test/run_file_resume_smoke.sh",
+      "size": 6055,
+      "sha256": "5e783af459e7292654a21fbc61d5bd6deffc16124560ffe27ad3b9b91f460909"
+    },
+    {
+      "path": "tools/test/run_file_transfer_smoke.sh",
+      "size": 3856,
+      "sha256": "8ad17833cf744070bfaa9d2355bbffda2445b5d13747c6b17cdd604f932685ba"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_list_smoke.py",
+      "size": 7147,
+      "sha256": "509f2e19c159e7c6a15fb964ac6a2a333920a4716797512d651f76bcf683e4a6"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_metadata_private_once.py",
+      "size": 7564,
+      "sha256": "d0caf2028398658a2fb11df0fb3454daa991f0763d6f709aeb15c6e594fd66b3"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_metadata_smoke.py",
+      "size": 6486,
+      "sha256": "9a14c1a725f19de99eb7c21c59e4b3280ade8906de1ad175eed9166cb73133e8"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_private_once.py",
+      "size": 12969,
+      "sha256": "dc5cc4113d6072a9a980c636a504da56d0b68bbd8193145ee7b42a818b3f2d1b"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_resume_smoke.py",
+      "size": 10948,
+      "sha256": "18d89a86ad75b10a096c3c5f78d463e9904ce43c478267465718fa195c94047b"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_retr_corrupt_resume_smoke.py",
+      "size": 10050,
+      "sha256": "9f36c4b40029142f02810ec07eaf3057676edc496cd2410d3db9461bc6046a82"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_retr_private_once.py",
+      "size": 12334,
+      "sha256": "4315cb0191a1fdca6429a56891baebff63e850bbe1cb0ec7ca3e447a944fed68"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_retr_resume_smoke.py",
+      "size": 10239,
+      "sha256": "4a4eb095b6b4113d18136f44bba6ee9d9461b1beffc6867b3971cee115a77e5e"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_retr_smoke.py",
+      "size": 8062,
+      "sha256": "ee15387dc4adf3cfb992b9739871a2ebd7c7dea8c658f82f0ed3f316c6427fac"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_stor_smoke.py",
+      "size": 8176,
+      "sha256": "02f4d73a17a703f7bd543ca971dab8a8f07f129aa21950f1763747257e07f692"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_tls_private_once.py",
+      "size": 11497,
+      "sha256": "d2e57a5051d3082c8bfb20c1cfbbe4bd83000b7168a30c213726dd10d5e47725"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_tls_smoke.py",
+      "size": 12976,
+      "sha256": "b483a4d8664290fc733f67fc03867c38b6e60aac0caa55e5c5e7a6749e0125bb"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_token_private_once.py",
+      "size": 15629,
+      "sha256": "e2eeabd7dfd9f875e17fca5b259f49386190c8e979130eaa1d973d4964cfeb94"
+    },
+    {
+      "path": "tools/test/run_gridftp_control_token_smoke.py",
+      "size": 11924,
+      "sha256": "7fa693496b8698c2cac6f38a6939db0b85f589bfe553bd4901eb068d9a6bfb3a"
+    },
+    {
+      "path": "tools/test/run_gridftp_data_tls_private_once.py",
+      "size": 14374,
+      "sha256": "2a5e764a3fa88fdd4cc7e63394a4a9c49c99b9cd95e47cbe831788d192e8acf6"
+    },
+    {
+      "path": "tools/test/run_gridftp_data_tls_smoke.py",
+      "size": 17786,
+      "sha256": "3819273f60ceaeef5b607a9eeb535a0abde23442da6f4c9f87f6475fcfb5d472"
+    },
+    {
+      "path": "tools/test/run_gridftp_event_log_smoke.py",
+      "size": 7172,
+      "sha256": "02fd007d4ed9c0ce818af5c51ce49bb80d212ba88ef2416eaf58397b937c2f45"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_changed_file_smoke.py",
+      "size": 4971,
+      "sha256": "14c670fc9a62f0b214a65d74bba14ccbd31f565001019680747f17b4f76e6681"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_control_reuse_smoke.py",
+      "size": 3625,
+      "sha256": "821ccf62082c9fc11d6ce9da9b81ea9b9e7a71a678f96f96700810692ef3c3ea"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_data_final_status_timeout_smoke.py",
+      "size": 5106,
+      "sha256": "e9b1ae0b93f354c752a1574affb9928b330b8eb2d5eb4445100826b18a18debf"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_download_smoke.py",
+      "size": 1901,
+      "sha256": "fb0a6feb55d0e245c98ac8616f47cabbb582e32b76798115770444d135f2d2f2"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_edge_cases_smoke.py",
+      "size": 7509,
+      "sha256": "d90de1750c5180a39bb7f642222f50200be2461e1a3018e92cf2ae84d2ad4064"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_manifest_corrupt_smoke.py",
+      "size": 1907,
+      "sha256": "27446ebc8a4d606a1bf5b11fd73208e250bc596ecd56d46cb4e9fff855ba291f"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_parallel_smoke.py",
+      "size": 2715,
+      "sha256": "2301341d9ee9773edc7f33da9de61b453e1112166c09731f70f6954dcc7dff72"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_private_once.py",
+      "size": 11469,
+      "sha256": "da7d446e2448e60bd284a766a78573ff5365ac2dc7e007969d5904cb44360c4a"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_resume_smoke.py",
+      "size": 3058,
+      "sha256": "fdaadcb0ff41d7a72f2a62cc43f684268ab3f8de0513b198b11c85dc740678dc"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_scheduler_smoke.py",
+      "size": 11710,
+      "sha256": "85d9925c7bb1c827a87d000e4c9ea028d2d1975acb41fb3566499181b4b1d40d"
+    },
+    {
+      "path": "tools/test/run_gridftp_tree_upload_smoke.py",
+      "size": 1923,
+      "sha256": "9bda54022b4894e9924bb141b3e1259100a821893afef0b1d63eb1e124f57eab"
+    },
+    {
+      "path": "tools/test/test_alpha_soak_smoke.py",
+      "size": 3718,
+      "sha256": "8b18abb94804fef8300a25b7881bc5a9e63368c11931354aba4c0fb2a17dfac6"
+    },
+    {
+      "path": "tools/test/tree_smoke_common.py",
+      "size": 4424,
+      "sha256": "0b3e7522d1714ad0b0c7e3c79993f7b44d70f8f2b001197d9e07ec1e78ebad16"
+    },
+    {
+      "path": "交付说明/01_项目说明.md",
+      "size": 2621,
+      "sha256": "b97c1bd9d8133c665afdfddcf39974e73ce1c957e2794bb8f1cbf6fc064abfc5"
+    },
+    {
+      "path": "交付说明/02_部署流程.md",
+      "size": 3579,
+      "sha256": "2b96d4ffdf91150b350da5e643609cea6e3f873931c65022ab5ebbe04f3f3cb0"
+    },
+    {
+      "path": "交付说明/03_使用说明.md",
+      "size": 3716,
+      "sha256": "79caa1971f1eae55c0646f634978bba61804c7af4db33f37e6f4d321fd867dce"
+    },
+    {
+      "path": "交付说明/04_验收与测试.md",
+      "size": 2591,
+      "sha256": "bb22f4d41ea1b81ecbb654037d065f40b4e53c001b6d6785ca8fe7dad8770aaa"
+    },
+    {
+      "path": "交付说明/05_限制与后续路线.md",
+      "size": 2326,
+      "sha256": "5f5b563e1ab67d41ef521c91b97b80481509d95c272e46fb71519d127dbbfa25"
+    },
+    {
+      "path": "交付说明/README.md",
+      "size": 2078,
+      "sha256": "aede02a79fddf9c17f527bec31275faf57acdcd7b444c4ed72ff9ccceb3618c3"
+    },
+    {
+      "path": "本地交付包说明.md",
+      "size": 1040,
+      "sha256": "3512ddb9bd20b6a6a869c17fdf5c45170e1b70118dca220d27ec6db968501958"
+    }
+  ]
+}
