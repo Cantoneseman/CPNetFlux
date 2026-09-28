@@ -74,3 +74,12 @@ The final authorized scope contains 552 paths (548 manifest entries, two control
 - Staged allowlist check: exit 0; 273 changed paths staged, 0 outside the 552-path authorized final scope.
 - Default staged `git diff --cached --check`: exit 2 with 9,314 diagnostics from preserved CRLF, existing Markdown trailing spaces, and blank-at-EOF in imported historical files. No source content was normalized.
 - Content-preserving diagnostic check `git -c core.whitespace=cr-at-eol,-trailing-space,-blank-at-eof diff --cached --check`: exit 0. The nonzero default check is retained as a migration limitation, not converted to pass.
+
+## Commit and push evidence
+
+- Materialization commit: `2681cc0dd66893f333447cefd709e2cbebaec38a`
+- Commit path scope: 273 changed paths, all within the authorized 552-path final scope; the resulting index contains all 548 manifest paths.
+- `git diff --cached --check` content-preserving gate: exit 0 with `core.whitespace=cr-at-eol,-trailing-space,-blank-at-eof`; the default gate's exit 2 and 9,314 diagnostics are retained above.
+- `git push origin codex/CLOUD-GITHUB-01-MATERIALIZE-01`: exit 0.
+- Remote ref readback: `2681cc0dd66893f333447cefd709e2cbebaec38a`, equal to local materialization commit.
+- Materialization worktree after push: clean, index empty. Shenzhen authoritative root remains HEAD `47b0ca2050288f4a0f2efec846535c5d130b3188`, 270 dirty entries, index empty.
