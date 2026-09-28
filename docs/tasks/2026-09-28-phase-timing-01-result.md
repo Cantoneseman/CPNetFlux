@@ -38,4 +38,4 @@
 
 ## 提交
 
-- 实际提交与 push SHA 在提交完成后回填；仅提交本任务四个源码/测试文件和本结果文档。
+- 实际提交：`d18ec74f47e72a51b1a679a18251550ed00e3506`。origin `codex/DIR-PERF-TIMING-01` 已推送，`git ls-remote` 回读同 SHA。随后本结果 SHA 回填文档提交已单独推送。
