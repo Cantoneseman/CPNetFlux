@@ -58,6 +58,7 @@ struct TreeTransferOptions {
     std::string plannerPreset;
     std::string jsonSummaryPath;
     std::string eventLogPath;
+    bool phaseTiming = false;
     TreeSchedulerMode schedulerMode = TreeSchedulerMode::Off;
     core::scheduler::SchedulerPolicy schedulerPolicy =
         core::scheduler::SchedulerPolicy::Fixed;

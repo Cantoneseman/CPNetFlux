@@ -648,7 +648,19 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> controlConnectCount{0};
     std::atomic<std::uint64_t> controlReconnectCount{0};
     std::atomic<std::uint64_t> dataTransferCount{0};
+    std::atomic<std::uint64_t> phaseASecondsNs{0};
+    std::atomic<std::uint64_t> phaseBSecondsNs{0};
+    std::atomic<std::uint64_t> phaseCSecondsNs{0};
+    std::atomic<std::uint64_t> phaseCWaitSecondsNs{0};
+    std::atomic<std::uint64_t> phaseACount{0};
+    std::atomic<std::uint64_t> phaseBCount{0};
+    std::atomic<std::uint64_t> phaseCCount{0};
+    std::atomic<std::uint64_t> phaseCWaitCount{0};
 };
+
+std::uint64_t phaseNanos(std::chrono::steady_clock::duration duration) {
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count());
+}
 
 void addTransferMetrics(TreeRunStats* stats, const core::io::TransferRuntimeMetrics* metrics) {
     if (stats == nullptr || metrics == nullptr) {
@@ -990,6 +1002,18 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"resume\": " << (options.resume ? "true" : "false") << ",\n";
     output << "  \"elapsed_seconds\": " << elapsed << ",\n";
     output << "  \"throughput_gbps\": " << throughputGbps << ",\n";
+    if (options.phaseTiming) {
+        output << "  \"phase_timing_schema\": \"phase_timing_v1\",\n";
+        output << "  \"phase_timing_units\": \"seconds\",\n";
+        output << "  \"phase_a_count\": " << stats.phaseACount.load() << ",\n";
+        output << "  \"phase_a_seconds\": " << static_cast<double>(stats.phaseASecondsNs.load()) / 1e9 << ",\n";
+        output << "  \"phase_b_count\": " << stats.phaseBCount.load() << ",\n";
+        output << "  \"phase_b_seconds\": " << static_cast<double>(stats.phaseBSecondsNs.load()) / 1e9 << ",\n";
+        output << "  \"phase_c_count\": " << stats.phaseCCount.load() << ",\n";
+        output << "  \"phase_c_seconds\": " << static_cast<double>(stats.phaseCSecondsNs.load()) / 1e9 << ",\n";
+        output << "  \"phase_c_wait_count\": " << stats.phaseCWaitCount.load() << ",\n";
+        output << "  \"phase_c_wait_seconds\": " << static_cast<double>(stats.phaseCWaitSecondsNs.load()) / 1e9 << ",\n";
+    }
     output << "  \"result\": \"" << jsonEscape(result) << "\",\n";
     output << "  \"error_code\": \""
            << core::metrics::errorCodeName(core::metrics::classifyStatus(status)) << "\",\n";
@@ -1053,6 +1077,7 @@ struct SchedulerState {
     bool stoppedByMaxFiles = false;
     common::Status firstError = common::Status::ok();
     TreeRunStats stats;
+    bool phaseTiming = false;
 };
 
 void setFirstErrorLocked(SchedulerState* state, common::Status status) {
@@ -1067,11 +1092,16 @@ void setFirstErrorLocked(SchedulerState* state, common::Status status) {
 
 common::Status updateRecord(SchedulerState* state, std::size_t index,
                             core::tree::TreeFileStatus status, std::string error = "") {
+    const auto started = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(state->mutex);
     auto& record = state->manifest->files[index];
     record.status = status;
     record.error = std::move(error);
     const common::Status saveStatus = saveManifest(state->manifest, state->manifestPath);
+    if (state->phaseTiming) {
+        state->stats.phaseBCount.fetch_add(1, std::memory_order_relaxed);
+        state->stats.phaseBSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - started), std::memory_order_relaxed);
+    }
     if (!saveStatus.isOk()) {
         setFirstErrorLocked(state, saveStatus);
     }
@@ -1080,12 +1110,17 @@ common::Status updateRecord(SchedulerState* state, std::size_t index,
 
 common::Status updateRecordForTransfer(SchedulerState* state, std::size_t index,
                                        std::string transferId) {
+    const auto started = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(state->mutex);
     auto& record = state->manifest->files[index];
     record.transferId = std::move(transferId);
     record.status = core::tree::TreeFileStatus::Transferring;
     record.error.clear();
     const common::Status saveStatus = saveManifest(state->manifest, state->manifestPath);
+    if (state->phaseTiming) {
+        state->stats.phaseBCount.fetch_add(1, std::memory_order_relaxed);
+        state->stats.phaseBSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - started), std::memory_order_relaxed);
+    }
     if (!saveStatus.isOk()) {
         setFirstErrorLocked(state, saveStatus);
     }
@@ -1141,9 +1176,14 @@ void mergeTransferMetrics(core::io::TransferRuntimeMetrics* destination,
 common::Status ensureControlReadyWithStats(ControlClient* client,
                                            const config::TreeTransferOptions& options,
                                            TreeRunStats* stats) {
+    const auto started = std::chrono::steady_clock::now();
     const common::Status status = ensureControlReady(client, options);
-    if (status.isOk() && stats != nullptr) {
-        stats->controlConnectCount.fetch_add(1);
+    if (stats != nullptr) {
+        stats->phaseACount.fetch_add(1, std::memory_order_relaxed);
+        stats->phaseASecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - started), std::memory_order_relaxed);
+        if (status.isOk()) {
+            stats->controlConnectCount.fetch_add(1);
+        }
     }
     return status;
 }
@@ -1406,7 +1446,12 @@ common::Status processUploadFile(SchedulerState* state, std::size_t index,
     core::io::TransferRuntimeMetrics transferMetrics;
     fileOptions.runtimeMetrics = &transferMetrics;
 
+    const auto transferStarted = std::chrono::steady_clock::now();
     common::Status transferStatus = runFileTransferClient(fileOptions);
+    if (state->phaseTiming) {
+        state->stats.phaseCCount.fetch_add(1, std::memory_order_relaxed);
+        state->stats.phaseCSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - transferStarted), std::memory_order_relaxed);
+    }
     if (runtime != nullptr && options.schedulerMode == config::TreeSchedulerMode::Global) {
         runtime->transferMetrics = transferMetrics;
         runtime->hasTransferMetrics = true;
@@ -1437,7 +1482,12 @@ common::Status processUploadFile(SchedulerState* state, std::size_t index,
                     retryOptions.hotPathCompression.candidate = true;
                     core::io::TransferRuntimeMetrics retryMetrics;
                     retryOptions.runtimeMetrics = &retryMetrics;
+                    const auto retryStarted = std::chrono::steady_clock::now();
                     transferStatus = runFileTransferClient(retryOptions);
+                    if (state->phaseTiming) {
+                        state->stats.phaseCCount.fetch_add(1, std::memory_order_relaxed);
+                        state->stats.phaseCSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - retryStarted), std::memory_order_relaxed);
+                    }
                     mergeTransferMetrics(&transferMetrics, retryMetrics);
                     runtime->transferMetrics = transferMetrics;
                     runtime->hasTransferMetrics = true;
@@ -1454,7 +1504,12 @@ common::Status processUploadFile(SchedulerState* state, std::size_t index,
         return transferStatus;
     }
     state->stats.dataTransferCount.fetch_add(1);
+    const auto waitStarted = std::chrono::steady_clock::now();
     const common::Status completeStatus = control.value()->waitTransferComplete();
+    if (state->phaseTiming) {
+        state->stats.phaseCWaitCount.fetch_add(1, std::memory_order_relaxed);
+        state->stats.phaseCWaitSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - waitStarted), std::memory_order_relaxed);
+    }
     if (!completeStatus.isOk()) {
         (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed,
                            completeStatus.message());
@@ -1589,7 +1644,12 @@ common::Status processDownloadFile(SchedulerState* state, std::size_t index,
     core::io::TransferRuntimeMetrics transferMetrics;
     fileOptions.runtimeMetrics = &transferMetrics;
 
+    const auto transferStarted = std::chrono::steady_clock::now();
     const common::Status transferStatus = runFileDownloadClient(fileOptions);
+    if (state->phaseTiming) {
+        state->stats.phaseCCount.fetch_add(1, std::memory_order_relaxed);
+        state->stats.phaseCSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - transferStarted), std::memory_order_relaxed);
+    }
     if (runtime != nullptr && options.schedulerMode == config::TreeSchedulerMode::Global) {
         runtime->transferMetrics = transferMetrics;
         runtime->hasTransferMetrics = true;
@@ -1602,7 +1662,12 @@ common::Status processDownloadFile(SchedulerState* state, std::size_t index,
         return transferStatus;
     }
     state->stats.dataTransferCount.fetch_add(1);
+    const auto waitStarted = std::chrono::steady_clock::now();
     const common::Status completeStatus = control.value()->waitTransferComplete();
+    if (state->phaseTiming) {
+        state->stats.phaseCWaitCount.fetch_add(1, std::memory_order_relaxed);
+        state->stats.phaseCWaitSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - waitStarted), std::memory_order_relaxed);
+    }
     if (!completeStatus.isOk()) {
         (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed,
                            completeStatus.message());
@@ -2108,6 +2173,7 @@ common::Status runGlobalTreeScheduler(core::tree::TreeManifest* manifest,
     SchedulerState state;
     state.manifest = manifest;
     state.manifestPath = manifestPath;
+    state.phaseTiming = options.phaseTiming;
     const std::uint64_t completedBase =
         stats != nullptr ? stats->completedThisRun.load() : 0;
     const std::uint64_t skippedBase = stats != nullptr ? stats->skippedFiles.load() : 0;
@@ -2144,6 +2210,14 @@ common::Status runGlobalTreeScheduler(core::tree::TreeManifest* manifest,
             stats->controlReconnectCount.store(controlReconnectBase +
                                                state.stats.controlReconnectCount.load());
             stats->dataTransferCount.store(dataTransferBase + state.stats.dataTransferCount.load());
+            stats->phaseASecondsNs.store(state.stats.phaseASecondsNs.load());
+            stats->phaseBSecondsNs.store(state.stats.phaseBSecondsNs.load());
+            stats->phaseCSecondsNs.store(state.stats.phaseCSecondsNs.load());
+            stats->phaseCWaitSecondsNs.store(state.stats.phaseCWaitSecondsNs.load());
+            stats->phaseACount.store(state.stats.phaseACount.load());
+            stats->phaseBCount.store(state.stats.phaseBCount.load());
+            stats->phaseCCount.store(state.stats.phaseCCount.load());
+            stats->phaseCWaitCount.store(state.stats.phaseCWaitCount.load());
             stats->wireBytes.store(wireBase + state.stats.wireBytes.load());
             stats->compressionAttempts.store(compressionAttemptsBase +
                                               state.stats.compressionAttempts.load());
@@ -2308,6 +2382,7 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
     SchedulerState state;
     state.manifest = manifest;
     state.manifestPath = manifestPath;
+    state.phaseTiming = options.phaseTiming;
     const std::uint64_t completedBase =
         stats != nullptr ? stats->completedThisRun.load() : 0;
     const std::uint64_t skippedBase = stats != nullptr ? stats->skippedFiles.load() : 0;
@@ -2329,6 +2404,14 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
             stats->controlReconnectCount.store(controlReconnectBase +
                                                state.stats.controlReconnectCount.load());
             stats->dataTransferCount.store(dataTransferBase + state.stats.dataTransferCount.load());
+            stats->phaseASecondsNs.store(state.stats.phaseASecondsNs.load());
+            stats->phaseBSecondsNs.store(state.stats.phaseBSecondsNs.load());
+            stats->phaseCSecondsNs.store(state.stats.phaseCSecondsNs.load());
+            stats->phaseCWaitSecondsNs.store(state.stats.phaseCWaitSecondsNs.load());
+            stats->phaseACount.store(state.stats.phaseACount.load());
+            stats->phaseBCount.store(state.stats.phaseBCount.load());
+            stats->phaseCCount.store(state.stats.phaseCCount.load());
+            stats->phaseCWaitCount.store(state.stats.phaseCWaitCount.load());
         }
     };
     const std::uint32_t workerCount =

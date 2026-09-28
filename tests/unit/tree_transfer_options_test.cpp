@@ -90,6 +90,7 @@ TEST(TreeTransferOptionsTest, ParsesUploadOptions) {
     EXPECT_EQ(parsed.value().user, "alice");
     EXPECT_EQ(parsed.value().jsonSummaryPath, "/tmp/tree-summary.json");
     EXPECT_EQ(parsed.value().eventLogPath, "/tmp/tree-events.jsonl");
+    EXPECT_FALSE(parsed.value().phaseTiming);
     EXPECT_EQ(parsed.value().schedulerMode, cpnetflux::config::TreeSchedulerMode::Global);
     EXPECT_EQ(parsed.value().schedulerPolicy,
               cpnetflux::core::scheduler::SchedulerPolicy::Adaptive);
@@ -129,7 +130,30 @@ TEST(TreeTransferOptionsTest, DefaultsControlReuseOff) {
     EXPECT_EQ(parsed.value().schedulerDefaultRttMs, 10U);
     EXPECT_DOUBLE_EQ(parsed.value().schedulerMinCompressGbps, 1.0);
     EXPECT_EQ(parsed.value().compressionMode, cpnetflux::config::CompressionMode::Off);
+    EXPECT_FALSE(parsed.value().phaseTiming);
     EXPECT_FALSE(parsed.value().hotPathCompression.enabled);
+    std::filesystem::remove_all(root);
+}
+
+TEST(TreeTransferOptionsTest, ParsesPhaseTimingFlagAndDefaultsOff) {
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / "cpnetflux-tree-phase-timing-root";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                          "--dest-dir", "remote", "--phase-timing", "on"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_TRUE(parsed.value().phaseTiming);
+
+    const char* invalid[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                             "--dest-dir", "remote", "--phase-timing", "yes"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+                     static_cast<int>(std::size(invalid)), invalid,
+                     cpnetflux::config::TreeTransferRole::Upload)
+                     .isOk());
     std::filesystem::remove_all(root);
 }
 

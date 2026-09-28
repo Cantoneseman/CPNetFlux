@@ -315,6 +315,11 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return common::Status::invalidArgument("--event-log must not be empty");
             }
             options.eventLogPath = std::string(value);
+        } else if (option == "--phase-timing") {
+            if (value != "on" && value != "off") {
+                return common::Status::invalidArgument("--phase-timing must be on or off");
+            }
+            options.phaseTiming = value == "on";
         } else if (option == "--scheduler") {
             auto parsed = parseTreeSchedulerMode(value);
             if (!parsed.isOk()) {
@@ -478,7 +483,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--control-reuse off|worker] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
-           "[--event-log <path>] [--scheduler off|global] "
+           "[--event-log <path>] [--phase-timing on|off] [--scheduler off|global] "
            "[--scheduler-policy fixed|adaptive] [--scheduler-metrics-dir <dir>] "
            "[--scheduler-link-id <id>] [--scheduler-capacity-gbps <float>] "
            "[--scheduler-workitem-min-bytes <N>] [--scheduler-workitem-max-bytes <N>] "
