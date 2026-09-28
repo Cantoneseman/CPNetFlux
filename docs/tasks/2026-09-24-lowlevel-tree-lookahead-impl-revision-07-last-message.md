@@ -1,0 +1,3 @@
+已在指定隔离 worktree 修复控制资源释放：`releaseCandidateControl` 现在按 owner/generation 和资源所有权判断，可在 `ControlPending`、`ControlReady`、`InUse`、`Cancelled`、`Failed` 状态释放；重复调用不会再次扣减计数。新增覆盖这五种状态的测试断言，存储清理仍要求 socket 和 control 资源先释放。
+
+回执：[详细结果](/D:/Project/CPNetFlux/build/LOWLEVEL-TREE-LOOKAHEAD-IMPL-05-true/docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-07-result.md) 和 [摘要](/D:/Project/CPNetFlux/build/LOWLEVEL-TREE-LOOKAHEAD-IMPL-05-true/docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-07-last-message.md)。HEAD 未变，index 为空，白名单与 `git diff --check` 检查通过。当前环境没有 CMake、CTest 或 C++ 编译器，WSL 返回 `E_ACCESSDENIED`，因此构建和动态测试均为 `NOT_RUN`；交由 04 独立复核，不代表 QA 通过。

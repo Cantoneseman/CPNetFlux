@@ -13,3 +13,7 @@
 当前先准备 raw/worker、scheduler off、compression off、POSIX 的阶段观测方案；与架构/质量确认 schema 和时钟边界。每个 case 结束保留必要诊断后清理自己的可再生 payload；依照 ENVIRONMENT 回收并校验证据，实验环境同一时段只跑一个获准批次。
 
 首次接手仅阅读本地证据索引和少量有代表性的原始行，写 `docs/coordination/receipts/02-experiments.md`：HEAD/status、证据路径是否存在、已核实/待核实的口径、建议小矩阵及阻塞。只写本回执，不重跑实验、不改原始数据/代码/BOARD/ROSTER、不 git add/commit。完成后向总指挥提供简短接手结论，等待任务单。
+
+## 2026-09-24 云端优先规则（覆盖本 prompt 旧环境描述）
+
+每次新任务或续接旧聊天，先读 `docs/DECISIONS/2026-09-24-cloud-first-development-and-github-backup.md`、`docs/coordination/ENVIRONMENT.md` 和当前任务单。迁移验收后，实验设计、分析和项目记录在深圳唯一权威 clone/隔离 worktree 完成；上海仅作获批传输对端，Windows 仅连接、查看和应急回收。迁移/GitHub remote 未验收前遵循 `CLOUD-GITHUB-01`，不在本地副本启动新实验。每个阶段把报告、case 清单和证据索引精确提交并推送 GitHub；大型证据留外部存储并记录 SHA，未确认 push 不得称已备份。

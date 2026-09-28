@@ -10,8 +10,7 @@
     "build",
     "tools/perf/results",
     "tools/experiments/gridftp_compare/manual-plans",
-    "**/__pycache__",
-    "cloud-only migration marker and validation artifacts"
+    "**/__pycache__"
   ],
   "entries": [
     {
@@ -2753,6 +2752,24 @@
       "path": "本地交付包说明.md",
       "size": 1040,
       "sha256": "3512ddb9bd20b6a6a869c17fdf5c45170e1b70118dca220d27ec6db968501958"
+    }
+  ],
+  "cloud_only_artifacts": [
+    {
+      "path": ".cpnetflux-migration-marker",
+      "role": "migration ownership marker"
+    },
+    {
+      "path": "docs/coordination/CLOUD-GITHUB-01-FILES.json",
+      "role": "per-file migration manifest"
+    },
+    {
+      "path": "docs/coordination/CLOUD-GITHUB-01-MANIFEST.json",
+      "role": "migration summary"
+    },
+    {
+      "path": "docs/tasks/2026-09-25-cross-domain-smoke-result.md",
+      "role": "cloud validation record"
     }
   ]
 }

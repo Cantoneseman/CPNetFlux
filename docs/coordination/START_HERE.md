@@ -2,6 +2,8 @@
 
 本目录是新 Codex 项目的交接入口。项目文件夹固定为 `D:\Project\CPNetFlux`，不要把历史备份目录 `D:\Project\GridFlux Beta` 添加为新开发项目。
 
+**项目操作遵循云端优先原则。** 迁移验收后，深圳 CPNetFlux clone 是唯一权威工作区，上海只作跨域传输对端；Windows 仅用于连接、查看和应急证据回收。迁移和 GitHub remote 尚未核验，不能声称已经切换。新会话与续接中的旧聊天都必须遵守 [云端优先决策](../DECISIONS/2026-09-24-cloud-first-development-and-github-backup.md)；迁移任务 `CLOUD-GITHUB-01` 完成前暂停源码实现、构建和性能实验。
+
 用户日常只与 **00 总指挥** 沟通。总指挥把需求转成任务，交给五个专职角色，再汇总证据、风险和下一步。五个专职角色保留独立聊天，避免把全部历史塞进一个上下文。
 
 ## 六个聊天
@@ -27,6 +29,8 @@
 2. [PROJECT_BRIEF.md](PROJECT_BRIEF.md)：背景、证据边界、当前代码状态。
 3. [ENVIRONMENT.md](ENVIRONMENT.md)：本地/云端路径与 SSH、实验约束。
 4. [BOARD.md](BOARD.md)：当前路线、任务状态、依赖和下一步。
+
+每次项目写操作还须先读 [云端优先决策](../DECISIONS/2026-09-24-cloud-first-development-and-github-backup.md)。它覆盖旧聊天、旧 prompt 和历史回执中“本地负责日常源码/Git、云端只做构建/实验”的旧流程表述；当前工作区未通过迁移验收前，不能假装已经云端开发或已备份到 GitHub。
 
 然后按任务读取决策、源码和原始实验。不要一次读完 200 KB 的旧 PROJECT_STATE，或把旧 ROADMAP 后半部分当作当前任务。
 

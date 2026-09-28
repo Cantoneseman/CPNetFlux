@@ -16,3 +16,7 @@ Windows OpenSSH 可用别名：
 保存日志/hash/summary/manifest 诊断后才删除本任务可再生 payload；先回收并核验本地证据，再按任务单清理。禁止宽泛 rm /tmp/* 或 /root/projects/*。不因路径在 /tmp 就断言可删。固定构建来自提交，不从 dirty 云端历史目录直接编译冒充该提交。CTest token 运行时安全注入，io_uring 缺 liburing如实 blocked，不安装无关依赖。
 
 首次接手只读：确认本地仓库、对两个 SSH 别名执行 hostname、df、历史目录 git status 和精简服务检查（不打印进程凭据；不进入受保护项目）。写 `docs/coordination/receipts/05-operations.md`：时间、主机、磁盘、SSH、现有服务、可用构建能力、阻塞、建议 ENV-01 盘点范围。只写本回执，不删文件、不杀进程、不安装软件、不启动构建/实验、不改 BOARD/ROSTER、不 git add/commit。完成后等待总指挥下发具体运维任务。
+
+## 2026-09-24 云端优先规则（覆盖本 prompt 旧环境描述）
+
+每次新任务或续接旧聊天，先读 `docs/DECISIONS/2026-09-24-cloud-first-development-and-github-backup.md`、`docs/coordination/ENVIRONMENT.md` 和当前任务单。迁移验收后，深圳 CPNetFlux clone 是唯一权威项目仓库，上海只作获批传输对端；不得在 dirty 历史 `/root/projects/GridFlux-Beta` 上开发，也绝不触碰 `/root/projects/CPSS(DCC)`。迁移和 GitHub remote 未验收前，先执行 `CLOUD-GITHUB-01` 的只读检查与备份链路门禁，不启动实现、构建或实验。里程碑报告/清单须在深圳任务分支精确 commit/push 并核对远端 SHA；凭据不落盘，大型证据放外部存储并保存 hash，失败须明确报告备份未完成。

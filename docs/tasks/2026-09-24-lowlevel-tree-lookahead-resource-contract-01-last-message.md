@@ -1,0 +1,3 @@
+已完成资源契约与执行回执：[决策文件](D:/Project/CPNetFlux/docs/DECISIONS/2026-09-24-lowlevel-tree-lookahead-resource-contract.md)、[执行回执](D:/Project/CPNetFlux/docs/tasks/2026-09-24-lowlevel-tree-lookahead-resource-contract-01-result.md)。
+
+裁定是保持 `reliableCandidateMemory=false`、effective depth=0，lookahead 性能实验继续 blocked。现有计量不足以证明候选准备的完整资源上界；1/2 MiB 仅保留为未来候选堆内存硬上限。文档 UTF-8、末尾换行和空白检查通过；`git diff --check` 通过，HEAD、暂存区及固定源码 parity 未变。未运行构建、测试或实验，等待 00 验收。

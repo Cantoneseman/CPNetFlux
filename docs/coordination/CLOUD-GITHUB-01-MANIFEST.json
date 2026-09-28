@@ -20,7 +20,7 @@
   "per_file_manifest": {
     "path": "docs/coordination/CLOUD-GITHUB-01-FILES.json",
     "entry_count": 548,
-    "sha256": "f7f962862a7676147f36518600c21ba7edf0d39aa2b4365d4b5680d3f2bc699d"
+    "sha256": "50b6e80b216d1f2963c78e8496ae5284d1351f94aefc8911cb59819813b59264"
   },
   "verification": {
     "local_migration_scope_files": 548,
@@ -28,8 +28,15 @@
     "size_sha256_mismatches": 0,
     "known_remote_only_artifacts": [
       ".cpnetflux-migration-marker",
+      "docs/coordination/CLOUD-GITHUB-01-FILES.json",
       "docs/coordination/CLOUD-GITHUB-01-MANIFEST.json",
       "docs/tasks/2026-09-25-cross-domain-smoke-result.md"
-    ]
+    ],
+    "known_remote_only_artifact_roles": {
+      ".cpnetflux-migration-marker": "migration ownership marker",
+      "docs/coordination/CLOUD-GITHUB-01-FILES.json": "per-file migration manifest",
+      "docs/coordination/CLOUD-GITHUB-01-MANIFEST.json": "migration summary",
+      "docs/tasks/2026-09-25-cross-domain-smoke-result.md": "cloud validation record"
+    }
   }
 }

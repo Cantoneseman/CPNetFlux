@@ -13,3 +13,7 @@
 执行代码测试需总指挥任务单、可用环境和运维构建清单；若发现明显缺陷，先报告定位、影响和建议，不擅自扩大实现范围。需改测试时使用独立 codex/<task-id> worktree，防止共享 index/分支冲突。
 
 首次接手做有限只读审查，写 `docs/coordination/receipts/04-quality.md`：HEAD/status、已存在测试证据与缺口、阶段 0 验收风险、profiling 应有的验收清单。只写本回执，不运行大矩阵、不 SSH 改环境、不改代码/BOARD/ROSTER、不 git add/commit。完成后向总指挥报告“可接手”及阻塞，等待任务单；不要把可接手写成产品验收通过。
+
+## 2026-09-24 云端优先规则（覆盖本 prompt 旧环境描述）
+
+每次新任务或续接旧聊天，先读 `docs/DECISIONS/2026-09-24-cloud-first-development-and-github-backup.md`、`docs/coordination/ENVIRONMENT.md` 和当前任务单。迁移验收后，独立 QA 文档、源码和构建证据以深圳权威 clone/隔离 worktree 为准；上海仅作传输对端，Windows 仅连接、查看和应急回收。迁移/GitHub remote 未验收前遵循 `CLOUD-GITHUB-01`，不得在本地副本继续日常 QA 写入。每个审查阶段精确 commit/push 并核对 SHA；外部大证据校验 hash 后留存，不能把本地结果称作 GitHub 备份。

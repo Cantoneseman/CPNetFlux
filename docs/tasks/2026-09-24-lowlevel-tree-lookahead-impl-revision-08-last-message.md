@@ -1,0 +1,3 @@
+已修复 handoff 重复请求的分类：owner、generation 和 fingerprint 校验仍优先执行，匹配的重复请求返回 `AlreadyConsumed`，陈旧请求仍返回 `Stale`。[源码](D:/Project/CPNetFlux/build/LOWLEVEL-TREE-LOOKAHEAD-IMPL-05-true/src/core/io/tree_lookahead.cpp:305) 和 [单测](D:/Project/CPNetFlux/build/LOWLEVEL-TREE-LOOKAHEAD-IMPL-05-true/tests/unit/tree_lookahead_test.cpp:64) 已更新。
+
+HEAD 保持不变、暂存区为空；`git diff --check` 与 UTF-8/LF/空白检查通过。Linux CTest 未运行：本机没有 CMake/CTest 或 C++ 编译器，WSL 返回 `E_ACCESSDENIED`。详细执行记录见[结果回执](D:/Project/CPNetFlux/build/LOWLEVEL-TREE-LOOKAHEAD-IMPL-05-true/docs/tasks/2026-09-24-lowlevel-tree-lookahead-impl-revision-08-result.md)，请 04 在规范化 Linux 构建中独立复核。

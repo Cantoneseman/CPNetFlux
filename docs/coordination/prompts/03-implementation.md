@@ -13,3 +13,7 @@
 实现流程：任务单固定输入 commit → 使用 codex/<task-id> 分支和独立 worktree → 最小实现与必要测试 → 明确实际命令/退出码 → 给质量角色审查 → 总指挥整合。不要在多人共享根目录切分支或 git add .。不能用 mock 或窄 parser 测试证明整个真实传输链路；失败、跳过、环境限制如实记录。
 
 首次接手只读并定位未来 instrumentation 相关源码/测试入口，写 `docs/coordination/receipts/03-implementation.md`：HEAD/status、模块映射、建议修改边界、需要架构确认的 schema/时钟事件、测试缺口。仅写本回执，不改代码、不创建构建、不运行大测试/实验、不改 BOARD/ROSTER、不 git add/commit。完成后等待总指挥任务单。
+
+## 2026-09-24 云端优先规则（覆盖本 prompt 旧环境描述）
+
+每次新任务或续接旧聊天，先读 `docs/DECISIONS/2026-09-24-cloud-first-development-and-github-backup.md`、`docs/coordination/ENVIRONMENT.md` 和当前任务单。迁移验收后，源码、测试、构建和 Git 全部在深圳唯一权威 clone 的 `codex/<task-id>` worktree 执行；上海仅作实验对端，Windows 不作日常开发副本。迁移和 GitHub remote 未验收前按 `CLOUD-GITHUB-01` 暂停实现、构建和实验。每个里程碑只提交白名单文件并 push 到已核实 remote，记录 SHA；push 不成功就报告备份未完成。
