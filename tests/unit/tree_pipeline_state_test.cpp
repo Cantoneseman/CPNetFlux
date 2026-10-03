@@ -12,6 +12,7 @@ struct FakePipeline {
         std::size_t index = 0;
         bool controlReady = false;
         bool listenerReserved = false;
+        bool cancelRequested = false;
     };
 
     explicit FakePipeline(bool enabled) : enabled(enabled) {}
@@ -33,7 +34,14 @@ struct FakePipeline {
         return true;
     }
 
+    void cancelCurrent() {
+        if (candidate.has_value()) {
+            candidate->cancelRequested = true;
+        }
+    }
+
     void failCurrent() {
+        cancelCurrent();
         candidate.reset();
     }
 
@@ -55,6 +63,19 @@ TEST(TreePipelineStateTest, ReservesSwapsAndCleansCandidateOnCurrentFailure) {
     pipeline.failCurrent();
     EXPECT_FALSE(pipeline.candidate.has_value());
     EXPECT_TRUE(pipeline.files[2]);
+}
+
+
+TEST(TreePipelineStateTest, CancellationIsRequestedBeforeCandidateCleanup) {
+    FakePipeline pipeline(true);
+    ASSERT_TRUE(pipeline.reserve(1));
+    ASSERT_TRUE(pipeline.candidate.has_value());
+    pipeline.cancelCurrent();
+    ASSERT_TRUE(pipeline.candidate.has_value());
+    EXPECT_TRUE(pipeline.candidate->cancelRequested);
+    pipeline.failCurrent();
+    EXPECT_FALSE(pipeline.candidate.has_value());
+    EXPECT_TRUE(pipeline.files[1]);
 }
 
 TEST(TreePipelineStateTest, DepthZeroNeverReserves) {

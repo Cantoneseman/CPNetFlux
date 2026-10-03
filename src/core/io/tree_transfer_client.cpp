@@ -56,6 +56,11 @@ class ControlClient {
    public:
     [[nodiscard]] common::Status connectTo(const std::string& host, std::uint16_t port,
                                            const TlsConfig& tls) {
+        if (cancelled_.load(std::memory_order_acquire)) {
+            return common::Status::runtimeError("tree pipeline candidate cancelled");
+        }
+        // DNS/connect/TLS handshake retain their existing blocking behavior.
+        // Cancellation can shutdown the socket after publication below.
         host_ = host;
         addrinfo hints{};
         hints.ai_family = AF_UNSPEC;
@@ -95,9 +100,15 @@ class ControlClient {
             if (!connection.isOk()) {
                 return connection.status();
             }
+            std::lock_guard<std::mutex> lock(cancelMutex_);
             control_ = std::move(connection.value());
         } else {
+            std::lock_guard<std::mutex> lock(cancelMutex_);
             control_ = TlsConnection::plain(std::move(fd_));
+        }
+        if (cancelled_.load(std::memory_order_acquire)) {
+            cancel();
+            return common::Status::runtimeError("tree pipeline candidate cancelled");
         }
         auto greeting = readReply();
         if (!greeting.isOk()) {
@@ -107,6 +118,16 @@ class ControlClient {
             return common::Status::runtimeError("unexpected control greeting");
         }
         return common::Status::ok();
+    }
+
+    void cancel() noexcept {
+        cancelled_.store(true, std::memory_order_release);
+        // Serialize publication with shutdown; never close a fd from this thread.
+        // The owner destroys the connection only after preparation has joined.
+        std::lock_guard<std::mutex> lock(cancelMutex_);
+        if (control_.valid()) {
+            (void)::shutdown(control_.fd(), SHUT_RDWR);
+        }
     }
 
     [[nodiscard]] common::Status login(const std::string& user, const std::string& password,
@@ -298,6 +319,9 @@ class ControlClient {
 
    private:
     [[nodiscard]] common::Status sendOnly(const std::string& commandText) {
+        if (cancelled_.load(std::memory_order_acquire)) {
+            return common::Status::runtimeError("tree pipeline candidate cancelled");
+        }
         const std::string text = commandText + "\r\n";
         return control_.writeAll(text.data(), text.size());
     }
@@ -340,6 +364,9 @@ class ControlClient {
 
     [[nodiscard]] common::Result<std::string> readLine() {
         while (true) {
+            if (cancelled_.load(std::memory_order_acquire)) {
+                return common::Status::runtimeError("tree pipeline candidate cancelled");
+            }
             const std::size_t newline = buffer_.find('\n');
             if (newline != std::string::npos) {
                 std::string line = buffer_.substr(0, newline + 1);
@@ -424,6 +451,8 @@ class ControlClient {
     std::string host_;
     std::string buffer_;
     std::uint32_t parallelism_ = 0;
+    std::mutex cancelMutex_;
+    std::atomic<bool> cancelled_{false};
 };
 
 std::string generateTransferId() {
@@ -1160,8 +1189,26 @@ struct PreparedTransfer {
     ControlClient control;
     std::uint16_t dataPort = 0;
     std::string transferId;
+    std::atomic<bool> cancelRequested{false};
     common::Status status = common::Status::ok();
 };
+
+void cancelPreparedTransfer(PreparedTransfer* prepared) noexcept {
+    if (prepared == nullptr) {
+        return;
+    }
+    prepared->cancelRequested.store(true, std::memory_order_release);
+    prepared->control.cancel();
+}
+
+common::Status candidateCancelled(PreparedTransfer* prepared) {
+    if (prepared != nullptr &&
+        prepared->cancelRequested.load(std::memory_order_acquire)) {
+        prepared->control.cancel();
+        return common::Status::runtimeError("tree pipeline candidate cancelled");
+    }
+    return common::Status::ok();
+}
 
 void mergeTransferMetrics(core::io::TransferRuntimeMetrics* destination,
                           const core::io::TransferRuntimeMetrics& source) {
@@ -1387,13 +1434,25 @@ common::Status prepareUploadCandidate(SchedulerState* state, std::size_t index,
             changedMessage("source file changed", record, metadata.value()));
     }
     prepared->index = index;
+    auto cancelled = candidateCancelled(prepared);
+    if (!cancelled.isOk()) {
+        return cancelled;
+    }
     const common::Status ready =
         ensureControlReadyWithStats(&prepared->control, options, &state->stats);
     if (!ready.isOk()) {
         return ready;
     }
+    cancelled = candidateCancelled(prepared);
+    if (!cancelled.isOk()) {
+        return cancelled;
+    }
     if (!acquireTransferSlot(state, options)) {
         return common::Status::runtimeError("tree pipeline candidate stopped after --max-files");
+    }
+    cancelled = candidateCancelled(prepared);
+    if (!cancelled.isOk()) {
+        return cancelled;
     }
     auto port = prepared->control.epsv();
     if (!port.isOk()) {
@@ -1403,6 +1462,10 @@ common::Status prepareUploadCandidate(SchedulerState* state, std::size_t index,
         "STOR", joinRemotePath(options.destDir, record.relativePath));
     if (!transfer.isOk()) {
         return transfer.status();
+    }
+    cancelled = candidateCancelled(prepared);
+    if (!cancelled.isOk()) {
+        return cancelled;
     }
     prepared->dataPort = port.value();
     prepared->transferId = transfer.value();
@@ -1419,10 +1482,18 @@ common::Status prepareDownloadCandidate(SchedulerState* state, std::size_t index
     const auto record = state->manifest->files[index];
     const std::string remotePath = joinRemotePath(options.sourceDir, record.relativePath);
     prepared->index = index;
+    auto cancelled = candidateCancelled(prepared);
+    if (!cancelled.isOk()) {
+        return cancelled;
+    }
     const common::Status ready =
         ensureControlReadyWithStats(&prepared->control, options, &state->stats);
     if (!ready.isOk()) {
         return ready;
+    }
+    cancelled = candidateCancelled(prepared);
+    if (!cancelled.isOk()) {
+        return cancelled;
     }
     auto remoteSize = prepared->control.size(remotePath);
     if (!remoteSize.isOk()) {
@@ -1440,6 +1511,10 @@ common::Status prepareDownloadCandidate(SchedulerState* state, std::size_t index
     if (!acquireTransferSlot(state, options)) {
         return common::Status::runtimeError("tree pipeline candidate stopped after --max-files");
     }
+    cancelled = candidateCancelled(prepared);
+    if (!cancelled.isOk()) {
+        return cancelled;
+    }
     auto port = prepared->control.epsv();
     if (!port.isOk()) {
         return port.status();
@@ -1447,6 +1522,10 @@ common::Status prepareDownloadCandidate(SchedulerState* state, std::size_t index
     auto transfer = prepared->control.startTransfer("RETR", remotePath);
     if (!transfer.isOk()) {
         return transfer.status();
+    }
+    cancelled = candidateCancelled(prepared);
+    if (!cancelled.isOk()) {
+        return cancelled;
     }
     prepared->dataPort = port.value();
     prepared->transferId = transfer.value();
@@ -2665,6 +2744,9 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
                         candidateRaw->status = common::Status::runtimeError(
                             "tree pipeline candidate unknown exception");
                     }
+                    if (!candidateRaw->status.isOk()) {
+                        cancelPreparedTransfer(candidateRaw);
+                    }
                 });
             } catch (const std::exception& error) {
                 candidateRaw->status = common::Status::runtimeError(
@@ -2676,14 +2758,25 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         };
 
         common::Status status;
-        if (upload) {
-            status = processUploadFileImpl(&state, index, options, &runtime,
-                                           prepared ? prepared.get() : nullptr,
-                                           startPreparation);
-        } else {
-            status = processDownloadFileImpl(&state, index, options, &runtime,
-                                             prepared ? prepared.get() : nullptr,
-                                             startPreparation);
+        try {
+            if (upload) {
+                status = processUploadFileImpl(&state, index, options, &runtime,
+                                               prepared ? prepared.get() : nullptr,
+                                               startPreparation);
+            } else {
+                status = processDownloadFileImpl(&state, index, options, &runtime,
+                                                 prepared ? prepared.get() : nullptr,
+                                                 startPreparation);
+            }
+        } catch (const std::exception& error) {
+            status = common::Status::runtimeError(
+                std::string("tree pipeline worker exception: ") + error.what());
+        } catch (...) {
+            status = common::Status::runtimeError("tree pipeline worker unknown exception");
+        }
+        if (!status.isOk()) {
+            cancelPreparedTransfer(candidate.get());
+            cancelPreparedTransfer(prepared.get());
         }
         if (preparation.joinable()) {
             preparation.join();
@@ -2695,6 +2788,7 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         if (candidate != nullptr) {
             if (!candidate->status.isOk()) {
                 const std::string message = candidate->status.message();
+                cancelPreparedTransfer(candidate.get());
                 (void)updateRecord(&state, candidate->index,
                                    core::tree::TreeFileStatus::Failed, message);
                 return candidate->status;

@@ -8,6 +8,6 @@ namespace cpnetflux::core::io {
 
 common::Status runFileTransferServer(const config::FileTransferOptions& options);
 common::Status runFileTransferServerOnListener(const config::FileTransferOptions& options,
-                                               UniqueFd listener);
+                                               UniqueFd listener, int controlFd = -1);
 
 }  // namespace cpnetflux::core::io

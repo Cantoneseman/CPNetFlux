@@ -520,7 +520,7 @@ common::Status runStor(core::io::TlsConnection* control, ControlSession& session
                      common::Status::ok(), 0, startedAt);
     core::io::UniqueFd listener = std::move(passive->fd);
     passive->port = 0;
-    status = core::io::runFileTransferServerOnListener(fileOptions, std::move(listener));
+    status = core::io::runFileTransferServerOnListener(fileOptions, std::move(listener), control->fd());
     if (!status.isOk()) {
         (void)sendLine(control, formatReply(550, "Transfer failed: " + status.message()));
         emitControlEvent(logger, "stor_failed", "upload", response.path, transferId, status, 0,
@@ -596,7 +596,7 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
                      common::Status::ok(), bytes.isOk() ? bytes.value() : 0, startedAt);
     core::io::UniqueFd listener = std::move(passive->fd);
     passive->port = 0;
-    status = core::io::runFramedFileSenderOnListener(senderOptions, std::move(listener));
+    status = core::io::runFramedFileSenderOnListener(senderOptions, std::move(listener), control->fd());
     if (!status.isOk()) {
         (void)sendLine(control, formatReply(550, "Transfer failed: " + status.message()));
         emitControlEvent(logger, "retr_failed", "download", response.path, transferId, status,

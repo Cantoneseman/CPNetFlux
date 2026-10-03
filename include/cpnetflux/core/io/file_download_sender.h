@@ -31,6 +31,6 @@ struct FileDownloadSenderOptions {
 };
 
 common::Status runFramedFileSenderOnListener(const FileDownloadSenderOptions& options,
-                                             UniqueFd listener);
+                                             UniqueFd listener, int controlFd = -1);
 
 }  // namespace cpnetflux::core::io
