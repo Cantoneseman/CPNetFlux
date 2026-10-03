@@ -20,11 +20,11 @@
 
 ## 执行回执
 
-- 实际输入/输出 commit：输入为上述 7d7b77c...；输出提交待验收后补入结果文档。
-- 实际改动：待结果文档登记。
-- 实际命令、退出码与证据文件：待结果文档登记。
+- 实际输入/输出 commit：输入 7d7b77c9238b1c20b0f3281f238b95051948c8cc；实现/测试/任务单提交 e7f0ee3ba317d8dc45f997c1f04ec94570013051，已 push 且远端 SHA 回读一致。
+- 实际改动：见本目录结果文档；仅修改任务白名单文件。
+- 实际命令、退出码与证据文件：见本目录结果文档和云端隔离 evidence 目录。
 - transfer / integrity / evidence / wire accounting（适用时）：loopback transfer 与 SHA-256 核验作为正确性证据；不作 wire 或性能结论。
-- 失败/跳过/阻塞及其原因：待结果文档登记。
+- 失败/跳过/阻塞及其原因：未提供测试 token 的初次 CTest 有 2 项认证 smoke 失败；注入一次性随机测试值后完整 CTest 220 项无失败，io_uring 可选测试 skipped。
 - 剩余风险、未完成事项：pending reject/timeout、listener disconnect、candidate cancel/cleanup 故障注入仍未由 DEV-02 QA 完成。
 - 下一角色可直接执行的下一步：04 在固定实现提交上独立复核新回归与文件集合正确性；仍需单独关闭 pipeline 故障门后才可放行性能实验。
 
