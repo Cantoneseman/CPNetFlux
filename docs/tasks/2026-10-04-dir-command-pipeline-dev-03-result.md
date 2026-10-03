@@ -3,6 +3,7 @@
 - 分支：codex/DIR-COMMAND-PIPELINE-DEV-03
 - 隔离 worktree：/tmp/cpnetflux-runs/DIR-COMMAND-PIPELINE-DEV-03/src
 - 固定输入：753a67d415614cef0b10cde95275f3431fe11de0
+- 实现 commit：3ac89fe0e0723f8da3f53aa7972d6aa5545efa50；GitHub branch push 与 ls-remote SHA 回读一致。
 - 结果状态：实现已写，待动态验证与 04 独立审查；不代表迁移完成、性能收益或传输正确性验收。
 
 ## 实施内容

@@ -29,7 +29,7 @@
 
 请核对任务版本、固定 SHA、白名单与深圳活动状态；用户已要求此机制优先，故不等待一般迁移门，但不得碰 live root。测试窗口打开前仅静态实现和测试编写。若提交，清晰报告构建/动态验证是否未运行。
 
-- 实际输入 commit：753a67d415614cef0b10cde95275f3431fe11de0；实现提交 SHA 待产生。
+- 实际输入 commit：753a67d415614cef0b10cde95275f3431fe11de0；实现 commit：3ac89fe0e0723f8da3f53aa7972d6aa5545efa50。
 - 产物与静态检查：见 docs/tasks/2026-10-04-dir-command-pipeline-dev-03-result.md；UTF-8/尾空格门禁和 CRLF-aware git diff --check 通过。
 - transfer/integrity/evidence/wire：不作性能或 wire 结论；传输/完整性证据待测试窗口。
 - 阻塞：动态测试需避开深圳活动实验。
