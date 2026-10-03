@@ -40,3 +40,9 @@
 ## 交接
 
 请 04 在独立 Linux 环境复核 listener control-fd 传递、控制连接 HUP/EOF 处理、candidate 取消与 join 顺序，并决定是否接受上述 connect/TLS 发布前限制。00 仅在 04 复核后收口。
+
+## 提交与推送
+
+- 实现提交：5ca09ada9a73a60a4730943753d462ded2568945。
+- 已推送 origin/codex/DIR-PIPELINE-IMPL-02；远端回读 SHA：5ca09ada9a73a60a4730943753d462ded2568945。
+- 本回执随后只做文档回填提交；未提交输入任务单、构建目录或其他未授权文件。
