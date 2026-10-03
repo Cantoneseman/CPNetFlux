@@ -30,4 +30,4 @@
 
 ## 提交
 
-提交 SHA、origin push 及远端 SHA 回读在完成后补记。
+首个实现提交：`06f524d5c52d8a63f98429d558209f9a5c306189`；origin `codex/DIR-PIPELINE-IMPL-01` 已推送并回读同 SHA。当前文档的 SHA 回填随后单独提交。
