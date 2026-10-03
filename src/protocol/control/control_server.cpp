@@ -27,6 +27,7 @@
 #include "cpnetflux/core/io/file_download_sender.h"
 #include "cpnetflux/core/io/file_transfer_server.h"
 #include "cpnetflux/core/metrics/event_log.h"
+#include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/core/io/socket_utils.h"
 #include "cpnetflux/core/io/tls_socket.h"
 #include "cpnetflux/protocol/control/control_command.h"
@@ -314,7 +315,15 @@ common::Result<std::vector<ControlListEntry>> readDirectoryEntries(const std::st
             return common::Status::systemError("directory entry type failed: " + error.message(),
                                                error.value());
         }
-        if (!item.isDirectory && entry.is_regular_file(error)) {
+        const bool isRegularFile = !item.isDirectory && entry.is_regular_file(error);
+        if (error) {
+            return common::Status::systemError("directory entry type failed: " + error.message(),
+                                               error.value());
+        }
+        if (isRegularFile && core::tree::isInternalTransferSidecar(entry.path().string())) {
+            continue;
+        }
+        if (isRegularFile) {
             item.size = entry.file_size(error);
             if (error) {
                 return common::Status::systemError(

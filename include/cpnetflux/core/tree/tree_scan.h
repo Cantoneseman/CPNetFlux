@@ -16,6 +16,7 @@ struct TreeFileInfo {
 };
 
 [[nodiscard]] common::Status validateTreeRelativePath(const std::string& relativePath);
+[[nodiscard]] bool isInternalTransferSidecar(const std::string& path);
 [[nodiscard]] common::Result<std::vector<TreeFileInfo>> scanLocalTree(const std::string& root);
 
 }  // namespace cpnetflux::core::tree

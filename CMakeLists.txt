@@ -407,6 +407,10 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_control_reuse_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     add_test(
+        NAME cpnetflux_tree_pipeline_sidecar_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_pipeline_sidecar_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    add_test(
         NAME cpnetflux_tree_changed_file_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_changed_file_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
