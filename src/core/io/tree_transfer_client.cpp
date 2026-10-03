@@ -40,6 +40,7 @@
 #include "cpnetflux/core/metrics/event_log.h"
 #include "cpnetflux/core/io/socket_utils.h"
 #include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/io/tree_pipeline_control_io.h"
 #include "cpnetflux/core/scheduler/scheduler.h"
 #include "cpnetflux/core/tree/tree_manifest.h"
 #include "cpnetflux/core/tree/tree_scan.h"
@@ -52,6 +53,8 @@ struct ControlReply {
     int code = 0;
     std::vector<std::string> lines;
 };
+
+constexpr auto kPipelineControlResponseTimeout = std::chrono::seconds(30);
 
 class ControlClient {
    public:
@@ -137,6 +140,7 @@ class ControlClient {
         fd_.reset();
         buffer_.clear();
         parallelism_ = 0;
+        responseTimeout_.reset();
         cancelled_.store(false, std::memory_order_release);
     }
 
@@ -165,10 +169,7 @@ class ControlClient {
         if (!reply.isOk()) {
             return reply.status();
         }
-        if (reply.value().code != 200) {
-            return common::Status::runtimeError("OPTS PIPELINE=1 rejected");
-        }
-        return common::Status::ok();
+        return detail::validatePipelineEnableReply(reply.value().code);
     }
 
     [[nodiscard]] common::Status setParallelism(std::uint32_t connections) {
@@ -185,6 +186,10 @@ class ControlClient {
     }
 
     [[nodiscard]] std::uint32_t parallelism() const noexcept { return parallelism_; }
+
+    void setResponseTimeout(std::chrono::milliseconds timeout) noexcept {
+        responseTimeout_ = timeout;
+    }
 
     [[nodiscard]] common::Result<std::uint16_t> epsv() {
         auto reply = command("EPSV");
@@ -356,21 +361,23 @@ class ControlClient {
     }
 
     [[nodiscard]] common::Result<ControlReply> readReply() {
-        auto first = readLine();
+        detail::ControlReadDeadline deadline;
+        if (responseTimeout_.has_value()) {
+            deadline = std::chrono::steady_clock::now() + *responseTimeout_;
+        }
+        auto first = readLine(deadline);
         if (!first.isOk()) {
             return first.status();
         }
         ControlReply reply;
         reply.lines.push_back(first.value());
-        if (first.value().size() >= 3 && std::isdigit(static_cast<unsigned char>(first.value()[0])) &&
-            std::isdigit(static_cast<unsigned char>(first.value()[1])) &&
-            std::isdigit(static_cast<unsigned char>(first.value()[2]))) {
-            reply.code = std::stoi(first.value().substr(0, 3));
+        if (const auto code = detail::parseControlReplyCode(first.value()); code.has_value()) {
+            reply.code = *code;
         }
         if (first.value().size() >= 4 && first.value()[3] == '-') {
             const std::string expected = first.value().substr(0, 3) + " ";
             while (true) {
-                auto line = readLine();
+                auto line = readLine(deadline);
                 if (!line.isOk()) {
                     return line.status();
                 }
@@ -383,30 +390,9 @@ class ControlClient {
         return reply;
     }
 
-    [[nodiscard]] common::Result<std::string> readLine() {
-        while (true) {
-            if (cancelled_.load(std::memory_order_acquire)) {
-                return common::Status::runtimeError("tree pipeline candidate cancelled");
-            }
-            const std::size_t newline = buffer_.find('\n');
-            if (newline != std::string::npos) {
-                std::string line = buffer_.substr(0, newline + 1);
-                buffer_.erase(0, newline + 1);
-                while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) {
-                    line.pop_back();
-                }
-                return line;
-            }
-            char chunk[512];
-            auto received = control_.readSome(chunk, sizeof(chunk));
-            if (!received.isOk()) {
-                return received.status();
-            }
-            if (received.value() > 0) {
-                buffer_.append(chunk, received.value());
-                continue;
-            }
-        }
+    [[nodiscard]] common::Result<std::string> readLine(
+        detail::ControlReadDeadline deadline = std::nullopt) {
+        return detail::readTreePipelineControlLine(&control_, &buffer_, &cancelled_, deadline);
     }
 
     [[nodiscard]] common::Result<std::string> readAsciiData(std::uint16_t port) const {
@@ -473,6 +459,7 @@ class ControlClient {
     std::string buffer_;
     std::uint32_t parallelism_ = 0;
     std::mutex cancelMutex_;
+    std::optional<std::chrono::milliseconds> responseTimeout_;
     std::atomic<bool> cancelled_{false};
 };
 
@@ -2800,6 +2787,7 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
             resetPipelineSlot(&slots[1]);
             return ready;
         }
+        slot.control.setResponseTimeout(kPipelineControlResponseTimeout);
         const common::Status pipelineStatus = slot.control.enablePipeline();
         if (!pipelineStatus.isOk()) {
             resetPipelineSlot(&slot);

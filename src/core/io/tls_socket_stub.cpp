@@ -1,6 +1,7 @@
 #include "cpnetflux/core/io/tls_socket.h"
 
 #include <cerrno>
+#include <fcntl.h>
 #include <cstring>
 #include <utility>
 
@@ -128,6 +129,8 @@ int TlsConnection::fd() const noexcept { return fd_.get(); }
 bool TlsConnection::valid() const noexcept { return fd_.isValid(); }
 bool TlsConnection::tlsEnabled() const noexcept { return impl_ != nullptr; }
 
+bool TlsConnection::hasPendingRead() const noexcept { return false; }
+
 common::Status TlsConnection::writeAll(const char* data, std::size_t size) {
     std::size_t completed = 0;
     while (completed < size) {
@@ -156,10 +159,28 @@ common::Result<std::size_t> TlsConnection::readSome(char* data, std::size_t size
     if (received == 0) {
         return common::Status::runtimeError("control connection closed");
     }
-    if (errno == EINTR) {
+    if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
         return std::size_t{0};
     }
     return systemStatus("recv control", errno);
+}
+
+common::Result<std::size_t> TlsConnection::readSomeNonBlocking(char* data,
+                                                                std::size_t size) {
+    const int originalFlags = ::fcntl(fd_.get(), F_GETFL, 0);
+    if (originalFlags < 0) {
+        return systemStatus("get control socket flags", errno);
+    }
+    const bool changedFlags = (originalFlags & O_NONBLOCK) == 0;
+    if (changedFlags && ::fcntl(fd_.get(), F_SETFL, originalFlags | O_NONBLOCK) != 0) {
+        return systemStatus("set control socket nonblocking", errno);
+    }
+
+    auto result = readSome(data, size);
+    if (changedFlags && ::fcntl(fd_.get(), F_SETFL, originalFlags) != 0) {
+        return systemStatus("restore control socket flags", errno);
+    }
+    return result;
 }
 
 TlsServerContext::TlsServerContext() = default;
