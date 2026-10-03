@@ -151,6 +151,16 @@ common::Result<ControlCommand> parseControlCommand(const std::string& line) {
         std::string value;
         constexpr std::string_view kDirectPrefix = "PARALLELISM=";
         constexpr std::string_view kRetrPrefix = "RETR PARALLELISM=";
+        constexpr std::string_view kPipelinePrefix = "PIPELINE=";
+        if (normalized.rfind(kPipelinePrefix, 0) == 0) {
+            const std::string value = normalized.substr(kPipelinePrefix.size());
+            if (value != "0" && value != "1") {
+                return common::Status::invalidArgument("OPTS PIPELINE must be 0 or 1");
+            }
+            command.hasPipelineOption = true;
+            command.pipelineEnabled = value == "1";
+            return command;
+        }
         if (normalized.rfind(kDirectPrefix, 0) == 0) {
             value = argument.substr(kDirectPrefix.size());
         } else if (normalized.rfind(kRetrPrefix, 0) == 0) {
@@ -226,6 +236,7 @@ ControlResponse ControlSession::handleCommand(const ControlCommand& command) {
         case ControlCommandType::User:
             userAccepted_ = command.argument == expectedUser_;
             authenticated_ = false;
+            pipelineOptIn_ = false;
             return userAccepted_ ? singleLine(331, "User name okay, need password")
                                  : singleLine(530, "Invalid user");
         case ControlCommandType::Pass:
@@ -253,6 +264,7 @@ ControlResponse ControlSession::handleCommand(const ControlCommand& command) {
                               " MDTM",        " LIST",
                               " NLST",        " CWD",
                               " CDUP",        " OPTS PARALLELISM",
+                              " OPTS PIPELINE",
                               "211 End"};
             return response;
         }
@@ -276,6 +288,11 @@ ControlResponse ControlSession::handleCommand(const ControlCommand& command) {
             return response;
         }
         case ControlCommandType::Opts:
+            if (command.hasPipelineOption) {
+                pipelineOptIn_ = command.pipelineEnabled;
+                return singleLine(200, std::string("Control pipeline ") +
+                                             (pipelineOptIn_ ? "enabled" : "disabled"));
+            }
             if (command.parallelism == 0) {
                 return singleLine(502, "Only OPTS PARALLELISM is supported");
             }
@@ -402,6 +419,7 @@ bool ControlSession::authenticated() const noexcept { return authenticated_; }
 bool ControlSession::binaryType() const noexcept { return binaryType_; }
 
 bool ControlSession::passiveReady() const noexcept { return passiveReady_; }
+bool ControlSession::pipelineOptIn() const noexcept { return pipelineOptIn_; }
 
 std::uint32_t ControlSession::connections() const noexcept { return connections_; }
 

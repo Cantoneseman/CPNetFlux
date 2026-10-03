@@ -182,6 +182,17 @@ TEST(ControlSessionTest, OptionsAndRestAffectNextStor) {
     EXPECT_EQ(response.transferId, "download-token");
 }
 
+TEST(ControlSessionTest, PipelineOptInIsExplicitPerControlSession) {
+    ControlSession session("cpnetflux", "secret", 1);
+    EXPECT_EQ(replyCode(handle(&session, "USER cpnetflux")), 331);
+    EXPECT_EQ(replyCode(handle(&session, "PASS secret")), 230);
+    EXPECT_FALSE(session.pipelineOptIn());
+    EXPECT_EQ(replyCode(handle(&session, "OPTS PIPELINE=1")), 200);
+    EXPECT_TRUE(session.pipelineOptIn());
+    EXPECT_EQ(replyCode(handle(&session, "OPTS PIPELINE=0")), 200);
+    EXPECT_FALSE(session.pipelineOptIn());
+}
+
 TEST(ControlSessionTest, UnsupportedReturns502) {
     ControlSession session("cpnetflux", "secret", 1);
     EXPECT_EQ(replyCode(handle(&session, "SITE HELP")), 502);
