@@ -317,6 +317,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/tree_manifest_test.cpp
         tests/unit/tree_scan_test.cpp
         tests/unit/tree_transfer_options_test.cpp
+        tests/unit/tree_pipeline_state_test.cpp
         tests/unit/version_test.cpp
     )
 

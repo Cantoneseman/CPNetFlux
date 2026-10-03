@@ -91,6 +91,7 @@ TEST(TreeTransferOptionsTest, ParsesUploadOptions) {
     EXPECT_EQ(parsed.value().jsonSummaryPath, "/tmp/tree-summary.json");
     EXPECT_EQ(parsed.value().eventLogPath, "/tmp/tree-events.jsonl");
     EXPECT_FALSE(parsed.value().phaseTiming);
+    EXPECT_EQ(parsed.value().controlPipelineDepth, 0U);
     EXPECT_EQ(parsed.value().schedulerMode, cpnetflux::config::TreeSchedulerMode::Global);
     EXPECT_EQ(parsed.value().schedulerPolicy,
               cpnetflux::core::scheduler::SchedulerPolicy::Adaptive);
@@ -152,6 +153,35 @@ TEST(TreeTransferOptionsTest, ParsesPhaseTimingFlagAndDefaultsOff) {
                              "--dest-dir", "remote", "--phase-timing", "yes"};
     EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
                      static_cast<int>(std::size(invalid)), invalid,
+                     cpnetflux::config::TreeTransferRole::Upload)
+                     .isOk());
+    std::filesystem::remove_all(root);
+}
+
+TEST(TreeTransferOptionsTest, ParsesControlPipelineDepthAndRejectsInvalidCombinations) {
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / "cpnetflux-tree-pipeline-root";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    const char* valid[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                           "--dest-dir", "remote", "--control-reuse", "worker",
+                           "--control-pipeline-depth", "1"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(valid)), valid, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().controlPipelineDepth, 1U);
+
+    const char* tooDeep[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                             "--dest-dir", "remote", "--control-pipeline-depth", "2"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+                     static_cast<int>(std::size(tooDeep)), tooDeep,
+                     cpnetflux::config::TreeTransferRole::Upload)
+                     .isOk());
+    const char* wrongMode[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                               "--dest-dir", "remote", "--control-pipeline-depth", "1"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+                     static_cast<int>(std::size(wrongMode)), wrongMode,
                      cpnetflux::config::TreeTransferRole::Upload)
                      .isOk());
     std::filesystem::remove_all(root);

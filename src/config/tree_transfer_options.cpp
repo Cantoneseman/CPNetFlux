@@ -320,6 +320,13 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return common::Status::invalidArgument("--phase-timing must be on or off");
             }
             options.phaseTiming = value == "on";
+        } else if (option == "--control-pipeline-depth") {
+            auto parsed = parseUnsigned(value, "--control-pipeline-depth");
+            if (!parsed.isOk() || parsed.value() > 1) {
+                return common::Status::invalidArgument(
+                    "--control-pipeline-depth must be 0 or 1");
+            }
+            options.controlPipelineDepth = static_cast<std::uint32_t>(parsed.value());
         } else if (option == "--scheduler") {
             auto parsed = parseTreeSchedulerMode(value);
             if (!parsed.isOk()) {
@@ -426,6 +433,19 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         return common::Status::invalidArgument(
             "--scheduler-workitem-min-bytes must be <= --scheduler-workitem-max-bytes");
     }
+    if (options.controlPipelineDepth != 0) {
+        if (options.controlReuseMode != ControlReuseMode::Worker ||
+            options.schedulerMode != TreeSchedulerMode::Off || options.fileParallelism != 1 ||
+            options.resume) {
+            return common::Status::invalidArgument(
+                "--control-pipeline-depth=1 requires worker control reuse, scheduler off, "
+                "file parallelism 1, and no resume");
+        }
+        if (options.maxFiles != 0) {
+            return common::Status::invalidArgument(
+                "--control-pipeline-depth=1 does not support --max-files");
+        }
+    }
     if (role == TreeTransferRole::Upload) {
         const common::Status sourceStatus = validateLocalDirectory(options.sourceDir, "--source-dir");
         if (!sourceStatus.isOk()) {
@@ -483,7 +503,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--control-reuse off|worker] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
-           "[--event-log <path>] [--phase-timing on|off] [--scheduler off|global] "
+           "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1] [--scheduler off|global] "
            "[--scheduler-policy fixed|adaptive] [--scheduler-metrics-dir <dir>] "
            "[--scheduler-link-id <id>] [--scheduler-capacity-gbps <float>] "
            "[--scheduler-workitem-min-bytes <N>] [--scheduler-workitem-max-bytes <N>] "
