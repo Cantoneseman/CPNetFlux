@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/tree_transfer_client.h"
+#include "cpnetflux/core/io/tree_pipeline_identity.h"
 
 #include <fcntl.h>
 #include <netdb.h>
@@ -1211,7 +1212,7 @@ struct PipelineControlSlot {
 };
 
 struct PreparedTransfer {
-    std::size_t index = 0;
+    detail::TreePipelineCandidateIdentity identity;
     PipelineControlSlot* slot = nullptr;
     ControlClient* control = nullptr;
     std::uint16_t dataPort = 0;
@@ -1219,6 +1220,28 @@ struct PreparedTransfer {
     std::atomic<bool> cancelRequested{false};
     common::Status status = common::Status::ok();
 };
+
+common::Status validatePreparedCandidate(SchedulerState* state,
+                                         const PreparedTransfer* prepared,
+                                         std::size_t index, bool upload) {
+    if (state == nullptr || prepared == nullptr || prepared->slot == nullptr ||
+        prepared->control != &prepared->slot->control || !prepared->slot->ready) {
+        return common::Status::runtimeError("tree pipeline candidate control identity is invalid");
+    }
+    std::lock_guard<std::mutex> lock(state->mutex);
+    if (state->manifest == nullptr || index >= state->manifest->files.size()) {
+        return common::Status::runtimeError("tree pipeline candidate manifest index is stale");
+    }
+    const auto& record = state->manifest->files[index];
+    if (record.status != core::tree::TreeFileStatus::Pending ||
+        !core::tree::validateTreeRelativePath(record.relativePath).isOk() ||
+        !detail::treePipelineCandidateIdentityMatches(
+            prepared->identity, index, record.relativePath, upload,
+            prepared->slot->generation)) {
+        return common::Status::runtimeError("tree pipeline candidate identity is stale");
+    }
+    return common::Status::ok();
+}
 
 void resetPipelineSlot(PipelineControlSlot* slot) noexcept {
     if (slot == nullptr) {
@@ -1461,6 +1484,10 @@ common::Status prepareUploadCandidate(SchedulerState* state, std::size_t index,
     if (!pending.isOk()) {
         return pending;
     }
+    const common::Status identity = validatePreparedCandidate(state, prepared, index, true);
+    if (!identity.isOk()) {
+        return identity;
+    }
     const auto record = state->manifest->files[index];
     const std::filesystem::path localPath =
         std::filesystem::path(options.sourceDir) / record.relativePath;
@@ -1471,11 +1498,6 @@ common::Status prepareUploadCandidate(SchedulerState* state, std::size_t index,
     if (!metadataMatches(record, metadata.value())) {
         return common::Status::invalidArgument(
             changedMessage("source file changed", record, metadata.value()));
-    }
-    prepared->index = index;
-    if (prepared->slot == nullptr || prepared->control == nullptr ||
-        !prepared->slot->ready) {
-        return common::Status::runtimeError("tree pipeline control slot is not ready");
     }
     auto cancelled = candidateCancelled(prepared);
     if (!cancelled.isOk()) {
@@ -1521,13 +1543,12 @@ common::Status prepareDownloadCandidate(SchedulerState* state, std::size_t index
     if (!pending.isOk()) {
         return pending;
     }
+    const common::Status identity = validatePreparedCandidate(state, prepared, index, false);
+    if (!identity.isOk()) {
+        return identity;
+    }
     const auto record = state->manifest->files[index];
     const std::string remotePath = joinRemotePath(options.sourceDir, record.relativePath);
-    prepared->index = index;
-    if (prepared->slot == nullptr || prepared->control == nullptr ||
-        !prepared->slot->ready) {
-        return common::Status::runtimeError("tree pipeline control slot is not ready");
-    }
     auto cancelled = candidateCancelled(prepared);
     if (!cancelled.isOk()) {
         return cancelled;
@@ -1614,10 +1635,12 @@ common::Status processUploadFileImpl(
     ControlClient localControl;
     ControlClient* controlClient = nullptr;
     if (prepared != nullptr) {
-        if (prepared->index != index || !prepared->status.isOk()) {
-            return prepared != nullptr && !prepared->status.isOk()
-                       ? prepared->status
-                       : common::Status::runtimeError("prepared upload index mismatch");
+        const common::Status identity = validatePreparedCandidate(state, prepared, index, true);
+        if (!identity.isOk()) {
+            return identity;
+        }
+        if (!prepared->status.isOk()) {
+            return prepared->status;
         }
         controlClient = prepared->control;
     } else {
@@ -1804,10 +1827,12 @@ common::Status processDownloadFileImpl(
     ControlClient localControl;
     ControlClient* controlClient = nullptr;
     if (prepared != nullptr) {
-        if (prepared->index != index || !prepared->status.isOk()) {
-            return prepared != nullptr && !prepared->status.isOk()
-                       ? prepared->status
-                       : common::Status::runtimeError("prepared upload index mismatch");
+        const common::Status identity = validatePreparedCandidate(state, prepared, index, false);
+        if (!identity.isOk()) {
+            return identity;
+        }
+        if (!prepared->status.isOk()) {
+            return prepared->status;
         }
         controlClient = prepared->control;
     } else {
@@ -2785,9 +2810,10 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         slot.ready = true;
     }
 
-    auto makePrepared = [](std::size_t index, PipelineControlSlot* slot) {
+    auto makePrepared = [manifest, upload](std::size_t index, PipelineControlSlot* slot) {
         auto prepared = std::make_unique<PreparedTransfer>();
-        prepared->index = index;
+        prepared->identity = detail::TreePipelineCandidateIdentity{
+            index, manifest->files[index].relativePath, upload, slot->generation};
         prepared->slot = slot;
         prepared->control = &slot->control;
         return prepared;
@@ -2896,7 +2922,7 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
                 const std::string message = candidate->status.message();
                 cancelPreparedTransfer(candidate.get());
                 resetPipelineSlot(candidate->slot);
-                (void)updateRecord(&state, candidate->index,
+                (void)updateRecord(&state, candidate->identity.manifestIndex,
                                    core::tree::TreeFileStatus::Failed, message);
                 resetPipelineSlot(prepared != nullptr ? prepared->slot : nullptr);
                 return candidate->status;
