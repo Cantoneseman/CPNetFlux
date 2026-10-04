@@ -106,6 +106,29 @@ TEST(TreeTransferOptionsTest, ParsesUploadOptions) {
     std::filesystem::remove_all(root);
 }
 
+TEST(TreeTransferOptionsTest, AllowsConcurrentWorkersForDepthOnePipeline) {
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / "cpnetflux-tree-options-pipeline-fp8";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    const char* argv[] = {"cpnetflux-tree-upload-client",
+                          "--host", "127.0.0.1",
+                          "--port", "2121",
+                          "--source-dir", rootText.c_str(),
+                          "--dest-dir", "remote/data",
+                          "--file-parallelism", "8",
+                          "--control-reuse", "worker",
+                          "--control-pipeline-depth", "1",
+                          "--scheduler", "off"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    std::filesystem::remove_all(root);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().fileParallelism, 8U);
+    EXPECT_EQ(parsed.value().controlPipelineDepth, 1U);
+}
+
 TEST(TreeTransferOptionsTest, DefaultsControlReuseOff) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-options-default-reuse";

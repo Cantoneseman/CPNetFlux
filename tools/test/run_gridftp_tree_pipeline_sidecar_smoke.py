@@ -14,6 +14,10 @@ def make_tree(root: Path) -> None:
     (root / "nested" / "beta.bin").write_bytes(bytes(range(251)) * 3)
     (root / "empty.bin").write_bytes(b"")
     (root / "notes.cpnetflux.user.txt").write_text("ordinary user file", encoding="utf-8")
+    small = root / "small"
+    small.mkdir()
+    for index in range(32):
+        (small / f"file-{index:03}.dat").write_bytes(bytes([index]) * 8192)
 
 
 def business_files(root: Path) -> dict[str, str]:
@@ -39,25 +43,25 @@ def assert_counts(summary_path: Path, expected_count: int, direction: str) -> No
         raise RuntimeError(f"{direction} reported failed files: {summary}")
 
 
-def run_depth(build_dir: Path, temp: Path, depth: int) -> None:
-    source = temp / f"source-{depth}"
+def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None:
+    source = temp / f"source-{depth}-{parallelism}"
     source.mkdir()
     make_tree(source)
     expected = business_files(source)
-    server_root = temp / f"server-{depth}"
+    server_root = temp / f"server-{depth}-{parallelism}"
     server_root.mkdir()
-    download_root = temp / f"download-{depth}"
-    upload_summary = temp / f"upload-{depth}.json"
-    download_summary = temp / f"download-{depth}.json"
-    server_log = temp / f"server-{depth}.log"
+    download_root = temp / f"download-{depth}-{parallelism}"
+    upload_summary = temp / f"upload-{depth}-{parallelism}.json"
+    download_summary = temp / f"download-{depth}-{parallelism}.json"
+    server_log = temp / f"server-{depth}-{parallelism}.log"
     control_port = free_port()
     data_port = free_port()
     server = start_server(build_dir, server_root, control_port, data_port, server_log)
     try:
-        remote_tree_name = f"dataset-{depth}"
+        remote_tree_name = f"dataset-{depth}-{parallelism}"
         common = [
             "--host", "127.0.0.1", "--port", str(control_port),
-            "--connections", "1", "--file-parallelism", "1",
+            "--connections", "1", "--file-parallelism", str(parallelism),
             "--control-reuse", "worker", "--control-pipeline-depth", str(depth),
             "--scheduler", "off", "--compression", "off", "--checksum", "crc32c",
         ]
@@ -70,7 +74,10 @@ def run_depth(build_dir: Path, temp: Path, depth: int) -> None:
         expected_upload_paths = set(expected) | {name + ".cpnetflux.manifest" for name in expected}
         actual_upload_paths = all_file_paths(server_tree)
         if actual_upload_paths != expected_upload_paths:
-            raise RuntimeError(f"depth={depth} uploaded raw file set mismatch: {sorted(actual_upload_paths)}")
+            raise RuntimeError(
+                f"depth={depth}, file_parallelism={parallelism} uploaded raw file set mismatch: "
+                f"{sorted(actual_upload_paths)}"
+            )
         assert_counts(upload_summary, len(expected), "upload")
 
         run_checked([
@@ -79,13 +86,19 @@ def run_depth(build_dir: Path, temp: Path, depth: int) -> None:
             "--json-summary", str(download_summary),
         ])
         if business_files(download_root) != expected:
-            raise RuntimeError(f"depth={depth} download business file set or SHA-256 mismatch")
+            raise RuntimeError(
+                f"depth={depth}, file_parallelism={parallelism} download business file set "
+                "or SHA-256 mismatch"
+            )
         expected_download_paths = set(expected) | {
             name + ".cpnetflux.download.manifest" for name in expected
         }
         actual_download_paths = all_file_paths(download_root)
         if actual_download_paths != expected_download_paths:
-            raise RuntimeError(f"depth={depth} downloaded raw file set mismatch: {sorted(actual_download_paths)}")
+            raise RuntimeError(
+                f"depth={depth}, file_parallelism={parallelism} downloaded raw file set mismatch: "
+                f"{sorted(actual_download_paths)}"
+            )
         assert_counts(download_summary, len(expected), "download")
     finally:
         stop_server(server, server_log)
@@ -98,9 +111,9 @@ def main() -> int:
     build_dir = Path(args.build_dir)
     with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-pipeline-sidecar.") as temp_text:
         temp = Path(temp_text)
-        for depth in (0, 1):
-            run_depth(build_dir, temp, depth)
-    print("tree pipeline sidecar smoke passed: depth=0/1, upload/download, file sets, SHA-256 and counts")
+        for depth, parallelism in ((0, 1), (0, 8), (1, 1), (1, 8)):
+            run_depth(build_dir, temp, depth, parallelism)
+    print("tree pipeline sidecar smoke passed: depth=0/1, file_parallelism=1/8, upload/download, file sets, SHA-256 and counts")
     return 0
 
 

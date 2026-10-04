@@ -1117,6 +1117,7 @@ struct SchedulerState {
     std::uint64_t startedTransfers = 0;
     bool stop = false;
     bool stoppedByMaxFiles = false;
+    std::atomic<bool> pipelineCancelRequested{false};
     common::Status firstError = common::Status::ok();
     TreeRunStats stats;
     bool phaseTiming = false;
@@ -1205,6 +1206,7 @@ struct PreparedTransfer {
     std::uint16_t dataPort = 0;
     std::string transferId;
     std::atomic<bool> cancelRequested{false};
+    SchedulerState* owner = nullptr;
     common::Status status = common::Status::ok();
 };
 
@@ -1252,7 +1254,9 @@ void cancelPreparedTransfer(PreparedTransfer* prepared) noexcept {
 
 common::Status candidateCancelled(PreparedTransfer* prepared) {
     if (prepared != nullptr &&
-        prepared->cancelRequested.load(std::memory_order_acquire)) {
+        (prepared->cancelRequested.load(std::memory_order_acquire) ||
+         (prepared->owner != nullptr &&
+          prepared->owner->pipelineCancelRequested.load(std::memory_order_acquire)))) {
         prepared->control->cancel();
         return common::Status::runtimeError("tree pipeline candidate cancelled");
     }
@@ -1328,15 +1332,20 @@ common::Result<ControlClient*> controlForFile(SchedulerState* state, TreeWorkerR
     return localControl;
 }
 
-common::Status nextWorkItem(SchedulerState* state, std::size_t* index) {
+common::Status nextWorkItem(SchedulerState* state, std::size_t* index, bool* available) {
+    if (state == nullptr || index == nullptr || available == nullptr) {
+        return common::Status::invalidArgument("tree scheduler work-item output is null");
+    }
     std::lock_guard<std::mutex> lock(state->mutex);
     if (state->stop) {
         return common::Status::runtimeError("tree scheduler stopped");
     }
     if (state->nextIndex >= state->manifest->files.size()) {
+        *available = false;
         return common::Status::ok();
     }
     *index = state->nextIndex++;
+    *available = true;
     return common::Status::ok();
 }
 
@@ -2775,8 +2784,9 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
     state.manifestPath = manifestPath;
     state.phaseTiming = options.phaseTiming;
 
-    // Depth=1 is a single worker with two pre-authenticated control slots.
-    // DNS/connect/TLS setup completes before the first data stream starts.
+    // Keep one bounded lookahead candidate and its existing pair of control slots.
+    // The pipeline lane is one file worker; the ordinary workers share the same
+    // manifest-index queue and together respect --file-parallelism.
     PipelineControlSlot slots[2];
     for (auto& slot : slots) {
         const common::Status ready =
@@ -2798,12 +2808,35 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         slot.ready = true;
     }
 
-    auto makePrepared = [manifest, upload](std::size_t index, PipelineControlSlot* slot) {
+    auto copyStats = [&]() {
+        if (stats == nullptr) {
+            return;
+        }
+        stats->completedThisRun.fetch_add(state.stats.completedThisRun.load());
+        stats->skippedFiles.fetch_add(state.stats.skippedFiles.load());
+        stats->transferredBytes.fetch_add(state.stats.transferredBytes.load());
+        stats->wireBytes.fetch_add(state.stats.wireBytes.load());
+        stats->controlConnectCount.fetch_add(state.stats.controlConnectCount.load());
+        stats->controlReconnectCount.fetch_add(state.stats.controlReconnectCount.load());
+        stats->dataTransferCount.fetch_add(state.stats.dataTransferCount.load());
+        stats->phaseASecondsNs.fetch_add(state.stats.phaseASecondsNs.load());
+        stats->phaseBSecondsNs.fetch_add(state.stats.phaseBSecondsNs.load());
+        stats->phaseCSecondsNs.fetch_add(state.stats.phaseCSecondsNs.load());
+        stats->phaseCWaitSecondsNs.fetch_add(state.stats.phaseCWaitSecondsNs.load());
+        stats->phaseACount.fetch_add(state.stats.phaseACount.load());
+        stats->phaseBCount.fetch_add(state.stats.phaseBCount.load());
+        stats->phaseCCount.fetch_add(state.stats.phaseCCount.load());
+        stats->phaseCWaitCount.fetch_add(state.stats.phaseCWaitCount.load());
+    };
+
+    auto makePrepared = [manifest, upload, &state](std::size_t index,
+                                                   PipelineControlSlot* slot) {
         auto prepared = std::make_unique<PreparedTransfer>();
         prepared->identity = detail::TreePipelineCandidateIdentity{
             index, manifest->files[index].relativePath, upload, slot->generation};
         prepared->slot = slot;
         prepared->control = &slot->control;
+        prepared->owner = &state;
         return prepared;
     };
 
@@ -2831,45 +2864,135 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         return common::Status::ok();
     };
 
-    std::unique_ptr<PreparedTransfer> prepared;
-    const common::Status initial = prepareOne(0, &prepared);
-    if (!initial.isOk()) {
+    std::size_t firstIndex = 0;
+    bool haveFirst = false;
+    common::Status status = nextWorkItem(&state, &firstIndex, &haveFirst);
+    if (!status.isOk() || !haveFirst) {
         resetPipelineSlot(&slots[0]);
         resetPipelineSlot(&slots[1]);
-        return initial;
+        copyStats();
+        return status;
     }
 
-    for (std::size_t index = 0; index < manifest->files.size(); ++index) {
+    // Reserve the first lookahead item before ordinary workers start claiming
+    // work, so a busy worker pool cannot starve the pipeline lane at startup.
+    std::size_t reservedCandidateIndex = 0;
+    bool haveReservedCandidate = false;
+    status = nextWorkItem(&state, &reservedCandidateIndex, &haveReservedCandidate);
+    if (!status.isOk()) {
+        resetPipelineSlot(&slots[0]);
+        resetPipelineSlot(&slots[1]);
+        copyStats();
+        return status;
+    }
+
+    std::unique_ptr<PreparedTransfer> prepared;
+    status = prepareOne(firstIndex, &prepared);
+    if (!status.isOk()) {
+        resetPipelineSlot(&slots[0]);
+        resetPipelineSlot(&slots[1]);
+        copyStats();
+        return status;
+    }
+
+    const std::uint32_t workerCount = std::min<std::uint32_t>(
+        options.fileParallelism,
+        static_cast<std::uint32_t>(std::max<std::size_t>(1, manifest->files.size())));
+    std::vector<std::thread> workers;
+    try {
+        workers.reserve(workerCount > 0 ? workerCount - 1 : 0);
+    } catch (const std::exception& error) {
+        status = common::Status::runtimeError(
+            std::string("tree pipeline worker allocation failed: ") + error.what());
+    }
+
+    auto failState = [&state](common::Status failure) {
+        std::lock_guard<std::mutex> lock(state.mutex);
+        setFirstErrorLocked(&state, std::move(failure));
+        state.pipelineCancelRequested.store(true, std::memory_order_release);
+    };
+
+    auto ordinaryWorker = [&state, &options, upload, &failState]() {
+        TreeWorkerRuntime runtime;
+        while (true) {
+            std::size_t index = 0;
+            bool available = false;
+            const common::Status claim = nextWorkItem(&state, &index, &available);
+            if (!claim.isOk()) {
+                failState(claim);
+                return;
+            }
+            if (!available) {
+                return;
+            }
+            common::Status fileStatus = upload
+                ? processUploadFile(&state, index, options, &runtime)
+                : processDownloadFile(&state, index, options, &runtime);
+            if (!fileStatus.isOk()) {
+                failState(std::move(fileStatus));
+                return;
+            }
+        }
+    };
+
+    if (status.isOk()) {
+        try {
+            for (std::uint32_t worker = 1; worker < workerCount; ++worker) {
+                workers.emplace_back(ordinaryWorker);
+            }
+        } catch (const std::exception& error) {
+            status = common::Status::runtimeError(
+                std::string("tree pipeline worker creation failed: ") + error.what());
+            failState(status);
+        } catch (...) {
+            status = common::Status::runtimeError("tree pipeline worker creation failed");
+            failState(status);
+        }
+    }
+
+    while (status.isOk() && prepared != nullptr) {
+        const std::size_t currentIndex = prepared->identity.manifestIndex;
         TreeWorkerRuntime runtime;
         std::unique_ptr<PreparedTransfer> candidate;
         std::thread preparation;
+        bool preparationStarted = false;
         const auto startPreparation = [&]() {
-            const std::size_t next = index + 1;
-            if (next >= manifest->files.size() ||
-                manifest->files[next].status != core::tree::TreeFileStatus::Pending) {
+            if (preparationStarted ||
+                state.pipelineCancelRequested.load(std::memory_order_acquire)) {
                 return;
+            }
+            preparationStarted = true;
+            std::size_t nextIndex = reservedCandidateIndex;
+            bool available = haveReservedCandidate;
+            haveReservedCandidate = false;
+            if (!available) {
+                const common::Status claim = nextWorkItem(&state, &nextIndex, &available);
+                if (!claim.isOk() || !available) {
+                    return;
+                }
             }
             PipelineControlSlot* nextSlot =
                 prepared->slot == &slots[0] ? &slots[1] : &slots[0];
-            candidate = makePrepared(next, nextSlot);
+            candidate = makePrepared(nextIndex, nextSlot);
             PreparedTransfer* candidateRaw = candidate.get();
             try {
-                preparation = std::thread([&state, &options, upload, next, candidateRaw]() {
-                    try {
-                        candidateRaw->status = upload
-                            ? prepareUploadCandidate(&state, next, options, candidateRaw)
-                            : prepareDownloadCandidate(&state, next, options, candidateRaw);
-                    } catch (const std::exception& error) {
-                        candidateRaw->status = common::Status::runtimeError(
-                            std::string("tree pipeline candidate exception: ") + error.what());
-                    } catch (...) {
-                        candidateRaw->status = common::Status::runtimeError(
-                            "tree pipeline candidate unknown exception");
-                    }
-                    if (!candidateRaw->status.isOk()) {
-                        cancelPreparedTransfer(candidateRaw);
-                    }
-                });
+                preparation = std::thread(
+                    [&state, &options, upload, nextIndex, candidateRaw]() {
+                        try {
+                            candidateRaw->status = upload
+                                ? prepareUploadCandidate(&state, nextIndex, options, candidateRaw)
+                                : prepareDownloadCandidate(&state, nextIndex, options, candidateRaw);
+                        } catch (const std::exception& error) {
+                            candidateRaw->status = common::Status::runtimeError(
+                                std::string("tree pipeline candidate exception: ") + error.what());
+                        } catch (...) {
+                            candidateRaw->status = common::Status::runtimeError(
+                                "tree pipeline candidate unknown exception");
+                        }
+                        if (!candidateRaw->status.isOk()) {
+                            cancelPreparedTransfer(candidateRaw);
+                        }
+                    });
             } catch (const std::exception& error) {
                 candidateRaw->status = common::Status::runtimeError(
                     std::string("tree pipeline thread creation failed: ") + error.what());
@@ -2879,12 +3002,11 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
             }
         };
 
-        common::Status status;
         try {
             status = upload
-                ? processUploadFileImpl(&state, index, options, &runtime, prepared.get(),
+                ? processUploadFileImpl(&state, currentIndex, options, &runtime, prepared.get(),
                                         startPreparation)
-                : processDownloadFileImpl(&state, index, options, &runtime, prepared.get(),
+                : processDownloadFileImpl(&state, currentIndex, options, &runtime, prepared.get(),
                                           startPreparation);
         } catch (const std::exception& error) {
             status = common::Status::runtimeError(
@@ -2894,51 +3016,67 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         }
 
         if (!status.isOk()) {
+            failState(status);
             cancelPreparedTransfer(candidate.get());
             cancelPreparedTransfer(prepared.get());
         }
         if (preparation.joinable()) {
             preparation.join();
         }
-        if (!status.isOk()) {
+
+        common::Status concurrentFailure = common::Status::ok();
+        {
+            std::lock_guard<std::mutex> lock(state.mutex);
+            if (!state.firstError.isOk()) {
+                concurrentFailure = state.firstError;
+            }
+        }
+        if (!status.isOk() || !concurrentFailure.isOk()) {
+            status = !status.isOk() ? status : concurrentFailure;
+            cancelPreparedTransfer(candidate.get());
+            cancelPreparedTransfer(prepared.get());
             resetPipelineSlot(candidate != nullptr ? candidate->slot : nullptr);
             resetPipelineSlot(prepared != nullptr ? prepared->slot : nullptr);
-            return status;
+            break;
         }
         if (candidate != nullptr) {
             if (!candidate->status.isOk()) {
-                const std::string message = candidate->status.message();
+                status = candidate->status;
+                failState(status);
+                const std::string message = status.message();
                 cancelPreparedTransfer(candidate.get());
                 resetPipelineSlot(candidate->slot);
                 (void)updateRecord(&state, candidate->identity.manifestIndex,
                                    core::tree::TreeFileStatus::Failed, message);
                 resetPipelineSlot(prepared != nullptr ? prepared->slot : nullptr);
-                return candidate->status;
+                prepared.reset();
+                break;
             }
             prepared = std::move(candidate);
+        } else {
+            prepared.reset();
+        }
+    }
+
+    if (!status.isOk()) {
+        failState(status);
+    }
+    for (auto& worker : workers) {
+        if (worker.joinable()) {
+            worker.join();
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(state.mutex);
+        if (status.isOk() && !state.firstError.isOk()) {
+            status = state.firstError;
         }
     }
 
     resetPipelineSlot(&slots[0]);
     resetPipelineSlot(&slots[1]);
-    if (stats != nullptr) {
-        stats->completedThisRun.fetch_add(state.stats.completedThisRun.load());
-        stats->skippedFiles.fetch_add(state.stats.skippedFiles.load());
-        stats->transferredBytes.fetch_add(state.stats.transferredBytes.load());
-        stats->wireBytes.fetch_add(state.stats.wireBytes.load());
-        stats->controlConnectCount.fetch_add(state.stats.controlConnectCount.load());
-        stats->controlReconnectCount.fetch_add(state.stats.controlReconnectCount.load());
-        stats->dataTransferCount.fetch_add(state.stats.dataTransferCount.load());
-        stats->phaseASecondsNs.fetch_add(state.stats.phaseASecondsNs.load());
-        stats->phaseBSecondsNs.fetch_add(state.stats.phaseBSecondsNs.load());
-        stats->phaseCSecondsNs.fetch_add(state.stats.phaseCSecondsNs.load());
-        stats->phaseCWaitSecondsNs.fetch_add(state.stats.phaseCWaitSecondsNs.load());
-        stats->phaseACount.fetch_add(state.stats.phaseACount.load());
-        stats->phaseBCount.fetch_add(state.stats.phaseBCount.load());
-        stats->phaseCCount.fetch_add(state.stats.phaseCCount.load());
-        stats->phaseCWaitCount.fetch_add(state.stats.phaseCWaitCount.load());
-    }
-    return common::Status::ok();
+    copyStats();
+    return status;
 }
 
 common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {

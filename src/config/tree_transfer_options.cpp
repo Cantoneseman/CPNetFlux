@@ -435,11 +435,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     }
     if (options.controlPipelineDepth != 0) {
         if (options.controlReuseMode != ControlReuseMode::Worker ||
-            options.schedulerMode != TreeSchedulerMode::Off || options.fileParallelism != 1 ||
-            options.resume) {
+            options.schedulerMode != TreeSchedulerMode::Off || options.resume) {
             return common::Status::invalidArgument(
                 "--control-pipeline-depth=1 requires worker control reuse, scheduler off, "
-                "file parallelism 1, and no resume");
+                "and no resume");
         }
         if (options.maxFiles != 0) {
             return common::Status::invalidArgument(
