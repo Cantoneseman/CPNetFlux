@@ -191,25 +191,54 @@ class ControlClient {
         responseTimeout_ = timeout;
     }
 
+    struct PassiveTransferStart {
+        std::uint16_t dataPort = 0;
+        std::string transferId;
+    };
+
     [[nodiscard]] common::Result<std::uint16_t> epsv() {
         auto reply = command("EPSV");
         if (!reply.isOk()) {
             return reply.status();
         }
-        if (reply.value().code != 229) {
-            return common::Status::runtimeError("EPSV rejected");
+        return parsePassivePort(reply.value());
+    }
+
+    // Send EPSV and the transfer command in one control write window. The
+    // server processes them in order, so this removes one WAN RTT without
+    // changing the reply order or transfer semantics.
+    [[nodiscard]] common::Result<PassiveTransferStart> startTransferWithPassive(
+        const std::string& verb, const std::string& path) {
+        const common::Status epsvStatus = sendOnly("EPSV");
+        if (!epsvStatus.isOk()) {
+            return epsvStatus;
         }
-        static const std::regex pattern(R"(\(\|\|\|([0-9]+)\|\))");
+        const common::Status transferStatus = sendOnly(verb + " " + path);
+        if (!transferStatus.isOk()) {
+            return transferStatus;
+        }
+        auto epsvReply = readReply();
+        if (!epsvReply.isOk()) {
+            return epsvReply.status();
+        }
+        auto dataPort = parsePassivePort(epsvReply.value());
+        if (!dataPort.isOk()) {
+            return dataPort.status();
+        }
+        auto transferReply = readReply();
+        if (!transferReply.isOk()) {
+            return transferReply.status();
+        }
+        if (transferReply.value().code != 150) {
+            return common::Status::runtimeError(verb + " rejected: " + joined(transferReply.value()));
+        }
+        static const std::regex pattern(R"(transfer_id=GFID:([A-Za-z0-9._-]+))");
         std::smatch match;
-        const std::string text = joined(reply.value());
+        const std::string text = joined(transferReply.value());
         if (!std::regex_search(text, match, pattern)) {
-            return common::Status::runtimeError("failed to parse EPSV port");
+            return common::Status::runtimeError("failed to parse transfer_id");
         }
-        const auto port = static_cast<unsigned long>(std::stoul(match[1].str()));
-        if (port == 0 || port > 65535) {
-            return common::Status::runtimeError("EPSV port out of range");
-        }
-        return static_cast<std::uint16_t>(port);
+        return PassiveTransferStart{dataPort.value(), match[1].str()};
     }
 
     [[nodiscard]] common::Status rest(const std::string& transferId) {
@@ -344,6 +373,23 @@ class ControlClient {
     }
 
    private:
+    static common::Result<std::uint16_t> parsePassivePort(const ControlReply& reply) {
+        if (reply.code != 229) {
+            return common::Status::runtimeError("EPSV rejected");
+        }
+        static const std::regex pattern(R"(\(\|\|\|([0-9]+)\|\))");
+        std::smatch match;
+        const std::string text = joined(reply);
+        if (!std::regex_search(text, match, pattern)) {
+            return common::Status::runtimeError("failed to parse EPSV port");
+        }
+        const auto port = static_cast<unsigned long>(std::stoul(match[1].str()));
+        if (port == 0 || port > 65535) {
+            return common::Status::runtimeError("EPSV port out of range");
+        }
+        return static_cast<std::uint16_t>(port);
+    }
+
     [[nodiscard]] common::Status sendOnly(const std::string& commandText) {
         if (cancelled_.load(std::memory_order_acquire)) {
             return common::Status::runtimeError("tree pipeline candidate cancelled");
@@ -1514,11 +1560,7 @@ common::Status prepareUploadCandidate(SchedulerState* state, std::size_t index,
     if (!cancelled.isOk()) {
         return cancelled;
     }
-    auto port = prepared->control->epsv();
-    if (!port.isOk()) {
-        return port.status();
-    }
-    auto transfer = prepared->control->startTransfer(
+    auto transfer = prepared->control->startTransferWithPassive(
         "STOR", joinRemotePath(options.destDir, record.relativePath));
     if (!transfer.isOk()) {
         return transfer.status();
@@ -1527,8 +1569,8 @@ common::Status prepareUploadCandidate(SchedulerState* state, std::size_t index,
     if (!cancelled.isOk()) {
         return cancelled;
     }
-    prepared->dataPort = port.value();
-    prepared->transferId = transfer.value();
+    prepared->dataPort = transfer.value().dataPort;
+    prepared->transferId = transfer.value().transferId;
     return common::Status::ok();
 }
 
@@ -1577,11 +1619,7 @@ common::Status prepareDownloadCandidate(SchedulerState* state, std::size_t index
     if (!cancelled.isOk()) {
         return cancelled;
     }
-    auto port = prepared->control->epsv();
-    if (!port.isOk()) {
-        return port.status();
-    }
-    auto transfer = prepared->control->startTransfer("RETR", remotePath);
+    auto transfer = prepared->control->startTransferWithPassive("RETR", remotePath);
     if (!transfer.isOk()) {
         return transfer.status();
     }
@@ -1589,8 +1627,8 @@ common::Status prepareDownloadCandidate(SchedulerState* state, std::size_t index
     if (!cancelled.isOk()) {
         return cancelled;
     }
-    prepared->dataPort = port.value();
-    prepared->transferId = transfer.value();
+    prepared->dataPort = transfer.value().dataPort;
+    prepared->transferId = transfer.value().transferId;
     return common::Status::ok();
 }
 
@@ -1672,10 +1710,6 @@ common::Status processUploadFileImpl(
         if (!acquireTransferSlot(state, options)) {
             return common::Status::runtimeError("tree upload stopped after --max-files");
         }
-        auto port = controlClient->epsv();
-        if (!port.isOk()) {
-            return port.status();
-        }
         resumeFile = options.resume && record.status != core::tree::TreeFileStatus::Pending;
         if (resumeFile) {
             const common::Status restStatus = controlClient->rest(record.transferId);
@@ -1683,14 +1717,14 @@ common::Status processUploadFileImpl(
                 return restStatus;
             }
         }
-        auto transferId = controlClient->startTransfer("STOR", remotePath);
-        if (!transferId.isOk()) {
+        auto transfer = controlClient->startTransferWithPassive("STOR", remotePath);
+        if (!transfer.isOk()) {
             (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed,
-                               transferId.status().message());
-            return transferId.status();
+                               transfer.status().message());
+            return transfer.status();
         }
-        dataPort = port.value();
-        effectiveTransferId = resumeFile ? record.transferId : transferId.value();
+        dataPort = transfer.value().dataPort;
+        effectiveTransferId = resumeFile ? record.transferId : transfer.value().transferId;
     }
     const common::Status saveStatus = updateRecordForTransfer(state, index, effectiveTransferId);
     if (!saveStatus.isOk()) {
@@ -1900,10 +1934,6 @@ common::Status processDownloadFileImpl(
         dataPort = prepared->dataPort;
         effectiveTransferId = prepared->transferId;
     } else {
-        auto port = controlClient->epsv();
-        if (!port.isOk()) {
-            return port.status();
-        }
         resumeFile = options.resume && record.status != core::tree::TreeFileStatus::Pending;
         if (resumeFile) {
             const common::Status restStatus = controlClient->rest(record.transferId);
@@ -1911,14 +1941,14 @@ common::Status processDownloadFileImpl(
                 return restStatus;
             }
         }
-        auto transferId = controlClient->startTransfer("RETR", remotePath);
-        if (!transferId.isOk()) {
+        auto transfer = controlClient->startTransferWithPassive("RETR", remotePath);
+        if (!transfer.isOk()) {
             (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed,
-                               transferId.status().message());
-            return transferId.status();
+                               transfer.status().message());
+            return transfer.status();
         }
-        dataPort = port.value();
-        effectiveTransferId = resumeFile ? record.transferId : transferId.value();
+        dataPort = transfer.value().dataPort;
+        effectiveTransferId = resumeFile ? record.transferId : transfer.value().transferId;
     }
     const common::Status saveStatus = updateRecordForTransfer(state, index, effectiveTransferId);
     if (!saveStatus.isOk()) {
