@@ -34,11 +34,23 @@ def all_file_paths(root: Path) -> set[str]:
     return {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
 
 
-def assert_counts(summary_path: Path, expected_count: int, direction: str) -> None:
+def assert_counts(
+    summary_path: Path,
+    expected_count: int,
+    direction: str,
+    expected_parallelism: int | None = None,
+) -> None:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     for field in ("file_count", "data_transfer_count"):
         if int(summary.get(field, -1)) != expected_count:
             raise RuntimeError(f"{direction} {field} expected {expected_count}, got {summary.get(field)}")
+    if expected_parallelism is not None:
+        actual_connections = int(summary.get("control_connect_count", -1))
+        if actual_connections > expected_parallelism:
+            raise RuntimeError(
+                f"{direction} control_connect_count expected <= {expected_parallelism}, "
+                f"got {actual_connections}"
+            )
     if int(summary.get("failed_files", 0)) != 0:
         raise RuntimeError(f"{direction} reported failed files: {summary}")
 
@@ -78,7 +90,10 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
                 f"depth={depth}, file_parallelism={parallelism} uploaded raw file set mismatch: "
                 f"{sorted(actual_upload_paths)}"
             )
-        assert_counts(upload_summary, len(expected), "upload")
+        upload_connection_budget = (
+            parallelism if depth == 1 and parallelism > 1 else None
+        )
+        assert_counts(upload_summary, len(expected), "upload", upload_connection_budget)
 
         run_checked([
             str(build_dir / "cpnetflux-tree-download-client"), *common,
@@ -99,7 +114,10 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
                 f"depth={depth}, file_parallelism={parallelism} downloaded raw file set mismatch: "
                 f"{sorted(actual_download_paths)}"
             )
-        assert_counts(download_summary, len(expected), "download")
+        download_connection_budget = (
+            parallelism + 1 if depth == 1 and parallelism > 1 else None
+        )
+        assert_counts(download_summary, len(expected), "download", download_connection_budget)
     finally:
         stop_server(server, server_log)
 

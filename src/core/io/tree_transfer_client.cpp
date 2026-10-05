@@ -3115,23 +3115,34 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
         }
     }
 
+    // The current pipeline owns two dedicated control slots. With multiple file
+    // workers those slots would be extra connections and make the pipeline slower
+    // than the ordinary worker pool. Keep the optimized path for its validated
+    // single-worker use case until a shared control pool can be added.
+    const bool useControlPipeline =
+        options.controlPipelineDepth != 0 && options.fileParallelism == 1;
+    config::TreeTransferOptions summaryOptions = options;
+    if (!useControlPipeline) {
+        summaryOptions.controlPipelineDepth = 0;
+    }
+
     const common::Status preflightStatus =
         preflightUploadResume(options, &manifest, manifestPath);
     if (!preflightStatus.isOk()) {
         TreeRunStats stats;
-        return emitTreeSummary("tree_upload_complete", "upload", preflightStatus, options,
+        return emitTreeSummary("tree_upload_complete", "upload", preflightStatus, summaryOptions,
                                manifest, stats, startedAt);
     }
 
     TreeRunStats stats;
     const common::Status status =
-        options.controlPipelineDepth != 0
+        useControlPipeline
             ? runPipelinedTreeScheduler(&manifest, manifestPath, options, true, &stats)
             : (options.schedulerMode == config::TreeSchedulerMode::Global
                    ? runGlobalTreeScheduler(&manifest, manifestPath, options, processUploadFile,
                                             &stats, "upload", startedAt)
                    : runTreeScheduler(&manifest, manifestPath, options, processUploadFile, &stats));
-    return emitTreeSummary("tree_upload_complete", "upload", status, options, manifest, stats,
+    return emitTreeSummary("tree_upload_complete", "upload", status, summaryOptions, manifest, stats,
                            startedAt);
 }
 
@@ -3203,21 +3214,30 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
         }
     }
 
+    // See the upload path above: do not add two pipeline-only controls on top
+    // of a multi-worker pool until the controls can be shared safely.
+    const bool useControlPipeline =
+        options.controlPipelineDepth != 0 && options.fileParallelism == 1;
+    config::TreeTransferOptions summaryOptions = options;
+    if (!useControlPipeline) {
+        summaryOptions.controlPipelineDepth = 0;
+    }
+
     const common::Status preflightStatus =
         preflightDownloadResume(options, &manifest, manifestPath, &stats);
     if (!preflightStatus.isOk()) {
-        return emitTreeSummary("tree_download_complete", "download", preflightStatus, options,
+        return emitTreeSummary("tree_download_complete", "download", preflightStatus, summaryOptions,
                                manifest, stats, startedAt);
     }
 
     const common::Status status =
-        options.controlPipelineDepth != 0
+        useControlPipeline
             ? runPipelinedTreeScheduler(&manifest, manifestPath, options, false, &stats)
             : (options.schedulerMode == config::TreeSchedulerMode::Global
                    ? runGlobalTreeScheduler(&manifest, manifestPath, options, processDownloadFile,
                                             &stats, "download", startedAt)
                    : runTreeScheduler(&manifest, manifestPath, options, processDownloadFile, &stats));
-    return emitTreeSummary("tree_download_complete", "download", status, options, manifest, stats,
+    return emitTreeSummary("tree_download_complete", "download", status, summaryOptions, manifest, stats,
                            startedAt);
 }
 
