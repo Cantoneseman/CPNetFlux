@@ -114,6 +114,30 @@ TEST(TreePipelineControlIoTest, ShutdownWakesCancelledReader) {
     EXPECT_NE(result.status().message().find("cancelled"), std::string::npos);
 }
 
+
+TEST(TreePipelineControlIoTest, ParsesOnlyTransferTerminalRepliesWithIdentity) {
+    using cpnetflux::core::io::detail::parseTreePipelineTerminalReply;
+
+    auto completed = parseTreePipelineTerminalReply(
+        226, "226 Transfer complete transfer_id=GFID:abc-123_xyz");
+    ASSERT_TRUE(completed.has_value());
+    EXPECT_EQ(completed->code, 226);
+    EXPECT_EQ(completed->transferId, "abc-123_xyz");
+
+    auto failed = parseTreePipelineTerminalReply(
+        550, "550 Transfer failed transfer_id=GFID:file-2: disk full");
+    ASSERT_TRUE(failed.has_value());
+    EXPECT_EQ(failed->code, 550);
+    EXPECT_EQ(failed->transferId, "file-2");
+
+    EXPECT_FALSE(parseTreePipelineTerminalReply(
+                     150, "150 Opening transfer_id=GFID:file-2").has_value());
+    EXPECT_FALSE(parseTreePipelineTerminalReply(
+                     550, "550 Transfer failed without identity").has_value());
+    EXPECT_FALSE(parseTreePipelineTerminalReply(
+                     226, "226 transfer_id=GFID:").has_value());
+}
+
 TEST(TreePipelineControlIoTest, PendingPipelineCommandRejectIsNotAccepted) {
     SocketPair sockets;
     ASSERT_TRUE(sockets.valid());

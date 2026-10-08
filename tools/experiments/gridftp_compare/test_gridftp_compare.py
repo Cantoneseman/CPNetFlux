@@ -36,6 +36,7 @@ from tools.experiments.gridftp_compare.preflight import (  # noqa: E402
 from tools.experiments.gridftp_compare.runner import (  # noqa: E402
     build_parser,
     build_cases,
+    build_tree_client_command,
     command_audit_path,
     collect_environment,
     configure_ssh_password_file,
@@ -127,6 +128,52 @@ class MatrixTest(unittest.TestCase):
         self.assertTrue(all(case.scheduler == "off" for case in cases))
         self.assertTrue(all(case.compression == "off" for case in cases))
         self.assertTrue(all(case.checksum == "none" for case in cases))
+
+    def test_async_control_matrix_is_balanced_for_depth_modes(self) -> None:
+        baseline = build_cases(
+            stage="async-control",
+            systems=["cpnetflux", "gridftp"],
+            directions=["local_to_remote", "remote_to_local"],
+            repeat=3,
+            scheduler_repeat=1,
+            io_repeat=1,
+            control_reuse="worker",
+            control_pipeline_depth=0,
+        )
+        optimized = build_cases(
+            stage="async-control",
+            systems=["cpnetflux"],
+            directions=["local_to_remote", "remote_to_local"],
+            repeat=3,
+            scheduler_repeat=1,
+            io_repeat=1,
+            control_reuse="worker",
+            control_pipeline_depth=1,
+        )
+        self.assertEqual(len(baseline), 72)
+        self.assertEqual(len(optimized), 36)
+        self.assertEqual({case.control_pipeline_depth for case in baseline}, {0})
+        self.assertEqual({case.control_pipeline_depth for case in optimized}, {1})
+        self.assertEqual({case.dataset for case in optimized}, {"tree_dense_128MiB", "tree_mixed_256MiB"})
+        self.assertTrue(all(case.checksum == "none" and case.compression == "off" for case in baseline + optimized))
+        self.assertTrue(all(case.control_reuse == "worker" and case.scheduler == "off" for case in baseline + optimized))
+
+    def test_tree_client_command_carries_pipeline_depth(self) -> None:
+        case = make_case(
+            stage="async-control", system="cpnetflux", direction="local_to_remote",
+            dataset="tree_dense_128MiB", file_parallelism=4, connections=1,
+            repeat_index=0, control_reuse="worker", control_pipeline_depth=1,
+        )
+        args = argparse.Namespace(
+            local_build_dir="/build", control_host="peer", active_control_port=21210,
+            chunk_size=1048576, buffer_size=65536, checksum_backend="auto", auth_mode="anonymous",
+        )
+        command = build_tree_client_command(
+            args=args, case=case, case_dir=Path("/tmp/case"),
+            source_dir="/tmp/source", dest_dir="/tmp/dest",
+        )
+        flag = command.index("--control-pipeline-depth")
+        self.assertEqual(command[flag + 1], "1")
 
     def test_scheduler_matrix_is_cpnetflux_only(self) -> None:
         cases = build_cases(

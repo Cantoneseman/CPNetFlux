@@ -141,6 +141,7 @@ class ControlClient {
         buffer_.clear();
         parallelism_ = 0;
         responseTimeout_.reset();
+        terminalReplies_.clear();
         cancelled_.store(false, std::memory_order_release);
     }
 
@@ -209,15 +210,15 @@ class ControlClient {
     // changing the reply order or transfer semantics.
     [[nodiscard]] common::Result<PassiveTransferStart> startTransferWithPassive(
         const std::string& verb, const std::string& path) {
-        const common::Status epsvStatus = sendOnly("EPSV");
-        if (!epsvStatus.isOk()) {
-            return epsvStatus;
+        if (cancelled_.load(std::memory_order_acquire)) {
+            return common::Status::runtimeError("tree pipeline candidate cancelled");
         }
-        const common::Status transferStatus = sendOnly(verb + " " + path);
-        if (!transferStatus.isOk()) {
-            return transferStatus;
+        const std::string commands = "EPSV\r\n" + verb + " " + path + "\r\n";
+        const common::Status sent = control_.writeAll(commands.data(), commands.size());
+        if (!sent.isOk()) {
+            return sent;
         }
-        auto epsvReply = readReply();
+        auto epsvReply = readCommandReply();
         if (!epsvReply.isOk()) {
             return epsvReply.status();
         }
@@ -225,7 +226,7 @@ class ControlClient {
         if (!dataPort.isOk()) {
             return dataPort.status();
         }
-        auto transferReply = readReply();
+        auto transferReply = readCommandReply();
         if (!transferReply.isOk()) {
             return transferReply.status();
         }
@@ -270,15 +271,30 @@ class ControlClient {
         return match[1].str();
     }
 
-    [[nodiscard]] common::Status waitTransferComplete() {
-        auto reply = readReply();
-        if (!reply.isOk()) {
-            return reply.status();
+    [[nodiscard]] common::Status waitTransferComplete(
+        const std::string& expectedTransferId = {}) {
+        auto cached = terminalReplies_.find(expectedTransferId);
+        if (!expectedTransferId.empty() && cached != terminalReplies_.end()) {
+            const ControlReply reply = std::move(cached->second);
+            terminalReplies_.erase(cached);
+            return validateTransferTerminal(reply, expectedTransferId);
         }
-        if (reply.value().code != 226) {
-            return common::Status::runtimeError("transfer did not complete: " + joined(reply.value()));
+        while (true) {
+            auto reply = readReply();
+            if (!reply.isOk()) {
+                return reply.status();
+            }
+            const auto terminal = parseTerminal(reply.value());
+            if (!terminal.has_value()) {
+                return common::Status::runtimeError(
+                    "unexpected control reply while waiting for transfer completion: " +
+                    joined(reply.value()));
+            }
+            if (expectedTransferId.empty() || terminal->transferId == expectedTransferId) {
+                return validateTransferTerminal(reply.value(), expectedTransferId);
+            }
+            terminalReplies_.insert_or_assign(terminal->transferId, std::move(reply.value()));
         }
-        return common::Status::ok();
     }
 
     [[nodiscard]] common::Result<std::vector<std::string>> nlst(const std::string& path) {
@@ -403,7 +419,41 @@ class ControlClient {
         if (!sendStatus.isOk()) {
             return sendStatus;
         }
-        return readReply();
+        return readCommandReply();
+    }
+
+    static std::optional<detail::TreePipelineTerminalReply> parseTerminal(
+        const ControlReply& reply) {
+        return detail::parseTreePipelineTerminalReply(reply.code, joined(reply));
+    }
+
+    static common::Status validateTransferTerminal(const ControlReply& reply,
+                                                   const std::string& expectedTransferId) {
+        const auto terminal = parseTerminal(reply);
+        if (!terminal.has_value()) {
+            return common::Status::runtimeError("transfer terminal reply has no transfer_id");
+        }
+        if (!expectedTransferId.empty() && terminal->transferId != expectedTransferId) {
+            return common::Status::runtimeError("transfer terminal reply has mismatched transfer_id");
+        }
+        if (terminal->code != 226) {
+            return common::Status::runtimeError("transfer failed: " + joined(reply));
+        }
+        return common::Status::ok();
+    }
+
+    [[nodiscard]] common::Result<ControlReply> readCommandReply() {
+        while (true) {
+            auto reply = readReply();
+            if (!reply.isOk()) {
+                return reply.status();
+            }
+            const auto terminal = parseTerminal(reply.value());
+            if (!terminal.has_value()) {
+                return reply;
+            }
+            terminalReplies_.insert_or_assign(terminal->transferId, std::move(reply.value()));
+        }
     }
 
     [[nodiscard]] common::Result<ControlReply> readReply() {
@@ -506,6 +556,7 @@ class ControlClient {
     std::uint32_t parallelism_ = 0;
     std::mutex cancelMutex_;
     std::optional<std::chrono::milliseconds> responseTimeout_;
+    std::unordered_map<std::string, ControlReply> terminalReplies_;
     std::atomic<bool> cancelled_{false};
 };
 
@@ -1635,7 +1686,8 @@ common::Status prepareDownloadCandidate(SchedulerState* state, std::size_t index
 common::Status processUploadFileImpl(
     SchedulerState* state, std::size_t index, const config::TreeTransferOptions& options,
     TreeWorkerRuntime* runtime, PreparedTransfer* prepared,
-    const std::function<void()>& onDataStart) {
+    const std::function<void()>& onDataStart,
+    const std::function<void()>& onDataEnd) {
     if (runtime != nullptr) {
         runtime->transferMetrics = {};
         runtime->hasTransferMetrics = false;
@@ -1757,6 +1809,9 @@ common::Status processUploadFileImpl(
     }
     const auto transferStarted = std::chrono::steady_clock::now();
     common::Status transferStatus = runFileTransferClient(fileOptions);
+    if (onDataEnd) {
+        onDataEnd();
+    }
     if (state->phaseTiming) {
         state->stats.phaseCCount.fetch_add(1, std::memory_order_relaxed);
         state->stats.phaseCSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - transferStarted), std::memory_order_relaxed);
@@ -1767,7 +1822,7 @@ common::Status processUploadFileImpl(
     }
     if (!transferStatus.isOk() && runtime != nullptr &&
         runtime->hotPathCompression.candidate && !runtime->forcedRawRetry) {
-        const common::Status firstControlStatus = controlClient->waitTransferComplete();
+        const common::Status firstControlStatus = controlClient->waitTransferComplete(effectiveTransferId);
         if (!firstControlStatus.isOk() &&
             firstControlStatus.code() == common::StatusCode::SystemError) {
             (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed,
@@ -1814,7 +1869,7 @@ common::Status processUploadFileImpl(
     }
     state->stats.dataTransferCount.fetch_add(1);
     const auto waitStarted = std::chrono::steady_clock::now();
-    const common::Status completeStatus = controlClient->waitTransferComplete();
+    const common::Status completeStatus = controlClient->waitTransferComplete(effectiveTransferId);
     if (state->phaseTiming) {
         state->stats.phaseCWaitCount.fetch_add(1, std::memory_order_relaxed);
         state->stats.phaseCWaitSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - waitStarted), std::memory_order_relaxed);
@@ -1843,7 +1898,8 @@ common::Status processUploadFileImpl(
 common::Status processDownloadFileImpl(
     SchedulerState* state, std::size_t index, const config::TreeTransferOptions& options,
     TreeWorkerRuntime* runtime, PreparedTransfer* prepared,
-    const std::function<void()>& onDataStart) {
+    const std::function<void()>& onDataStart,
+    const std::function<void()>& onDataEnd) {
     if (runtime != nullptr) {
         runtime->transferMetrics = {};
         runtime->hasTransferMetrics = false;
@@ -1979,6 +2035,9 @@ common::Status processDownloadFileImpl(
     }
     const auto transferStarted = std::chrono::steady_clock::now();
     const common::Status transferStatus = runFileDownloadClient(fileOptions);
+    if (onDataEnd) {
+        onDataEnd();
+    }
     if (state->phaseTiming) {
         state->stats.phaseCCount.fetch_add(1, std::memory_order_relaxed);
         state->stats.phaseCSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - transferStarted), std::memory_order_relaxed);
@@ -1996,7 +2055,7 @@ common::Status processDownloadFileImpl(
     }
     state->stats.dataTransferCount.fetch_add(1);
     const auto waitStarted = std::chrono::steady_clock::now();
-    const common::Status completeStatus = controlClient->waitTransferComplete();
+    const common::Status completeStatus = controlClient->waitTransferComplete(effectiveTransferId);
     if (state->phaseTiming) {
         state->stats.phaseCWaitCount.fetch_add(1, std::memory_order_relaxed);
         state->stats.phaseCWaitSecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - waitStarted), std::memory_order_relaxed);
@@ -2033,13 +2092,13 @@ common::Status processDownloadFileImpl(
 common::Status processUploadFile(SchedulerState* state, std::size_t index,
                                  const config::TreeTransferOptions& options,
                                  TreeWorkerRuntime* runtime) {
-    return processUploadFileImpl(state, index, options, runtime, nullptr, {});
+    return processUploadFileImpl(state, index, options, runtime, nullptr, {}, {});
 }
 
 common::Status processDownloadFile(SchedulerState* state, std::size_t index,
                                    const config::TreeTransferOptions& options,
                                    TreeWorkerRuntime* runtime) {
-    return processDownloadFileImpl(state, index, options, runtime, nullptr, {});
+    return processDownloadFileImpl(state, index, options, runtime, nullptr, {}, {});
 }
 
 std::uint64_t workItemBytes(const core::scheduler::FilePlan& plan) {
@@ -2818,25 +2877,19 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
     // The pipeline lane is one file worker; the ordinary workers share the same
     // manifest-index queue and together respect --file-parallelism.
     PipelineControlSlot slots[2];
-    for (auto& slot : slots) {
-        const common::Status ready =
-            ensureControlReadyWithStats(&slot.control, options, &state.stats);
-        if (!ready.isOk()) {
-            resetPipelineSlot(&slot);
-            resetPipelineSlot(&slots[0]);
-            resetPipelineSlot(&slots[1]);
-            return ready;
-        }
-        slot.control.setResponseTimeout(kPipelineControlResponseTimeout);
-        const common::Status pipelineStatus = slot.control.enablePipeline();
-        if (!pipelineStatus.isOk()) {
-            resetPipelineSlot(&slot);
-            resetPipelineSlot(&slots[0]);
-            resetPipelineSlot(&slots[1]);
-            return pipelineStatus;
-        }
-        slot.ready = true;
+    const common::Status controlReady =
+        ensureControlReadyWithStats(&slots[0].control, options, &state.stats);
+    if (!controlReady.isOk()) {
+        resetPipelineSlot(&slots[0]);
+        return controlReady;
     }
+    slots[0].control.setResponseTimeout(kPipelineControlResponseTimeout);
+    const common::Status pipelineStatus = slots[0].control.enablePipeline();
+    if (!pipelineStatus.isOk()) {
+        resetPipelineSlot(&slots[0]);
+        return pipelineStatus;
+    }
+    slots[0].ready = true;
 
     auto copyStats = [&]() {
         if (stats == nullptr) {
@@ -2874,7 +2927,7 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         if (index >= manifest->files.size()) {
             return common::Status::ok();
         }
-        *prepared = makePrepared(index, &slots[index % 2]);
+        *prepared = makePrepared(index, &slots[0]);
         PreparedTransfer* raw = prepared->get();
         try {
             raw->status = upload
@@ -3001,8 +3054,7 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
                     return;
                 }
             }
-            PipelineControlSlot* nextSlot =
-                prepared->slot == &slots[0] ? &slots[1] : &slots[0];
+            PipelineControlSlot* nextSlot = &slots[0];
             candidate = makePrepared(nextIndex, nextSlot);
             PreparedTransfer* candidateRaw = candidate.get();
             try {
@@ -3032,12 +3084,17 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
             }
         };
 
+        const auto finishPreparation = [&]() {
+            if (preparation.joinable()) {
+                preparation.join();
+            }
+        };
         try {
             status = upload
                 ? processUploadFileImpl(&state, currentIndex, options, &runtime, prepared.get(),
-                                        startPreparation)
+                                        startPreparation, finishPreparation)
                 : processDownloadFileImpl(&state, currentIndex, options, &runtime, prepared.get(),
-                                          startPreparation);
+                                          startPreparation, finishPreparation);
         } catch (const std::exception& error) {
             status = common::Status::runtimeError(
                 std::string("tree pipeline worker exception: ") + error.what());
@@ -3149,8 +3206,7 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
     // workers those slots would be extra connections and make the pipeline slower
     // than the ordinary worker pool. Keep the optimized path for its validated
     // single-worker use case until a shared control pool can be added.
-    const bool useControlPipeline =
-        options.controlPipelineDepth != 0 && options.fileParallelism == 1;
+    const bool useControlPipeline = options.controlPipelineDepth != 0;
     config::TreeTransferOptions summaryOptions = options;
     if (!useControlPipeline) {
         summaryOptions.controlPipelineDepth = 0;
@@ -3246,8 +3302,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
 
     // See the upload path above: do not add two pipeline-only controls on top
     // of a multi-worker pool until the controls can be shared safely.
-    const bool useControlPipeline =
-        options.controlPipelineDepth != 0 && options.fileParallelism == 1;
+    const bool useControlPipeline = options.controlPipelineDepth != 0;
     config::TreeTransferOptions summaryOptions = options;
     if (!useControlPipeline) {
         summaryOptions.controlPipelineDepth = 0;

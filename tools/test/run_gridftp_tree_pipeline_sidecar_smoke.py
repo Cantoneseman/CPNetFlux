@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
+import socket
+import time
 import sys
 import tempfile
 from pathlib import Path
@@ -114,12 +117,81 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
                 f"depth={depth}, file_parallelism={parallelism} downloaded raw file set mismatch: "
                 f"{sorted(actual_download_paths)}"
             )
-        download_connection_budget = (
-            parallelism + 1 if depth == 1 and parallelism > 1 else None
-        )
+        # Download tree discovery uses one control session before the file
+        # worker pool starts; async file scheduling must not add another.
+        download_connection_budget = parallelism + 1 if depth == 1 else None
         assert_counts(download_summary, len(expected), "download", download_connection_budget)
     finally:
         stop_server(server, server_log)
+
+
+
+def recv_reply(sock: socket.socket, expected: int) -> str:
+    sock.settimeout(3.0)
+    chunks = bytearray()
+    while not chunks.endswith(b"\r\n"):
+        part = sock.recv(1)
+        if not part:
+            raise RuntimeError("control connection closed while waiting for reply")
+        chunks.extend(part)
+    line = chunks.decode("ascii", errors="replace").strip()
+    if not line.startswith(f"{expected} "):
+        raise RuntimeError(f"expected control reply {expected}, got {line!r}")
+    return line
+
+
+def send_command(sock: socket.socket, command: str, expected: int) -> str:
+    sock.sendall(command.encode("ascii") + b"\r\n")
+    return recv_reply(sock, expected)
+
+
+def assert_async_control_window(build_dir: Path, temp: Path) -> None:
+    root = temp / "async-control-root"
+    root.mkdir()
+    log = temp / "async-control-server.log"
+    control_port = free_port()
+    data_port = free_port()
+    server = start_server(build_dir, root, control_port, data_port, log)
+    sock = socket.create_connection(("127.0.0.1", control_port), timeout=3.0)
+    try:
+        recv_reply(sock, 220)
+        send_command(sock, "USER cpnetflux", 331)
+        send_command(sock, "PASS cpnetflux", 230)
+        send_command(sock, "TYPE I", 200)
+        send_command(sock, "OPTS PIPELINE=1", 200)
+
+        for index in range(2):
+            sock.sendall(f"EPSV\r\nSTOR async-{index}.bin\r\n".encode("ascii"))
+            epsv = recv_reply(sock, 229)
+            if not re.search(r"\(\|\|\|[0-9]+\|\)", epsv):
+                raise RuntimeError(f"invalid EPSV reply: {epsv!r}")
+            prelude = recv_reply(sock, 150)
+            if "transfer_id=GFID:" not in prelude:
+                raise RuntimeError(f"async STOR omitted transfer identity: {prelude!r}")
+
+        sock.sendall(b"EPSV\r\nSTOR async-overflow.bin\r\n")
+        recv_reply(sock, 229)
+        overflow = recv_reply(sock, 450)
+        if "window is full" not in overflow:
+            raise RuntimeError(f"unexpected async window rejection: {overflow!r}")
+    finally:
+        sock.close()
+        # Closing one opted-in control channel must release its data workers
+        # without stopping the service process.
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            status_path = Path(f"/proc/{server.pid}/status")
+            if not status_path.exists():
+                raise RuntimeError("control server exited after client disconnect")
+            status = status_path.read_text(encoding="ascii")
+            thread_line = next(line for line in status.splitlines()
+                               if line.startswith("Threads:"))
+            if int(thread_line.split()[1]) == 1:
+                break
+            time.sleep(0.02)
+        else:
+            raise RuntimeError("async control/data workers did not stop after EOF")
+        stop_server(server, log)
 
 
 def main() -> int:
@@ -129,6 +201,7 @@ def main() -> int:
     build_dir = Path(args.build_dir)
     with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-pipeline-sidecar.") as temp_text:
         temp = Path(temp_text)
+        assert_async_control_window(build_dir, temp)
         for depth, parallelism in ((0, 1), (0, 8), (1, 1), (1, 8)):
             run_depth(build_dir, temp, depth, parallelism)
     print("tree pipeline sidecar smoke passed: depth=0/1, file_parallelism=1/8, upload/download, file sets, SHA-256 and counts")

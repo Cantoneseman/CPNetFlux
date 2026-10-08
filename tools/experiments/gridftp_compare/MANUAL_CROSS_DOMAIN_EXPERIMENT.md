@@ -56,3 +56,13 @@ MCE-TOPOLOGY-02 v1 曾将方向 source 与 client、destination 与 server 混�
 用户应保留脚本输出的 run root，不删除未知状态 case。人工停止时先记录停止时间和信号，再保留 state、命令、PID、日志、hash、manifest、summary、失败/blocked/skipped 清单及磁盘/PID 报告；不要重跑或覆盖 `unknown` case。把 run root 路径、`case-plan.json`、run-level summary、`sha256-manifest.txt`、动态 QA/固定构建引用和停止原因交给 00。大 payload 和原始日志不回传 Git。
 
 Windows 入口显式使用系统 OpenSSH `C:\Windows\System32\OpenSSH\ssh.exe`，要求 BatchMode 和 StrictHostKeyChecking；当前 plan 模式不会启动它。脚本不打印凭据/token。
+
+## 异步目录控制调度专项（DIR-ASYNC-CONTROL-02）
+
+使用 `run_async_control_comparison.sh` 手动运行深圳工作区到上海 GridFTP 服务的对照。脚本先要求干净的固定提交与已配置 Linux build，复建后把同一提交的 `cpnetflux-gridftp-server` 复制到上海唯一的新实验目录，并核对本地/远端 SHA-256；不会覆盖历史 GridFlux 目录，也不会自动清理其保留的服务端二进制。
+
+运行前由操作者设置：`CPNETFLUX_EXPERIMENT_REMOTE`、`CPNETFLUX_EXPERIMENT_CONTROL_HOST`、`CPNETFLUX_EXPERIMENT_BUILD_DIR`、`CPNETFLUX_EXPERIMENT_GRIDFTP_HOME`。GridFTP 默认使用 GSI；如当前服务允许匿名方式，可显式设置 `CPNETFLUX_EXPERIMENT_GRIDFTP_AUTH_MODE=anonymous`。SSH 使用 BatchMode 和 StrictHostKeyChecking，脚本不会接收或记录口令、私钥或 token。
+
+矩阵固定 seed `20260831`、双向各 3 次、POSIX、worker control reuse、scheduler/compression/checksum 均关闭。目录配置为 dense 128×1 MiB 的 file parallelism 1/4/8，以及 mixed 128×512 KiB + 16×4 MiB + 4×32 MiB 的 (file parallelism, per-file connections)=(1,1)/(2,2)/(4,2)。depth=0 批次同时采集 CPNetFlux 与真实 GridFTP；depth=1 批次只采集 CPNetFlux。比较器要求每一配置三次传输都成功且源/目标 hash 一致，按 logical goodput 中位数计算 CPNetFlux/GridFTP 比值；只有所有配置 depth=1 比值均不低于 0.90 才报告达标。此专项评价目录吞吐，不把未观测的 GridFTP 内部阶段补造出来。
+
+脚本要求深圳 `/tmp` 至少 13 GiB 可用、上海 `/tmp` 至少 11 GiB 可用，并让 runner 每个 case 维持 10 GiB 门槛。上海服务端数据端口默认从 34000 起，避开已有 GridFTP 32000–32511 范围；如果防火墙未开放该范围，应先调整任务参数/规则，不能启动矩阵。输出和逐配置比较报告保存在 `CPNETFLUX_EXPERIMENT_OUTPUT_ROOT/<run-id>`，缺证据、缺 case 或 hash 不符都会阻止 90% 通过结论。

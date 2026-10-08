@@ -61,7 +61,7 @@ DEFAULT_SEED = 20260831
 DEFAULT_CHUNK_SIZE = 1024 * 1024
 DEFAULT_BUFFER_SIZE = 64 * 1024
 DEFAULT_GRIDFTP_GSI_HOME_DIR = "/srv/cpnetflux-gsi"
-STAGES = {"preflight", "smoke", "core", "scheduler", "io", "resume", "all"}
+STAGES = {"preflight", "smoke", "core", "async-control", "scheduler", "io", "resume", "all"}
 
 
 def compact_timestamp() -> str:
@@ -131,6 +131,7 @@ def case_id(
     queue_depth: int = 1,
     batch_size: int = 1,
     resume: bool = False,
+    control_pipeline_depth: int = 0,
 ) -> str:
     pieces = [
         stage,
@@ -144,6 +145,8 @@ def case_id(
         "resume" if resume else "fresh",
         f"r{repeat_index}",
     ]
+    if stage == "async-control":
+        pieces.append(f"pipeline{control_pipeline_depth}")
     return safe_id("_".join(pieces))
 
 
@@ -163,6 +166,7 @@ def make_case(
     batch_size: int = 1,
     resume: bool = False,
     control_reuse: str = "off",
+    control_pipeline_depth: int = 0,
 ) -> ExperimentCase:
     return ExperimentCase(
         case_id=case_id(
@@ -179,6 +183,7 @@ def make_case(
             queue_depth=queue_depth,
             batch_size=batch_size,
             resume=resume,
+            control_pipeline_depth=control_pipeline_depth,
         ),
         stage=stage,
         system=system,
@@ -193,6 +198,7 @@ def make_case(
         queue_depth=queue_depth,
         batch_size=batch_size,
         control_reuse=control_reuse,
+        control_pipeline_depth=control_pipeline_depth,
         resume=resume,
     )
 
@@ -212,6 +218,8 @@ def stage_profiles(stage: str) -> list[str]:
             profiles.extend(["single_256MiB", "tree_dense_128MiB", "tree_mixed_256MiB"])
         elif name == "scheduler":
             profiles.append("tree_mixed_256MiB")
+        elif name == "async-control":
+            profiles.extend(["tree_dense_128MiB", "tree_mixed_256MiB"])
         elif name == "io":
             profiles.append("single_1GiB")
         elif name == "resume":
@@ -228,6 +236,7 @@ def build_cases(
     scheduler_repeat: int,
     io_repeat: int,
     control_reuse: str,
+    control_pipeline_depth: int = 0,
     max_cases: int = 0,
 ) -> list[ExperimentCase]:
     cases: list[ExperimentCase] = []
@@ -287,6 +296,32 @@ def build_cases(
                                 connections=connections,
                                 repeat_index=repeat_index,
                                 control_reuse=control_reuse,
+                            )
+                        )
+    if stage == "async-control":
+        configurations = [
+            ("tree_dense_128MiB", 1, 1),
+            ("tree_dense_128MiB", 4, 1),
+            ("tree_dense_128MiB", 8, 1),
+            ("tree_mixed_256MiB", 1, 1),
+            ("tree_mixed_256MiB", 2, 2),
+            ("tree_mixed_256MiB", 4, 2),
+        ]
+        for direction in directions:
+            for repeat_index in range(repeat):
+                for dataset, file_parallelism, connections in configurations:
+                    for system in systems:
+                        cases.append(
+                            make_case(
+                                stage=stage,
+                                system=system,
+                                direction=direction,
+                                dataset=dataset,
+                                file_parallelism=file_parallelism,
+                                connections=connections,
+                                repeat_index=repeat_index,
+                                control_reuse="worker",
+                                control_pipeline_depth=control_pipeline_depth,
                             )
                         )
     if stage in {"scheduler", "all"} and "cpnetflux" in systems:
@@ -1428,6 +1463,8 @@ def build_tree_client_command(
         args.checksum_backend,
         "--control-reuse",
         case.control_reuse,
+        "--control-pipeline-depth",
+        str(case.control_pipeline_depth),
         "--auth-mode",
         args.auth_mode,
         "--json-summary",
@@ -2336,6 +2373,7 @@ def result_row(
         "queue_depth": str(case.queue_depth),
         "batch_size": str(case.batch_size),
         "control_reuse": case.control_reuse,
+        "control_pipeline_depth": str(case.control_pipeline_depth),
         "scheduler": case.scheduler,
         "scheduler_policy": case.scheduler_policy,
         "repeat_index": str(case.repeat_index),
@@ -2762,6 +2800,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
         scheduler_repeat=args.scheduler_repeat,
         io_repeat=args.io_repeat,
         control_reuse=args.control_reuse,
+        control_pipeline_depth=args.control_pipeline_depth,
         max_cases=args.max_cases,
     )
     validate_case_ports(args, cases)
@@ -2935,6 +2974,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--file-io-advice", default="off")
     parser.add_argument("--posix-write-strategy", default="auto")
     parser.add_argument("--control-reuse", choices=["off", "worker"], default="off")
+    parser.add_argument("--control-pipeline-depth", choices=[0, 1], type=int, default=0, help="directory control lookahead depth (async-control stage)")
     parser.add_argument("--auth-mode", choices=["anonymous", "token"], default="anonymous")
     parser.add_argument(
         "--gridftp-auth-mode",
@@ -2975,6 +3015,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.control_pipeline_depth and args.stage != "async-control":
+        parser.error("--control-pipeline-depth is only supported with --stage async-control")
     if args.repeat <= 0 or args.scheduler_repeat <= 0 or args.io_repeat <= 0:
         parser.error("repeat counts must be greater than zero")
     for system in parse_csv_list(args.systems):

@@ -39,6 +39,7 @@ RESULT_FIELDS = [
     "queue_depth",
     "batch_size",
     "control_reuse",
+    "control_pipeline_depth",
     "scheduler",
     "scheduler_policy",
     "repeat_index",
@@ -78,6 +79,7 @@ SUMMARY_FIELDS = [
     "direction",
     "file_parallelism",
     "per_file_connections",
+    "control_pipeline_depth",
     "scheduler",
     "scheduler_policy",
     "file_io_backend",
@@ -187,6 +189,7 @@ class ExperimentCase:
     checksum: str = "none"
     compression: str = "off"
     control_reuse: str = "off"
+    control_pipeline_depth: int = 0
     resume: bool = False
 
     @property

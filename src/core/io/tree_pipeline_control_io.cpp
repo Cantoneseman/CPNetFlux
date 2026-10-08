@@ -32,6 +32,32 @@ std::optional<int> parseControlReplyCode(std::string_view line) noexcept {
     return (line[0] - '0') * 100 + (line[1] - '0') * 10 + (line[2] - '0');
 }
 
+std::optional<TreePipelineTerminalReply> parseTreePipelineTerminalReply(
+    int code, std::string_view text) {
+    if (code != 226 && code != 550) {
+        return std::nullopt;
+    }
+    constexpr std::string_view marker = "transfer_id=GFID:";
+    const std::size_t begin = text.find(marker);
+    if (begin == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const std::size_t idBegin = begin + marker.size();
+    std::size_t idEnd = idBegin;
+    while (idEnd < text.size()) {
+        const unsigned char ch = static_cast<unsigned char>(text[idEnd]);
+        if (!(std::isalnum(ch) || ch == '.' || ch == '_' || ch == '-')) {
+            break;
+        }
+        ++idEnd;
+    }
+    if (idEnd == idBegin) {
+        return std::nullopt;
+    }
+    return TreePipelineTerminalReply{code, std::string(text.substr(idBegin, idEnd - idBegin)),
+                                     std::string(text)};
+}
+
 common::Status validatePipelineEnableReply(int code) {
     if (code != 200) {
         return common::Status::runtimeError("OPTS PIPELINE=1 rejected");
