@@ -7,6 +7,7 @@
 规则：
 
 - `GridFTP` 是外部协议/对照工具名称，`CPNetFlux` 是项目品牌；新增代码、目标名、命令和文档统一使用 CPNetFlux/cpnetflux。
+- 使用 GridFTP 做对照实验前，必须在深圳实验端检查 GSI proxy 的有效时间；无有效 proxy 或剩余时间低于任务单要求时，实验脚本必须拒绝启动。需要刷新时，只能在交互式 SSH 终端调用 `grid-proxy-init`，由操作者输入密码；密码、私钥和 proxy 内容不得写入脚本、环境文件、任务单、日志或 Git。GSI 刷新完成后仍需记录 proxy 剩余时间、认证模式和服务端端口，不记录凭据值。
 - 不把历史实验的 go 结论当作生产 readiness；先查 `docs/RESEARCH_BASELINE.md` 的边界。
 - 修改前先写任务范围、非目标、验收标准和受影响文件。
 - 按 `docs/DECISIONS/2026-09-24-cloud-first-development-and-github-backup.md` 执行云端优先：迁移验收后，深圳是 CPNetFlux 唯一权威 Git 工作区，项目源码、文档、Git、构建、测试、分析和实验都在其中或隔离 worktree 完成；上海只作传输对端，Windows 用于连接/查看/应急回收，不作日常开发副本。迁移完成前不得宣称已切换；新源码实现/实验先暂停在本地，迁移准备只能按 `CLOUD-GITHUB-01` 和上述决策进行。
