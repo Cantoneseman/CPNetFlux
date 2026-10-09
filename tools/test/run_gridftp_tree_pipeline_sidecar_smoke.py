@@ -41,19 +41,39 @@ def assert_counts(
     summary_path: Path,
     expected_count: int,
     direction: str,
-    expected_parallelism: int | None = None,
+    expected_connections: int | None = None,
 ) -> None:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     for field in ("file_count", "data_transfer_count"):
         if int(summary.get(field, -1)) != expected_count:
             raise RuntimeError(f"{direction} {field} expected {expected_count}, got {summary.get(field)}")
-    if expected_parallelism is not None:
+    if expected_connections is not None:
         actual_connections = int(summary.get("control_connect_count", -1))
-        if actual_connections > expected_parallelism:
+        if actual_connections != expected_connections:
             raise RuntimeError(
-                f"{direction} control_connect_count expected <= {expected_parallelism}, "
+                f"{direction} control_connect_count expected {expected_connections}, "
                 f"got {actual_connections}"
             )
+    depth = int(summary.get("control_pipeline_depth", 0))
+    if depth > 0:
+        expected_slots = depth + 1
+        actual_slots = int(summary.get("control_pipeline_slot_count", -1))
+        if actual_slots != expected_slots:
+            raise RuntimeError(
+                f"{direction} control_pipeline_slot_count expected {expected_slots}, "
+                f"got {summary.get('control_pipeline_slot_count')}"
+            )
+        pending = int(summary.get("control_pipeline_pending_high_watermark", -1))
+        if pending < 1 or pending > depth:
+            raise RuntimeError(
+                f"{direction} control_pipeline_pending_high_watermark expected 1..{depth}, "
+                f"got {pending}"
+            )
+        for field in ("control_prepare_count", "transfer_complete_wait_count"):
+            if int(summary.get(field, -1)) != expected_count:
+                raise RuntimeError(
+                    f"{direction} {field} expected {expected_count}, got {summary.get(field)}"
+                )
     if int(summary.get("failed_files", 0)) != 0:
         raise RuntimeError(f"{direction} reported failed files: {summary}")
 
@@ -62,6 +82,7 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
     source = temp / f"source-{depth}-{parallelism}"
     source.mkdir()
     make_tree(source)
+    (source / "notes.cpnetflux.user.txt").write_text("ordinary user file", encoding="utf-8")
     expected = business_files(source)
     server_root = temp / f"server-{depth}-{parallelism}"
     server_root.mkdir()
@@ -79,6 +100,7 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
             "--connections", "1", "--file-parallelism", str(parallelism),
             "--control-reuse", "worker", "--control-pipeline-depth", str(depth),
             "--scheduler", "off", "--compression", "off", "--checksum", "crc32c",
+            "--phase-timing", "on",
         ]
         run_checked([
             str(build_dir / "cpnetflux-tree-upload-client"), *common,
@@ -93,10 +115,8 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
                 f"depth={depth}, file_parallelism={parallelism} uploaded raw file set mismatch: "
                 f"{sorted(actual_upload_paths)}"
             )
-        upload_connection_budget = (
-            parallelism if depth == 1 and parallelism > 1 else None
-        )
-        assert_counts(upload_summary, len(expected), "upload", upload_connection_budget)
+        upload_connections = parallelism if depth == 0 else depth + parallelism
+        assert_counts(upload_summary, len(expected), "upload", upload_connections)
 
         run_checked([
             str(build_dir / "cpnetflux-tree-download-client"), *common,
@@ -118,9 +138,9 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
                 f"{sorted(actual_download_paths)}"
             )
         # Download tree discovery uses one control session before the file
-        # worker pool starts; async file scheduling must not add another.
-        download_connection_budget = parallelism + 1 if depth == 1 else None
-        assert_counts(download_summary, len(expected), "download", download_connection_budget)
+        # worker pool starts; the pipeline pool then adds depth+1 slots.
+        download_connections = parallelism + 1 if depth == 0 else depth + parallelism + 1
+        assert_counts(download_summary, len(expected), "download", download_connections)
     finally:
         stop_server(server, server_log)
 
@@ -202,9 +222,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cpnetflux-tree-pipeline-sidecar.") as temp_text:
         temp = Path(temp_text)
         assert_async_control_window(build_dir, temp)
-        for depth, parallelism in ((0, 1), (0, 8), (1, 1), (1, 8)):
-            run_depth(build_dir, temp, depth, parallelism)
-    print("tree pipeline sidecar smoke passed: depth=0/1, file_parallelism=1/8, upload/download, file sets, SHA-256 and counts")
+        for depth in (0, 1, 2, 4):
+            for parallelism in (1, 8):
+                run_depth(build_dir, temp, depth, parallelism)
+    print("tree pipeline sidecar smoke passed: depth=0/1/2/4, file_parallelism=1/8, upload/download, file sets, SHA-256, counts and phase metrics")
     return 0
 
 

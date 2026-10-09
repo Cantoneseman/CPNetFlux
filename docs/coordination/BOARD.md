@@ -100,3 +100,9 @@
 总指挥独占维护本文件、ROSTER 和对用户的状态汇总；每个角色独占 `receipts/NN-role.md`。任务具体修改范围在任务单登记，重叠时先排队。
 
 实现、测试修改使用 `codex/<task-id>` 分支及独立 worktree，禁止多个活跃角色在同一目录切换分支或操作共享 Git index。初始化只写回执，不做 git add/commit。总指挥完成审查后统一提交资料；后续代码整合按任务安排，不使用 `git add .` 混入别人的工作。
+
+## 当前窄任务：R2026-10-09.1
+
+DIR-ASYNC-CONTROL-03 / v2：in_progress。用户明确将当前工作收窄为目录控制连接池+有界pending。输入 d362ea2360bf0cbfe3626a9c93734368a74ec0b6，隔离分支 codex/DIR-ASYNC-CONTROL-03。旧迁移暂停门对本任务的限制和旧单槽设计已 superseded；不宣称迁移验收完成。
+
+00实现C++与提交；02既有聊天编写30-case短实验脚本；04既有聊天编写并执行独立loopback。三个角色独占文件，不并发操作index。01/03/05本轮不新增派单。构建/测试后提交push，短实验留给用户手动运行；性能未验收，不扩大矩阵。任务契约见 ../tasks/2026-10-08-dir-async-control-03.md。

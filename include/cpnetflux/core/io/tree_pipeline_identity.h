@@ -13,13 +13,16 @@ struct TreePipelineCandidateIdentity {
     std::string relativePath;
     bool upload = false;
     std::uint64_t slotGeneration = 0;
+    std::size_t slotIndex = 0;
 };
 
 [[nodiscard]] inline bool treePipelineCandidateIdentityMatches(
     const TreePipelineCandidateIdentity& identity, std::size_t manifestIndex,
-    const std::string& relativePath, bool upload, std::uint64_t slotGeneration) noexcept {
+    const std::string& relativePath, bool upload, std::uint64_t slotGeneration,
+    std::size_t slotIndex = 0) noexcept {
     return identity.manifestIndex == manifestIndex && identity.relativePath == relativePath &&
-           identity.upload == upload && identity.slotGeneration == slotGeneration;
+           identity.upload == upload && identity.slotGeneration == slotGeneration &&
+           identity.slotIndex == slotIndex;
 }
 
 }  // namespace cpnetflux::core::io::detail

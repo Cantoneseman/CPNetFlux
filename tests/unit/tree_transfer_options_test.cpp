@@ -207,6 +207,29 @@ TEST(TreeTransferOptionsTest, ParsesControlPipelineDepthAndRejectsInvalidCombina
                      static_cast<int>(std::size(wrongMode)), wrongMode,
                      cpnetflux::config::TreeTransferRole::Upload)
                      .isOk());
+
+    for (const char* depth : {"0", "1", "2", "4"}) {
+        const char* supported[] = {"cpnetflux-tree-upload-client", "--source-dir",
+                                   rootText.c_str(), "--dest-dir", "remote",
+                                   "--control-reuse", "worker", "--scheduler", "off",
+                                   "--control-pipeline-depth", depth};
+        auto supportedParsed = cpnetflux::config::parseTreeTransferOptions(
+            static_cast<int>(std::size(supported)), supported,
+            cpnetflux::config::TreeTransferRole::Upload);
+        ASSERT_TRUE(supportedParsed.isOk()) << depth << ": "
+                                            << supportedParsed.status().message();
+        EXPECT_EQ(supportedParsed.value().controlPipelineDepth,
+                  static_cast<std::uint32_t>(depth[0] - '0'));
+    }
+
+    const char* unsupported[] = {"cpnetflux-tree-upload-client", "--source-dir",
+                                 rootText.c_str(), "--dest-dir", "remote",
+                                 "--control-reuse", "worker", "--scheduler", "off",
+                                 "--control-pipeline-depth", "3"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+                     static_cast<int>(std::size(unsupported)), unsupported,
+                     cpnetflux::config::TreeTransferRole::Upload)
+                     .isOk());
     std::filesystem::remove_all(root);
 }
 
