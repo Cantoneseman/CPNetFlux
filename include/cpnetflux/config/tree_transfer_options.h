@@ -51,7 +51,7 @@ struct TreeTransferOptions {
     checksum::ChecksumBackend checksumBackend = checksum::ChecksumBackend::Auto;
     bool resume = false;
     bool reuseDataSession = false;
-    std::uint32_t dataPendingWindow = 1;
+    std::uint32_t dataPendingWindow = 2;
     std::uint64_t maxFiles = 0;
     std::string authMode = "anonymous";
     std::string authTokenFile;

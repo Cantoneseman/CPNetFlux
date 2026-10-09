@@ -476,3 +476,16 @@ TEST(TreeTransferOptionsTest, RejectsPersistentDataCombinedWithControlPipeline) 
     ASSERT_FALSE(result.isOk());
     EXPECT_NE(result.status().message().find("cannot combine"), std::string::npos);
 }
+TEST(TreeTransferOptionsTest, DefaultsPersistentDataPendingWindowToTwo) {
+    const auto root = std::filesystem::temp_directory_path() / "cpnetflux-tree-options-default-window-root";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    const char* args[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                          "--dest-dir", "remote", "--data-session-reuse", "tree"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(args)), args, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().dataPendingWindow, 2U);
+    std::filesystem::remove_all(root);
+}
