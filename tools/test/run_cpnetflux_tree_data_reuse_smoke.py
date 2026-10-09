@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
+import re
 import socket
 import struct
-import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from tree_smoke_common import free_port, make_tree, tree_hash, wait_for_control, stop_server
@@ -48,6 +50,36 @@ def main():
                 assert control.readline().startswith(b'220')
                 control.write(b'XCPNETFLUX V2\r\n')
                 assert control.readline().startswith(b'530'), 'negotiation requires authentication'
+                control.close()
+
+            def socket_fd_count(pid):
+                descriptor_dir = Path(f'/proc/{pid}/fd')
+                return sum(
+                    os.readlink(descriptor).startswith('socket:[')
+                    for descriptor in descriptor_dir.iterdir()
+                )
+
+            baseline_sockets = socket_fd_count(server.pid)
+            with socket.create_connection(('127.0.0.1', port), timeout=3) as sock:
+                control = sock.makefile('rwb', buffering=0)
+                assert control.readline().startswith(b'220')
+                for command, prefix in (('USER cpnetflux', b'331'), ('PASS cpnetflux', b'230'),
+                                        ('TYPE I', b'200'), ('OPTS PARALLELISM=1', b'200'),
+                                        ('XCPNETFLUX V2 WINDOW=2 CHANNELS=4', b'200')):
+                    control.write(command.encode() + b'\r\n')
+                    assert control.readline().startswith(prefix), command
+                control.write(b'EPSV\r\n')
+                passive_reply = control.readline()
+                assert passive_reply.startswith(b'229')
+                passive_port = int(re.search(rb'\(\|\|\|(\d+)\|\)', passive_reply)[1])
+                assert 1 <= passive_port <= 65535
+                control.write(b'XDIRP PUT 0 4 0 cancelled\r\n')
+                assert control.readline().startswith(b'150')
+                control.close()
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and socket_fd_count(server.pid) > baseline_sockets:
+                time.sleep(0.02)
+            assert socket_fd_count(server.pid) <= baseline_sockets, 'cancelled channel leaked server sockets'
 
             def run(direction, src, dst, name, extra=(), success=True):
                 summary = root / f'{name}.json'
@@ -76,6 +108,56 @@ def main():
                     assert 'state=committed\n' in manifest.read_text(), manifest
             check_manifests(server_root / 'uploaded', '.cpnetflux.manifest')
             check_manifests(downloaded, '.cpnetflux.download.manifest')
+            dense_source = root / 'dense-128'
+            dense_source.mkdir()
+            for index in range(128):
+                (dense_source / f'file-{index:03}.bin').write_bytes(bytes([index]) * (1024 * 1024))
+            dense_expected = tree_hash(dense_source)
+            dense_parallel_upload = run('upload', dense_source, 'dense-parallel', 'dense-upload-parallel',
+                               ['--file-parallelism', '4'])
+            assert dense_parallel_upload['data_session_reuse_mode'] == 'tree'
+            assert dense_parallel_upload['data_connect_count'] == 4
+            assert dense_parallel_upload['control_connect_count'] == 4
+            assert dense_parallel_upload['control_prepare_seconds'] >= 0
+            assert dense_parallel_upload['transfer_complete_wait_seconds'] >= 0
+            assert dense_parallel_upload['data_pending_high_watermark'] <= dense_parallel_upload['data_pending_window']
+            assert dense_parallel_upload['completed_files'] == 128
+            assert tree_hash(server_root / 'dense-parallel') == dense_expected
+            dense_parallel_download_root = root / 'dense-downloaded-parallel'
+            dense_parallel_download = run('download', 'dense-parallel', dense_parallel_download_root,
+                                 'dense-download-parallel', ['--file-parallelism', '4'])
+            assert dense_parallel_download['data_session_reuse_mode'] == 'tree'
+            assert dense_parallel_download['data_connect_count'] == 4
+            assert dense_parallel_download['control_connect_count'] == 4
+            assert dense_parallel_download['control_prepare_seconds'] >= 0
+            assert dense_parallel_download['transfer_complete_wait_seconds'] >= 0
+            assert dense_parallel_download['data_pending_high_watermark'] <= dense_parallel_download['data_pending_window']
+            assert dense_parallel_download['completed_files'] == 128
+            assert tree_hash(dense_parallel_download_root) == dense_expected
+            parallel_upload = run('upload', source, 'uploaded-parallel', 'upload-parallel',
+                                  ['--file-parallelism', '4'])
+            assert parallel_upload['data_session_reuse_mode'] == 'tree'
+            assert parallel_upload['data_connect_count'] == 4
+            assert parallel_upload['control_connect_count'] == 4
+            assert parallel_upload['completed_files'] == expected[1]
+            assert tree_hash(server_root / 'uploaded-parallel') == expected
+            parallel_download_root = root / 'downloaded-parallel'
+            parallel_download = run('download', 'uploaded-parallel', parallel_download_root,
+                                    'download-parallel', ['--file-parallelism', '4'])
+            assert parallel_download['data_session_reuse_mode'] == 'tree'
+            assert parallel_download['data_connect_count'] == 4
+            assert parallel_download['control_connect_count'] == 4
+            assert parallel_download['completed_files'] == expected[1]
+            assert tree_hash(parallel_download_root) == expected
+
+            parallel_collision = server_root / 'collision-parallel'
+            parallel_collision.mkdir()
+            (parallel_collision / 'alpha.txt').write_bytes(b'keep-existing')
+            parallel_failed = run('upload', source, 'collision-parallel', 'collision-parallel',
+                                  ['--file-parallelism', '4'], success=False)
+            assert parallel_failed['failed_files'] >= 1
+            assert parallel_failed['data_connect_count'] == 4
+            assert (parallel_collision / 'alpha.txt').read_bytes() == b'keep-existing'
             baseline = run('upload', source, 'baseline', 'baseline', ['--data-session-reuse', 'off'])
             assert baseline['data_session_reuse_mode'] == 'off'
             assert tree_hash(server_root / 'baseline') == expected
@@ -165,6 +247,16 @@ def main():
             print(json.dumps({'upload': upload, 'download': download, 'resume': resumed,
                               'collision': failed, 'dense_upload': dense_upload,
                               'dense_download': dense_download}, sort_keys=True))
+            measured = ('file_count', 'completed_files', 'data_connect_count',
+                        'control_connect_count', 'elapsed_seconds', 'throughput_gbps', 'tree_hash')
+            print(json.dumps({
+                'parallel_128x1MiB_upload': {key: dense_parallel_upload[key] for key in measured},
+                'parallel_128x1MiB_download': {key: dense_parallel_download[key] for key in measured},
+                'parallel_small_upload': {key: parallel_upload[key] for key in measured},
+                'parallel_small_download': {key: parallel_download[key] for key in measured},
+                'parallel_collision': {key: parallel_failed.get(key) for key in
+                                       ('result', 'failed_files', 'data_connect_count')},
+            }, sort_keys=True))
         finally:
             stop_server(server, log)
 

@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 
+#include "cpnetflux/core/io/persistent_tree_transfer.h"
 #include "cpnetflux/core/metrics/event_log.h"
 #include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/protocol/control/control_auth.h"
@@ -443,6 +444,11 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     if (options.schedulerWorkItemMinBytes > options.schedulerWorkItemMaxBytes) {
         return common::Status::invalidArgument(
             "--scheduler-workitem-min-bytes must be <= --scheduler-workitem-max-bytes");
+    }
+    if (options.reuseDataSession &&
+        options.fileParallelism > core::io::kPersistentTreeMaxChannels) {
+        return common::Status::invalidArgument(
+            "persistent tree channels are limited to 8");
     }
     if (options.controlPipelineDepth != 0) {
         if (options.reuseDataSession) {

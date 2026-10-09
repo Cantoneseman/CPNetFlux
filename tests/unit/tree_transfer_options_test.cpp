@@ -203,6 +203,29 @@ TEST(TreeTransferOptionsTest, ParsesBoundedDataPendingWindow) {
                      .isOk());
     std::filesystem::remove_all(root);
 }
+TEST(TreeTransferOptionsTest, BoundsPersistentChannelCount) {
+    const auto root = std::filesystem::temp_directory_path() / "cpnetflux-tree-options-channels";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    for (const char* count : {"1", "4", "8"}) {
+        const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                              "--dest-dir", "remote", "--data-session-reuse", "tree",
+                              "--file-parallelism", count};
+        auto parsed = cpnetflux::config::parseTreeTransferOptions(
+            static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+        ASSERT_TRUE(parsed.isOk()) << count << ": " << parsed.status().message();
+        EXPECT_EQ(parsed.value().fileParallelism, static_cast<std::uint32_t>(count[0] - '0'));
+    }
+    const char* tooMany[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                             "--dest-dir", "remote", "--data-session-reuse", "tree",
+                             "--file-parallelism", "9"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(tooMany)), tooMany,
+        cpnetflux::config::TreeTransferRole::Upload).isOk());
+    std::filesystem::remove_all(root);
+}
+
 TEST(TreeTransferOptionsTest, ParsesControlPipelineDepthAndRejectsInvalidCombinations) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-pipeline-root";

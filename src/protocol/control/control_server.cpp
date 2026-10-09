@@ -23,6 +23,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -864,8 +865,12 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
 
 common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlSession* session,
     PassiveListener* passive, const ControlServerOptions& options, bool upload,
-    const std::string& requested, std::uint32_t pendingWindow = 1) {
+    const std::string& requested, std::uint32_t pendingWindow, std::uint32_t channelIndex,
+    std::uint32_t channelCount, std::uint32_t requestedTotalFiles) {
     namespace fs = std::filesystem;
+    if (channelCount == 0 || channelCount > core::io::kPersistentTreeMaxChannels ||
+        channelIndex >= channelCount)
+        return sendLine(control, formatReply(504, "Invalid persistent channel assignment"));
     auto root = resolveControlPath(options.root, "/", "", ControlPathKind::ExistingDirectory, "XDIR");
     auto logical = resolveVirtualPath(session->workingDirectory(), requested, false);
     if (!root.isOk() || !logical.isOk() || requested.find(char(0)) != std::string::npos) {
@@ -889,23 +894,43 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     if (!passive->fd.isValid() || !session->passiveReady())
         return sendLine(control, formatReply(425, "Use EPSV before XDIR"));
     std::vector<core::io::PersistentFileIdentity> files;
+    std::uint32_t totalFiles = requestedTotalFiles;
     if (!upload) {
         auto scanned = core::io::scanPersistentTree(destination.string());
         if (!scanned.isOk()) return sendLine(control, formatReply(550, scanned.status().message()));
         if (scanned.value().size() > UINT32_MAX)
             return sendLine(control, formatReply(550, "Too many files for XDIR"));
+        totalFiles = static_cast<std::uint32_t>(scanned.value().size());
         for (const auto& file : scanned.value()) {
             const auto id = static_cast<std::uint32_t>(files.size() + 1);
             files.push_back({id, id, file.size, file.relativePath, generateTransferId(),
                              options.chunkSize, file.mtimeUnixSeconds});
         }
+        files.erase(std::remove_if(files.begin(), files.end(), [&](const auto& file) {
+            return !core::io::persistentFileAssignedToChannel(file.fileId, channelIndex, channelCount);
+        }), files.end());
     }
-    auto status = sendLine(control, formatReply(150, "CPNetFlux persistent directory ready"));
+    std::uint32_t expectedChannelFiles = core::io::kUnknownPersistentFileCount;
+    if (totalFiles != core::io::kUnknownPersistentFileCount) {
+        expectedChannelFiles = channelIndex >= totalFiles ? 0U :
+            1U + (totalFiles - 1U - channelIndex) / channelCount;
+    }
+    std::string readyMessage = "CPNetFlux persistent directory ready";
+    if (expectedChannelFiles != core::io::kUnknownPersistentFileCount) {
+        readyMessage += " total_files=" + std::to_string(totalFiles) +
+            " channel_files=" + std::to_string(expectedChannelFiles);
+    }
+    auto status = sendLine(control, formatReply(150, readyMessage));
     if (!status.isOk()) return status;
-    pollfd descriptor{passive->fd.get(), POLLIN, 0};
+    pollfd descriptors[2]{{passive->fd.get(), POLLIN, 0}, {control->fd(), POLLIN, 0}};
     int ready;
-    do { ready = ::poll(&descriptor, 1, 30000); } while (ready < 0 && errno == EINTR);
-    if (ready <= 0 || !(descriptor.revents & POLLIN)) {
+    do { ready = ::poll(descriptors, 2, 30000); } while (ready < 0 && errno == EINTR);
+    if (ready > 0 && (descriptors[1].revents & (POLLHUP | POLLERR | POLLNVAL))) {
+        passive->fd.reset();
+        session->clearPassiveReady();
+        return common::Status::runtimeError("persistent channel cancelled before data accept");
+    }
+    if (ready <= 0 || !(descriptors[0].revents & POLLIN)) {
         passive->fd.reset();
         session->clearPassiveReady();
         return sendLine(control, formatReply(425, "Persistent data accept timed out"));
@@ -914,8 +939,10 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     passive->fd.reset();
     session->clearPassiveReady();
     core::io::PersistentTreeStats stats;
-    status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats)
-                    : core::io::sendPersistentTree(&data, destination.string(), files, &stats, {}, pendingWindow);
+    status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats, {},
+                     pendingWindow, channelIndex, channelCount, expectedChannelFiles)
+                    : core::io::sendPersistentTree(&data, destination.string(), files, &stats, {},
+                     pendingWindow, channelIndex, channelCount);
     return sendLine(control, formatReply(status.isOk() ? 226 : 550,
         status.isOk() ? "Persistent directory complete" : status.message()));
 }
@@ -946,6 +973,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     std::string inputBuffer;
     bool persistentNegotiated = false;
     std::uint32_t persistentWindow = 1;
+    std::uint32_t persistentChannels = 1;
     AsyncTransferRegistry asyncTransfers(logger, control.fd());
 
     if (!sendLine(&control, formatReply(220, "CPNetFlux GridFTP control ready")).isOk()) {
@@ -960,7 +988,11 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             return;
         }
 
-        if (line.value() == "XCPNETFLUX V2" || line.value().starts_with("XCPNETFLUX V2 WINDOW=") || line.value().starts_with("XDIR ")) {
+        const bool persistentNegotiation = line.value() == "XCPNETFLUX V2" ||
+            line.value().starts_with("XCPNETFLUX V2 WINDOW=");
+        const bool persistentTreeCommand = line.value().starts_with("XDIR ") ||
+            line.value().starts_with("XDIRP ");
+        if (persistentNegotiation || persistentTreeCommand) {
             if (session.pipelineOptIn() || asyncTransfers.activeCount() > 0) {
                 (void)sendLine(&control, formatReply(503, "V2 cannot share an async control session"));
                 continue;
@@ -969,17 +1001,41 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 (void)sendLine(&control, formatReply(530, "Authenticate before persistent directory commands"));
                 continue;
             }
-            if (line.value() == "XCPNETFLUX V2" || line.value().starts_with("XCPNETFLUX V2 WINDOW=")) {
+            if (persistentNegotiation) {
                 std::uint32_t requestedWindow = 1;
+                std::uint32_t requestedChannels = 1;
                 if (line.value().starts_with("XCPNETFLUX V2 WINDOW=")) {
                     const auto text = line.value().substr(std::string("XCPNETFLUX V2 WINDOW=").size());
-                    unsigned long parsed = 0;
-                    const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed);
-                    if (result.ec != std::errc() || result.ptr != text.data() + text.size() || parsed == 0 || parsed > 16) {
-                        (void)sendLine(&control, formatReply(504, "Invalid persistent pending window"));
+                    const auto separator = text.find(' ');
+                    const auto windowText = text.substr(0, separator);
+                    unsigned long parsedWindow = 0;
+                    const auto windowResult = std::from_chars(
+                        windowText.data(), windowText.data() + windowText.size(), parsedWindow);
+                    bool valid = windowResult.ec == std::errc() &&
+                        windowResult.ptr == windowText.data() + windowText.size() &&
+                        parsedWindow > 0 && parsedWindow <= 16;
+                    if (valid && separator != std::string::npos) {
+                        const auto channelText = text.substr(separator + 1);
+                        constexpr std::string_view prefix = "CHANNELS=";
+                        if (!channelText.starts_with(prefix)) {
+                            valid = false;
+                        } else {
+                            const auto value = channelText.substr(prefix.size());
+                            unsigned long parsedChannels = 0;
+                            const auto channelResult = std::from_chars(
+                                value.data(), value.data() + value.size(), parsedChannels);
+                            valid = channelResult.ec == std::errc() &&
+                                channelResult.ptr == value.data() + value.size() &&
+                                parsedChannels > 1 &&
+                                parsedChannels <= core::io::kPersistentTreeMaxChannels;
+                            if (valid) requestedChannels = static_cast<std::uint32_t>(parsedChannels);
+                        }
+                    }
+                    if (!valid) {
+                        (void)sendLine(&control, formatReply(504, "Invalid persistent window/channel request"));
                         continue;
                     }
-                    requestedWindow = static_cast<std::uint32_t>(parsed);
+                    requestedWindow = static_cast<std::uint32_t>(parsedWindow);
                 }
                 persistentNegotiated = options.checksumAlgorithm == checksum::ChecksumAlgorithm::None &&
                     options.dataTlsMode == core::io::DataTlsMode::Off &&
@@ -988,18 +1044,53 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     options.preallocateMode == storage::PreallocateMode::Off &&
                     options.manifestFlushPolicy == core::session::ManifestFlushPolicy::EveryNChunks &&
                     options.manifestFlushIntervalChunks == core::session::kDefaultManifestFlushIntervalChunks;
+                if (persistentNegotiated) {
+                    persistentWindow = requestedWindow;
+                    persistentChannels = requestedChannels;
+                }
+                const std::string accepted = "CPNetFlux V2 file-transactions/1 window=" +
+                    std::to_string(requestedWindow) + " channels=" + std::to_string(requestedChannels);
                 (void)sendLine(&control, formatReply(persistentNegotiated ? 200 : 504,
-                    persistentNegotiated ? ("CPNetFlux V2 file-transactions/1 window=" + std::to_string(requestedWindow)) : "Unsupported V2 configuration"));
-                if (persistentNegotiated) persistentWindow = requestedWindow;
+                    persistentNegotiated ? accepted : "Unsupported V2 configuration"));
+                continue;
+            }
+
+            const bool multi = line.value().starts_with("XDIRP PUT ") ||
+                line.value().starts_with("XDIRP GET ");
+            const bool upload = line.value().starts_with("XDIR PUT ") ||
+                line.value().starts_with("XDIRP PUT ");
+            std::string requested;
+            std::uint32_t channelIndex = 0, channelCount = 1;
+            std::uint32_t totalFiles = core::io::kUnknownPersistentFileCount;
+            if (multi) {
+                std::istringstream request(line.value().substr(10));
+                if (!(request >> channelIndex >> channelCount >> totalFiles)) {
+                    (void)sendLine(&control, formatReply(504, "Malformed persistent shard request"));
+                    continue;
+                }
+                request >> std::ws;
+                std::getline(request, requested);
+                if (!upload && totalFiles != 0) {
+                    (void)sendLine(&control, formatReply(504, "Download shard request must use total_files=0"));
+                    continue;
+                }
+            } else if (line.value().starts_with("XDIR PUT ") || line.value().starts_with("XDIR GET ")) {
+                requested = line.value().substr(9);
+            } else {
+                (void)sendLine(&control, formatReply(504, "Unknown persistent directory command"));
                 continue;
             }
             if (!persistentNegotiated || session.connections() != 1 ||
-                (!line.value().starts_with("XDIR PUT ") && !line.value().starts_with("XDIR GET "))) {
-                (void)sendLine(&control, formatReply(504, "Negotiate V2 with one connection before XDIR"));
+                (multi ? (persistentChannels <= 1 || channelCount != persistentChannels) :
+                         persistentChannels != 1) ||
+                channelCount == 0 || channelCount > core::io::kPersistentTreeMaxChannels ||
+                channelIndex >= channelCount ||
+                (upload && multi && totalFiles == core::io::kUnknownPersistentFileCount)) {
+                (void)sendLine(&control, formatReply(504, "Persistent channel request does not match negotiation"));
                 continue;
             }
             auto status = runPersistentDirectory(&control, &session, &passive, options,
-                line.value().starts_with("XDIR PUT "), line.value().substr(9), persistentWindow);
+                upload, requested, persistentWindow, channelIndex, channelCount, totalFiles);
             if (!status.isOk()) return;
             continue;
         }

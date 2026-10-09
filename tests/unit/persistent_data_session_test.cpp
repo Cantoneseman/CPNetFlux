@@ -223,3 +223,33 @@ TEST(PersistentSessionTest, ReceiverDrainsFailedMiddleFileAndCommitsNext) {
     std::ifstream(root.path / "c") >> content;
     EXPECT_EQ(content, "3");
 }
+
+TEST(PersistentSessionTest, StableFileIdsMapToExactlyOneBoundedChannel) {
+    for (const std::uint32_t channelCount : {1U, 2U, 4U, 8U}) {
+        for (std::uint32_t fileId = 1; fileId <= 128; ++fileId) {
+            std::uint32_t matches = 0;
+            for (std::uint32_t channel = 0; channel < channelCount; ++channel)
+                matches += persistentFileAssignedToChannel(fileId, channel, channelCount) ? 1U : 0U;
+            EXPECT_EQ(matches, 1U) << "fileId=" << fileId << " channels=" << channelCount;
+        }
+    }
+    EXPECT_FALSE(persistentFileAssignedToChannel(0, 0, 4));
+    EXPECT_FALSE(persistentFileAssignedToChannel(1, 4, 4));
+    EXPECT_FALSE(persistentFileAssignedToChannel(1, 0, 0));
+}
+
+TEST(PersistentSessionTest, ReceiverRejectsFileAssignedToAnotherChannel) {
+    SocketPair pair;
+    TempRoot root;
+    PersistentTreeStats stats;
+    cpnetflux::common::Status result;
+    std::jthread receiver([&] {
+        result = receivePersistentTree(&pair.receiver, root.path.string(), false, "", &stats,
+                                       {}, 1, 1, 2);
+    });
+    const PersistentFileIdentity wrongChannel{1, 1, 0, "wrong-channel", "generation"};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, wrongChannel).isOk());
+    receiver.join();
+    EXPECT_FALSE(result.isOk());
+    EXPECT_FALSE(std::filesystem::exists(root.path / "wrong-channel"));
+}

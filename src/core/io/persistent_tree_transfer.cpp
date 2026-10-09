@@ -166,11 +166,15 @@ common::Result<std::vector<tree::TreeFileInfo>> scanPersistentTree(const std::st
 
 common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& root,
     const std::vector<PersistentFileIdentity>& files, PersistentTreeStats* stats,
-    const PersistentFileCallback& callback, std::uint32_t pendingWindow) {
+    const PersistentFileCallback& callback, std::uint32_t pendingWindow,
+    std::uint32_t channelIndex, std::uint32_t channelCount) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
         return Status::invalidArgument("persistent pending window must be in range 1..16");
+    if (channelCount == 0 || channelCount > kPersistentTreeMaxChannels ||
+        channelIndex >= channelCount)
+        return Status::invalidArgument("persistent channel index/count is invalid");
     stats->pendingWindow = pendingWindow;
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
@@ -253,6 +257,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (socket->valid()) (void)::shutdown(socket->fd(), SHUT_RDWR);
     };
     for (const auto& id : files) {
+        if (!persistentFileAssignedToChannel(id.fileId, channelIndex, channelCount)) {
+            failWriter(Status::invalidArgument("persistent file assigned to wrong channel"));
+            break;
+        }
         {
             std::unique_lock<std::mutex> lock(mutex);
             changed.wait(lock, [&] { return abort || pending.size() < pendingWindow; });
@@ -327,10 +335,16 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
 
 common::Status receivePersistentTree(FramedDataSocket* socket, const std::string& root,
     bool download, const std::string& remoteRoot, PersistentTreeStats* stats,
-    const PersistentFileCallback& callback, std::uint32_t pendingWindow) {
+    const PersistentFileCallback& callback, std::uint32_t pendingWindow,
+    std::uint32_t channelIndex, std::uint32_t channelCount,
+    std::uint32_t expectedFileCount) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
+    if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
         return Status::invalidArgument("persistent pending window must be in range 1..16");
+    if (channelCount == 0 || channelCount > kPersistentTreeMaxChannels ||
+        channelIndex >= channelCount)
+        return Status::invalidArgument("persistent channel index/count is invalid");
     stats->pendingWindow = pendingWindow; // Receiver stays serial; report negotiated sender credit.
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
@@ -343,11 +357,16 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (frame.value().header.type == FrameType::DirectoryEnd) {
             if (frame.value().header.totalSize != stats->files)
                 return Status::invalidArgument("persistent directory file count mismatch");
+            if (expectedFileCount != kUnknownPersistentFileCount &&
+                expectedFileCount != stats->files)
+                return Status::invalidArgument("persistent channel file count mismatch");
             return overall;
         }
         auto decoded = PersistentDataSession::decodeBegin(frame.value());
         if (!decoded.isOk()) return decoded.status();
         const auto id = decoded.value();
+        if (!persistentFileAssignedToChannel(id.fileId, channelIndex, channelCount))
+            return Status::invalidArgument("persistent file arrived on wrong channel");
         status = state.begin(frame.value().header, id.relativePath);
         if (!status.isOk()) return status;
         status = notify(callback, id, Status::ok(), false);
