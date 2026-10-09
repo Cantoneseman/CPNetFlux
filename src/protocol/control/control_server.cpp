@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -863,7 +864,7 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
 
 common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlSession* session,
     PassiveListener* passive, const ControlServerOptions& options, bool upload,
-    const std::string& requested) {
+    const std::string& requested, std::uint32_t pendingWindow = 1) {
     namespace fs = std::filesystem;
     auto root = resolveControlPath(options.root, "/", "", ControlPathKind::ExistingDirectory, "XDIR");
     auto logical = resolveVirtualPath(session->workingDirectory(), requested, false);
@@ -914,7 +915,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     session->clearPassiveReady();
     core::io::PersistentTreeStats stats;
     status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats)
-                    : core::io::sendPersistentTree(&data, destination.string(), files, &stats);
+                    : core::io::sendPersistentTree(&data, destination.string(), files, &stats, {}, pendingWindow);
     return sendLine(control, formatReply(status.isOk() ? 226 : 550,
         status.isOk() ? "Persistent directory complete" : status.message()));
 }
@@ -944,6 +945,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     PassiveListener passive;
     std::string inputBuffer;
     bool persistentNegotiated = false;
+    std::uint32_t persistentWindow = 1;
     AsyncTransferRegistry asyncTransfers(logger, control.fd());
 
     if (!sendLine(&control, formatReply(220, "CPNetFlux GridFTP control ready")).isOk()) {
@@ -958,7 +960,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             return;
         }
 
-        if (line.value() == "XCPNETFLUX V2" || line.value().starts_with("XDIR ")) {
+        if (line.value() == "XCPNETFLUX V2" || line.value().starts_with("XCPNETFLUX V2 WINDOW=") || line.value().starts_with("XDIR ")) {
             if (session.pipelineOptIn() || asyncTransfers.activeCount() > 0) {
                 (void)sendLine(&control, formatReply(503, "V2 cannot share an async control session"));
                 continue;
@@ -967,7 +969,18 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 (void)sendLine(&control, formatReply(530, "Authenticate before persistent directory commands"));
                 continue;
             }
-            if (line.value() == "XCPNETFLUX V2") {
+            if (line.value() == "XCPNETFLUX V2" || line.value().starts_with("XCPNETFLUX V2 WINDOW=")) {
+                std::uint32_t requestedWindow = 1;
+                if (line.value().starts_with("XCPNETFLUX V2 WINDOW=")) {
+                    const auto text = line.value().substr(std::string("XCPNETFLUX V2 WINDOW=").size());
+                    unsigned long parsed = 0;
+                    const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed);
+                    if (result.ec != std::errc() || result.ptr != text.data() + text.size() || parsed == 0 || parsed > 16) {
+                        (void)sendLine(&control, formatReply(504, "Invalid persistent pending window"));
+                        continue;
+                    }
+                    requestedWindow = static_cast<std::uint32_t>(parsed);
+                }
                 persistentNegotiated = options.checksumAlgorithm == checksum::ChecksumAlgorithm::None &&
                     options.dataTlsMode == core::io::DataTlsMode::Off &&
                     options.fileIo.backend == storage::FileIoBackendKind::Posix &&
@@ -976,7 +989,8 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     options.manifestFlushPolicy == core::session::ManifestFlushPolicy::EveryNChunks &&
                     options.manifestFlushIntervalChunks == core::session::kDefaultManifestFlushIntervalChunks;
                 (void)sendLine(&control, formatReply(persistentNegotiated ? 200 : 504,
-                    persistentNegotiated ? "CPNetFlux V2 file-transactions/1" : "Unsupported V2 configuration"));
+                    persistentNegotiated ? ("CPNetFlux V2 file-transactions/1 window=" + std::to_string(requestedWindow)) : "Unsupported V2 configuration"));
+                if (persistentNegotiated) persistentWindow = requestedWindow;
                 continue;
             }
             if (!persistentNegotiated || session.connections() != 1 ||
@@ -985,7 +999,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 continue;
             }
             auto status = runPersistentDirectory(&control, &session, &passive, options,
-                line.value().starts_with("XDIR PUT "), line.value().substr(9));
+                line.value().starts_with("XDIR PUT "), line.value().substr(9), persistentWindow);
             if (!status.isOk()) return;
             continue;
         }

@@ -3,11 +3,16 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/socket.h>
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <variant>
 #include <unordered_set>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include "cpnetflux/checkpoint/manifest_store.h"
 #include "cpnetflux/core/session/transfer_session.h"
 #include "cpnetflux/core/session/download_session.h"
@@ -161,67 +166,172 @@ common::Result<std::vector<tree::TreeFileInfo>> scanPersistentTree(const std::st
 
 common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& root,
     const std::vector<PersistentFileIdentity>& files, PersistentTreeStats* stats,
-    const PersistentFileCallback& callback) {
+    const PersistentFileCallback& callback, std::uint32_t pendingWindow) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
+    if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
+    if (pendingWindow == 0 || pendingWindow > 16)
+        return Status::invalidArgument("persistent pending window must be in range 1..16");
+    stats->pendingWindow = pendingWindow;
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
     std::vector<std::uint8_t> buffer(PersistentDataSession::kMaxPayload);
+    struct PendingFile { PersistentFileIdentity id; };
+    std::mutex mutex;
+    std::condition_variable changed;
+    std::deque<PendingFile> pending;
+    std::mutex callbackMutex;
+    Status readerStatus = Status::ok();
     Status overall = Status::ok();
+    std::uint64_t writerWireBytes = 0;
+    std::uint64_t readerWireBytes = 0;
+    bool writerDone = false;
+    bool abort = false;
+    auto requestAbort = [&](const Status& failure) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (readerStatus.isOk()) readerStatus = failure;
+        abort = true;
+        changed.notify_all();
+        if (socket->valid()) (void)::shutdown(socket->fd(), SHUT_RDWR);
+    };
+    auto notifySafe = [&](const PersistentFileIdentity& id, const Status& fileStatus, bool complete) {
+        if (!callback) return Status::ok();
+        std::lock_guard<std::mutex> lock(callbackMutex);
+        return callback(id, fileStatus, complete);
+    };
+    auto addWire = [&](std::uint64_t bytes) { writerWireBytes += bytes; };
+    std::thread resultReader([&]() {
+        for (;;) {
+            PersistentFileIdentity expected;
+            {
+                std::unique_lock<std::mutex> lock(mutex);
+                changed.wait(lock, [&] { return abort || !pending.empty() || writerDone; });
+                if (abort) return;
+                if (pending.empty() && writerDone) return;
+                expected = pending.front().id;
+            }
+            const auto started = std::chrono::steady_clock::now();
+            auto result = PersistentDataSession::readResult(socket, expected);
+            const double waitSeconds = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - started).count();
+            if (!result.isOk()) {
+                requestAbort(result.status());
+                return;
+            }
+            const auto fileStatus = result.value() == FrameStatusCode::Ok ? Status::ok() :
+                Status::runtimeError("persistent receiver rejected file: " + expected.relativePath);
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (pending.empty() || pending.front().id.fileId != expected.fileId ||
+                    pending.front().id.generation != expected.generation ||
+                    pending.front().id.totalSize != expected.totalSize) {
+                    if (readerStatus.isOk()) readerStatus = Status::invalidArgument(
+                        "persistent FILE_RESULT queue identity mismatch");
+                    abort = true;
+                    changed.notify_all();
+                    return;
+                }
+                pending.pop_front();
+                stats->completeWaitSeconds += waitSeconds;
+                readerWireBytes += 2 * protocol::kFrameHeaderSize;
+                ++stats->files;
+                if (fileStatus.isOk()) stats->bytes += expected.totalSize;
+                if (stats->pendingHighWatermark > pending.size()) {
+                    // Keep the peak unchanged; this branch documents that the queue is bounded.
+                }
+                if (!fileStatus.isOk() && overall.isOk()) overall = fileStatus;
+            }
+            changed.notify_all();
+            const auto callbackStatus = notifySafe(expected, fileStatus, true);
+            if (!callbackStatus.isOk()) {
+                requestAbort(callbackStatus);
+                return;
+            }
+        }
+    });
+    auto failWriter = [&](const Status& failure) {
+        requestAbort(failure);
+        if (socket->valid()) (void)::shutdown(socket->fd(), SHUT_RDWR);
+    };
     for (const auto& id : files) {
+        {
+            std::unique_lock<std::mutex> lock(mutex);
+            changed.wait(lock, [&] { return abort || pending.size() < pendingWindow; });
+            if (abort) break;
+        }
         status = tree::validateTreeRelativePath(id.relativePath);
-        if (!status.isOk()) return status;
+        if (!status.isOk()) { failWriter(status); break; }
         UniqueFd fd(::open((fs::path(root) / id.relativePath).c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
-        if (!fd.isValid()) return Status::runtimeError("open persistent source failed");
+        if (!fd.isValid()) { failWriter(Status::runtimeError("open persistent source failed")); break; }
         struct stat before{};
-        if (::fstat(fd.get(), &before) != 0 || !sourceMatches(before, id))
-            return Status::runtimeError("persistent source changed before transfer");
+        if (::fstat(fd.get(), &before) != 0 || !sourceMatches(before, id)) {
+            failWriter(Status::runtimeError("persistent source changed before transfer")); break;
+        }
         storage::PosixFile file(std::move(fd));
-        status = notify(callback, id, Status::ok(), false);
-        if (!status.isOk()) return status;
+        status = notifySafe(id, Status::ok(), false);
+        if (!status.isOk()) { failWriter(status); break; }
         status = PersistentDataSession::writeBegin(socket, id);
-        if (!status.isOk()) return status;
+        if (!status.isOk()) { failWriter(status); break; }
         const auto metadata = protocol::encodeSessionInitPayload({protocol::SessionMode::New,
             id.transferId, id.totalSize, id.chunkSize, checksum::ChecksumAlgorithm::None, id.relativePath});
-        if (!metadata.isOk()) return metadata.status();
-        stats->wireBytes += protocol::kFrameHeaderSize + metadata.value().size() + 8;
+        if (!metadata.isOk()) { failWriter(metadata.status()); break; }
+        addWire(protocol::kFrameHeaderSize + metadata.value().size() + 8);
+        bool writeFailed = false;
         for (std::uint64_t offset = 0; offset < id.totalSize;) {
             const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), id.totalSize - offset));
             status = file.readAtAll(offset, buffer.data(), length);
-            if (!status.isOk()) return status;
+            if (!status.isOk()) { writeFailed = true; break; }
             status = PersistentDataSession::writeData(socket, id, offset, buffer.data(), length);
-            if (!status.isOk()) return status;
+            if (!status.isOk()) { writeFailed = true; break; }
             offset += length;
-            stats->wireBytes += protocol::kFrameHeaderSize + length;
+            addWire(protocol::kFrameHeaderSize + length);
         }
         struct stat after{};
-        if (::fstat(file.fd(), &after) != 0 || !sourceMatches(after, id) ||
-            before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
-            before.st_ctim.tv_sec != after.st_ctim.tv_sec || before.st_ctim.tv_nsec != after.st_ctim.tv_nsec)
-            return Status::runtimeError("persistent source changed during transfer");
-        status = PersistentDataSession::writeEnd(socket, id);
-        if (!status.isOk()) return status;
-        const auto started = std::chrono::steady_clock::now();
-        auto result = PersistentDataSession::readResult(socket, id);
-        stats->completeWaitSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
-        if (!result.isOk()) return result.status();
-        stats->wireBytes += 2 * protocol::kFrameHeaderSize;
-        ++stats->files;
-        auto fileStatus = result.value() == FrameStatusCode::Ok ? Status::ok() :
-            Status::runtimeError("persistent receiver rejected file: " + id.relativePath);
-        if (fileStatus.isOk()) stats->bytes += id.totalSize;
-        else if (overall.isOk()) overall = fileStatus;
-        status = notify(callback, id, fileStatus, true);
-        if (!status.isOk()) return status;
+        if (!writeFailed && (::fstat(file.fd(), &after) != 0 || !sourceMatches(after, id) ||
+            before.st_mtim.tv_nsec != after.st_mtim.tv_nsec || before.st_ctim.tv_sec != after.st_ctim.tv_sec ||
+            before.st_ctim.tv_nsec != after.st_ctim.tv_nsec)) {
+            status = Status::runtimeError("persistent source changed during transfer");
+            writeFailed = true;
+        }
+        if (!writeFailed) status = PersistentDataSession::writeEnd(socket, id);
+        if (writeFailed || !status.isOk()) { failWriter(status.isOk() ? Status::runtimeError("persistent data write failed") : status); break; }
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            pending.push_back({id});
+            stats->pendingHighWatermark = std::max<std::uint32_t>(
+                stats->pendingHighWatermark, static_cast<std::uint32_t>(pending.size()));
+        }
+        changed.notify_all();
     }
-    status = PersistentDataSession::writeDirectoryEnd(socket, stats->files);
-    stats->wireBytes += protocol::kFrameHeaderSize;
-    return status.isOk() ? overall : status;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        writerDone = true;
+        changed.notify_all();
+    }
+    resultReader.join();
+    Status finalStatus;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        finalStatus = readerStatus;
+        if (finalStatus.isOk() && !pending.empty())
+            finalStatus = Status::runtimeError("persistent pending result queue not drained");
+    }
+    if (socket->valid() && finalStatus.isOk()) {
+        status = PersistentDataSession::writeDirectoryEnd(socket, stats->files);
+        addWire(protocol::kFrameHeaderSize);
+        if (!status.isOk()) finalStatus = status;
+    }
+    stats->wireBytes += writerWireBytes + readerWireBytes;
+    if (!finalStatus.isOk()) return finalStatus;
+    return overall;
 }
 
 common::Status receivePersistentTree(FramedDataSocket* socket, const std::string& root,
     bool download, const std::string& remoteRoot, PersistentTreeStats* stats,
-    const PersistentFileCallback& callback) {
+    const PersistentFileCallback& callback, std::uint32_t pendingWindow) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
+    if (pendingWindow == 0 || pendingWindow > 16)
+        return Status::invalidArgument("persistent pending window must be in range 1..16");
+    stats->pendingWindow = pendingWindow; // Receiver stays serial; report negotiated sender credit.
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
     PersistentDataSession state;

@@ -228,6 +228,11 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             if (value != "off" && value != "tree")
                 return common::Status::invalidArgument("--data-session-reuse must be off or tree");
             options.reuseDataSession = value == "tree";
+        } else if (option == "--data-pending-window") {
+            auto parsed = parseUnsigned(value, "--data-pending-window");
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 16)
+                return common::Status::invalidArgument("--data-pending-window must be in range 1..16");
+            options.dataPendingWindow = static_cast<std::uint32_t>(parsed.value());
         } else if (option == "--control-reuse") {
             auto parsed = parseControlReuseMode(value);
             if (!parsed.isOk()) {
@@ -510,7 +515,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            " [--connections <N>] [--file-parallelism <N>] [--chunk-size <bytes>] "
            "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
            "[--checksum-backend <auto|software|hardware>] [--resume] [--max-files <N>] "
-           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--compression off|auto] [--planner-preset <name>] "
+           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--data-pending-window 1..16] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
            "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] [--scheduler off|global] "

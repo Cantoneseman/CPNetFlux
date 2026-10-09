@@ -275,14 +275,20 @@ class ControlClient {
         return match[1].str();
     }
 
-    [[nodiscard]] common::Result<bool> negotiatePersistent() {
+    [[nodiscard]] common::Result<bool> negotiatePersistent(std::uint32_t requestedWindow,
+                                                            std::uint32_t* actualWindow) {
+        if (requestedWindow == 0 || requestedWindow > 16 || actualWindow == nullptr)
+            return common::Status::invalidArgument("invalid persistent pending window");
+        *actualWindow = 1;
         timeval timeout{30, 0};
         if (::setsockopt(control_.fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
             ::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0)
             return common::Status::runtimeError("persistent control timeout configuration failed");
-        auto reply = command("XCPNETFLUX V2");
+        const std::string request = requestedWindow == 1 ? "XCPNETFLUX V2" :
+            "XCPNETFLUX V2 WINDOW=" + std::to_string(requestedWindow);
+        auto reply = command(request);
         if (!reply.isOk()) return reply.status();
-        if (reply.value().code == 200) return true;
+        if (reply.value().code == 200) { *actualWindow = requestedWindow; return true; }
         if (reply.value().code == 500 || reply.value().code == 502 ||
             reply.value().code == 504 || reply.value().code == 550) {
             timeout = {0, 0};
@@ -823,6 +829,8 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> dataTransferCount{0};
     bool persistentData = false;
     std::uint64_t persistentDataConnectCount = 0;
+    std::uint32_t pendingWindow = 1;
+    std::uint32_t pendingHighWatermark = 0;
     double controlPrepareSeconds = 0;
     double completeWaitSeconds = 0;
     std::atomic<std::uint64_t> phaseASecondsNs{0};
@@ -1183,6 +1191,8 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "  \"control_prepare_scope\": \"capability_epsv_directory_ready\",\n";
         output << "  \"transfer_complete_wait_seconds\": " << stats.completeWaitSeconds << ",\n";
         output << "  \"transfer_complete_wait_scope\": \"" << (std::string(direction) == "upload" ? "file_result_plus_control_final" : "control_final_only") << "\",\n";
+        output << "  \"data_pending_window\": " << stats.pendingWindow << ",\n";
+        output << "  \"data_pending_high_watermark\": " << stats.pendingHighWatermark << ",\n";
     }
     output << "  \"wire_bytes_scope\": \"" << (stats.persistentData ? "application_frames_both_directions" : "legacy_payload_accounting") << "\",\n";
     output << "  \"planner_preset\": \"" << jsonEscape(options.plannerPreset) << "\",\n";
@@ -2983,11 +2993,13 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     auto status = connected ? common::Status::ok() : ensureControlReadyWithStats(control, options, stats);
     if (!status.isOk()) return status;
     const auto started = std::chrono::steady_clock::now();
-    auto capability = control->negotiatePersistent();
+    std::uint32_t actualPendingWindow = 1;
+    auto capability = control->negotiatePersistent(options.dataPendingWindow, &actualPendingWindow);
     if (!capability.isOk()) return capability.status();
     if (!capability.value()) return common::Status::ok();
     *used = true;  // No v1 retry after a supported V2 transaction starts.
     stats->persistentData = true;
+    stats->pendingWindow = actualPendingWindow;
     std::vector<PersistentFileIdentity> files;
     if (upload) {
         if (manifest->files.size() > UINT32_MAX)
@@ -3039,11 +3051,13 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         if (!complete) stats->dataTransferCount.fetch_add(1);
         return saveManifest(manifest, manifestPath);
     };
-    status = upload ? sendPersistentTree(&data.value(), options.sourceDir, files, &observed, callback)
-                    : receivePersistentTree(&data.value(), options.destDir, true, options.sourceDir, &observed, callback);
+    status = upload ? sendPersistentTree(&data.value(), options.sourceDir, files, &observed, callback, actualPendingWindow)
+                    : receivePersistentTree(&data.value(), options.destDir, true, options.sourceDir, &observed, callback, actualPendingWindow);
     stats->transferredBytes = observed.bytes;
     stats->wireBytes = observed.wireBytes;
     stats->completeWaitSeconds = observed.completeWaitSeconds;
+    stats->pendingWindow = observed.pendingWindow;
+    stats->pendingHighWatermark = observed.pendingHighWatermark;
     // Closing the data socket also releases a peer blocked after any partial V2 error.
     data.value() = FramedDataSocket{};
     const auto waiting = std::chrono::steady_clock::now();

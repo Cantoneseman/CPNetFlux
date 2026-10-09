@@ -181,6 +181,28 @@ TEST(TreeTransferOptionsTest, ParsesPhaseTimingFlagAndDefaultsOff) {
     std::filesystem::remove_all(root);
 }
 
+TEST(TreeTransferOptionsTest, ParsesBoundedDataPendingWindow) {
+    const auto root = std::filesystem::temp_directory_path() / "cpnetflux-tree-options-window-root";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    const char* valid[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                           "--dest-dir", "remote", "--data-session-reuse", "tree",
+                           "--data-pending-window", "4"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(valid)), valid, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().dataPendingWindow, 4U);
+
+    const char* invalid[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                             "--dest-dir", "remote", "--data-session-reuse", "tree",
+                             "--data-pending-window", "17"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+                     static_cast<int>(std::size(invalid)), invalid,
+                     cpnetflux::config::TreeTransferRole::Upload)
+                     .isOk());
+    std::filesystem::remove_all(root);
+}
 TEST(TreeTransferOptionsTest, ParsesControlPipelineDepthAndRejectsInvalidCombinations) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-pipeline-root";
