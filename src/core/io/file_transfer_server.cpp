@@ -913,7 +913,7 @@ common::Status validateServerOutputState(const config::FileTransferOptions& opti
 }
 
 common::Status runFileTransferServerOnListenerTls(const config::FileTransferOptions& options,
-                                                  UniqueFd listener) {
+                                                  UniqueFd listener, int controlFd) {
     const common::Status outputStatus = validateServerOutputState(options);
     if (!outputStatus.isOk()) {
         return outputStatus;
@@ -927,10 +927,15 @@ common::Status runFileTransferServerOnListenerTls(const config::FileTransferOpti
     std::vector<FileServerConnection> connections;
     connections.reserve(options.connections);
     while (connections.size() < options.connections) {
-        pollfd pollFd{};
-        pollFd.fd = listener.get();
-        pollFd.events = POLLIN;
-        const int ready = ::poll(&pollFd, 1, 60000);
+        pollfd pollFds[2]{};
+        pollFds[0].fd = listener.get();
+        pollFds[0].events = POLLIN;
+        const nfds_t count = controlFd >= 0 ? 2 : 1;
+        if (controlFd >= 0) {
+            pollFds[1].fd = controlFd;
+            pollFds[1].events = POLLIN | POLLRDHUP | POLLERR | POLLHUP;
+        }
+        const int ready = ::poll(pollFds, count, 60000);
         if (ready == 0) {
             return common::Status::runtimeError("timed out waiting for data TLS connections");
         }
@@ -939,6 +944,22 @@ common::Status runFileTransferServerOnListenerTls(const config::FileTransferOpti
                 continue;
             }
             return systemStatus("poll data TLS listener", errno);
+        }
+        if (controlFd >= 0 && (pollFds[1].revents & (POLLHUP | POLLRDHUP | POLLERR)) != 0) {
+            return common::Status::runtimeError("control connection closed while waiting for data");
+        }
+        if (controlFd >= 0 && (pollFds[1].revents & POLLIN) != 0) {
+            char probe = 0;
+            const ssize_t received = ::recv(controlFd, &probe, sizeof(probe), MSG_PEEK | MSG_DONTWAIT);
+            if (received == 0) {
+                return common::Status::runtimeError("control connection closed while waiting for data");
+            }
+            if (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                return systemStatus("probe control connection", errno);
+            }
+        }
+        if ((pollFds[0].revents & POLLIN) == 0) {
+            continue;
         }
         const int acceptedFd = ::accept4(listener.get(), nullptr, nullptr, SOCK_CLOEXEC);
         if (acceptedFd < 0) {
@@ -1146,9 +1167,9 @@ common::Status runFileTransferServerOnListenerTls(const config::FileTransferOpti
 }  // namespace
 
 common::Status runFileTransferServerOnListener(const config::FileTransferOptions& options,
-                                               UniqueFd listener) {
+                                               UniqueFd listener, int controlFd) {
     if (options.dataTlsMode == DataTlsMode::Required) {
-        return runFileTransferServerOnListenerTls(options, std::move(listener));
+        return runFileTransferServerOnListenerTls(options, std::move(listener), controlFd);
     }
     const common::Status outputStatus = validateServerOutputState(options);
     if (!outputStatus.isOk()) {
@@ -1171,6 +1192,15 @@ common::Status runFileTransferServerOnListener(const config::FileTransferOptions
     if (!addListener.isOk()) {
         return addListener;
     }
+    struct ControlToken {};
+    ControlToken controlToken;
+    if (controlFd >= 0) {
+        auto addControl = addEpollFd(epollFd.get(), controlFd,
+                                     EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP, &controlToken);
+        if (!addControl.isOk()) {
+            return addControl;
+        }
+    }
 
     std::vector<FileServerConnection> connections;
     connections.reserve(options.connections);
@@ -1182,7 +1212,12 @@ common::Status runFileTransferServerOnListener(const config::FileTransferOptions
 
     while (!transferComplete(transfer, options.connections)) {
         const int eventCount =
-            ::epoll_wait(epollFd.get(), events.data(), static_cast<int>(events.size()), -1);
+            ::epoll_wait(epollFd.get(), events.data(), static_cast<int>(events.size()),
+                         accepting ? 60000 : -1);
+        if (eventCount == 0) {
+            markFailedBestEffort(transfer);
+            return common::Status::runtimeError("timed out waiting for data connections");
+        }
         if (eventCount < 0) {
             if (errno == EINTR) {
                 continue;
@@ -1192,6 +1227,29 @@ common::Status runFileTransferServerOnListener(const config::FileTransferOptions
         }
 
         for (int index = 0; index < eventCount; ++index) {
+            if (controlFd >= 0 && events[index].data.ptr == &controlToken) {
+                if (!accepting) {
+                    continue;
+                }
+                if ((events[index].events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR)) != 0U) {
+                    return common::Status::runtimeError(
+                        "control connection closed while waiting for data");
+                }
+                if ((events[index].events & EPOLLIN) != 0U) {
+                    char probe = 0;
+                    const ssize_t received =
+                        ::recv(controlFd, &probe, sizeof(probe), MSG_PEEK | MSG_DONTWAIT);
+                    if (received == 0) {
+                        return common::Status::runtimeError(
+                            "control connection closed while waiting for data");
+                    }
+                    if (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK &&
+                        errno != EINTR) {
+                        return systemStatus("probe control connection", errno);
+                    }
+                }
+                continue;
+            }
             if (events[index].data.ptr == &listenerToken) {
                 while (accepting) {
                     const int acceptedFd =
@@ -1230,6 +1288,13 @@ common::Status runFileTransferServerOnListener(const config::FileTransferOptions
                         if (!deleteListener.isOk()) {
                             markFailedBestEffort(transfer);
                             return deleteListener;
+                        }
+                        if (controlFd >= 0) {
+                            auto removed = deleteEpollFd(epollFd.get(), controlFd);
+                            if (!removed.isOk()) {
+                                markFailedBestEffort(transfer);
+                                return removed;
+                            }
                         }
                         listener.reset();
                         break;

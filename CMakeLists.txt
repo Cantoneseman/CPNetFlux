@@ -108,6 +108,7 @@ add_library(cpnetflux_core STATIC
     src/core/io/tcp_sink_client.cpp
     src/core/io/tcp_sink_server.cpp
     ${CPNETFLUX_TLS_SOURCE}
+    src/core/io/tree_pipeline_control_io.cpp
     src/core/io/tree_transfer_client.cpp
     src/core/metrics/error_code.cpp
     src/core/metrics/event_log.cpp
@@ -320,6 +321,9 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/tree_manifest_test.cpp
         tests/unit/tree_scan_test.cpp
         tests/unit/tree_transfer_options_test.cpp
+        tests/unit/tree_pipeline_control_io_test.cpp
+        tests/unit/tree_pipeline_state_test.cpp
+        tests/unit/tree_pipeline_identity_test.cpp
         tests/unit/version_test.cpp
     )
 
@@ -410,6 +414,10 @@ if(CPNETFLUX_BUILD_TESTS)
     add_test(
         NAME cpnetflux_tree_control_reuse_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_control_reuse_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    add_test(
+        NAME cpnetflux_tree_pipeline_sidecar_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_pipeline_sidecar_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     add_test(
         NAME cpnetflux_tree_changed_file_smoke

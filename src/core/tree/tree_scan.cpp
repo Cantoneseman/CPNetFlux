@@ -1,5 +1,8 @@
 #include "cpnetflux/core/tree/tree_scan.h"
 
+#include "cpnetflux/checkpoint/download_manifest.h"
+#include "cpnetflux/checkpoint/manifest_store.h"
+
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -34,6 +37,37 @@ common::Result<std::int64_t> mtimeOfPath(const std::filesystem::path& path) {
 
 }  // namespace
 
+bool isInternalTransferSidecar(const std::string& path) {
+    namespace fs = std::filesystem;
+    constexpr const char* kTransferSuffix = ".cpnetflux.manifest";
+    constexpr const char* kDownloadSuffix = ".cpnetflux.download.manifest";
+    const auto matches = [](const fs::path& left, const fs::path& right) {
+        return left.lexically_normal() == right.lexically_normal();
+    };
+
+    const std::size_t downloadSuffixSize = std::char_traits<char>::length(kDownloadSuffix);
+    if (path.size() >= downloadSuffixSize &&
+        path.compare(path.size() - downloadSuffixSize, downloadSuffixSize, kDownloadSuffix) == 0) {
+        const std::string targetPath = path.substr(0, path.size() - downloadSuffixSize);
+        auto manifest = checkpoint::loadDownloadManifest(path);
+        return manifest.isOk() && matches(fs::path(manifest.value().targetPath), fs::path(targetPath)) &&
+               matches(fs::path(checkpoint::downloadManifestPathForOutput(manifest.value().targetPath)),
+                       fs::path(path));
+    }
+
+    const std::size_t transferSuffixSize = std::char_traits<char>::length(kTransferSuffix);
+    if (path.size() >= transferSuffixSize &&
+        path.compare(path.size() - transferSuffixSize, transferSuffixSize, kTransferSuffix) == 0) {
+        const std::string outputPath = path.substr(0, path.size() - transferSuffixSize);
+        auto manifest = checkpoint::ManifestStore::load(path);
+        return manifest.isOk() && matches(fs::path(manifest.value().outputPath), fs::path(outputPath)) &&
+               matches(fs::path(checkpoint::manifestPathForOutput(manifest.value().outputPath)),
+                       fs::path(path));
+    }
+
+    return false;
+}
+
 common::Status validateTreeRelativePath(const std::string& relativePath) {
     if (relativePath.empty()) {
         return common::Status::invalidArgument("tree relative path must not be empty");
@@ -61,7 +95,7 @@ common::Status validateTreeRelativePath(const std::string& relativePath) {
     return common::Status::ok();
 }
 
-common::Result<std::vector<TreeFileInfo>> scanLocalTree(const std::string& root) {
+common::Result<std::vector<TreeFileInfo>> scanLocalTree(const std::string& root, bool includeTransferSidecars) {
     std::error_code error;
     const std::filesystem::path rootPath(root);
     if (!std::filesystem::exists(rootPath, error) || error) {
@@ -109,6 +143,11 @@ common::Result<std::vector<TreeFileInfo>> scanLocalTree(const std::string& root)
                                                error.value());
         }
 
+        // Persistent scanning needs the owned manifest to identify its partial file.
+        // Ordinary V1 tree enumeration still excludes only verified sidecars.
+        if (!includeTransferSidecars && isInternalTransferSidecar(entry.path().string())) {
+            continue;
+        }
         const std::filesystem::path relative = std::filesystem::relative(entry.path(), rootPath, error);
         if (error) {
             return common::Status::systemError("tree relative path failed: " + error.message(),

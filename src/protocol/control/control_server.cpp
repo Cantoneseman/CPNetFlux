@@ -4,6 +4,7 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/eventfd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -11,6 +12,9 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <deque>
+#include <mutex>
+#include <optional>
 #include <filesystem>
 #include <iostream>
 #include <limits>
@@ -30,6 +34,7 @@
 #include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/core/session/transfer_session_config.h"
 #include "cpnetflux/core/metrics/event_log.h"
+#include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/core/io/socket_utils.h"
 #include "cpnetflux/core/io/tls_socket.h"
 #include "cpnetflux/protocol/control/control_command.h"
@@ -137,6 +142,219 @@ void emitControlEvent(const EventLoggerPtr& logger, std::string event, std::stri
         bytes,
     });
 }
+
+struct AsyncTransferCompletion {
+    std::string transferId;
+    std::string direction;
+    std::string path;
+    std::uint64_t bytes = 0;
+    std::chrono::steady_clock::time_point startedAt;
+    common::Status status;
+};
+
+class AsyncTransferRegistry {
+   public:
+    AsyncTransferRegistry(EventLoggerPtr logger, int controlFd)
+        : logger_(std::move(logger)), controlFd_(controlFd),
+          completionFd_(::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) {
+        jobs_.reserve(2);
+    }
+
+    ~AsyncTransferRegistry() {
+        if (!jobs_.empty() && controlFd_ >= 0) {
+            (void)::shutdown(controlFd_, SHUT_RDWR);
+        }
+        joinAll();
+    }
+
+    [[nodiscard]] std::size_t activeCount() const noexcept { return jobs_.size(); }
+    [[nodiscard]] bool valid() const noexcept { return completionFd_.isValid(); }
+
+    template <typename Operation>
+    common::Status start(core::io::TlsConnection* control, PassiveListener* passive,
+                         std::string transferId, std::string direction, std::string path,
+                         std::uint64_t bytes, std::chrono::steady_clock::time_point startedAt,
+                         std::uint32_t connections, Operation operation) {
+        if (!valid()) {
+            return systemStatus("create async transfer eventfd", errno);
+        }
+        if (activeCount() >= 2) {
+            if (passive != nullptr) {
+                passive->fd.reset();
+                passive->port = 0;
+            }
+            return sendLine(control, formatReply(450, "Async transfer window is full"));
+        }
+        if (passive == nullptr || !passive->fd.isValid()) {
+            return sendLine(control, formatReply(550, "Passive data listener is not ready"));
+        }
+
+        const auto sharedListener =
+            std::make_shared<core::io::UniqueFd>(std::move(passive->fd));
+        passive->port = 0;
+        const std::string prelude =
+            "Opening CPNetFlux data connection transfer_id=GFID:" + transferId +
+            " connections=" + std::to_string(connections);
+        try {
+            const std::string jobId = transferId;
+            const int completionFd = completionFd_.get();
+            std::thread worker([this, completionFd, jobId, direction, path, bytes, startedAt,
+                                sharedListener, operation = std::move(operation)]() mutable {
+                common::Status status;
+                try {
+                    status = operation(std::move(*sharedListener), controlFd_);
+                } catch (const std::exception& error) {
+                    status = common::Status::runtimeError(
+                        std::string("async transfer exception: ") + error.what());
+                } catch (...) {
+                    status = common::Status::runtimeError("async transfer unknown exception");
+                }
+                {
+                    std::lock_guard<std::mutex> lock(completionMutex_);
+                    completions_.push_back(AsyncTransferCompletion{
+                        jobId, direction, path, bytes, startedAt, std::move(status)});
+                }
+                const std::uint64_t one = 1;
+                ssize_t notified = -1;
+                do {
+                    notified = ::write(completionFd, &one, sizeof(one));
+                } while (notified < 0 && errno == EINTR);
+            });
+            jobs_.push_back(Job{transferId, std::move(worker)});
+        } catch (const std::exception& error) {
+            return sendLine(control, formatReply(
+                450, std::string("Unable to start async transfer: ") + error.what()));
+        } catch (...) {
+            return sendLine(control, formatReply(450, "Unable to start async transfer"));
+        }
+
+        const common::Status sent = sendLine(control, formatReply(150, prelude));
+        if (!sent.isOk()) {
+            return sent;
+        }
+        emitControlEvent(logger_,
+                         direction == "upload" ? "stor_start" : "retr_start",
+                         direction, path, transferId, common::Status::ok(), bytes, startedAt);
+        return common::Status::ok();
+    }
+
+    common::Result<std::string> readCommandLine(core::io::TlsConnection* control,
+                                                std::string* buffer) {
+        while (true) {
+            const std::size_t newline = buffer->find('\n');
+            if (newline != std::string::npos) {
+                std::string line = buffer->substr(0, newline + 1);
+                buffer->erase(0, newline + 1);
+                while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) {
+                    line.pop_back();
+                }
+                return line;
+            }
+
+            pollfd descriptors[2]{};
+            descriptors[0].fd = control->fd();
+            descriptors[0].events = POLLIN | POLLRDHUP | POLLERR | POLLHUP;
+            descriptors[1].fd = completionFd_.get();
+            descriptors[1].events = POLLIN;
+            const int ready = ::poll(descriptors, 2, -1);
+            if (ready < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                return systemStatus("poll async control", errno);
+            }
+            if ((descriptors[1].revents & POLLIN) != 0) {
+                const common::Status completed = sendReadyCompletions(control);
+                if (!completed.isOk()) {
+                    return completed;
+                }
+            }
+            if ((descriptors[0].revents & POLLNVAL) != 0) {
+                return common::Status::runtimeError("async control fd is invalid");
+            }
+            if ((descriptors[0].revents & POLLIN) != 0) {
+                char chunk[512];
+                auto received = control->readSomeNonBlocking(chunk, sizeof(chunk));
+                if (!received.isOk()) {
+                    return received.status();
+                }
+                if (received.value() > 0) {
+                    buffer->append(chunk, received.value());
+                    if (buffer->size() > 8192) {
+                        return common::Status::invalidArgument("control line exceeds 8192 bytes");
+                    }
+                    continue;
+                }
+            }
+            if ((descriptors[0].revents & (POLLHUP | POLLRDHUP | POLLERR)) != 0) {
+                return common::Status::runtimeError("control connection closed");
+            }
+        }
+    }
+
+    void joinAll() noexcept {
+        for (auto& job : jobs_) {
+            if (job.worker.joinable()) {
+                job.worker.join();
+            }
+        }
+        jobs_.clear();
+    }
+
+   private:
+    struct Job {
+        std::string transferId;
+        std::thread worker;
+    };
+
+    common::Status sendReadyCompletions(core::io::TlsConnection* control) {
+        std::uint64_t count = 0;
+        while (::read(completionFd_.get(), &count, sizeof(count)) > 0) {
+        }
+        std::deque<AsyncTransferCompletion> ready;
+        {
+            std::lock_guard<std::mutex> lock(completionMutex_);
+            ready.swap(completions_);
+        }
+        for (auto& completion : ready) {
+            const std::string terminal =
+                completion.status.isOk()
+                    ? "Transfer complete transfer_id=GFID:" + completion.transferId
+                    : "Transfer failed transfer_id=GFID:" + completion.transferId + ": " +
+                          completion.status.message();
+            const common::Status sent =
+                sendLine(control, formatReply(completion.status.isOk() ? 226 : 550, terminal));
+            emitControlEvent(logger_,
+                             completion.status.isOk()
+                                 ? (completion.direction == "upload" ? "stor_complete"
+                                                                       : "retr_complete")
+                                 : (completion.direction == "upload" ? "stor_failed"
+                                                                       : "retr_failed"),
+                             completion.direction, completion.path, completion.transferId,
+                             completion.status, completion.bytes, completion.startedAt);
+            auto job = std::find_if(jobs_.begin(), jobs_.end(), [&](const Job& candidate) {
+                return candidate.transferId == completion.transferId;
+            });
+            if (job != jobs_.end()) {
+                if (job->worker.joinable()) {
+                    job->worker.join();
+                }
+                jobs_.erase(job);
+            }
+            if (!sent.isOk()) {
+                return sent;
+            }
+        }
+        return common::Status::ok();
+    }
+
+    EventLoggerPtr logger_;
+    int controlFd_ = -1;
+    core::io::UniqueFd completionFd_;
+    std::mutex completionMutex_;
+    std::deque<AsyncTransferCompletion> completions_;
+    std::vector<Job> jobs_;
+};
 
 common::Result<std::string> readLine(core::io::TlsConnection* connection, std::string* buffer) {
     while (true) {
@@ -317,7 +535,15 @@ common::Result<std::vector<ControlListEntry>> readDirectoryEntries(const std::st
             return common::Status::systemError("directory entry type failed: " + error.message(),
                                                error.value());
         }
-        if (!item.isDirectory && entry.is_regular_file(error)) {
+        const bool isRegularFile = !item.isDirectory && entry.is_regular_file(error);
+        if (error) {
+            return common::Status::systemError("directory entry type failed: " + error.message(),
+                                               error.value());
+        }
+        if (isRegularFile && core::tree::isInternalTransferSidecar(entry.path().string())) {
+            continue;
+        }
+        if (isRegularFile) {
             item.size = entry.file_size(error);
             if (error) {
                 return common::Status::systemError(
@@ -464,7 +690,8 @@ common::Status runListLike(core::io::TlsConnection* control, ControlSession& ses
 
 common::Status runStor(core::io::TlsConnection* control, ControlSession& session, PassiveListener* passive,
                        const ControlServerOptions& controlOptions,
-                       const ControlResponse& response, const EventLoggerPtr& logger) {
+                       const ControlResponse& response, const EventLoggerPtr& logger,
+                       AsyncTransferRegistry* asyncTransfers) {
     if (passive == nullptr || !passive->fd.isValid()) {
         emitControlEvent(logger, "stor_failed", "upload", response.path, "",
                          common::Status::runtimeError("Passive data listener is not ready"));
@@ -512,20 +739,29 @@ common::Status runStor(core::io::TlsConnection* control, ControlSession& session
 
     const std::string prelude = "Opening CPNetFlux data connection transfer_id=GFID:" + transferId +
                                 " connections=" + std::to_string(response.connections);
+    const auto startedAt = std::chrono::steady_clock::now();
+    if (asyncTransfers != nullptr) {
+        return asyncTransfers->start(
+            control, passive, transferId, "upload", response.path, 0, startedAt, response.connections,
+            [fileOptions = std::move(fileOptions)](core::io::UniqueFd listener,
+                                                   int controlFd) mutable {
+                return core::io::runFileTransferServerOnListener(
+                    fileOptions, std::move(listener), controlFd);
+            });
+    }
     common::Status status = sendLine(control, formatReply(150, prelude));
     if (!status.isOk()) {
         emitControlEvent(logger, "stor_failed", "upload", response.path, transferId, status);
         return status;
     }
 
-    const auto startedAt = std::chrono::steady_clock::now();
     emitControlEvent(logger, "stor_start", "upload", response.path, transferId,
                      common::Status::ok(), 0, startedAt);
     core::io::UniqueFd listener = std::move(passive->fd);
     passive->port = 0;
-    status = core::io::runFileTransferServerOnListener(fileOptions, std::move(listener));
+    status = core::io::runFileTransferServerOnListener(fileOptions, std::move(listener), session.pipelineOptIn() ? control->fd() : -1);
     if (!status.isOk()) {
-        (void)sendLine(control, formatReply(550, "Transfer failed: " + status.message()));
+        (void)sendLine(control, formatReply(550, "Transfer failed transfer_id=GFID:" + transferId + ": " + status.message()));
         emitControlEvent(logger, "stor_failed", "upload", response.path, transferId, status, 0,
                          startedAt);
         return status;
@@ -541,7 +777,8 @@ common::Status runStor(core::io::TlsConnection* control, ControlSession& session
 
 common::Status runRetr(core::io::TlsConnection* control, ControlSession& session, PassiveListener* passive,
                        const ControlServerOptions& controlOptions,
-                       const ControlResponse& response, const EventLoggerPtr& logger) {
+                       const ControlResponse& response, const EventLoggerPtr& logger,
+                       AsyncTransferRegistry* asyncTransfers) {
     if (passive == nullptr || !passive->fd.isValid()) {
         emitControlEvent(logger, "retr_failed", "download", response.path, "",
                          common::Status::runtimeError("Passive data listener is not ready"));
@@ -587,21 +824,31 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
     const std::string prelude =
         "Opening CPNetFlux download data connection transfer_id=GFID:" + transferId +
         " connections=" + std::to_string(response.connections);
+    const auto startedAt = std::chrono::steady_clock::now();
+    auto bytes = fileSizeOfPath(inputPath.value());
+    if (asyncTransfers != nullptr) {
+        return asyncTransfers->start(
+            control, passive, transferId, "download", response.path,
+            bytes.isOk() ? bytes.value() : 0, startedAt, response.connections,
+            [senderOptions = std::move(senderOptions)](core::io::UniqueFd listener,
+                                                       int controlFd) mutable {
+                return core::io::runFramedFileSenderOnListener(
+                    senderOptions, std::move(listener), controlFd);
+            });
+    }
     common::Status status = sendLine(control, formatReply(150, prelude));
     if (!status.isOk()) {
         emitControlEvent(logger, "retr_failed", "download", response.path, transferId, status);
         return status;
     }
 
-    const auto startedAt = std::chrono::steady_clock::now();
-    auto bytes = fileSizeOfPath(inputPath.value());
     emitControlEvent(logger, "retr_start", "download", response.path, transferId,
                      common::Status::ok(), bytes.isOk() ? bytes.value() : 0, startedAt);
     core::io::UniqueFd listener = std::move(passive->fd);
     passive->port = 0;
-    status = core::io::runFramedFileSenderOnListener(senderOptions, std::move(listener));
+    status = core::io::runFramedFileSenderOnListener(senderOptions, std::move(listener), session.pipelineOptIn() ? control->fd() : -1);
     if (!status.isOk()) {
-        (void)sendLine(control, formatReply(550, "Transfer failed: " + status.message()));
+        (void)sendLine(control, formatReply(550, "Transfer failed transfer_id=GFID:" + transferId + ": " + status.message()));
         emitControlEvent(logger, "retr_failed", "download", response.path, transferId, status,
                          bytes.isOk() ? bytes.value() : 0, startedAt);
         return status;
@@ -697,18 +944,25 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     PassiveListener passive;
     std::string inputBuffer;
     bool persistentNegotiated = false;
+    AsyncTransferRegistry asyncTransfers(logger, control.fd());
 
     if (!sendLine(&control, formatReply(220, "CPNetFlux GridFTP control ready")).isOk()) {
         return;
     }
 
     while (control.valid()) {
-        auto line = readLine(&control, &inputBuffer);
+        auto line = session.pipelineOptIn()
+                        ? asyncTransfers.readCommandLine(&control, &inputBuffer)
+                        : readLine(&control, &inputBuffer);
         if (!line.isOk()) {
             return;
         }
 
         if (line.value() == "XCPNETFLUX V2" || line.value().starts_with("XDIR ")) {
+            if (session.pipelineOptIn() || asyncTransfers.activeCount() > 0) {
+                (void)sendLine(&control, formatReply(503, "V2 cannot share an async control session"));
+                continue;
+            }
             if (!session.authenticated()) {
                 (void)sendLine(&control, formatReply(530, "Authenticate before persistent directory commands"));
                 continue;
@@ -740,6 +994,25 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             emitControlEvent(logger, "command_failed", "", "", "", command.status());
             (void)sendLine(&control, formatReply(550, command.status().message()));
             continue;
+        }
+
+        if (asyncTransfers.activeCount() > 0) {
+            const auto type = command.value().type;
+            const bool allowed = type == ControlCommandType::Epsv ||
+                                 type == ControlCommandType::Pasv ||
+                                 type == ControlCommandType::Stor ||
+                                 type == ControlCommandType::Retr ||
+                                 type == ControlCommandType::Size ||
+                                 type == ControlCommandType::Mdtm ||
+                                 type == ControlCommandType::Noop;
+            if (!allowed) {
+                passive.fd.reset();
+                passive.port = 0;
+                session.clearPassiveReady();
+                (void)sendLine(&control,
+                               formatReply(503, "Command unavailable while async transfer is active"));
+                continue;
+            }
         }
 
         const bool wasAuthenticated = session.authenticated();
@@ -783,12 +1056,14 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
         }
 
         if (response.action == ControlAction::StartStor) {
-            (void)runStor(&control, session, &passive, options, response, logger);
+            (void)runStor(&control, session, &passive, options, response, logger,
+                          session.pipelineOptIn() ? &asyncTransfers : nullptr);
             continue;
         }
 
         if (response.action == ControlAction::StartRetr) {
-            (void)runRetr(&control, session, &passive, options, response, logger);
+            (void)runRetr(&control, session, &passive, options, response, logger,
+                          session.pipelineOptIn() ? &asyncTransfers : nullptr);
             continue;
         }
 

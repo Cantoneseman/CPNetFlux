@@ -61,7 +61,8 @@ DEFAULT_SEED = 20260831
 DEFAULT_CHUNK_SIZE = 1024 * 1024
 DEFAULT_BUFFER_SIZE = 64 * 1024
 DEFAULT_GRIDFTP_GSI_HOME_DIR = "/srv/cpnetflux-gsi"
-STAGES = {"preflight", "smoke", "core", "scheduler", "io", "resume", "all"}
+STAGES = {"preflight", "smoke", "core", "async-control", "scheduler", "io", "resume", "all"}
+CASE_PRESETS = {"none", "async-control-short"}
 
 
 def compact_timestamp() -> str:
@@ -131,6 +132,7 @@ def case_id(
     queue_depth: int = 1,
     batch_size: int = 1,
     resume: bool = False,
+    control_pipeline_depth: int = 0,
 ) -> str:
     pieces = [
         stage,
@@ -144,6 +146,8 @@ def case_id(
         "resume" if resume else "fresh",
         f"r{repeat_index}",
     ]
+    if stage == "async-control":
+        pieces.append(f"pipeline{control_pipeline_depth}")
     return safe_id("_".join(pieces))
 
 
@@ -163,6 +167,7 @@ def make_case(
     batch_size: int = 1,
     resume: bool = False,
     control_reuse: str = "off",
+    control_pipeline_depth: int = 0,
 ) -> ExperimentCase:
     return ExperimentCase(
         case_id=case_id(
@@ -179,6 +184,7 @@ def make_case(
             queue_depth=queue_depth,
             batch_size=batch_size,
             resume=resume,
+            control_pipeline_depth=control_pipeline_depth,
         ),
         stage=stage,
         system=system,
@@ -193,6 +199,7 @@ def make_case(
         queue_depth=queue_depth,
         batch_size=batch_size,
         control_reuse=control_reuse,
+        control_pipeline_depth=control_pipeline_depth,
         resume=resume,
     )
 
@@ -212,6 +219,8 @@ def stage_profiles(stage: str) -> list[str]:
             profiles.extend(["single_256MiB", "tree_dense_128MiB", "tree_mixed_256MiB"])
         elif name == "scheduler":
             profiles.append("tree_mixed_256MiB")
+        elif name == "async-control":
+            profiles.extend(["tree_dense_128MiB", "tree_mixed_256MiB"])
         elif name == "io":
             profiles.append("single_1GiB")
         elif name == "resume":
@@ -228,8 +237,14 @@ def build_cases(
     scheduler_repeat: int,
     io_repeat: int,
     control_reuse: str,
+    control_pipeline_depth: int = 0,
     max_cases: int = 0,
+    case_preset: str = "none",
 ) -> list[ExperimentCase]:
+    if case_preset not in CASE_PRESETS:
+        raise ValueError(f"unknown case preset: {case_preset}")
+    if case_preset == "async-control-short" and stage != "async-control":
+        raise ValueError("async-control-short preset requires --stage async-control")
     cases: list[ExperimentCase] = []
     if stage in {"smoke", "all"}:
         for system in systems:
@@ -287,6 +302,36 @@ def build_cases(
                                 connections=connections,
                                 repeat_index=repeat_index,
                                 control_reuse=control_reuse,
+                            )
+                        )
+    if stage == "async-control":
+        configurations = (
+            [("tree_dense_128MiB", 1, 1)]
+            if case_preset == "async-control-short"
+            else [
+                ("tree_dense_128MiB", 1, 1),
+                ("tree_dense_128MiB", 4, 1),
+                ("tree_dense_128MiB", 8, 1),
+                ("tree_mixed_256MiB", 1, 1),
+                ("tree_mixed_256MiB", 2, 2),
+                ("tree_mixed_256MiB", 4, 2),
+            ]
+        )
+        for direction in directions:
+            for repeat_index in range(repeat):
+                for dataset, file_parallelism, connections in configurations:
+                    for system in systems:
+                        cases.append(
+                            make_case(
+                                stage=stage,
+                                system=system,
+                                direction=direction,
+                                dataset=dataset,
+                                file_parallelism=file_parallelism,
+                                connections=connections,
+                                repeat_index=repeat_index,
+                                control_reuse="worker",
+                                control_pipeline_depth=control_pipeline_depth,
                             )
                         )
     if stage in {"scheduler", "all"} and "cpnetflux" in systems:
@@ -517,6 +562,11 @@ def run_link_baseline(args: argparse.Namespace, output_dir: Path, run_id: str) -
         "tests": [],
     }
     path = output_dir / "link_baseline.json"
+    if getattr(args, "case_preset", "none") == "async-control-short":
+        baseline["status"] = "not_run_short_matrix"
+        baseline["reason"] = "directory-only comparison; no additional iperf matrix"
+        write_json(path, baseline)
+        return baseline
     if args.dry_run:
         baseline["status"] = "dry_run"
         write_json(path, baseline)
@@ -1428,12 +1478,16 @@ def build_tree_client_command(
         args.checksum_backend,
         "--control-reuse",
         case.control_reuse,
+        "--control-pipeline-depth",
+        str(case.control_pipeline_depth),
         "--auth-mode",
         args.auth_mode,
         "--json-summary",
         str(case_dir / "client_summary.json"),
         "--event-log",
         str(case_dir / "client_events.jsonl"),
+        "--phase-timing",
+        getattr(args, "phase_timing", "off"),
     ]
     if case.resume:
         command.append("--resume")
@@ -2336,6 +2390,7 @@ def result_row(
         "queue_depth": str(case.queue_depth),
         "batch_size": str(case.batch_size),
         "control_reuse": case.control_reuse,
+        "control_pipeline_depth": str(case.control_pipeline_depth),
         "scheduler": case.scheduler,
         "scheduler_policy": case.scheduler_policy,
         "repeat_index": str(case.repeat_index),
@@ -2455,6 +2510,8 @@ def collect_environment(args: argparse.Namespace, output_dir: Path, run_id: str)
         },
         "config": {
             "stage": args.stage,
+            "case_preset": args.case_preset,
+            "phase_timing": args.phase_timing,
             "systems": args.systems,
             "directions": args.directions,
             "control_host": args.control_host,
@@ -2762,7 +2819,9 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
         scheduler_repeat=args.scheduler_repeat,
         io_repeat=args.io_repeat,
         control_reuse=args.control_reuse,
+        control_pipeline_depth=args.control_pipeline_depth,
         max_cases=args.max_cases,
+        case_preset=args.case_preset,
     )
     validate_case_ports(args, cases)
     environment = collect_environment(args, output_dir, run_id)
@@ -2779,6 +2838,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
             {
                 "run_id": run_id,
                 "stage": args.stage,
+                "case_preset": args.case_preset,
                 "dry_run": False,
                 "case_count": len(cases),
                 "cases": [case.to_dict() for case in cases],
@@ -2832,6 +2892,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
     plan = {
         "run_id": run_id,
         "stage": args.stage,
+        "case_preset": args.case_preset,
         "dry_run": args.dry_run,
         "case_count": len(cases),
         "cases": [case.to_dict() for case in cases],
@@ -2919,6 +2980,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--systems", default="cpnetflux,gridftp", help="comma list: cpnetflux,gridftp")
     parser.add_argument("--directions", default="local_to_remote,remote_to_local")
     parser.add_argument("--dataset-profile", default="", help="comma list for catalog generation; cases still follow the selected stage matrix")
+    parser.add_argument("--case-preset", choices=sorted(CASE_PRESETS), default="none", help="explicit narrow case matrix; avoids max-cases truncation")
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--scheduler-repeat", type=int, default=5)
     parser.add_argument("--io-repeat", type=int, default=3)
@@ -2935,6 +2997,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--file-io-advice", default="off")
     parser.add_argument("--posix-write-strategy", default="auto")
     parser.add_argument("--control-reuse", choices=["off", "worker"], default="off")
+    parser.add_argument("--control-pipeline-depth", choices=[0, 1, 2, 4], type=int, default=0, help="directory control lookahead depth (async-control stage)")
+    parser.add_argument("--phase-timing", choices=["off", "on"], default="off", help="emit client phase timing; short async-control preset only")
     parser.add_argument("--auth-mode", choices=["anonymous", "token"], default="anonymous")
     parser.add_argument(
         "--gridftp-auth-mode",
@@ -2975,6 +3039,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.control_pipeline_depth and args.stage != "async-control":
+        parser.error("--control-pipeline-depth is only supported with --stage async-control")
+    if args.case_preset == "async-control-short" and args.stage != "async-control":
+        parser.error("--case-preset async-control-short is only supported with --stage async-control")
+    if args.phase_timing == "on" and args.case_preset != "async-control-short":
+        parser.error("--phase-timing on requires --case-preset async-control-short")
     if args.repeat <= 0 or args.scheduler_repeat <= 0 or args.io_repeat <= 0:
         parser.error("repeat counts must be greater than zero")
     for system in parse_csv_list(args.systems):

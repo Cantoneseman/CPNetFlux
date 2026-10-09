@@ -125,7 +125,7 @@ bool sourceMatches(const struct stat& st, const PersistentFileIdentity& id) {
 }  // namespace
 
 common::Result<std::vector<tree::TreeFileInfo>> scanPersistentTree(const std::string& root) {
-    auto scanned = tree::scanLocalTree(root);
+    auto scanned = tree::scanLocalTree(root, true);
     if (!scanned.isOk()) return scanned.status();
     std::unordered_set<std::string> artifacts;
     for (const auto& file : scanned.value()) {

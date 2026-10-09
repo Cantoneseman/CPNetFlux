@@ -379,7 +379,7 @@ common::Status sendStream(FramedDataSocket connection, const FileDownloadSenderO
 }  // namespace
 
 common::Status runFramedFileSenderOnListener(const FileDownloadSenderOptions& options,
-                                             UniqueFd listener) {
+                                             UniqueFd listener, int controlFd) {
     if (!checkpoint::isValidTransferId(options.transferId)) {
         return common::Status::invalidArgument("invalid transfer_id");
     }
@@ -412,10 +412,15 @@ common::Status runFramedFileSenderOnListener(const FileDownloadSenderOptions& op
     std::vector<FramedDataSocket> accepted;
     accepted.reserve(options.connections);
     while (accepted.size() < options.connections) {
-        pollfd pollFd{};
-        pollFd.fd = listener.get();
-        pollFd.events = POLLIN;
-        const int ready = ::poll(&pollFd, 1, 60000);
+        pollfd pollFds[2]{};
+        pollFds[0].fd = listener.get();
+        pollFds[0].events = POLLIN;
+        const nfds_t count = controlFd >= 0 ? 2 : 1;
+        if (controlFd >= 0) {
+            pollFds[1].fd = controlFd;
+            pollFds[1].events = POLLIN | POLLRDHUP | POLLERR | POLLHUP;
+        }
+        const int ready = ::poll(pollFds, count, 60000);
         if (ready == 0) {
             return common::Status::runtimeError("timed out waiting for data connections");
         }
@@ -424,6 +429,22 @@ common::Status runFramedFileSenderOnListener(const FileDownloadSenderOptions& op
                 continue;
             }
             return systemStatus("poll listener", errno);
+        }
+        if (controlFd >= 0 && (pollFds[1].revents & (POLLHUP | POLLRDHUP | POLLERR)) != 0) {
+            return common::Status::runtimeError("control connection closed while waiting for data");
+        }
+        if (controlFd >= 0 && (pollFds[1].revents & POLLIN) != 0) {
+            char probe = 0;
+            const ssize_t received = ::recv(controlFd, &probe, sizeof(probe), MSG_PEEK | MSG_DONTWAIT);
+            if (received == 0) {
+                return common::Status::runtimeError("control connection closed while waiting for data");
+            }
+            if (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                return systemStatus("probe control connection", errno);
+            }
+        }
+        if ((pollFds[0].revents & POLLIN) == 0) {
+            continue;
         }
         const int fd = ::accept4(listener.get(), nullptr, nullptr, SOCK_CLOEXEC);
         if (fd < 0) {

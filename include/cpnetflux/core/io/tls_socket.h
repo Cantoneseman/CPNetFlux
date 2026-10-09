@@ -58,9 +58,11 @@ class TlsConnection {
     [[nodiscard]] int fd() const noexcept;
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] bool tlsEnabled() const noexcept;
+    [[nodiscard]] bool hasPendingRead() const noexcept;
 
     [[nodiscard]] common::Status writeAll(const char* data, std::size_t size);
     [[nodiscard]] common::Result<std::size_t> readSome(char* data, std::size_t size);
+    [[nodiscard]] common::Result<std::size_t> readSomeNonBlocking(char* data, std::size_t size);
 
    private:
     friend class TlsServerContext;

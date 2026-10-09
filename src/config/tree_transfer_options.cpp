@@ -319,6 +319,20 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return common::Status::invalidArgument("--event-log must not be empty");
             }
             options.eventLogPath = std::string(value);
+        } else if (option == "--phase-timing") {
+            if (value != "on" && value != "off") {
+                return common::Status::invalidArgument("--phase-timing must be on or off");
+            }
+            options.phaseTiming = value == "on";
+        } else if (option == "--control-pipeline-depth") {
+            auto parsed = parseUnsigned(value, "--control-pipeline-depth");
+            if (!parsed.isOk() ||
+                (parsed.value() != 0 && parsed.value() != 1 &&
+                 parsed.value() != 2 && parsed.value() != 4)) {
+                return common::Status::invalidArgument(
+                    "--control-pipeline-depth must be one of 0, 1, 2, or 4");
+            }
+            options.controlPipelineDepth = static_cast<std::uint32_t>(parsed.value());
         } else if (option == "--scheduler") {
             auto parsed = parseTreeSchedulerMode(value);
             if (!parsed.isOk()) {
@@ -425,6 +439,23 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         return common::Status::invalidArgument(
             "--scheduler-workitem-min-bytes must be <= --scheduler-workitem-max-bytes");
     }
+    if (options.controlPipelineDepth != 0) {
+        if (options.reuseDataSession) {
+            return common::Status::invalidArgument(
+                "cannot combine --data-session-reuse tree with --control-pipeline-depth; "
+                "select one directory transfer mode");
+        }
+        if (options.controlReuseMode != ControlReuseMode::Worker ||
+            options.schedulerMode != TreeSchedulerMode::Off || options.resume) {
+            return common::Status::invalidArgument(
+                "--control-pipeline-depth requires worker control reuse, scheduler off, "
+                "and no resume");
+        }
+        if (options.maxFiles != 0) {
+            return common::Status::invalidArgument(
+                "--control-pipeline-depth does not support --max-files");
+        }
+    }
     if (role == TreeTransferRole::Upload) {
         const common::Status sourceStatus = validateLocalDirectory(options.sourceDir, "--source-dir");
         if (!sourceStatus.isOk()) {
@@ -482,7 +513,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--control-reuse off|worker] [--data-session-reuse off|tree] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
-           "[--event-log <path>] [--scheduler off|global] "
+           "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] [--scheduler off|global] "
            "[--scheduler-policy fixed|adaptive] [--scheduler-metrics-dir <dir>] "
            "[--scheduler-link-id <id>] [--scheduler-capacity-gbps <float>] "
            "[--scheduler-workitem-min-bytes <N>] [--scheduler-workitem-max-bytes <N>] "

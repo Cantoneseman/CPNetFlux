@@ -78,6 +78,20 @@ TEST(ControlCommandTest, ParsesParallelismOptions) {
     EXPECT_FALSE(parseControlCommand("OPTS PARALLELISM=65").isOk());
 }
 
+TEST(ControlCommandTest, ParsesExplicitPipelineOptIn) {
+    auto parsed = parseControlCommand("OPTS PIPELINE=1\r\n");
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().type, ControlCommandType::Opts);
+    EXPECT_TRUE(parsed.value().hasPipelineOption);
+    EXPECT_TRUE(parsed.value().pipelineEnabled);
+
+    parsed = parseControlCommand("OPTS PIPELINE=0");
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_TRUE(parsed.value().hasPipelineOption);
+    EXPECT_FALSE(parsed.value().pipelineEnabled);
+    EXPECT_FALSE(parseControlCommand("OPTS PIPELINE=2").isOk());
+}
+
 TEST(ControlCommandTest, ParsesRestMarker) {
     auto parsed = parseControlCommand("REST GFID:phase3a-token_01\r\n");
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();

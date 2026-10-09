@@ -39,6 +39,8 @@ struct ControlCommand {
     std::string verb;
     std::string argument;
     std::uint32_t parallelism = 0;
+    bool hasPipelineOption = false;
+    bool pipelineEnabled = false;
     std::string transferId;
 };
 
@@ -77,6 +79,7 @@ class ControlSession {
     [[nodiscard]] bool authenticated() const noexcept;
     [[nodiscard]] bool binaryType() const noexcept;
     [[nodiscard]] bool passiveReady() const noexcept;
+    [[nodiscard]] bool pipelineOptIn() const noexcept;
     [[nodiscard]] std::uint32_t connections() const noexcept;
     [[nodiscard]] const std::string& workingDirectory() const noexcept;
 
@@ -91,6 +94,7 @@ class ControlSession {
     bool authenticated_ = false;
     bool binaryType_ = false;
     bool passiveReady_ = false;
+    bool pipelineOptIn_ = false;
     std::string restartTransferId_;
     std::string workingDirectory_ = "/";
 };

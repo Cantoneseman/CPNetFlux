@@ -12,6 +12,14 @@ from tree_smoke_common import free_port, make_tree, tree_hash, wait_for_control,
 from gridftp_port_window import clamp_passive_data_port_base
 
 
+def unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        assert key not in result, f"duplicate summary field: {key}"
+        result[key] = value
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--build-dir', type=Path, required=True)
@@ -46,10 +54,10 @@ def main():
                 command = [str(args.build_dir / f'cpnetflux-tree-{direction}-client'),
                            '--host', '127.0.0.1', '--port', str(port), '--source-dir', str(src),
                            '--dest-dir', str(dst), '--checksum', 'none', '--control-reuse', 'worker',
-                           '--data-session-reuse', 'tree', '--json-summary', str(summary), *extra]
+                           '--data-session-reuse', 'tree', '--phase-timing', 'on', '--json-summary', str(summary), *extra]
                 result = subprocess.run(command, text=True, capture_output=True, timeout=40)
                 assert (result.returncode == 0) == success, result.stdout + result.stderr
-                return json.loads(summary.read_text())
+                return json.loads(summary.read_text(), object_pairs_hook=unique_json_object)
 
             upload = run('upload', source, 'uploaded', 'upload')
             assert upload['data_session_reuse_mode'] == 'tree'
