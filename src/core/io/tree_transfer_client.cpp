@@ -33,6 +33,7 @@
 #include "cpnetflux/config/file_transfer_options.h"
 #include "cpnetflux/core/io/file_download_client.h"
 #include "cpnetflux/core/io/file_transfer_client.h"
+#include "cpnetflux/core/io/persistent_tree_transfer.h"
 #include "cpnetflux/core/metrics/error_code.h"
 #include "cpnetflux/core/metrics/event_log.h"
 #include "cpnetflux/core/io/socket_utils.h"
@@ -192,6 +193,31 @@ class ControlClient {
         return match[1].str();
     }
 
+    [[nodiscard]] common::Result<bool> negotiatePersistent() {
+        timeval timeout{30, 0};
+        if (::setsockopt(control_.fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
+            ::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0)
+            return common::Status::runtimeError("persistent control timeout configuration failed");
+        auto reply = command("XCPNETFLUX V2");
+        if (!reply.isOk()) return reply.status();
+        if (reply.value().code == 200) return true;
+        if (reply.value().code == 500 || reply.value().code == 502 ||
+            reply.value().code == 504 || reply.value().code == 550) {
+            timeout = {0, 0};
+            (void)::setsockopt(control_.fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+            (void)::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+            return false;
+        }
+        return common::Status::runtimeError("unexpected persistent negotiation reply");
+    }
+    [[nodiscard]] common::Status startDirectory(bool upload, const std::string& path) {
+        if (path.find_first_of("\r\n") != std::string::npos || path.find(char(0)) != std::string::npos)
+            return common::Status::invalidArgument("invalid persistent directory argument");
+        auto reply = command(std::string(upload ? "XDIR PUT " : "XDIR GET ") + path);
+        if (!reply.isOk()) return reply.status();
+        return reply.value().code == 150 ? common::Status::ok() :
+            common::Status::runtimeError("persistent directory request rejected");
+    }
     [[nodiscard]] common::Status waitTransferComplete() {
         auto reply = readReply();
         if (!reply.isOk()) {
@@ -478,7 +504,7 @@ common::Status ensureControlReady(ControlClient* client, const config::TreeTrans
         return connectStatus;
     }
     if (options.authMode == "token") {
-        auto token = protocol::control::loadTokenFile(options.authTokenFile);
+        auto token = cpnetflux::protocol::control::loadTokenFile(options.authTokenFile);
         if (!token.isOk()) {
             return token.status();
         }
@@ -648,6 +674,10 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> controlConnectCount{0};
     std::atomic<std::uint64_t> controlReconnectCount{0};
     std::atomic<std::uint64_t> dataTransferCount{0};
+    bool persistentData = false;
+    std::uint64_t persistentDataConnectCount = 0;
+    double controlPrepareSeconds = 0;
+    double completeWaitSeconds = 0;
 };
 
 void addTransferMetrics(TreeRunStats* stats, const core::io::TransferRuntimeMetrics* metrics) {
@@ -982,6 +1012,14 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"control_connect_count\": " << stats.controlConnectCount.load() << ",\n";
     output << "  \"control_reconnect_count\": " << stats.controlReconnectCount.load() << ",\n";
     output << "  \"data_transfer_count\": " << stats.dataTransferCount.load() << ",\n";
+    output << "  \"data_session_reuse_mode\": \"" << (stats.persistentData ? "tree" : "off") << "\",\n";
+    output << "  \"data_connect_count\": " << (stats.persistentData ? stats.persistentDataConnectCount : stats.dataTransferCount.load() * options.connections) << ",\n";
+    output << "  \"data_connect_count_source\": \"" << (stats.persistentData ? "observed" : "estimated") << "\",\n";
+    output << "  \"control_prepare_seconds\": " << (stats.persistentData ? std::to_string(stats.controlPrepareSeconds) : "null") << ",\n";
+    output << "  \"control_prepare_scope\": \"capability_epsv_directory_ready\",\n";
+    output << "  \"transfer_complete_wait_seconds\": " << (stats.persistentData ? std::to_string(stats.completeWaitSeconds) : "null") << ",\n";
+    output << "  \"transfer_complete_wait_scope\": \"" << (std::string(direction) == "upload" ? "file_result_plus_control_final" : "control_final_only") << "\",\n";
+    output << "  \"wire_bytes_scope\": \"" << (stats.persistentData ? "application_frames_both_directions" : "legacy_payload_accounting") << "\",\n";
     output << "  \"planner_preset\": \"" << jsonEscape(options.plannerPreset) << "\",\n";
     output << "  \"checksum_algorithm\": \""
            << checksum::checksumAlgorithmName(options.checksumAlgorithm) << "\",\n";
@@ -2374,6 +2412,105 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
     return common::Status::ok();
 }
 
+bool persistentEligible(const config::TreeTransferOptions& options) {
+    return options.reuseDataSession && !options.resume && options.maxFiles == 0 &&
+        options.fileParallelism == 1 && options.connections == 1 &&
+        options.schedulerMode == config::TreeSchedulerMode::Off &&
+        options.compressionMode == config::CompressionMode::Off &&
+        options.checksumAlgorithm == checksum::ChecksumAlgorithm::None &&
+        options.dataTlsMode == DataTlsMode::Off;
+}
+
+common::Status tryPersistentDirectory(const config::TreeTransferOptions& options,
+    core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
+    bool upload, bool* used, ControlClient* connected = nullptr) {
+    *used = false;
+    if (!persistentEligible(options)) return common::Status::ok();
+    ControlClient own;
+    auto* control = connected ? connected : &own;
+    auto status = connected ? common::Status::ok() : ensureControlReadyWithStats(control, options, stats);
+    if (!status.isOk()) return status;
+    const auto started = std::chrono::steady_clock::now();
+    auto capability = control->negotiatePersistent();
+    if (!capability.isOk()) return capability.status();
+    if (!capability.value()) return common::Status::ok();
+    *used = true;  // No v1 retry after a supported V2 transaction starts.
+    stats->persistentData = true;
+    std::vector<PersistentFileIdentity> files;
+    if (upload) {
+        if (manifest->files.size() > UINT32_MAX)
+            return common::Status::invalidArgument("too many files for persistent directory");
+        for (const auto& file : manifest->files) {
+            const auto id = static_cast<std::uint32_t>(files.size() + 1);
+            files.push_back({id, id, file.size, file.relativePath, file.transferId,
+                             options.chunkSize, file.mtimeUnixSeconds});
+        }
+    } else {
+        std::error_code error;
+        if (std::filesystem::is_symlink(std::filesystem::symlink_status(options.destDir, error)))
+            return common::Status::invalidArgument("persistent local destination is a symlink");
+        error.clear();
+        std::filesystem::create_directories(options.destDir, error);
+        if (error) return common::Status::runtimeError("cannot create persistent local destination");
+        manifest->mode = core::tree::TreeTransferMode::Download;
+        manifest->rootLogicalPath = options.sourceDir;
+        manifest->checksumAlgorithm = checksum::ChecksumAlgorithm::None;
+        manifest->createdAtUnixNanos = checkpoint::nowUnixNanos();
+        status = saveManifest(manifest, manifestPath);
+        if (!status.isOk()) return status;
+    }
+    auto port = control->epsv();
+    if (!port.isOk()) return port.status();
+    status = control->startDirectory(upload, upload ? options.destDir : options.sourceDir);
+    stats->controlPrepareSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    if (!status.isOk()) return status;
+    auto data = connectFramedDataSocket(options.host.c_str(), port.value(), DataTlsMode::Off, options.tls);
+    if (!data.isOk()) return data.status();
+    stats->persistentDataConnectCount = 1;
+    PersistentTreeStats observed;
+    auto callback = [&](const PersistentFileIdentity& id, const common::Status& fileStatus, bool complete) {
+        if (!upload && !complete) {
+            if (id.fileId != manifest->files.size() + 1)
+                return common::Status::invalidArgument("nonsequential persistent file ID");
+            manifest->files.push_back({id.relativePath, id.totalSize, id.mtimeUnixSeconds,
+                id.transferId, core::tree::TreeFileStatus::Pending, ""});
+        }
+        if (id.fileId == 0 || id.fileId > manifest->files.size())
+            return common::Status::invalidArgument("unexpected persistent file ID");
+        auto& record = manifest->files[id.fileId - 1];
+        if (record.relativePath != id.relativePath || record.transferId != id.transferId)
+            return common::Status::invalidArgument("persistent tree manifest identity mismatch");
+        record.status = complete ? (fileStatus.isOk() ? core::tree::TreeFileStatus::Completed :
+            core::tree::TreeFileStatus::Failed) : core::tree::TreeFileStatus::Transferring;
+        record.error = fileStatus.isOk() ? "" : fileStatus.message();
+        if (complete && fileStatus.isOk()) stats->completedThisRun.fetch_add(1);
+        if (!complete) stats->dataTransferCount.fetch_add(1);
+        return saveManifest(manifest, manifestPath);
+    };
+    status = upload ? sendPersistentTree(&data.value(), options.sourceDir, files, &observed, callback)
+                    : receivePersistentTree(&data.value(), options.destDir, true, options.sourceDir, &observed, callback);
+    stats->transferredBytes = observed.bytes;
+    stats->wireBytes = observed.wireBytes;
+    stats->completeWaitSeconds = observed.completeWaitSeconds;
+    // Closing the data socket also releases a peer blocked after any partial V2 error.
+    data.value() = FramedDataSocket{};
+    const auto waiting = std::chrono::steady_clock::now();
+    auto finished = control->waitTransferComplete();
+    stats->completeWaitSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - waiting).count();
+    if (status.isOk()) status = finished;
+    if (!status.isOk()) {
+        for (auto& file : manifest->files) {
+            if (file.status == core::tree::TreeFileStatus::Transferring) {
+                file.status = core::tree::TreeFileStatus::Failed;
+                file.error = status.message();
+            }
+        }
+        auto saved = saveManifest(manifest, manifestPath);
+        if (!saved.isOk()) return saved;
+    }
+    return status;
+}
+
 }  // namespace
 
 common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
@@ -2392,7 +2529,8 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
             return common::Status::invalidArgument("tree upload manifest does not match request");
         }
     } else {
-        auto files = core::tree::scanLocalTree(options.sourceDir);
+        auto files = persistentEligible(options) ? scanPersistentTree(options.sourceDir)
+                                                 : core::tree::scanLocalTree(options.sourceDir);
         if (!files.isOk()) {
             return files.status();
         }
@@ -2411,6 +2549,14 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
             return saveStatus;
         }
     }
+
+    TreeRunStats persistentStats;
+    bool usedPersistent = false;
+    auto persistentStatus = tryPersistentDirectory(options, &manifest, manifestPath,
+        &persistentStats, true, &usedPersistent);
+    if (usedPersistent || !persistentStatus.isOk())
+        return emitTreeSummary("tree_upload_complete", "upload", persistentStatus, options,
+                               manifest, persistentStats, startedAt);
 
     const common::Status preflightStatus =
         preflightUploadResume(options, &manifest, manifestPath);
@@ -2440,6 +2586,13 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
     if (!readyStatus.isOk()) {
         return readyStatus;
     }
+
+    bool usedPersistent = false;
+    auto persistentStatus = tryPersistentDirectory(options, &manifest, manifestPath,
+        &stats, false, &usedPersistent, &control);
+    if (usedPersistent || !persistentStatus.isOk())
+        return emitTreeSummary("tree_download_complete", "download", persistentStatus, options,
+                               manifest, stats, startedAt);
 
     if (options.resume) {
         auto loaded = core::tree::loadTreeManifest(manifestPath);

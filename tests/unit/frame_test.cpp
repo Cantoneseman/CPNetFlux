@@ -4,6 +4,10 @@
 
 #include <cstdint>
 #include <vector>
+#include <thread>
+#include <sys/socket.h>
+#include <unistd.h>
+#include "cpnetflux/core/io/persistent_data_session.h"
 
 #include "cpnetflux/checksum/checksum.h"
 #include "cpnetflux/core/protocol/compressed_data.h"
@@ -307,4 +311,44 @@ TEST(SessionControlTest, RejectsInvalidControlPayloads) {
     EXPECT_FALSE(cpnetflux::core::protocol::decodeChunkCompletePayload(invalidChunkComplete.data(),
                                                                       invalidChunkComplete.size())
                      .isOk());
+}
+
+
+TEST(PersistentDataSessionTest, LoopbackCarriesTwoFilesOnOneSocket) {
+ int fds[2]; ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+ cpnetflux::core::io::FramedDataSocket tx{cpnetflux::core::io::UniqueFd(fds[0])};
+ cpnetflux::core::io::FramedDataSocket rx{cpnetflux::core::io::UniqueFd(fds[1])};
+ using namespace cpnetflux::core::io; using namespace cpnetflux::core::protocol;
+ PersistentFileIdentity a{1, 11, 3, "a", "first"}, b{2, 22, 2, "b", "second"};
+ ASSERT_TRUE(PersistentDataSession::setTimeout(&tx, 2).isOk());
+ ASSERT_TRUE(PersistentDataSession::setTimeout(&rx, 2).isOk());
+ std::jthread producer([&] { const std::uint8_t av[]={'a','b','c'}, bv[]={'x','y'};
+  EXPECT_TRUE(PersistentDataSession::writeBegin(&tx,a).isOk());
+  EXPECT_TRUE(PersistentDataSession::writeData(&tx,a,0,av,3).isOk());
+  EXPECT_TRUE(PersistentDataSession::writeEnd(&tx,a).isOk());
+  EXPECT_TRUE(PersistentDataSession::writeBegin(&tx,b).isOk());
+  EXPECT_TRUE(PersistentDataSession::writeData(&tx,b,0,bv,2).isOk());
+  EXPECT_TRUE(PersistentDataSession::writeEnd(&tx,b).isOk()); });
+ PersistentDataSession s; auto f=PersistentDataSession::readNext(&rx,PersistentDataSession::kMaxPayload); ASSERT_TRUE(f.isOk());
+ auto first=PersistentDataSession::decodeBegin(f.value()); ASSERT_TRUE(first.isOk());
+ ASSERT_TRUE(s.begin(f.value().header,first.value().relativePath).isOk());
+ f=PersistentDataSession::readNext(&rx,64); ASSERT_TRUE(f.isOk()); ASSERT_TRUE(s.data(f.value().header,f.value().payload.size()).isOk());
+ f=PersistentDataSession::readNext(&rx,64); ASSERT_TRUE(f.isOk()); ASSERT_TRUE(s.end(f.value().header).isOk());
+ f=PersistentDataSession::readNext(&rx,PersistentDataSession::kMaxPayload); ASSERT_TRUE(f.isOk());
+ auto second=PersistentDataSession::decodeBegin(f.value()); ASSERT_TRUE(second.isOk());
+ ASSERT_TRUE(s.begin(f.value().header,second.value().relativePath).isOk());
+ f=PersistentDataSession::readNext(&rx,64); ASSERT_TRUE(f.isOk()); ASSERT_TRUE(s.data(f.value().header,f.value().payload.size()).isOk());
+ f=PersistentDataSession::readNext(&rx,64); ASSERT_TRUE(f.isOk()); ASSERT_TRUE(s.end(f.value().header).isOk()); producer.join();
+}
+TEST(PersistentDataSessionTest, LoopbackRejectsDuplicateGenerationAndOversizedPayload) {
+ int fds[2]; ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+ cpnetflux::core::io::FramedDataSocket tx{cpnetflux::core::io::UniqueFd(fds[0])};
+ cpnetflux::core::io::FramedDataSocket rx{cpnetflux::core::io::UniqueFd(fds[1])};
+ using namespace cpnetflux::core::io; using namespace cpnetflux::core::protocol;
+ PersistentFileIdentity a{7,9,1,"x","third"}; ASSERT_TRUE(PersistentDataSession::writeBegin(&tx,a).isOk());
+ auto f=PersistentDataSession::readNext(&rx,PersistentDataSession::kMaxPayload); ASSERT_TRUE(f.isOk()); PersistentDataSession s;
+ ASSERT_TRUE(s.begin(f.value().header,"x").isOk()); EXPECT_FALSE(s.begin(f.value().header,"x").isOk());
+ const std::uint8_t v=1; ASSERT_TRUE(PersistentDataSession::writeData(&tx,a,0,&v,1).isOk());
+ f=PersistentDataSession::readNext(&rx,64); ASSERT_TRUE(f.isOk()); EXPECT_TRUE(s.data(f.value().header,1).isOk());
+ auto h=f.value().header; h.payloadSize=65; EXPECT_FALSE(validateFrameHeader(h,64).isOk());
 }

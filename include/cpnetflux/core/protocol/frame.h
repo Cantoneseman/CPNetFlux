@@ -25,6 +25,10 @@ enum class FrameType : std::uint16_t {
     SessionInit = 5,
     ResumeResponse = 6,
     ChunkComplete = 7,
+    FileBegin = 8,
+    FileEnd = 9,
+    FileResult = 10,
+    DirectoryEnd = 11,
 };
 
 enum class FrameStatusCode : std::uint32_t {

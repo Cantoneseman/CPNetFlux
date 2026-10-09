@@ -2,13 +2,13 @@
 
 - 决策日期：2026-10-09
 - 输入基线：`47b0ca2050288f4a0f2efec846535c5d130b3188`
-- 状态：目标已冻结；实现需按下述阶段推进。本文不是性能结果或 readiness 声明。
+- 状态：一期单通道双向运行切片已实现并通过 Release 回归；总体架构继续分阶段推进。本文不是跨域性能结果或 readiness 声明。
 
 ## 完整目标
 
 Transfer Engine v2 面向目录传输提供有界多文件任务队列，并允许同一条持久 TCP data session 顺序承载多个文件。每个文件必须有明确的 begin/data/end 生命周期和稳定的 `file_id`/generation（或等价、可验证的 framing 关联），文件级校验、manifest/checkpoint、提交和失败结果彼此隔离。任务队列必须有界并提供背压；一个文件失败不能把已提交文件回滚，也不能让下一文件误用前一文件的状态。单文件多流并发是后续阶段，不是本次首个切片的前置要求。
 
-现有逐文件 framed data session 作为 v1 fallback 保留。双方协商不支持 v2、参数不满足安全条件或 v2 session 失败时，客户端按现有逐文件 STOR/RETR 路径执行；不得改变默认传输、manifest/resume/checksum 语义或静默把 v1 数据解释成 v2。
+现有逐文件 framed data session 作为 v1 fallback 保留。双方协商不支持 v2 或参数不满足一期条件时，在发送 payload 前选择原逐文件 STOR/RETR 路径。已进入 v2 后的错误必须报告并保留 checkpoint，不能自动重新发送；用户显式 resume 时走 v1。不得把 v1 数据解释成 v2。
 
 ## 与旧目录 lookahead 的关系
 
@@ -40,3 +40,22 @@ Transfer Engine v2 面向目录传输提供有界多文件任务队列，并允�
 ## 停止条件
 
 若无法从 control plane 将每个 file_id 安全绑定到已授权规范路径，无法为每个文件维持独立 manifest/temp/commit owner，无法精确定义 session 关闭与失败恢复，或无法保持 v1 fallback 字节与行为兼容，则停止 v2 实现并修订契约；不以 lookahead、多个 control socket 或共享单文件 manifest 替代目标。
+
+## 2026-10-09 一期实现契约
+
+用户采用深圳根目录单人串行开发；任务 `DIR-V2-TRANSFER-ENGINE-01`，输入 `410f8a0` 加此前未提交的 framing 草稿。独立 worktree/迁移门已被最新 AGENTS 和云端决策取代。
+
+- 显式 `--data-session-reuse tree`，默认 `off`。仅 fresh、checksum none、compression off、scheduler off、一个 worker/一条数据流、无 max-files、data TLS off；其他客户端配置保留 v1。
+- 登录后 `XCPNETFLUX V2` 协商；服务端仅 POSIX、checksum none、data TLS off、默认 manifest flush、preallocate off、commit-sync none 返回 200，否则 504。未登录返回 530。
+- 一次 EPSV + `XDIR PUT/GET <relative-directory>`，150 后建立一条 TCP 数据连接。目录在 control root 下授权，拒绝父目录 symlink/逃逸。下载一次本机扫描，省去客户端逐文件 SIZE/MDTM。
+- 沿用 64-byte header，新 FILE_BEGIN/FILE_END/FILE_RESULT/DIRECTORY_END 仅用于协商后的路径。streamId=file_id、chunkId=generation，在连接内严格递增。DATA 校验身份、大小和连续偏移。元数据带 transfer_id/path/size/chunk size/秒级 mtime。
+- FILE_BEGIN 最多 8 KiB，DATA 最多 64 KiB；在途文件数 1。每个 FILE_END 后独立发布/checkpoint，返回同身份 FILE_RESULT。文件 IO/目标冲突排空到其 END，失败结果不影响后续文件；协议破损/断连关闭 session 并保留部分 checkpoint。
+- 30 秒读写空闲超时、TCP_NODELAY、header/payload 合并写。no-replace hard link 发布，保留原 upload/download manifest 和 chunk 完成范围。一期 commit-sync none，不声称断电耐久性。
+- 扫描只排除可解析且路径/临时文件归属匹配的内部 checkpoint，普通同名用户文件保留。双向中断 checkpoint 被旧恢复器读取；上传完成真实 v2 中断→v1 续传。
+- summary 新增实际 reuse mode、data connect count（v2 observed/v1 estimated）、control_prepare/transfer_complete_wait 及范围。前者为协商/EPSV/XDIR 准备；后者上传含逐文件结果+控制最终回复，下载客户端只测控制最终回复，不能当同一分解。v2 wire 是双向应用 frame，非 TCP/IP 线速计数。
+
+Release CMake 构建完成；CTest 222 项：221 pass、1 个 io_uring 环境测试 skipped、0 fail。128×1MiB 上传/下载各仅一条实际数据连接，独立 SHA-256、manifest、v1/fallback、错误隔离、空/嵌套文件、timeout/disconnect/replay 均有测试。日志与限制见任务记录；没有本版本的新跨域/GridFTP 性能结论。
+
+## 总体架构尚未交付部分
+
+固定总通道预算下的多文件并发、有界 pending/lookahead 队列、共享缓冲池和异步读写流水、v2 多流及校验/TLS/resume，均未由一期完成。后续先测一期跨域收益，再在稳定文件事务边界上增加有界调度；持久单连接不等于完整 Transfer Engine v2。

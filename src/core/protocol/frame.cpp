@@ -72,7 +72,11 @@ bool isKnownType(std::uint16_t type) noexcept {
            type == static_cast<std::uint16_t>(FrameType::Error) ||
            type == static_cast<std::uint16_t>(FrameType::SessionInit) ||
            type == static_cast<std::uint16_t>(FrameType::ResumeResponse) ||
-           type == static_cast<std::uint16_t>(FrameType::ChunkComplete);
+           type == static_cast<std::uint16_t>(FrameType::ChunkComplete) ||
+           type == static_cast<std::uint16_t>(FrameType::FileBegin) ||
+           type == static_cast<std::uint16_t>(FrameType::FileEnd) ||
+           type == static_cast<std::uint16_t>(FrameType::FileResult) ||
+           type == static_cast<std::uint16_t>(FrameType::DirectoryEnd);
 }
 
 bool isKnownStatus(std::uint32_t status) noexcept {
@@ -191,6 +195,31 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
     }
     if (header.payloadSize > maxPayloadSize) {
         return common::Status::invalidArgument("frame payload exceeds buffer size");
+    }
+    if (header.type == FrameType::FileBegin) {
+        if (header.flags != 0 || header.statusCode != FrameStatusCode::Ok || header.payloadSize == 0 ||
+            header.streamId == 0 || header.chunkId == 0 || header.offset != 0)
+            return common::Status::invalidArgument("FILE_BEGIN header is invalid");
+        return common::Status::ok();
+    }
+    if (header.type == FrameType::FileEnd) {
+        if (header.flags != 0 || header.statusCode != FrameStatusCode::Ok || header.payloadSize != 0 ||
+            header.streamId == 0 || header.chunkId == 0 || header.offset != header.totalSize)
+            return common::Status::invalidArgument("FILE_END header is invalid");
+        return common::Status::ok();
+    }
+    if (header.type == FrameType::FileResult) {
+        if (header.flags != 0 || header.payloadSize != 0 || header.streamId == 0 || header.chunkId == 0 ||
+            header.offset != 0 ||
+            !isKnownStatus(static_cast<std::uint32_t>(header.statusCode)))
+            return common::Status::invalidArgument("FILE_RESULT header is invalid");
+        return common::Status::ok();
+    }
+    if (header.type == FrameType::DirectoryEnd) {
+        if (header.flags != 0 || header.payloadSize != 0 || header.streamId != 0 ||
+            header.chunkId != 0 || header.offset != 0 || header.statusCode != FrameStatusCode::Ok)
+            return common::Status::invalidArgument("DIRECTORY_END header is invalid");
+        return common::Status::ok();
     }
     if (header.type == FrameType::Complete) {
         if (header.flags != 0) {

@@ -26,6 +26,9 @@
 #include "cpnetflux/config/file_transfer_options.h"
 #include "cpnetflux/core/io/file_download_sender.h"
 #include "cpnetflux/core/io/file_transfer_server.h"
+#include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/tree/tree_scan.h"
+#include "cpnetflux/core/session/transfer_session_config.h"
 #include "cpnetflux/core/metrics/event_log.h"
 #include "cpnetflux/core/io/socket_utils.h"
 #include "cpnetflux/core/io/tls_socket.h"
@@ -611,6 +614,64 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
                     formatReply(226, "Transfer complete transfer_id=GFID:" + transferId));
 }
 
+common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlSession* session,
+    PassiveListener* passive, const ControlServerOptions& options, bool upload,
+    const std::string& requested) {
+    namespace fs = std::filesystem;
+    auto root = resolveControlPath(options.root, "/", "", ControlPathKind::ExistingDirectory, "XDIR");
+    auto logical = resolveVirtualPath(session->workingDirectory(), requested, false);
+    if (!root.isOk() || !logical.isOk() || requested.find(char(0)) != std::string::npos) {
+        return sendLine(control, formatReply(550, "Invalid XDIR path"));
+    }
+    fs::path destination(root.value().fullPath);
+    std::error_code error;
+    if (logical.value() != "/") {
+        for (const auto& part : fs::path(logical.value().substr(1))) {
+            destination /= part;
+            auto info = fs::symlink_status(destination, error);
+            if (upload && info.type() == fs::file_type::not_found) {
+                error.clear();
+                fs::create_directory(destination, error);
+            } else if (!fs::is_directory(info) || fs::is_symlink(info)) {
+                return sendLine(control, formatReply(550, "XDIR path is not a safe directory"));
+            }
+            if (error) return sendLine(control, formatReply(550, "Cannot prepare XDIR directory"));
+        }
+    }
+    if (!passive->fd.isValid() || !session->passiveReady())
+        return sendLine(control, formatReply(425, "Use EPSV before XDIR"));
+    std::vector<core::io::PersistentFileIdentity> files;
+    if (!upload) {
+        auto scanned = core::io::scanPersistentTree(destination.string());
+        if (!scanned.isOk()) return sendLine(control, formatReply(550, scanned.status().message()));
+        if (scanned.value().size() > UINT32_MAX)
+            return sendLine(control, formatReply(550, "Too many files for XDIR"));
+        for (const auto& file : scanned.value()) {
+            const auto id = static_cast<std::uint32_t>(files.size() + 1);
+            files.push_back({id, id, file.size, file.relativePath, generateTransferId(),
+                             options.chunkSize, file.mtimeUnixSeconds});
+        }
+    }
+    auto status = sendLine(control, formatReply(150, "CPNetFlux persistent directory ready"));
+    if (!status.isOk()) return status;
+    pollfd descriptor{passive->fd.get(), POLLIN, 0};
+    int ready;
+    do { ready = ::poll(&descriptor, 1, 30000); } while (ready < 0 && errno == EINTR);
+    if (ready <= 0 || !(descriptor.revents & POLLIN)) {
+        passive->fd.reset();
+        session->clearPassiveReady();
+        return sendLine(control, formatReply(425, "Persistent data accept timed out"));
+    }
+    core::io::FramedDataSocket data(core::io::UniqueFd(::accept4(passive->fd.get(), nullptr, nullptr, SOCK_CLOEXEC)));
+    passive->fd.reset();
+    session->clearPassiveReady();
+    core::io::PersistentTreeStats stats;
+    status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats)
+                    : core::io::sendPersistentTree(&data, destination.string(), files, &stats);
+    return sendLine(control, formatReply(status.isOk() ? 226 : 550,
+        status.isOk() ? "Persistent directory complete" : status.message()));
+}
+
 void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions options,
                              EventLoggerPtr logger,
                              std::shared_ptr<core::io::TlsServerContext> tlsContext) {
@@ -635,6 +696,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     ControlSession session(options.auth, options.connections);
     PassiveListener passive;
     std::string inputBuffer;
+    bool persistentNegotiated = false;
 
     if (!sendLine(&control, formatReply(220, "CPNetFlux GridFTP control ready")).isOk()) {
         return;
@@ -646,6 +708,33 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             return;
         }
 
+        if (line.value() == "XCPNETFLUX V2" || line.value().starts_with("XDIR ")) {
+            if (!session.authenticated()) {
+                (void)sendLine(&control, formatReply(530, "Authenticate before persistent directory commands"));
+                continue;
+            }
+            if (line.value() == "XCPNETFLUX V2") {
+                persistentNegotiated = options.checksumAlgorithm == checksum::ChecksumAlgorithm::None &&
+                    options.dataTlsMode == core::io::DataTlsMode::Off &&
+                    options.fileIo.backend == storage::FileIoBackendKind::Posix &&
+                    options.commitSyncPolicy == core::session::CommitSyncPolicy::None &&
+                    options.preallocateMode == storage::PreallocateMode::Off &&
+                    options.manifestFlushPolicy == core::session::ManifestFlushPolicy::EveryNChunks &&
+                    options.manifestFlushIntervalChunks == core::session::kDefaultManifestFlushIntervalChunks;
+                (void)sendLine(&control, formatReply(persistentNegotiated ? 200 : 504,
+                    persistentNegotiated ? "CPNetFlux V2 file-transactions/1" : "Unsupported V2 configuration"));
+                continue;
+            }
+            if (!persistentNegotiated || session.connections() != 1 ||
+                (!line.value().starts_with("XDIR PUT ") && !line.value().starts_with("XDIR GET "))) {
+                (void)sendLine(&control, formatReply(504, "Negotiate V2 with one connection before XDIR"));
+                continue;
+            }
+            auto status = runPersistentDirectory(&control, &session, &passive, options,
+                line.value().starts_with("XDIR PUT "), line.value().substr(9));
+            if (!status.isOk()) return;
+            continue;
+        }
         auto command = parseControlCommand(line.value());
         if (!command.isOk()) {
             emitControlEvent(logger, "command_failed", "", "", "", command.status());

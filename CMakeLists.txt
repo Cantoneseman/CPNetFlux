@@ -102,6 +102,8 @@ add_library(cpnetflux_core STATIC
     src/core/io/file_transfer_client.cpp
     src/core/io/file_transfer_server.cpp
     src/core/io/framed_data_socket.cpp
+    src/core/io/persistent_data_session.cpp
+    src/core/io/persistent_tree_transfer.cpp
     src/core/io/socket_utils.cpp
     src/core/io/tcp_sink_client.cpp
     src/core/io/tcp_sink_server.cpp
@@ -299,6 +301,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/file_io_test.cpp
         tests/unit/file_transfer_options_test.cpp
         tests/unit/frame_test.cpp
+        tests/unit/persistent_data_session_test.cpp
         tests/unit/hot_path_compression_test.cpp
         tests/unit/manifest_store_test.cpp
         tests/unit/posix_file_test.cpp
@@ -399,6 +402,10 @@ if(CPNETFLUX_BUILD_TESTS)
     add_test(
         NAME cpnetflux_tree_parallel_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_parallel_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    add_test(
+        NAME cpnetflux_tree_data_reuse_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_data_reuse_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     add_test(
         NAME cpnetflux_tree_control_reuse_smoke
