@@ -103,6 +103,8 @@
 
 ## 当前窄任务：R2026-10-09.1
 
-DIR-ASYNC-CONTROL-03 / v2：in_progress。用户明确将当前工作收窄为目录控制连接池+有界pending。输入 d362ea2360bf0cbfe3626a9c93734368a74ec0b6，隔离分支 codex/DIR-ASYNC-CONTROL-03。旧迁移暂停门对本任务的限制和旧单槽设计已 superseded；不宣称迁移验收完成。
+DIR-ASYNC-CONTROL-03 / v2：代码/loopback已通过，短实验待用户手动执行；性能验收仍blocked。用户明确将当前工作收窄为目录控制连接池+有界pending。输入 d362ea2360bf0cbfe3626a9c93734368a74ec0b6，隔离分支 codex/DIR-ASYNC-CONTROL-03。旧迁移暂停门对本任务的限制和旧单槽设计已 superseded；不宣称迁移验收完成。
 
 00实现C++与提交；02既有聊天编写30-case短实验脚本；04既有聊天编写并执行独立loopback。三个角色独占文件，不并发操作index。01/03/05本轮不新增派单。构建/测试后提交push，短实验留给用户手动运行；性能未验收，不扩大矩阵。任务契约见 ../tasks/2026-10-08-dir-async-control-03.md。
+
+2026-10-09收口：代码阶段459d8eb已push并回读；197单元pass/1 io_uring skip、9目录CTest pass、双向真实控制重叠与reject/disconnect/30s timeout通过。37项Python门禁及30-case dry-run通过。详见../tasks/2026-10-09-dir-async-control-03-result.md；短实验说明../../tools/experiments/gridftp_compare/ASYNC_CONTROL_SHORT.md。尚无新的WAN收益结论，禁止扩大矩阵。

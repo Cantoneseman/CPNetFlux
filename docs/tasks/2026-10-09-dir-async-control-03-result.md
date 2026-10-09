@@ -2,7 +2,7 @@
 
 日期：2026-10-09；路线 R2026-10-09.1 / v2。输入提交 d362ea2360bf0cbfe3626a9c93734368a74ec0b6。
 隔离分支 codex/DIR-ASYNC-CONTROL-03，源码 /tmp/cpnetflux-runs/DIR-ASYNC-CONTROL-03/src。
-状态：代码门通过；短脚本待最终门禁；跨域性能未验收。没有启动深圳—上海实验，没有扩大矩阵。
+状态：代码门通过；短脚本离线门禁通过；跨域性能未验收。没有启动深圳—上海实验，没有扩大矩阵。
 
 ## 改动与边界
 - depth=N 现在使用 N+1 条独立控制连接，1 个当前文件加至多 N 个 pending；支持 0/1/2/4。file_parallelism 的数据并发上限不变。
@@ -44,3 +44,8 @@ qa-recovered-output.json 是从既有04会话实际命令输出回收的 JSON，
 短实验固定 128×1MiB、fp1/n1、双向、各3次：CPNetFlux depth0/1/2/4 加真实 GridFTP，共30项。只由用户手动启动；运行前检查两端预算、构建提交及对端二进制 hash。新脚本取代旧宽矩阵入口。
 报告区分 runner wall/128 摊销耗时、客户端阶段累计秒数和 GridFTP 吞吐比。数据齐备不等于性能通过。未观察到每文件摊销耗时下降前，不扩大矩阵；90% GridFTP 是后续目标，当前不宣称达到。
 提交后的完整 SHA、源码 archive SHA-256 和 GitHub 远端 SHA 回读保存到外部 evidence/release.json，并在总指挥最终答复给出；仅本地 commit 不能称为已推送。
+
+## 短脚本门禁与提交
+代码阶段提交 459d8ebf3e7834a53e39a6d93901e032f4fbbc3d 已推送且GitHub远端SHA回读一致。
+37项Python测试通过；bash -n与diff --check通过。真实runner dry-run形成12+6+6+6=30项，比较器对dry-run正确返回2（INCOMPLETE）。独立离线shell模拟替换SSH/scp/build，完整执行脚本生成30行合成报告，验证变量、部署hash流和最终产物；这不是网络或性能验收。证据见evidence/python-final.log、dry-run/、shell-offline.log、shell_offline_check.py。
+短模式不启动额外iperf，固定明文数据通道与独立匿名GridFTP，避免GSI隐私与明文混比。使用说明见../../tools/experiments/gridftp_compare/ASYNC_CONTROL_SHORT.md。原始WAN数值仍未产生，下一步由用户手动运行。
