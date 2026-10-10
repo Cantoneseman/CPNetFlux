@@ -94,6 +94,7 @@ add_library(cpnetflux_core STATIC
     src/config/tree_transfer_options.cpp
     src/config/sink_options.cpp
     src/core/chunk/chunk_planner.cpp
+    src/core/chunk/range_planner.cpp
     src/core/chunk/range_list.cpp
     src/core/chunk/transfer_progress.cpp
     src/core/io/connection_context.cpp
@@ -304,6 +305,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/file_io_test.cpp
         tests/unit/file_transfer_options_test.cpp
         tests/unit/frame_test.cpp
+        tests/unit/range_planner_test.cpp
         tests/unit/persistent_data_session_test.cpp
         tests/unit/dynamic_file_queue_test.cpp
         tests/unit/hot_path_compression_test.cpp

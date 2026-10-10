@@ -44,6 +44,8 @@ using PersistentFileCallback = std::function<common::Status(
     const PersistentFileIdentity&, const common::Status&, bool complete)>;
 
 [[nodiscard]] common::Result<std::vector<tree::TreeFileInfo>> scanPersistentTree(const std::string& root);
+[[nodiscard]] common::Result<std::vector<PersistentFileIdentity>> expandPersistentFileRanges(
+    const std::vector<PersistentFileIdentity>& files, std::uint32_t channelCount);
 
 [[nodiscard]] common::Status sendPersistentTree(FramedDataSocket* socket,
     const std::string& root, const std::vector<PersistentFileIdentity>& files,

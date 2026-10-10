@@ -23,7 +23,13 @@ class PersistentDirectoryBatch {
     void cancel(const common::Status& status);
  private:
     struct Channel { bool attached = false, ready = false, done = false; int control = -1, data = -1; };
-    struct File { PersistentFileIdentity id; std::uint32_t owner; bool done = false; };
+    struct File {
+        PersistentFileIdentity id;
+        std::uint32_t owner;
+        std::uint64_t rangeCount = 0;
+        std::unordered_set<std::uint64_t> ranges;
+        bool done = false;
+    };
     common::Status wait(bool finishing, std::chrono::milliseconds timeout);
     void failLocked(const common::Status& status);
     void checkControlsLocked();

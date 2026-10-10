@@ -36,31 +36,70 @@ bool PersistentDataSession::safeRelativePath(const std::string& path) noexcept {
 common::Status PersistentDataSession::begin(const protocol::FrameHeader& header,
                                              const std::string& relativePath,
                                              checksum::ChecksumAlgorithm checksumAlgorithm) {
+    if (header.rangeId != 0) {
+        return common::Status::invalidArgument("range FILE_BEGIN requires complete identity metadata");
+    }
+    PersistentFileIdentity identity;
+    identity.fileId = header.streamId;
+    identity.generation = header.chunkId;
+    identity.totalSize = header.totalSize;
+    identity.relativePath = relativePath;
+    identity.checksumAlgorithm = checksumAlgorithm;
+    return begin(header, identity);
+}
+
+common::Status PersistentDataSession::begin(const protocol::FrameHeader& header,
+                                             const PersistentFileIdentity& identity) {
     if (active_) {
         return common::Status::runtimeError("persistent file already active");
     }
     const common::Status valid = protocol::validateFrameHeader(header, kMaxPayload);
+    const std::uint64_t rangeEnd = identity.rangeId == 0 ? identity.totalSize :
+        identity.rangeOffset + identity.rangeLength;
     if (!valid.isOk() || header.type != protocol::FrameType::FileBegin ||
-        header.streamId == 0 || header.chunkId == 0 ||
-        (unordered_ ? (seenFiles_.contains(header.streamId) || seenGenerations_.contains(header.chunkId)) :
-            (header.streamId <= lastFileId_ || header.chunkId <= lastGeneration_)) ||
-        header.offset != 0 || !safeRelativePath(relativePath)) {
+        header.streamId != identity.fileId || header.chunkId != identity.generation ||
+        header.rangeId != identity.rangeId || header.attempt != identity.attempt ||
+        header.totalSize != identity.totalSize ||
+        identity.fileId == 0 || identity.generation == 0 || identity.chunkSize == 0 ||
+        identity.totalSize > static_cast<std::uint64_t>(INT64_MAX) ||
+        (identity.checksumAlgorithm != checksum::ChecksumAlgorithm::None &&
+         identity.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c) ||
+        identity.rangeId != 0 && (identity.rangeLength == 0 || identity.rangeCount == 0 ||
+                                  identity.rangeId > identity.rangeCount ||
+                                  identity.rangeOffset > identity.totalSize ||
+                                  identity.rangeLength > identity.totalSize - identity.rangeOffset) ||
+        identity.rangeId == 0 && (identity.rangeOffset != 0 || identity.rangeLength != 0 ||
+                                  identity.rangeCount != 0) ||
+        rangeEnd > identity.totalSize || !safeRelativePath(identity.relativePath) ||
+        (identity.rangeId == 0 &&
+         (unordered_ ? (seenFiles_.contains(header.streamId) || seenGenerations_.contains(header.chunkId)) :
+          (header.streamId <= lastFileId_ || header.chunkId <= lastGeneration_)))) {
         return common::Status::invalidArgument("invalid FILE_BEGIN identity or path");
     }
-    current_ = PersistentFileIdentity{header.streamId, header.chunkId, header.totalSize,
-                                      relativePath, {}, 1048576, 0, checksumAlgorithm, {}};
-    checksumAlgorithm_ = checksumAlgorithm;
-    checksumComputer_ = checksum::ChecksumComputer(checksumAlgorithm);
-    receivedBytes_ = 0;
+    if (identity.rangeId != 0) {
+        const std::string key = std::to_string(identity.fileId) + ":" +
+            std::to_string(identity.generation) + ":" + std::to_string(identity.rangeId) + ":" +
+            std::to_string(identity.attempt);
+        if (!seenRangeIdentities_.insert(key).second) {
+            return common::Status::invalidArgument("duplicate persistent range identity");
+        }
+    } else {
+        seenFiles_.insert(header.streamId);
+        seenGenerations_.insert(header.chunkId);
+    }
+    current_ = identity;
+    checksumAlgorithm_ = identity.checksumAlgorithm;
+    checksumComputer_ = checksum::ChecksumComputer(checksumAlgorithm_);
+    receivedBytes_ = identity.rangeId == 0 ? 0 : identity.rangeOffset;
     active_ = true;
-    lastFileId_ = header.streamId;
-    lastGeneration_ = header.chunkId;
-    if (unordered_) { seenFiles_.insert(header.streamId); seenGenerations_.insert(header.chunkId); }
+    lastFileId_ = std::max(lastFileId_, header.streamId);
+    lastGeneration_ = std::max(lastGeneration_, header.chunkId);
     return common::Status::ok();
 }
 
 common::Status PersistentDataSession::match(const protocol::FrameHeader& header) const {
     if (!active_ || header.streamId != current_.fileId || header.chunkId != current_.generation ||
+        header.rangeId != current_.rangeId || header.attempt != current_.attempt ||
         header.totalSize != current_.totalSize) {
         return common::Status::invalidArgument("persistent file identity mismatch");
     }
@@ -74,11 +113,13 @@ common::Status PersistentDataSession::data(const protocol::FrameHeader& header,
     if (!identity.isOk()) {
         return identity;
     }
+    const std::uint64_t rangeEnd = current_.rangeId == 0 ? current_.totalSize :
+        current_.rangeOffset + current_.rangeLength;
     if (!protocol::validateFrameHeader(header, kMaxPayload).isOk() ||
         header.type != protocol::FrameType::Data || header.flags != 0 ||
         header.statusCode != protocol::FrameStatusCode::Ok ||
         header.offset != receivedBytes_ || logicalBytes == 0 || logicalBytes != header.payloadSize ||
-        receivedBytes_ > current_.totalSize || logicalBytes > current_.totalSize - receivedBytes_) {
+        receivedBytes_ > rangeEnd || logicalBytes > rangeEnd - receivedBytes_) {
         return common::Status::invalidArgument("persistent DATA exceeds file boundary");
     }
     receivedBytes_ += logicalBytes;
@@ -94,22 +135,28 @@ common::Result<PersistentFileIdentity> PersistentDataSession::end(
     if (!identity.isOk()) {
         return identity;
     }
-    if (!protocol::validateFrameHeader(header, 4).isOk() ||
-        header.type != protocol::FrameType::FileEnd || header.offset != current_.totalSize ||
-        receivedBytes_ != current_.totalSize) {
+    const std::uint64_t rangeEnd = current_.rangeId == 0 ? current_.totalSize :
+        current_.rangeOffset + current_.rangeLength;
+    const bool skipped = (header.flags & protocol::kRangeSkipped) != 0;
+    if (!protocol::validateFrameHeader(header, 4).isOk() || header.type != protocol::FrameType::FileEnd ||
+        header.offset != rangeEnd || (!skipped && receivedBytes_ != rangeEnd) ||
+        (skipped && (digestSize != 0 || receivedBytes_ != current_.rangeOffset))) {
         return common::Status::invalidArgument("persistent FILE_END is incomplete");
     }
-    const auto expected = checksumComputer_.finalize();
-    if (checksumAlgorithm_ != checksum::ChecksumAlgorithm::None) {
-        if (digest == nullptr || digestSize != sizeof(std::uint32_t))
-            return common::Status::invalidArgument("persistent FILE_END checksum missing");
-        const std::uint32_t actual = (static_cast<std::uint32_t>(digest[0]) << 24U) |
-            (static_cast<std::uint32_t>(digest[1]) << 16U) |
-            (static_cast<std::uint32_t>(digest[2]) << 8U) | digest[3];
-        if (actual != expected.value)
-            return common::Status::invalidArgument("persistent FILE_END checksum mismatch");
-    } else if (digestSize != 0) {
-        return common::Status::invalidArgument("persistent FILE_END has unexpected checksum");
+    checksum::ChecksumValue expected{};
+    if (!skipped) {
+        expected = checksumComputer_.finalize();
+        if (checksumAlgorithm_ != checksum::ChecksumAlgorithm::None) {
+            if (digest == nullptr || digestSize != sizeof(std::uint32_t))
+                return common::Status::invalidArgument("persistent FILE_END checksum missing");
+            const std::uint32_t actual = (static_cast<std::uint32_t>(digest[0]) << 24U) |
+                (static_cast<std::uint32_t>(digest[1]) << 16U) |
+                (static_cast<std::uint32_t>(digest[2]) << 8U) | digest[3];
+            if (actual != expected.value)
+                return common::Status::invalidArgument("persistent FILE_END checksum mismatch");
+        } else if (digestSize != 0) {
+            return common::Status::invalidArgument("persistent FILE_END has unexpected checksum");
+        }
     }
     PersistentFileIdentity completed = current_;
     completed.checksum = expected;
@@ -186,6 +233,8 @@ common::Status PersistentDataSession::writeBegin(FramedDataSocket* socket,
     header.type = protocol::FrameType::FileBegin;
     header.streamId = identity.fileId;
     header.chunkId = identity.generation;
+    header.rangeId = identity.rangeId;
+    header.attempt = identity.attempt;
     header.totalSize = identity.totalSize;
     protocol::SessionInitPayload metadata;
     metadata.transferId = identity.transferId;
@@ -193,6 +242,11 @@ common::Status PersistentDataSession::writeBegin(FramedDataSocket* socket,
     metadata.chunkSize = identity.chunkSize;
     metadata.checksumAlgorithm = identity.checksumAlgorithm;
     metadata.sourcePath = identity.relativePath;
+    metadata.rangeId = identity.rangeId;
+    metadata.rangeOffset = identity.rangeOffset;
+    metadata.rangeLength = identity.rangeLength;
+    metadata.rangeCount = identity.rangeCount;
+    metadata.attempt = identity.attempt;
     auto encoded = protocol::encodeSessionInitPayload(metadata);
     if (!encoded.isOk()) return encoded.status();
     auto bytes = std::move(encoded.value());
@@ -210,13 +264,18 @@ common::Status PersistentDataSession::writeData(FramedDataSocket* socket,
                                                  std::size_t length) {
     if (identity.fileId == 0 || identity.generation == 0 || (payload == nullptr && length != 0) ||
         length == 0 || length > kMaxPayload ||
-        offset > identity.totalSize || length > identity.totalSize - offset) {
+        (identity.rangeId != 0 && (identity.rangeLength == 0 || offset < identity.rangeOffset ||
+            offset > identity.rangeOffset + identity.rangeLength ||
+            length > identity.rangeOffset + identity.rangeLength - offset)) ||
+        (identity.rangeId == 0 && (offset > identity.totalSize || length > identity.totalSize - offset))) {
         return common::Status::invalidArgument("invalid persistent data range");
     }
     protocol::FrameHeader header;
     header.type = protocol::FrameType::Data;
     header.streamId = identity.fileId;
     header.chunkId = identity.generation;
+    header.rangeId = identity.rangeId;
+    header.attempt = identity.attempt;
     header.offset = offset;
     header.totalSize = identity.totalSize;
     return writeFrame(socket, header, payload, length);
@@ -224,18 +283,27 @@ common::Status PersistentDataSession::writeData(FramedDataSocket* socket,
 
 common::Status PersistentDataSession::writeEnd(FramedDataSocket* socket,
                                                 const PersistentFileIdentity& identity,
-                                                checksum::ChecksumValue checksum) {
-    if (checksum.algorithm != identity.checksumAlgorithm)
+                                                checksum::ChecksumValue checksum, bool skipped) {
+    const std::uint64_t rangeEnd = identity.rangeId == 0 ? identity.totalSize :
+        identity.rangeOffset + identity.rangeLength;
+    if (skipped) {
+        if (identity.rangeId == 0 || checksum.algorithm != checksum::ChecksumAlgorithm::None)
+            return common::Status::invalidArgument("only a range can be skipped");
+    } else if (checksum.algorithm != identity.checksumAlgorithm) {
         return common::Status::invalidArgument("persistent FILE_END checksum algorithm mismatch");
+    }
     protocol::FrameHeader header;
     header.type = protocol::FrameType::FileEnd;
     header.streamId = identity.fileId;
     header.chunkId = identity.generation;
+    header.rangeId = identity.rangeId;
+    header.attempt = identity.attempt;
     header.totalSize = identity.totalSize;
-    header.offset = identity.totalSize;
+    header.offset = rangeEnd;
+    if (skipped) header.flags = protocol::kRangeSkipped;
     std::uint8_t digest[4]{};
     std::size_t digestSize = 0;
-    if (checksum.algorithm != checksum::ChecksumAlgorithm::None) {
+    if (!skipped && checksum.algorithm != checksum::ChecksumAlgorithm::None) {
         digest[0] = static_cast<std::uint8_t>(checksum.value >> 24U);
         digest[1] = static_cast<std::uint8_t>(checksum.value >> 16U);
         digest[2] = static_cast<std::uint8_t>(checksum.value >> 8U);
@@ -245,6 +313,40 @@ common::Status PersistentDataSession::writeEnd(FramedDataSocket* socket,
     return writeFrame(socket, header, digest, digestSize);
 }
 
+common::Status PersistentDataSession::writeResumeResponse(
+    FramedDataSocket* socket, const PersistentFileIdentity& identity,
+    const std::vector<core::chunk::CompletedRange>& missingRanges) {
+    protocol::ResumeResponsePayload payload;
+    payload.statusCode = protocol::FrameStatusCode::Ok;
+    payload.missingRanges = missingRanges;
+    auto encoded = protocol::encodeResumeResponsePayload(payload);
+    if (!encoded.isOk()) return encoded.status();
+    protocol::FrameHeader header;
+    header.type = protocol::FrameType::ResumeResponse;
+    header.streamId = identity.fileId;
+    header.chunkId = identity.generation;
+    header.rangeId = identity.rangeId;
+    header.attempt = identity.attempt;
+    header.totalSize = identity.totalSize;
+    return writeFrame(socket, header, encoded.value().data(), encoded.value().size());
+}
+
+common::Result<protocol::ResumeResponsePayload> PersistentDataSession::readResumeResponse(
+    FramedDataSocket* socket, const PersistentFileIdentity& identity) {
+    auto frame = readNext(socket, kMaxPayload);
+    if (!frame.isOk()) return frame.status();
+    const auto& header = frame.value().header;
+    if (header.type != protocol::FrameType::ResumeResponse || header.streamId != identity.fileId ||
+        header.chunkId != identity.generation || header.rangeId != identity.rangeId ||
+        header.attempt != identity.attempt || header.totalSize != identity.totalSize)
+        return common::Status::invalidArgument("persistent range resume identity mismatch: " +
+            std::to_string(header.streamId) + ":" + std::to_string(header.chunkId) + ":" +
+            std::to_string(header.rangeId) + ":" + std::to_string(header.totalSize) + " expected " +
+            std::to_string(identity.fileId) + ":" + std::to_string(identity.generation) + ":" +
+            std::to_string(identity.rangeId) + ":" + std::to_string(identity.totalSize));
+    return protocol::decodeResumeResponsePayload(frame.value().payload.data(), frame.value().payload.size());
+}
+
 common::Status PersistentDataSession::writeResult(FramedDataSocket* socket,
                                                    const PersistentFileIdentity& identity,
                                                    protocol::FrameStatusCode statusCode) {
@@ -252,6 +354,8 @@ common::Status PersistentDataSession::writeResult(FramedDataSocket* socket,
     header.type = protocol::FrameType::FileResult;
     header.streamId = identity.fileId;
     header.chunkId = identity.generation;
+    header.rangeId = identity.rangeId;
+    header.attempt = identity.attempt;
     header.totalSize = identity.totalSize;
     header.statusCode = statusCode;
     return writeFrame(socket, header, nullptr, 0);
@@ -282,7 +386,9 @@ common::Result<PersistentFileIdentity> PersistentDataSession::decodeBegin(const 
     const auto& m = metadata.value();
     if (m.mode != protocol::SessionMode::New ||
         m.totalSize != frame.header.totalSize || m.totalSize > static_cast<std::uint64_t>(INT64_MAX) ||
-        !safeRelativePath(m.sourcePath) || !checkpoint::isValidTransferId(m.transferId) || m.transferId.size() > 128)
+        m.rangeId != frame.header.rangeId || m.attempt != frame.header.attempt ||
+        !safeRelativePath(m.sourcePath) ||
+        !checkpoint::isValidTransferId(m.transferId) || m.transferId.size() > 128)
         return common::Status::invalidArgument("unsupported FILE_BEGIN metadata");
     std::uint64_t mtime = 0;
     for (std::size_t i = frame.payload.size() - 8; i < frame.payload.size(); ++i)
@@ -291,7 +397,8 @@ common::Result<PersistentFileIdentity> PersistentDataSession::decodeBegin(const 
         return common::Status::invalidArgument("invalid persistent mtime");
     return PersistentFileIdentity{frame.header.streamId, frame.header.chunkId, m.totalSize,
                                   m.sourcePath, m.transferId, m.chunkSize, static_cast<std::int64_t>(mtime),
-                                  m.checksumAlgorithm, {}};
+                                  m.checksumAlgorithm, {}, m.rangeId, m.rangeOffset, m.rangeLength,
+                                  m.rangeCount, m.attempt};
 }
 
 common::Result<protocol::FrameStatusCode> PersistentDataSession::readResult(
@@ -300,7 +407,8 @@ common::Result<protocol::FrameStatusCode> PersistentDataSession::readResult(
     if (!frame.isOk()) return frame.status();
     const auto& h = frame.value().header;
     if (h.type != protocol::FrameType::FileResult || h.streamId != identity.fileId ||
-        h.chunkId != identity.generation || h.totalSize != identity.totalSize)
+        h.chunkId != identity.generation || h.rangeId != identity.rangeId ||
+        h.attempt != identity.attempt || h.totalSize != identity.totalSize)
         return common::Status::invalidArgument("FILE_RESULT identity mismatch");
     return h.statusCode;
 }

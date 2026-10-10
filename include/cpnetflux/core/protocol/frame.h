@@ -16,6 +16,7 @@ inline constexpr std::uint32_t kFrameMagic = 0x47465831U;
 inline constexpr std::uint16_t kFrameVersion = 1;
 inline constexpr std::uint16_t kFrameHeaderSize = 64;
 inline constexpr std::uint16_t kDataCompressed = 0x0001U;
+inline constexpr std::uint16_t kRangeSkipped = 0x0002U;
 
 enum class FrameType : std::uint16_t {
     Data = 1,
@@ -56,6 +57,8 @@ struct FrameHeader {
     std::uint64_t chunkId = 0;
     std::uint64_t offset = 0;
     std::uint32_t payloadSize = 0;
+    std::uint64_t rangeId = 0;
+    std::uint64_t attempt = 0;
     FrameStatusCode statusCode = FrameStatusCode::Ok;
     std::uint64_t totalSize = 0;
 };
@@ -72,6 +75,11 @@ struct SessionInitPayload {
     std::uint64_t chunkSize = 0;
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;
     std::string sourcePath;
+    std::uint64_t rangeId = 0;
+    std::uint64_t rangeOffset = 0;
+    std::uint64_t rangeLength = 0;
+    std::uint64_t rangeCount = 0;
+    std::uint64_t attempt = 0;
 };
 
 struct ResumeResponsePayload {
@@ -84,6 +92,10 @@ struct ChunkCompletePayload {
     std::uint64_t offset = 0;
     std::uint64_t length = 0;
     checksum::ChecksumValue checksum;
+    // rangeId/attempt are the canonical identity for V3 callers. A zero rangeId
+    // keeps the 32-byte V1 payload compatible with older peers.
+    std::uint64_t rangeId = 0;
+    std::uint64_t attempt = 0;
 };
 
 using EncodedFrameHeader = std::array<std::uint8_t, kFrameHeaderSize>;

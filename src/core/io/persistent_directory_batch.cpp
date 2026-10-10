@@ -98,25 +98,45 @@ common::Status PersistentDirectoryBatch::fileEvent(std::uint32_t channel,
     std::lock_guard lock(mutex_);
     if (!status_.isOk()) return status_;
     if (channel >= channels_.size() || !channels_[channel].ready || channels_[channel].done ||
-        !id.fileId || id.fileId > total_ || !id.generation || id.transferId.empty() || !id.chunkSize ||
-        !tree::validateTreeRelativePath(id.relativePath).isOk())
+        !id.fileId || id.fileId > total_ || !id.generation || id.transferId.empty() ||
+        !tree::validateTreeRelativePath(id.relativePath).isOk() ||
+        (id.rangeId != 0 && (id.rangeCount == 0 || id.rangeId > id.rangeCount || id.rangeLength == 0)))
         return common::Status::invalidArgument("invalid dynamic batch file identity");
     auto found = files_.find(id.fileId);
+    auto base = id;
+    base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = 0;
     if (!complete) {
-        if (found != files_.end() || paths_.contains(id.relativePath) || transfers_.contains(id.transferId))
-            return common::Status::invalidArgument("duplicate dynamic batch file identity/path");
-        paths_.insert(id.relativePath); transfers_.insert(id.transferId);
-        files_.emplace(id.fileId, File{id,channel,false});
+        if (found == files_.end()) {
+            if (paths_.contains(id.relativePath) || transfers_.contains(id.transferId))
+                return common::Status::invalidArgument("duplicate dynamic batch file identity/path");
+            paths_.insert(id.relativePath); transfers_.insert(id.transferId);
+            files_.emplace(id.fileId, File{base, channel, id.rangeCount, {}, false});
+        } else {
+            const auto& existing = found->second;
+            if (existing.owner != channel || existing.done || !samePersistentIdentity(existing.id, base) ||
+                existing.rangeCount != id.rangeCount)
+                return common::Status::invalidArgument("stale or foreign dynamic file begin");
+        }
     } else {
         if (found == files_.end() || found->second.owner != channel || found->second.done ||
-            !samePersistentIdentity(found->second.id,id))
+            !samePersistentIdentity(found->second.id, base))
             return common::Status::invalidArgument("stale or foreign dynamic file completion");
         if (!status.isOk()) { failLocked(status); return status; }
-        found->second.done = true;
-        ++completed_;
+        if (id.rangeId == 0) {
+            found->second.done = true;
+            ++completed_;
+        } else {
+            if (!found->second.ranges.insert(id.rangeId).second)
+                return common::Status::invalidArgument("duplicate dynamic range completion");
+            if (found->second.ranges.size() == found->second.rangeCount) {
+                found->second.done = true;
+                ++completed_;
+            }
+        }
     }
     return common::Status::ok();
 }
+
 common::Status PersistentDirectoryBatch::finish(std::uint32_t channel, std::chrono::milliseconds timeout) {
     {
         std::lock_guard lock(mutex_);

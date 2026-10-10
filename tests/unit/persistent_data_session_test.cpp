@@ -300,3 +300,114 @@ TEST(PersistentSessionTest, DynamicAcceptsDescendingIdsButRejectsReplayAndStaleG
     h.streamId=10;h.chunkId=2;
     EXPECT_FALSE(state.begin(h,"stale").isOk());
 }
+
+TEST(PersistentSessionTest, CarriesRangeIdentityAndAcceptsOffsetRelativeData) {
+    SocketPair pair;
+    PersistentFileIdentity id{4, 9, 16, "range.bin", "range-transfer", 1024, 0,
+                              cpnetflux::checksum::ChecksumAlgorithm::Crc32c, {}, 2, 8, 4, 4};
+    const std::uint8_t bytes[] = {1, 2, 3, 4};
+    cpnetflux::checksum::ChecksumComputer computer(id.checksumAlgorithm);
+    computer.update(bytes, sizeof(bytes));
+    const auto expected = computer.finalize();
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    auto begin = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
+    ASSERT_TRUE(begin.isOk()) << begin.status().message();
+    auto decoded = PersistentDataSession::decodeBegin(begin.value());
+    ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
+    EXPECT_EQ(decoded.value().rangeId, id.rangeId);
+    EXPECT_EQ(decoded.value().rangeOffset, id.rangeOffset);
+    EXPECT_EQ(decoded.value().attempt, id.attempt);
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(begin.value().header, decoded.value()).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 8, bytes, sizeof(bytes)).isOk());
+    auto data = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
+    ASSERT_TRUE(data.isOk());
+    ASSERT_TRUE(state.data(data.value().header, data.value().payload.size(), data.value().payload.data()).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, expected).isOk());
+    auto end = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
+    ASSERT_TRUE(end.isOk());
+    auto completed = state.end(end.value().header, end.value().payload.data(), end.value().payload.size());
+    ASSERT_TRUE(completed.isOk()) << completed.status().message();
+    EXPECT_EQ(completed.value().rangeId, id.rangeId);
+    EXPECT_EQ(completed.value().checksum.value, expected.value);
+}
+
+TEST(PersistentSessionTest, RangeAttemptMakesRetryIdentityDistinct) {
+    PersistentDataSession state;
+    PersistentFileIdentity id{6, 2, 8, "retry.bin", "retry-transfer", 1024, 0,
+                              cpnetflux::checksum::ChecksumAlgorithm::None, {}, 1, 0, 4, 2, 0};
+    auto header = beginHeader(0);
+    header.streamId = id.fileId;
+    header.chunkId = id.generation;
+    header.totalSize = id.totalSize;
+    header.rangeId = id.rangeId;
+    header.attempt = id.attempt;
+    ASSERT_TRUE(state.begin(header, id).isOk());
+    header.type = FrameType::FileEnd;
+    header.flags = kRangeSkipped;
+    header.payloadSize = 0;
+    header.offset = id.rangeOffset + id.rangeLength;
+    ASSERT_TRUE(state.end(header).isOk());
+    id.attempt = 1;
+    header.type = FrameType::FileBegin;
+    header.flags = 0;
+    header.payloadSize = 1;
+    header.offset = 0;
+    header.attempt = id.attempt;
+    const auto retry = state.begin(header, id);
+    ASSERT_TRUE(retry.isOk()) << retry.message();
+}
+
+TEST(PersistentSessionTest, SkipsAlreadyCompletedRangeWithoutPayload) {
+    SocketPair pair;
+    PersistentFileIdentity id{5, 1, 12, "skip.bin", "skip-transfer", 1024, 0,
+                              cpnetflux::checksum::ChecksumAlgorithm::None, {}, 1, 0, 4, 3};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    auto begin = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
+    ASSERT_TRUE(begin.isOk());
+    auto decoded = PersistentDataSession::decodeBegin(begin.value());
+    ASSERT_TRUE(decoded.isOk());
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(begin.value().header, decoded.value()).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, {}, true).isOk());
+    auto end = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
+    ASSERT_TRUE(end.isOk());
+    ASSERT_TRUE(state.end(end.value().header, nullptr, 0).isOk());
+}
+
+
+TEST(PersistentTreeRangeTest, LoopbackTransfersTwoRangesAndPublishesAfterFinalRange) {
+    SocketPair pair;
+    TempRoot source;
+    TempRoot destination;
+    const std::string content = "ABCDEFGH";
+    {
+        std::ofstream output(source.path / "large.bin", std::ios::binary);
+        output << content;
+    }
+    struct stat sourceStat{};
+    ASSERT_EQ(::stat((source.path / "large.bin").c_str(), &sourceStat), 0);
+    std::vector<PersistentFileIdentity> ranges;
+    for (std::uint64_t index = 0; index < 2; ++index) {
+        ranges.push_back(PersistentFileIdentity{1, 7, content.size(), "large.bin", "range-loopback",
+            4, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
+            index + 1, index * 4, 4, 2, 1});
+    }
+    PersistentTreeStats receivedStats;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &receivedStats, {}, 2, 0, 1, 1, false, false);
+    });
+    PersistentTreeStats sentStats;
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), ranges, &sentStats,
+        {}, 2, 0, 1, nullptr);
+    receiver.join();
+    ASSERT_TRUE(sendStatus.isOk()) << "send=" << sendStatus.message() << " receive=" << receiveStatus.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(sentStats.files, 1U);
+    EXPECT_EQ(receivedStats.files, 1U);
+    std::ifstream input(destination.path / "large.bin", std::ios::binary);
+    std::string actual((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(actual, content);
+}

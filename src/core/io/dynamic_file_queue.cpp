@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <unordered_set>
+#include <string>
 #include "cpnetflux/core/tree/tree_scan.h"
 
 namespace cpnetflux::core::io {
@@ -9,7 +10,18 @@ bool samePersistentIdentity(const PersistentFileIdentity& a, const PersistentFil
     return a.fileId == b.fileId && a.generation == b.generation && a.totalSize == b.totalSize &&
         a.relativePath == b.relativePath && a.transferId == b.transferId &&
         a.chunkSize == b.chunkSize && a.mtimeUnixSeconds == b.mtimeUnixSeconds &&
-        a.checksumAlgorithm == b.checksumAlgorithm;
+        a.checksumAlgorithm == b.checksumAlgorithm && a.rangeId == b.rangeId &&
+        a.rangeOffset == b.rangeOffset && a.rangeLength == b.rangeLength &&
+        a.rangeCount == b.rangeCount && a.attempt == b.attempt;
+}
+bool samePersistentRangeIdentity(const PersistentFileIdentity& a, const PersistentFileIdentity& b) noexcept {
+    return samePersistentIdentity(a, b);
+}
+static std::string activeKey(const PersistentFileIdentity& file) {
+    return std::to_string(file.fileId) + ":" + std::to_string(file.generation) + ":" +
+        std::to_string(file.rangeId) + ":" + std::to_string(file.attempt) + ":" +
+        std::to_string(file.transferId.size()) + ":" + file.transferId + ":" +
+        std::to_string(file.relativePath.size()) + ":" + file.relativePath;
 }
 DynamicFileQueue::DynamicFileQueue(std::vector<PersistentFileIdentity> files,
     std::uint32_t channels, std::uint32_t window, std::size_t capacity)
@@ -21,14 +33,26 @@ DynamicFileQueue::DynamicFileQueue(std::vector<PersistentFileIdentity> files,
     ring_.resize(capacity);
     credits_.resize(channels);
     std::unordered_set<std::uint32_t> ids;
-    std::unordered_set<std::string> paths, transfers;
+    std::unordered_set<std::string> rangeKeys, paths, transfers;
     for (const auto& file : files_) {
+        const bool ranged = file.rangeId != 0;
+        const bool uniqueFile = ids.insert(file.fileId).second;
+        const bool uniqueRange = rangeKeys.insert(activeKey(file)).second;
+        const bool uniquePath = paths.insert(file.relativePath).second;
+        const bool uniqueTransfer = transfers.insert(file.transferId).second;
         if (file.fileId == 0 || file.generation == 0 || file.chunkSize == 0 ||
             !tree::validateTreeRelativePath(file.relativePath).isOk() || file.transferId.empty() ||
-            !ids.insert(file.fileId).second || !paths.insert(file.relativePath).second ||
-            !transfers.insert(file.transferId).second) {
+            (!ranged && (!uniqueFile || !uniquePath || !uniqueTransfer)) ||
+            (ranged && (!uniqueRange || file.rangeLength == 0 || file.rangeCount == 0 ||
+                        file.rangeId > file.rangeCount || file.rangeOffset > file.totalSize ||
+                        file.rangeLength > file.totalSize - file.rangeOffset))) {
             status_ = common::Status::invalidArgument("invalid or duplicate dynamic file identity");
             return;
+        }
+        if (ranged) {
+            // All ranges of one file intentionally share path and transfer identity.
+            paths.erase(file.relativePath);
+            transfers.erase(file.transferId);
         }
     }
     std::stable_sort(files_.begin(), files_.end(), [](const auto& a, const auto& b) {
@@ -55,7 +79,7 @@ common::Result<std::optional<DynamicFileLease>> DynamicFileQueue::claim(std::uin
     head_ = (head_ + 1) % ring_.size();
     --size_;
     auto wait = std::chrono::duration<double>(std::chrono::steady_clock::now() - ready.admitted).count();
-    active_.emplace(ready.file.fileId, Active{ready.file, channel});
+    active_.emplace(activeKey(ready.file), Active{ready.file, channel});
     ++credits_[channel];
     fill();
     return std::optional<DynamicFileLease>{DynamicFileLease{std::move(ready.file), wait}};
@@ -63,7 +87,7 @@ common::Result<std::optional<DynamicFileLease>> DynamicFileQueue::claim(std::uin
 common::Status DynamicFileQueue::complete(std::uint32_t channel, const PersistentFileIdentity& file) {
     std::lock_guard lock(mutex_);
     if (!status_.isOk()) return status_;
-    auto found = active_.find(file.fileId);
+    auto found = active_.find(activeKey(file));
     if (found == active_.end() || found->second.channel != channel ||
         !samePersistentIdentity(found->second.file, file))
         return common::Status::invalidArgument("dynamic completion identity/owner mismatch");

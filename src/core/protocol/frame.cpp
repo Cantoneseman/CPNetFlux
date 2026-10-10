@@ -147,8 +147,8 @@ EncodedFrameHeader encodeFrameHeader(const FrameHeader& header) noexcept {
     writeU32(encoded, kPayloadSizeOffset, header.payloadSize);
     writeU32(encoded, kStatusCodeOffset, static_cast<std::uint32_t>(header.statusCode));
     writeU64(encoded, kTotalSizeOffset, header.totalSize);
-    writeU64(encoded, kReserved1Offset, 0);
-    writeU64(encoded, kReserved2Offset, 0);
+    writeU64(encoded, kReserved1Offset, header.rangeId);
+    writeU64(encoded, kReserved2Offset, header.attempt);
     return encoded;
 }
 
@@ -176,9 +176,8 @@ common::Result<FrameHeader> decodeFrameHeader(const EncodedFrameHeader& encoded)
     header.statusCode = static_cast<FrameStatusCode>(status);
     header.totalSize = readU64(encoded, kTotalSizeOffset);
 
-    if (readU64(encoded, kReserved1Offset) != 0 || readU64(encoded, kReserved2Offset) != 0) {
-        return common::Status::invalidArgument("frame reserved fields must be zero");
-    }
+    header.rangeId = readU64(encoded, kReserved1Offset);
+    header.attempt = readU64(encoded, kReserved2Offset);
 
     return header;
 }
@@ -203,8 +202,11 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
         return common::Status::ok();
     }
     if (header.type == FrameType::FileEnd) {
-        if (header.flags != 0 || header.statusCode != FrameStatusCode::Ok || header.payloadSize > 4 ||
-            header.streamId == 0 || header.chunkId == 0 || header.offset != header.totalSize)
+        if ((header.flags & ~kRangeSkipped) != 0 || header.statusCode != FrameStatusCode::Ok ||
+            ((header.flags & kRangeSkipped) == 0 && header.payloadSize > 4) ||
+            ((header.flags & kRangeSkipped) != 0 && header.payloadSize != 0) ||
+            header.streamId == 0 || header.chunkId == 0 ||
+            (header.rangeId == 0 ? header.offset != header.totalSize : header.offset > header.totalSize))
             return common::Status::invalidArgument("FILE_END header is invalid");
         return common::Status::ok();
     }
@@ -350,9 +352,20 @@ common::Result<std::vector<std::uint8_t>> encodeSessionInitPayload(
         return common::Status::invalidArgument("chunk_size must be greater than zero");
     }
 
+    const bool hasRange = payload.rangeId != 0 || payload.rangeOffset != 0 ||
+        payload.rangeLength != 0 || payload.rangeCount != 0 || payload.attempt != 0;
+    if (!hasRange && (payload.rangeOffset != 0 || payload.rangeLength != 0 || payload.rangeCount != 0)) {
+        return common::Status::invalidArgument("range metadata is incomplete");
+    }
+    if (hasRange && (payload.rangeId == 0 || payload.rangeLength == 0 || payload.rangeCount == 0 ||
+                     payload.rangeId > payload.rangeCount || payload.rangeOffset > payload.totalSize ||
+                     payload.rangeLength > payload.totalSize - payload.rangeOffset)) {
+        return common::Status::invalidArgument("invalid range metadata");
+    }
     std::vector<std::uint8_t> encoded;
     encoded.reserve(24 + payload.transferId.size() +
-                    (payload.sourcePath.empty() ? 0 : 4 + payload.sourcePath.size()));
+                    ((payload.sourcePath.empty() && !hasRange) ? 0 :
+                     4 + payload.sourcePath.size() + (hasRange ? 40 : 0)));
     appendU16(encoded, static_cast<std::uint16_t>(payload.mode));
     appendU16(encoded, static_cast<std::uint16_t>(payload.transferId.size()));
     appendU16(encoded, static_cast<std::uint16_t>(payload.checksumAlgorithm));
@@ -360,10 +373,17 @@ common::Result<std::vector<std::uint8_t>> encodeSessionInitPayload(
     appendU64(encoded, payload.totalSize);
     appendU64(encoded, payload.chunkSize);
     encoded.insert(encoded.end(), payload.transferId.begin(), payload.transferId.end());
-    if (!payload.sourcePath.empty()) {
+    if (!payload.sourcePath.empty() || hasRange) {
         appendU16(encoded, static_cast<std::uint16_t>(payload.sourcePath.size()));
-        appendU16(encoded, 0);
+        appendU16(encoded, hasRange ? 1U : 0U);
         encoded.insert(encoded.end(), payload.sourcePath.begin(), payload.sourcePath.end());
+        if (hasRange) {
+            appendU64(encoded, payload.rangeId);
+            appendU64(encoded, payload.rangeOffset);
+            appendU64(encoded, payload.rangeLength);
+            appendU64(encoded, payload.rangeCount);
+            appendU64(encoded, payload.attempt);
+        }
     }
     return encoded;
 }
@@ -402,18 +422,38 @@ common::Result<SessionInitPayload> decodeSessionInitPayload(const std::uint8_t* 
             return common::Status::invalidArgument("invalid source_path extension length");
         }
         const std::uint16_t sourcePathSize = readPayloadU16(data, extensionOffset);
-        if (readPayloadU16(data, extensionOffset + 2U) != 0) {
+        const std::uint16_t extensionFlags = readPayloadU16(data, extensionOffset + 2U);
+        if ((extensionFlags & ~1U) != 0) {
             return common::Status::invalidArgument(
                 "session init source_path reserved field must be zero");
         }
-        if (size != extensionOffset + 4U + sourcePathSize) {
+        const std::size_t pathEnd = extensionOffset + 4U + sourcePathSize;
+        const std::size_t rangeExtension = (extensionFlags & 1U) != 0 ? 40U : 0U;
+        if (size != pathEnd + rangeExtension) {
             return common::Status::invalidArgument("invalid source_path payload length");
         }
         payload.sourcePath.assign(reinterpret_cast<const char*>(data + extensionOffset + 4U),
                                   sourcePathSize);
+        if (rangeExtension != 0) {
+            payload.rangeId = readPayloadU64(data, pathEnd);
+            payload.rangeOffset = readPayloadU64(data, pathEnd + 8U);
+            payload.rangeLength = readPayloadU64(data, pathEnd + 16U);
+            payload.rangeCount = readPayloadU64(data, pathEnd + 24U);
+            payload.attempt = readPayloadU64(data, pathEnd + 32U);
+        }
     }
     if (payload.chunkSize == 0) {
         return common::Status::invalidArgument("chunk_size must be greater than zero");
+    }
+    const bool hasRange = payload.rangeId != 0 || payload.rangeOffset != 0 ||
+        payload.rangeLength != 0 || payload.rangeCount != 0 || payload.attempt != 0;
+    if (hasRange && (payload.rangeId == 0 || payload.rangeLength == 0 || payload.rangeCount == 0 ||
+                     payload.rangeId > payload.rangeCount || payload.rangeOffset > payload.totalSize ||
+                     payload.rangeLength > payload.totalSize - payload.rangeOffset)) {
+        return common::Status::invalidArgument("invalid range metadata");
+    }
+    if (!hasRange && (payload.rangeOffset != 0 || payload.rangeLength != 0 || payload.rangeCount != 0)) {
+        return common::Status::invalidArgument("range metadata is incomplete");
     }
     return payload;
 }
@@ -476,20 +516,28 @@ common::Result<std::vector<std::uint8_t>> encodeChunkCompletePayload(
         return common::Status::invalidArgument("chunk complete length must be greater than zero");
     }
 
+    const bool hasRangeIdentity = payload.rangeId != 0 || payload.attempt != 0;
+    if (hasRangeIdentity && payload.rangeId == 0) {
+        return common::Status::invalidArgument("range attempt requires range id");
+    }
     std::vector<std::uint8_t> encoded;
-    encoded.reserve(32);
+    encoded.reserve(hasRangeIdentity ? 48 : 32);
     appendU64(encoded, payload.chunkId);
     appendU64(encoded, payload.offset);
     appendU64(encoded, payload.length);
     appendU16(encoded, static_cast<std::uint16_t>(payload.checksum.algorithm));
     appendU16(encoded, 0);
     appendU32(encoded, payload.checksum.value);
+    if (hasRangeIdentity) {
+        appendU64(encoded, payload.rangeId);
+        appendU64(encoded, payload.attempt);
+    }
     return encoded;
 }
 
 common::Result<ChunkCompletePayload> decodeChunkCompletePayload(const std::uint8_t* data,
                                                                 std::size_t size) {
-    if (size != 32) {
+    if (size != 32 && size != 48) {
         return common::Status::invalidArgument("invalid chunk complete payload size");
     }
     const std::uint16_t algorithm = readPayloadU16(data, 24);
@@ -506,6 +554,13 @@ common::Result<ChunkCompletePayload> decodeChunkCompletePayload(const std::uint8
     payload.length = readPayloadU64(data, 16);
     payload.checksum.algorithm = static_cast<checksum::ChecksumAlgorithm>(algorithm);
     payload.checksum.value = readPayloadU32(data, 28);
+    if (size == 48) {
+        payload.rangeId = readPayloadU64(data, 32);
+        payload.attempt = readPayloadU64(data, 40);
+        if (payload.rangeId == 0) {
+            return common::Status::invalidArgument("range complete payload has no range id");
+        }
+    }
     if (payload.length == 0) {
         return common::Status::invalidArgument("chunk complete length must be greater than zero");
     }

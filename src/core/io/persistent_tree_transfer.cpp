@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <variant>
 #include <unordered_set>
+#include <unordered_map>
+#include <memory>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
@@ -20,6 +22,7 @@
 #include "cpnetflux/core/session/transfer_session.h"
 #include "cpnetflux/core/session/download_session.h"
 #include "cpnetflux/core/tree/tree_scan.h"
+#include "cpnetflux/core/chunk/range_planner.h"
 #include "cpnetflux/storage/posix_file.h"
 
 namespace cpnetflux::core::io {
@@ -169,6 +172,34 @@ class FileTransaction {
         active_ = false;
         return Status::ok();
     }
+    bool rangeComplete(std::uint64_t offset, std::uint64_t length) const {
+        if (!active_ || length == 0 || offset > identity_.totalSize || length > identity_.totalSize - offset)
+            return false;
+        if (skipped_) return true;
+        const auto missing = std::visit([](const auto& s) { return s.missingRanges(); }, session_);
+        for (const auto& range : missing) {
+            if (range.begin < offset + length && offset < range.end) return false;
+        }
+        return true;
+    }
+    Status writeRange(std::uint64_t offset, const std::vector<std::uint8_t>& bytes) {
+        if (skipped_) return Status::ok();
+        if (!active_ || offset > identity_.totalSize || bytes.size() > identity_.totalSize - offset)
+            return Status::invalidArgument("persistent range write exceeds file boundary");
+        const auto started = Clock::now();
+        auto status = file_.writeAtAll(offset, bytes.data(), bytes.size());
+        if (timing_) timing_->writeSeconds += secondsSince(started);
+        return status;
+    }
+    Status recordRange(std::uint64_t rangeId, std::uint64_t offset, std::uint64_t length,
+                       checksum::ChecksumValue checksum) {
+        if (skipped_) return Status::ok();
+        if (!active_ || rangeId == 0 || length == 0 || offset > identity_.totalSize ||
+            length > identity_.totalSize - offset)
+            return Status::invalidArgument("persistent range completion is invalid");
+        Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
+        return std::visit([&](auto& s) { return s.recordVerifiedChunk(rangeId, offset, length, checksum); }, session_);
+    }
     ~FileTransaction() {
         // Partial files/checkpoints stay available to the existing v1 resume engine.
         if (active_ && !published_ && !skipped_) (void)std::visit([](auto& s) { return s.markFailed(); }, session_);
@@ -185,6 +216,91 @@ class FileTransaction {
     bool active_ = false, published_ = false, skipped_ = false;
 };
 
+class RangeFileCoordinator {
+ public:
+    struct Entry {
+        std::mutex mutex;
+        std::unique_ptr<FileTransaction> transaction;
+        PersistentFileIdentity base;
+        std::uint64_t rangeCount = 0;
+        std::unordered_set<std::uint64_t> completed;
+        bool committed = false;
+    };
+
+    static common::Result<std::shared_ptr<Entry>> begin(const std::string& root,
+        const PersistentFileIdentity& id, bool download, const std::string& remoteRoot,
+        bool resume, PersistentFileTiming* timing) {
+        if (id.rangeId == 0 || id.rangeCount == 0) return Status::invalidArgument("range coordinator requires range identity");
+        const auto key = (fs::path(root) / id.relativePath).lexically_normal().string() + "\n" + id.transferId;
+        std::shared_ptr<Entry> entry;
+        {
+            std::lock_guard lock(registryMutex());
+            auto& slot = registry()[key];
+            entry = slot;
+            if (!entry) {
+                entry = std::make_shared<Entry>();
+                entry->base = id;
+                entry->base.rangeId = entry->base.rangeOffset = entry->base.rangeLength =
+                    entry->base.rangeCount = entry->base.attempt = 0;
+                entry->rangeCount = id.rangeCount;
+                entry->transaction = std::make_unique<FileTransaction>(timing);
+                auto status = entry->transaction->begin(root, entry->base, download, remoteRoot, resume);
+                if (!status.isOk()) return status;
+                slot = entry;
+            }
+        }
+        if (entry->base.fileId != id.fileId || entry->base.generation != id.generation ||
+            entry->base.totalSize != id.totalSize || entry->base.relativePath != id.relativePath ||
+            entry->base.transferId != id.transferId || entry->rangeCount != id.rangeCount)
+            return Status::invalidArgument("range coordinator identity mismatch");
+        return entry;
+    }
+
+    static Status write(const std::shared_ptr<Entry>& entry, std::uint64_t offset,
+                        const std::vector<std::uint8_t>& bytes) {
+        std::lock_guard lock(entry->mutex);
+        if (entry->committed) return Status::invalidArgument("range write after commit");
+        return entry->transaction->writeRange(offset, bytes);
+    }
+
+    static bool rangeComplete(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id) {
+        std::lock_guard lock(entry->mutex);
+        return entry->completed.contains(id.rangeId) ||
+            entry->transaction->rangeComplete(id.rangeOffset, id.rangeLength);
+    }
+
+    static Status complete(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
+                           checksum::ChecksumValue checksum, bool skipped) {
+        std::lock_guard lock(entry->mutex);
+        if (entry->committed || id.rangeId == 0 || id.rangeId > entry->rangeCount)
+            return Status::invalidArgument("duplicate or invalid range completion");
+        if (skipped && !entry->transaction->rangeComplete(id.rangeOffset, id.rangeLength))
+            return Status::invalidArgument("skipped range is not already complete");
+        if (!entry->completed.insert(id.rangeId).second)
+            return Status::invalidArgument("duplicate range completion");
+        auto status = skipped ? Status::ok() :
+            entry->transaction->recordRange(id.rangeId, id.rangeOffset, id.rangeLength, checksum);
+        if (!status.isOk()) return status;
+        if (entry->completed.size() == entry->rangeCount) {
+            status = entry->transaction->commit();
+            if (!status.isOk()) return status;
+            entry->committed = true;
+            std::lock_guard registryLock(registryMutex());
+            for (auto i = registry().begin(); i != registry().end(); ++i) {
+                if (i->second == entry) { registry().erase(i); break; }
+            }
+        }
+        return Status::ok();
+    }
+
+ private:
+    static std::unordered_map<std::string, std::shared_ptr<Entry>>& registry() {
+        static std::unordered_map<std::string, std::shared_ptr<Entry>> value;
+        return value;
+    }
+    static std::mutex& registryMutex() { static std::mutex value; return value; }
+};
+
 Status notify(const PersistentFileCallback& callback, const PersistentFileIdentity& id,
               const Status& status, bool complete) {
     return callback ? callback(id, status, complete) : Status::ok();
@@ -194,6 +310,34 @@ bool sourceMatches(const struct stat& st, const PersistentFileIdentity& id) {
         static_cast<std::uint64_t>(st.st_size) == id.totalSize && st.st_mtim.tv_sec == id.mtimeUnixSeconds;
 }
 }  // namespace
+
+common::Result<std::vector<PersistentFileIdentity>> expandPersistentFileRanges(
+    const std::vector<PersistentFileIdentity>& files, std::uint32_t channelCount) {
+    if (channelCount == 0 || channelCount > kPersistentTreeMaxChannels)
+        return Status::invalidArgument("invalid range planner channel count");
+    std::vector<PersistentFileIdentity> expanded;
+    for (const auto& file : files) {
+        chunk::AdaptiveRangeInputs inputs;
+        inputs.fileSize = file.totalSize;
+        inputs.chunkSize = file.chunkSize;
+        inputs.channels = channelCount;
+        auto planned = chunk::planAdaptiveRanges(inputs);
+        if (!planned.isOk()) return planned.status();
+        if (!planned.value().striped) {
+            expanded.push_back(file);
+            continue;
+        }
+        for (const auto& range : planned.value().ranges) {
+            auto ranged = file;
+            ranged.rangeId = range.chunkId;
+            ranged.rangeOffset = range.offset;
+            ranged.rangeLength = range.length;
+            ranged.rangeCount = planned.value().ranges.size();
+            expanded.push_back(std::move(ranged));
+        }
+    }
+    return expanded;
+}
 
 common::Result<std::vector<tree::TreeFileInfo>> scanPersistentTree(const std::string& root) {
     auto scanned = tree::scanLocalTree(root, true);
@@ -255,6 +399,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     std::uint64_t writerWireBytes = 0;
     std::uint64_t readerWireBytes = 0;
     bool writerDone = false;
+    bool awaitingResume = false;
     bool abort = false;
     auto requestAbort = [&](const Status& failure) {
         if (ready) ready->cancel(failure);
@@ -277,7 +422,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             Clock::time_point fileStarted, resultStarted;
             {
                 std::unique_lock<std::mutex> lock(mutex);
-                changed.wait(lock, [&] { return abort || !pending.empty() || writerDone; });
+                changed.wait(lock, [&] { return abort || writerDone || (!pending.empty() && !awaitingResume); });
                 if (abort) return;
                 if (pending.empty() && writerDone) return;
                 expected = pending.front().id;
@@ -314,8 +459,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 pending.pop_front();
                 stats->completeWaitSeconds += waitSeconds;
                 readerWireBytes += 2 * protocol::kFrameHeaderSize;
-                ++stats->files;
-                if (fileStatus.isOk()) stats->bytes += expected.totalSize;
+                if (expected.rangeId == 0 || expected.rangeId == expected.rangeCount) {
+                    ++stats->files;
+                    if (fileStatus.isOk()) stats->bytes += expected.totalSize;
+                }
                 if (stats->pendingHighWatermark > pending.size()) {
                     // Keep the peak unchanged; this branch documents that the queue is bounded.
                 }
@@ -377,16 +524,40 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         status = notifySafe(id, Status::ok(), false);
         timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) { failWriter(status); break; }
+        if (id.rangeId != 0) {
+            std::unique_lock<std::mutex> lock(mutex);
+            changed.wait(lock, [&] { return abort || (!awaitingResume && pending.empty()); });
+            if (abort) break;
+            awaitingResume = true;
+            changed.notify_all();
+        }
         status = PersistentDataSession::writeBegin(socket, id);
         if (!status.isOk()) { failWriter(status); break; }
+        bool skipRange = false;
+        if (id.rangeId != 0) {
+            auto resume = PersistentDataSession::readResumeResponse(socket, id);
+            if (!resume.isOk()) { failWriter(resume.status()); break; }
+            if (resume.value().statusCode != FrameStatusCode::Ok) {
+                failWriter(Status::runtimeError("persistent range resume rejected")); break;
+            }
+            skipRange = resume.value().missingRanges.empty();
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                awaitingResume = false;
+                changed.notify_all();
+            }
+        }
         const auto metadata = protocol::encodeSessionInitPayload({protocol::SessionMode::New,
-            id.transferId, id.totalSize, id.chunkSize, id.checksumAlgorithm, id.relativePath});
+            id.transferId, id.totalSize, id.chunkSize, id.checksumAlgorithm, id.relativePath,
+            id.rangeId, id.rangeOffset, id.rangeLength, id.rangeCount});
         if (!metadata.isOk()) { failWriter(metadata.status()); break; }
         addWire(protocol::kFrameHeaderSize + metadata.value().size() + 8);
         bool writeFailed = false;
         checksum::ChecksumComputer checksumComputer(id.checksumAlgorithm);
-        for (std::uint64_t offset = 0; offset < id.totalSize;) {
-            const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), id.totalSize - offset));
+        for (std::uint64_t offset = id.rangeId == 0 ? 0 : id.rangeOffset;
+             !skipRange && offset < (id.rangeId == 0 ? id.totalSize : id.rangeOffset + id.rangeLength);) {
+            const auto rangeEnd = id.rangeId == 0 ? id.totalSize : id.rangeOffset + id.rangeLength;
+            const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), rangeEnd - offset));
             const auto reading = Clock::now();
             status = file.readAtAll(offset, buffer.data(), length);
             timing.readSeconds += secondsSince(reading);
@@ -409,8 +580,41 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             status = Status::runtimeError("persistent source changed during transfer");
             writeFailed = true;
         }
-        if (!writeFailed) status = PersistentDataSession::writeEnd(socket, id, checksumComputer.finalize());
+        if (!writeFailed) status = PersistentDataSession::writeEnd(socket, id,
+            skipRange ? checksum::ChecksumValue{} : checksumComputer.finalize(), skipRange);
         if (writeFailed || !status.isOk()) { failWriter(status.isOk() ? Status::runtimeError("persistent data write failed") : status); break; }
+        if (id.rangeId != 0) {
+            const auto resultStarted = Clock::now();
+            auto result = PersistentDataSession::readResult(socket, id);
+            if (!result.isOk()) { failWriter(result.status()); break; }
+            const double resultSeconds = secondsSince(resultStarted);
+            const auto rangeStatus = result.value() == FrameStatusCode::Ok ? Status::ok() :
+                Status::runtimeError("persistent receiver rejected range: " + id.relativePath);
+            if (ready) {
+                auto completed = ready->complete(channelIndex, id);
+                if (!completed.isOk()) { failWriter(completed); break; }
+            }
+            stats->completeWaitSeconds += resultSeconds;
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                readerWireBytes += 2 * protocol::kFrameHeaderSize;
+            }
+            const bool logicalComplete = id.rangeId == id.rangeCount;
+            if (logicalComplete) {
+                ++stats->files;
+                if (rangeStatus.isOk()) stats->bytes += id.totalSize;
+            }
+            if (!rangeStatus.isOk() && overall.isOk()) overall = rangeStatus;
+            const auto callbackStarted = Clock::now();
+            const auto callbackStatus = notifySafe(id, rangeStatus, true);
+            timing.manifestSeconds += secondsSince(callbackStarted);
+            timing.fileResultSeconds = resultSeconds;
+            timing.wallSeconds = secondsSince(fileStarted);
+            if (stats->phaseTiming) stats->fileTimings.push_back(std::move(timing));
+            if (!callbackStatus.isOk()) { failWriter(callbackStatus); break; }
+            if (!rangeStatus.isOk()) { failWriter(rangeStatus); break; }
+            continue;
+        }
         {
             std::lock_guard<std::mutex> lock(mutex);
             pending.push_back({id, std::move(timing), fileStarted, Clock::now()});
@@ -474,9 +678,12 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         auto decoded = PersistentDataSession::decodeBegin(frame.value());
         if (!decoded.isOk()) return decoded.status();
         const auto id = decoded.value();
-        if (!dynamic && !persistentFileAssignedToChannel(id.fileId, channelIndex, channelCount))
+        const auto assignedChannel = id.rangeId != 0
+            ? static_cast<std::uint32_t>((id.rangeId - 1) % channelCount)
+            : (id.fileId - 1) % channelCount;
+        if (!dynamic && assignedChannel != channelIndex)
             return Status::invalidArgument("persistent file arrived on wrong channel");
-        status = state.begin(frame.value().header, id.relativePath, id.checksumAlgorithm);
+        status = state.begin(frame.value().header, id);
         if (!status.isOk()) return status;
         PersistentFileTiming timing;
         timing.file = id; timing.channel = channelIndex;
@@ -485,8 +692,27 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         status = notify(callback, id, Status::ok(), false);
         timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) return status;
-        FileTransaction transaction(stats->phaseTiming ? &timing : nullptr);
-        Status fileStatus = transaction.begin(root, id, download, remoteRoot, resume);
+        std::shared_ptr<RangeFileCoordinator::Entry> rangeEntry;
+        std::unique_ptr<FileTransaction> transaction;
+        Status fileStatus = Status::ok();
+        if (id.rangeId != 0) {
+            auto started = RangeFileCoordinator::begin(root, id, download, remoteRoot, resume,
+                                                       stats->phaseTiming ? &timing : nullptr);
+            if (!started.isOk()) fileStatus = started.status();
+            else {
+                rangeEntry = std::move(started.value());
+                const std::vector<core::chunk::CompletedRange> missing =
+                    RangeFileCoordinator::rangeComplete(rangeEntry, id)
+                        ? std::vector<core::chunk::CompletedRange>{}
+                        : std::vector<core::chunk::CompletedRange>{{id.rangeOffset,
+                            id.rangeOffset + id.rangeLength}};
+                status = PersistentDataSession::writeResumeResponse(socket, id, missing);
+                if (!status.isOk()) fileStatus = status;
+            }
+        } else {
+            transaction = std::make_unique<FileTransaction>(stats->phaseTiming ? &timing : nullptr);
+            fileStatus = transaction->begin(root, id, download, remoteRoot, resume);
+        }
         for (;;) {
             const auto payloadStarted = Clock::now();
             auto data = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
@@ -498,6 +724,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             if (data.value().header.type == FrameType::FileEnd) {
                 auto ended = state.end(data.value().header, data.value().payload.data(), data.value().payload.size());
                 if (!ended.isOk()) return ended.status();
+                if (fileStatus.isOk() && rangeEntry) {
+                    fileStatus = RangeFileCoordinator::complete(rangeEntry, ended.value(), ended.value().checksum,
+                        (data.value().header.flags & protocol::kRangeSkipped) != 0);
+                }
                 break;
             }
             timing.payloadIoSeconds += secondsSince(payloadStarted);
@@ -506,12 +736,22 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             status = state.data(data.value().header, data.value().payload.size(), data.value().payload.data());
             timing.checksumSeconds += secondsSince(checksumStarted);
             if (!status.isOk()) return status;
-            if (fileStatus.isOk()) fileStatus = transaction.write(data.value().header.offset, data.value().payload);
+            if (fileStatus.isOk()) {
+                fileStatus = rangeEntry ? RangeFileCoordinator::write(rangeEntry, data.value().header.offset,
+                                                                       data.value().payload)
+                                         : transaction->write(data.value().header.offset, data.value().payload);
+            }
         }
-        if (fileStatus.isOk()) { Timer timer{&timing.finalizeSeconds}; fileStatus = transaction.commit(); }
-        ++stats->files;
-        if (fileStatus.isOk()) stats->bytes += id.totalSize;
-        else if (overall.isOk()) overall = fileStatus;
+        if (fileStatus.isOk() && transaction) {
+            Timer timer{&timing.finalizeSeconds};
+            fileStatus = transaction->commit();
+        }
+        const bool logicalFileComplete = id.rangeId == 0 || id.rangeId == id.rangeCount;
+        if (logicalFileComplete) {
+            ++stats->files;
+            if (fileStatus.isOk()) stats->bytes += id.totalSize;
+        }
+        if (!fileStatus.isOk() && overall.isOk()) overall = fileStatus;
         const auto completedStarted = Clock::now();
         status = notify(callback, id, fileStatus, true);
         timing.manifestSeconds += secondsSince(completedStarted);

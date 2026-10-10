@@ -913,8 +913,10 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
             files.push_back({id,id,file.size,file.relativePath,generateTransferId(),chunkSize,file.mtimeUnixSeconds,
                              checksumAlgorithm, {}});
         }
+        auto expanded = core::io::expandPersistentFileRanges(files, channels);
+        if (!expanded.isOk()) return expanded.status();
         created->queue = std::make_unique<core::io::DynamicFileQueue>(
-            std::move(files),channels,window,channels*window*2);
+            std::move(expanded.value()),channels,window,channels*window*2);
     }
     created->batch = std::make_shared<core::io::PersistentDirectoryBatch>(created->total,channels);
     batches[key] = created;

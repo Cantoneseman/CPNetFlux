@@ -72,6 +72,8 @@ struct FileServerConnection {
     bool finReceived = false;
     bool chunkActive = false;
     std::uint64_t activeChunkId = 0;
+    std::uint64_t activeRangeId = 0;
+    std::uint64_t activeAttempt = 0;
     std::uint64_t activeChunkOffset = 0;
     std::uint64_t activeChunkNextOffset = 0;
     checksum::ChecksumComputer checksumComputer{checksum::ChecksumAlgorithm::None};
@@ -303,7 +305,16 @@ common::Status validateStream(FileServerConnection& connection, TransferState& t
 }
 
 common::Status validateExpectedChunkRange(TransferState& transfer,
-                                          const protocol::ChunkCompletePayload& payload) {
+                                          const protocol::ChunkCompletePayload& payload,
+                                          bool unifiedRange) {
+    if (unifiedRange) {
+        if (payload.offset > transfer.totalSize || payload.length == 0 ||
+            payload.length > transfer.totalSize - payload.offset) {
+            transfer.errorCode = protocol::FrameStatusCode::RangeOutOfBounds;
+            return common::Status::invalidArgument("range complete exceeds transfer size");
+        }
+        return common::Status::ok();
+    }
     if (transfer.checksumAlgorithm == checksum::ChecksumAlgorithm::None) {
         return common::Status::ok();
     }
@@ -624,12 +635,16 @@ common::Status processDataPayload(FileServerConnection& connection, TransferStat
     if (!connection.chunkActive) {
         connection.chunkActive = true;
         connection.activeChunkId = header.chunkId;
+        connection.activeRangeId = header.rangeId;
+        connection.activeAttempt = header.attempt;
         connection.activeChunkOffset = header.offset;
         connection.activeChunkNextOffset = header.offset;
         connection.checksumComputer =
             checksum::ChecksumComputer(transfer.checksumAlgorithm, transfer.checksumBackend);
     }
     if (connection.activeChunkId != header.chunkId ||
+        connection.activeRangeId != header.rangeId ||
+        connection.activeAttempt != header.attempt ||
         connection.activeChunkNextOffset != header.offset) {
         transfer.errorCode = protocol::FrameStatusCode::InvalidFrame;
         return common::Status::invalidArgument("chunk DATA frames must be contiguous");
@@ -682,11 +697,17 @@ common::Status processChunkCompletePayload(FileServerConnection& connection,
         transfer.errorCode = protocol::FrameStatusCode::InvalidFrame;
         return common::Status::invalidArgument("chunk complete does not match active chunk");
     }
+    if ((payload.rangeId != 0 && payload.rangeId != connection.activeRangeId) ||
+        payload.attempt != connection.activeAttempt) {
+        transfer.errorCode = protocol::FrameStatusCode::InvalidFrame;
+        return common::Status::invalidArgument("chunk complete range identity mismatch");
+    }
     if (payload.checksum.algorithm != transfer.checksumAlgorithm) {
         transfer.errorCode = protocol::FrameStatusCode::ChecksumUnsupported;
         return common::Status::invalidArgument("chunk checksum algorithm mismatch");
     }
-    const common::Status expectedRangeStatus = validateExpectedChunkRange(transfer, payload);
+    const common::Status expectedRangeStatus = validateExpectedChunkRange(
+        transfer, payload, connection.currentHeader.rangeId != 0);
     if (!expectedRangeStatus.isOk()) {
         return expectedRangeStatus;
     }
@@ -709,8 +730,10 @@ common::Status processChunkCompletePayload(FileServerConnection& connection,
         return common::Status::invalidArgument("chunk checksum mismatch");
     }
 
+    const std::uint64_t rangeId = connection.activeRangeId != 0
+        ? connection.activeRangeId : payload.chunkId;
     const common::Status verifiedStatus = transfer.session.recordVerifiedChunk(
-        payload.chunkId, payload.offset, payload.length, payload.checksum);
+        rangeId, payload.offset, payload.length, payload.checksum);
     if (!verifiedStatus.isOk()) {
         transfer.errorCode = protocol::FrameStatusCode::ChecksumMismatch;
         return verifiedStatus;

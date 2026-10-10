@@ -234,6 +234,31 @@ TEST(SessionControlTest, EncodesAndDecodesSessionInitPayload) {
     EXPECT_TRUE(decoded.value().sourcePath.empty());
 }
 
+TEST(SessionControlTest, EncodesAndDecodesRangeSessionInitExtension) {
+    cpnetflux::core::protocol::SessionInitPayload payload;
+    payload.mode = cpnetflux::core::protocol::SessionMode::New;
+    payload.transferId = "range-transfer";
+    payload.sourcePath = "nested/source.bin";
+    payload.totalSize = 16384;
+    payload.chunkSize = 1024;
+    payload.checksumAlgorithm = cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
+    payload.rangeId = 2;
+    payload.rangeOffset = 4096;
+    payload.rangeLength = 4096;
+    payload.rangeCount = 4;
+    payload.attempt = 3;
+    const auto encoded = cpnetflux::core::protocol::encodeSessionInitPayload(payload);
+    ASSERT_TRUE(encoded.isOk()) << encoded.status().message();
+    const auto decoded = cpnetflux::core::protocol::decodeSessionInitPayload(
+        encoded.value().data(), encoded.value().size());
+    ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
+    EXPECT_EQ(decoded.value().rangeId, 2U);
+    EXPECT_EQ(decoded.value().rangeOffset, 4096U);
+    EXPECT_EQ(decoded.value().rangeLength, 4096U);
+    EXPECT_EQ(decoded.value().rangeCount, 4U);
+    EXPECT_EQ(decoded.value().attempt, 3U);
+}
+
 TEST(SessionControlTest, EncodesAndDecodesSessionInitSourcePathExtension) {
     cpnetflux::core::protocol::SessionInitPayload payload;
     payload.mode = cpnetflux::core::protocol::SessionMode::Resume;
@@ -295,6 +320,25 @@ TEST(SessionControlTest, EncodesAndDecodesChunkCompletePayload) {
     EXPECT_EQ(decoded.value().length, 1048576U);
     EXPECT_EQ(decoded.value().checksum.algorithm, cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
     EXPECT_EQ(decoded.value().checksum.value, 0xe3069283U);
+}
+
+TEST(SessionControlTest, EncodesAndDecodesUnifiedRangeIdentity) {
+    cpnetflux::core::protocol::ChunkCompletePayload payload;
+    payload.chunkId = 3;
+    payload.offset = 3 * 4096;
+    payload.length = 4096;
+    payload.rangeId = 4;
+    payload.attempt = 2;
+    payload.checksum = cpnetflux::checksum::ChecksumValue{
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c, 0x12345678U};
+    const auto encoded = cpnetflux::core::protocol::encodeChunkCompletePayload(payload);
+    ASSERT_TRUE(encoded.isOk()) << encoded.status().message();
+    ASSERT_EQ(encoded.value().size(), 48U);
+    const auto decoded = cpnetflux::core::protocol::decodeChunkCompletePayload(
+        encoded.value().data(), encoded.value().size());
+    ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
+    EXPECT_EQ(decoded.value().rangeId, 4U);
+    EXPECT_EQ(decoded.value().attempt, 2U);
 }
 
 TEST(SessionControlTest, RejectsInvalidControlPayloads) {

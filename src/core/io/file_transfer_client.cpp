@@ -20,7 +20,7 @@
 #include "cpnetflux/checkpoint/transfer_manifest.h"
 #include "cpnetflux/checksum/checksum.h"
 #include "cpnetflux/common/throughput_counter.h"
-#include "cpnetflux/core/chunk/chunk_planner.h"
+#include "cpnetflux/core/chunk/range_planner.h"
 #include "cpnetflux/core/io/framed_data_socket.h"
 #include "cpnetflux/core/io/socket_utils.h"
 #include "cpnetflux/core/metrics/transfer_phase_stats.h"
@@ -323,6 +323,7 @@ common::Status sendChunkRange(FramedDataSocket* socket, const storage::PosixFile
         header.flags = flags;
         header.streamId = streamId;
         header.chunkId = chunk.chunkId;
+        header.rangeId = chunk.chunkId + 1;
         header.offset = completed;
         header.payloadSize = wirePayloadSize;
         header.totalSize = totalSize;
@@ -346,6 +347,8 @@ common::Status sendChunkRange(FramedDataSocket* socket, const storage::PosixFile
     complete.chunkId = chunk.chunkId;
     complete.offset = begin;
     complete.length = end - begin;
+    complete.rangeId = chunk.chunkId + 1;
+    complete.attempt = 0;
     {
         metrics::ScopedPhaseTimer timer(phaseStats, metrics::TransferPhase::Checksum);
         complete.checksum = checksumComputer.finalize();
@@ -359,6 +362,8 @@ common::Status sendChunkRange(FramedDataSocket* socket, const storage::PosixFile
     header.type = protocol::FrameType::ChunkComplete;
     header.streamId = streamId;
     header.chunkId = chunk.chunkId;
+    header.rangeId = chunk.chunkId + 1;
+    header.attempt = complete.attempt;
     header.offset = begin;
     header.payloadSize = static_cast<std::uint32_t>(payload.value().size());
     header.totalSize = totalSize;
@@ -507,7 +512,7 @@ common::Status runFileTransferClient(const config::FileTransferOptions& options)
         return adviceStatus;
     }
 
-    auto chunksResult = chunk::planChunks(totalSize, options.chunkSize, options.connections);
+    auto chunksResult = chunk::planUnifiedRanges(totalSize, options.chunkSize, options.connections);
     if (!chunksResult.isOk()) {
         return chunksResult.status();
     }

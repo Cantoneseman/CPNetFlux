@@ -3126,6 +3126,14 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         }
     }
 
+    const std::uint32_t logicalFileCount = static_cast<std::uint32_t>(files.size());
+    auto expandedFiles = upload ? expandPersistentFileRanges(files, channelCount)
+                                : common::Result<std::vector<PersistentFileIdentity>>(files);
+    if (!expandedFiles.isOk()) return expandedFiles.status();
+    if (upload) files = std::move(expandedFiles.value());
+    if (upload && !options.dynamicFileScheduling &&
+        std::any_of(files.begin(), files.end(), [](const auto& file) { return file.rangeId != 0; }))
+        return common::Status::invalidArgument("persistent large-file ranges require dynamic scheduling");
     if (upload && options.dynamicFileScheduling)
         ready = std::make_unique<DynamicFileQueue>(files,channelCount,options.dataPendingWindow,channelCount*options.dataPendingWindow*2);
 
@@ -3240,7 +3248,9 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     }
     for (const auto& file : files) {
         if (options.dynamicFileScheduling) break;
-        const auto channelIndex = (file.fileId - 1) % channelCount;
+        const auto channelIndex = file.rangeId != 0
+            ? static_cast<std::uint32_t>((file.rangeId - 1) % channelCount)
+            : (file.fileId - 1) % channelCount;
         channels[channelIndex]->files.push_back(file);
     }
 
@@ -3255,7 +3265,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 recordFailure(channel.status);
                 return;
             }
-            const auto totalFiles = upload ? static_cast<std::uint32_t>(files.size()) : 0U;
+            const auto totalFiles = upload ? logicalFileCount : 0U;
             channel.status = channel.control->startDirectory(upload,
                 upload ? options.destDir : options.sourceDir, index, channelCount, totalFiles,
                 &channel.totalFiles, &channel.expectedFileCount, batchId);
@@ -3285,7 +3295,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     }
     if (!firstFailure.isOk()) return firstFailure;
 
-    std::uint32_t expectedTotalFiles = upload ? static_cast<std::uint32_t>(files.size()) :
+    std::uint32_t expectedTotalFiles = upload ? logicalFileCount :
         kUnknownPersistentFileCount;
     for (std::uint32_t index = 0; index < channelCount; ++index) {
         const auto& channel = *channels[index];
@@ -3313,27 +3323,55 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
 
     std::mutex manifestMutex;
     std::unordered_map<std::uint32_t, std::size_t> downloadRecords;
-    std::unordered_map<std::uint32_t, PersistentFileIdentity> activeIdentities;
+    struct ActiveIdentity {
+        PersistentFileIdentity base;
+        std::uint64_t rangeCount = 0;
+        std::unordered_set<std::uint64_t> started;
+        std::unordered_set<std::uint64_t> completed;
+    };
+    std::unordered_map<std::uint32_t, ActiveIdentity> activeIdentities;
     std::unordered_set<std::string> downloadPaths;
     auto callback = [&](const PersistentFileIdentity& id, const common::Status& fileStatus,
                         bool complete) {
         std::lock_guard<std::mutex> lock(manifestMutex);
+        auto base = id;
+        base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = 0;
+        auto active = activeIdentities.find(id.fileId);
+        bool logicalComplete = id.rangeId == 0;
         if (!complete) {
-            if (!id.generation || activeIdentities.contains(id.fileId))
-                return common::Status::invalidArgument("duplicate persistent file begin");
-            activeIdentities.emplace(id.fileId,id);
+            if (!id.generation) return common::Status::invalidArgument("duplicate persistent file begin");
+            if (active == activeIdentities.end()) {
+                ActiveIdentity value{base, id.rangeCount, {}, {}};
+                active = activeIdentities.emplace(id.fileId, std::move(value)).first;
+            } else if (!samePersistentIdentity(active->second.base, base) ||
+                       active->second.rangeCount != id.rangeCount) {
+                return common::Status::invalidArgument("persistent file begin identity mismatch");
+            }
+            if (id.rangeId != 0 && !active->second.started.insert(id.rangeId).second)
+                return common::Status::invalidArgument("duplicate persistent range begin");
         } else {
-            const auto active = activeIdentities.find(id.fileId);
-            if (active == activeIdentities.end() || !samePersistentIdentity(active->second,id))
+            if (active == activeIdentities.end() || !samePersistentIdentity(active->second.base, base))
                 return common::Status::invalidArgument("persistent completion identity mismatch");
-            activeIdentities.erase(active);
+            if (!fileStatus.isOk()) {
+                activeIdentities.erase(active);
+                logicalComplete = true;
+            } else if (id.rangeId == 0) {
+                logicalComplete = true;
+                activeIdentities.erase(active);
+            } else {
+                if (!active->second.started.contains(id.rangeId) ||
+                    !active->second.completed.insert(id.rangeId).second)
+                    return common::Status::invalidArgument("persistent range completion identity mismatch");
+                logicalComplete = active->second.completed.size() == active->second.rangeCount;
+                if (logicalComplete) activeIdentities.erase(active);
+            }
         }
         core::tree::TreeFileRecord* record = nullptr;
         if (upload) {
             if (id.fileId == 0 || id.fileId > manifest->files.size())
                 return common::Status::invalidArgument("unexpected persistent file ID");
             record = &manifest->files[id.fileId - 1];
-        } else if (!complete) {
+        } else if (!complete && (id.rangeId == 0 || active->second.started.size() == 1)) {
             if (id.fileId == 0 ||
                 (expectedTotalFiles != kUnknownPersistentFileCount && id.fileId > expectedTotalFiles) ||
                 downloadRecords.contains(id.fileId) || !downloadPaths.insert(id.relativePath).second)
@@ -3351,11 +3389,13 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         if (record->relativePath != id.relativePath || record->transferId != id.transferId ||
             record->size != id.totalSize || record->mtimeUnixSeconds != id.mtimeUnixSeconds)
             return common::Status::invalidArgument("persistent tree manifest identity mismatch");
-        record->status = complete ? (fileStatus.isOk() ? core::tree::TreeFileStatus::Completed :
-            core::tree::TreeFileStatus::Failed) : core::tree::TreeFileStatus::Transferring;
-        record->error = fileStatus.isOk() ? "" : fileStatus.message();
-        if (complete && fileStatus.isOk()) stats->completedThisRun.fetch_add(1);
-        if (!complete) stats->dataTransferCount.fetch_add(1);
+        if (logicalComplete || !complete) {
+            record->status = complete ? (fileStatus.isOk() ? core::tree::TreeFileStatus::Completed :
+                core::tree::TreeFileStatus::Failed) : core::tree::TreeFileStatus::Transferring;
+            record->error = fileStatus.isOk() ? "" : fileStatus.message();
+        }
+        if (complete && logicalComplete && fileStatus.isOk()) stats->completedThisRun.fetch_add(1);
+        if (!complete && id.rangeId == 0) stats->dataTransferCount.fetch_add(1);
         return saveManifest(manifest, manifestPath);
     };
 
