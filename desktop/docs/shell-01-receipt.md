@@ -21,4 +21,4 @@
 
 未接入：真实 tree client / C++ library、真实 TLS/登录/能力/数据端口/目录授权探测、V2 checksum/resume/data TLS、V3动态队列/range、远端文件读取、systemd单元。界面和 demo 完成不代表 CPNetFlux真实传输完成。
 
-下一步：00确认底层结构化 summary/event、mode能力矩阵、取消/checkpoint边界和凭据注入接口后，更新 draft-2 并串行接入真实 adapter。
+阶段提交：223c1703cd621925a3bb9da5fc8c0f0fa9875009，已 push origin codex/DIR-V2-TRANSFER-ENGINE-01，远端 SHA 回读一致。\n下一步：00确认底层结构化 summary/event、mode能力矩阵、取消/checkpoint边界和凭据注入接口后，更新 draft-2 并串行接入真实 adapter。
