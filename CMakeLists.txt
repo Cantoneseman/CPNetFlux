@@ -104,6 +104,8 @@ add_library(cpnetflux_core STATIC
     src/core/io/framed_data_socket.cpp
     src/core/io/persistent_data_session.cpp
     src/core/io/persistent_tree_transfer.cpp
+    src/core/io/dynamic_file_queue.cpp
+    src/core/io/persistent_directory_batch.cpp
     src/core/io/socket_utils.cpp
     src/core/io/tcp_sink_client.cpp
     src/core/io/tcp_sink_server.cpp
@@ -303,6 +305,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/file_transfer_options_test.cpp
         tests/unit/frame_test.cpp
         tests/unit/persistent_data_session_test.cpp
+        tests/unit/dynamic_file_queue_test.cpp
         tests/unit/hot_path_compression_test.cpp
         tests/unit/manifest_store_test.cpp
         tests/unit/posix_file_test.cpp

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <unordered_set>
 
 #include "cpnetflux/core/io/framed_data_socket.h"
 
@@ -28,6 +29,7 @@ struct PersistentFrame {
 
 class PersistentDataSession {
    public:
+    explicit PersistentDataSession(bool unordered = false) : unordered_(unordered) {}
     static constexpr std::uint32_t kMaxPayload = 65536;
     [[nodiscard]] common::Status begin(const protocol::FrameHeader& header,
                                        const std::string& relativePath);
@@ -70,6 +72,9 @@ class PersistentDataSession {
                                                    const std::uint8_t* payload,
                                                    std::size_t length);
 
+    bool unordered_ = false;
+    std::unordered_set<std::uint32_t> seenFiles_;
+    std::unordered_set<std::uint64_t> seenGenerations_;
     bool active_ = false;
     PersistentFileIdentity current_;
     std::uint64_t receivedBytes_ = 0;

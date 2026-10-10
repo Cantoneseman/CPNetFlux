@@ -253,3 +253,19 @@ TEST(PersistentSessionTest, ReceiverRejectsFileAssignedToAnotherChannel) {
     EXPECT_FALSE(result.isOk());
     EXPECT_FALSE(std::filesystem::exists(root.path / "wrong-channel"));
 }
+
+TEST(PersistentSessionTest, DynamicAcceptsDescendingIdsButRejectsReplayAndStaleGeneration) {
+    PersistentDataSession state(true);
+    auto h=beginHeader(0);h.streamId=9;h.chunkId=9;
+    ASSERT_TRUE(state.begin(h,"big").isOk());
+    h.type=FrameType::FileEnd;h.payloadSize=0;
+    ASSERT_TRUE(state.end(h).isOk());
+    h=beginHeader(0);h.streamId=2;h.chunkId=2;
+    ASSERT_TRUE(state.begin(h,"small").isOk());
+    h.type=FrameType::FileEnd;h.payloadSize=0;
+    ASSERT_TRUE(state.end(h).isOk());
+    h=beginHeader(0);h.streamId=9;h.chunkId=10;
+    EXPECT_FALSE(state.begin(h,"replay").isOk());
+    h.streamId=10;h.chunkId=2;
+    EXPECT_FALSE(state.begin(h,"stale").isOk());
+}

@@ -86,7 +86,7 @@ def main():
                 command = [str(args.build_dir / f'cpnetflux-tree-{direction}-client'),
                            '--host', '127.0.0.1', '--port', str(port), '--source-dir', str(src),
                            '--dest-dir', str(dst), '--checksum', 'none', '--control-reuse', 'worker',
-                           '--data-session-reuse', 'tree', '--phase-timing', 'on', '--json-summary', str(summary), *extra]
+                           '--data-session-reuse', 'tree', '--file-scheduling', 'static', '--phase-timing', 'on', '--json-summary', str(summary), *extra]
                 result = subprocess.run(command, text=True, capture_output=True, timeout=40)
                 assert (result.returncode == 0) == success, result.stdout + result.stderr
                 return json.loads(summary.read_text(), object_pairs_hook=unique_json_object)

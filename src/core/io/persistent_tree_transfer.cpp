@@ -13,6 +13,8 @@
 #include <deque>
 #include <mutex>
 #include <thread>
+#include <ostream>
+#include <iomanip>
 #include "cpnetflux/checkpoint/manifest_store.h"
 #include "cpnetflux/core/session/transfer_session.h"
 #include "cpnetflux/core/session/download_session.h"
@@ -26,9 +28,16 @@ using protocol::FrameStatusCode;
 using protocol::FrameType;
 namespace fs = std::filesystem;
 using Session = std::variant<session::TransferSession, session::DownloadSession>;
+using Clock = std::chrono::steady_clock;
+double secondsSince(Clock::time_point start) { return std::chrono::duration<double>(Clock::now()-start).count(); }
+struct Timer {
+    double* value; Clock::time_point start = Clock::now();
+    ~Timer() { if (value) *value += secondsSince(start); }
+};
 
 class FileTransaction {
  public:
+    explicit FileTransaction(PersistentFileTiming* timing) : timing_(timing) {}
     Status begin(const std::string& root, const PersistentFileIdentity& id,
                  bool download, const std::string& remoteRoot) {
         auto valid = tree::validateTreeRelativePath(id.relativePath);
@@ -74,15 +83,19 @@ class FileTransaction {
         identity_ = id;
         auto resized = file_.resize(id.totalSize);
         if (!resized.isOk()) return resized;
+        Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
         return std::visit([](auto& s) { return s.save(); }, session_);
     }
     Status write(std::uint64_t offset, const std::vector<std::uint8_t>& bytes) {
+        const auto writing = Clock::now();
         auto status = file_.writeAtAll(offset, bytes.data(), bytes.size());
+        if (timing_) timing_->writeSeconds += secondsSince(writing);
         if (!status.isOk()) return status;
         const auto end = offset + bytes.size();
         while (recorded_ < end) {
             const auto length = std::min(identity_.chunkSize, identity_.totalSize - recorded_);
             if (length > end - recorded_) break;
+            Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
             status = std::visit([&](auto& s) { return s.recordVerifiedChunk(
                 recorded_ / identity_.chunkSize, recorded_, length,
                 checksum::ChecksumValue{checksum::ChecksumAlgorithm::None, 0}); }, session_);
@@ -94,13 +107,16 @@ class FileTransaction {
     Status commit() {
         timespec times[2]{{0, UTIME_OMIT}, {identity_.mtimeUnixSeconds, 0}};
         if (::futimens(file_.fd(), times) != 0) return Status::runtimeError("persistent mtime failed");
-        auto status = std::visit([](auto& s) { return s.flushManifest(); }, session_);
+        common::Status status;
+        { Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
+          status = std::visit([](auto& s) { return s.flushManifest(); }, session_); }
         if (!status.isOk()) return status;
         // Atomic no-replace publication: a raced destination must never be overwritten.
         if (::link(temp_.c_str(), output_.c_str()) != 0)
             return Status::runtimeError("persistent publish failed (output exists or IO error)");
         published_ = true;
-        status = std::visit([](auto& s) { return s.markCommitted(); }, session_);
+        { Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
+          status = std::visit([](auto& s) { return s.markCommitted(); }, session_); }
         if (!status.isOk()) return status;
         if (::unlink(temp_.c_str()) != 0) return Status::runtimeError("persistent temp unlink failed");
         active_ = false;
@@ -111,6 +127,7 @@ class FileTransaction {
         if (active_ && !published_) (void)std::visit([](auto& s) { return s.markFailed(); }, session_);
     }
  private:
+    PersistentFileTiming* timing_;
     Session session_;
     storage::PosixFile file_;
     PersistentFileIdentity identity_;
@@ -167,7 +184,7 @@ common::Result<std::vector<tree::TreeFileInfo>> scanPersistentTree(const std::st
 common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& root,
     const std::vector<PersistentFileIdentity>& files, PersistentTreeStats* stats,
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
-    std::uint32_t channelIndex, std::uint32_t channelCount) {
+    std::uint32_t channelIndex, std::uint32_t channelCount, DynamicFileQueue* ready) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -179,7 +196,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
     std::vector<std::uint8_t> buffer(PersistentDataSession::kMaxPayload);
-    struct PendingFile { PersistentFileIdentity id; };
+    struct PendingFile { PersistentFileIdentity id; PersistentFileTiming timing; Clock::time_point started, resultStarted; };
     std::mutex mutex;
     std::condition_variable changed;
     std::deque<PendingFile> pending;
@@ -191,6 +208,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     bool writerDone = false;
     bool abort = false;
     auto requestAbort = [&](const Status& failure) {
+        if (ready) ready->cancel(failure);
         std::lock_guard<std::mutex> lock(mutex);
         if (readerStatus.isOk()) readerStatus = failure;
         abort = true;
@@ -206,15 +224,21 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     std::thread resultReader([&]() {
         for (;;) {
             PersistentFileIdentity expected;
+            PersistentFileTiming timing;
+            Clock::time_point fileStarted, resultStarted;
             {
                 std::unique_lock<std::mutex> lock(mutex);
                 changed.wait(lock, [&] { return abort || !pending.empty() || writerDone; });
                 if (abort) return;
                 if (pending.empty() && writerDone) return;
                 expected = pending.front().id;
+                timing = pending.front().timing;
+                fileStarted = pending.front().started;
+                resultStarted = pending.front().resultStarted;
             }
             const auto started = std::chrono::steady_clock::now();
             auto result = PersistentDataSession::readResult(socket, expected);
+            const double resultSeconds = secondsSince(resultStarted);
             const double waitSeconds = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - started).count();
             if (!result.isOk()) {
@@ -223,6 +247,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             }
             const auto fileStatus = result.value() == FrameStatusCode::Ok ? Status::ok() :
                 Status::runtimeError("persistent receiver rejected file: " + expected.relativePath);
+            if (ready) {
+                auto completed = ready->complete(channelIndex, expected);
+                if (!completed.isOk()) { requestAbort(completed); return; }
+            }
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 if (pending.empty() || pending.front().id.fileId != expected.fileId ||
@@ -245,19 +273,30 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 if (!fileStatus.isOk() && overall.isOk()) overall = fileStatus;
             }
             changed.notify_all();
+            const auto manifestStarted = Clock::now();
             const auto callbackStatus = notifySafe(expected, fileStatus, true);
+            timing.manifestSeconds += secondsSince(manifestStarted);
+            timing.fileResultSeconds = resultSeconds;
+            timing.wallSeconds = secondsSince(fileStarted);
+            if (stats->phaseTiming) stats->fileTimings.push_back(std::move(timing));
             if (!callbackStatus.isOk()) {
                 requestAbort(callbackStatus);
                 return;
             }
+            if (ready && !fileStatus.isOk()) { requestAbort(fileStatus); return; }
         }
     });
     auto failWriter = [&](const Status& failure) {
         requestAbort(failure);
         if (socket->valid()) (void)::shutdown(socket->fd(), SHUT_RDWR);
     };
-    for (const auto& id : files) {
-        if (!persistentFileAssignedToChannel(id.fileId, channelIndex, channelCount)) {
+    std::size_t nextFile = 0;
+    for (;;) {
+        PersistentFileIdentity id;
+        PersistentFileTiming timing;
+        if (!ready && nextFile >= files.size()) break;
+        if (!ready) id = files[nextFile++];
+        if (!ready && !persistentFileAssignedToChannel(id.fileId, channelIndex, channelCount)) {
             failWriter(Status::invalidArgument("persistent file assigned to wrong channel"));
             break;
         }
@@ -266,6 +305,16 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             changed.wait(lock, [&] { return abort || pending.size() < pendingWindow; });
             if (abort) break;
         }
+        if (ready) {
+            auto next = ready->claim(channelIndex);
+            if (!next.isOk()) { failWriter(next.status()); break; }
+            if (!next.value()) break;
+            id = next.value()->file;
+            timing.queueWaitSeconds = next.value()->queueWaitSeconds;
+            stats->queueWaitSeconds += next.value()->queueWaitSeconds;
+        }
+        timing.file = id; timing.channel = channelIndex; timing.sender = true;
+        const auto fileStarted = Clock::now();
         status = tree::validateTreeRelativePath(id.relativePath);
         if (!status.isOk()) { failWriter(status); break; }
         UniqueFd fd(::open((fs::path(root) / id.relativePath).c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
@@ -275,7 +324,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             failWriter(Status::runtimeError("persistent source changed before transfer")); break;
         }
         storage::PosixFile file(std::move(fd));
+        const auto manifestStarted = Clock::now();
         status = notifySafe(id, Status::ok(), false);
+        timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) { failWriter(status); break; }
         status = PersistentDataSession::writeBegin(socket, id);
         if (!status.isOk()) { failWriter(status); break; }
@@ -286,9 +337,14 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         bool writeFailed = false;
         for (std::uint64_t offset = 0; offset < id.totalSize;) {
             const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), id.totalSize - offset));
+            const auto reading = Clock::now();
             status = file.readAtAll(offset, buffer.data(), length);
+            timing.readSeconds += secondsSince(reading);
             if (!status.isOk()) { writeFailed = true; break; }
+            const auto payloadStarted = Clock::now();
             status = PersistentDataSession::writeData(socket, id, offset, buffer.data(), length);
+            timing.payloadIoSeconds += secondsSince(payloadStarted);
+            if (status.isOk() && !timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
             if (!status.isOk()) { writeFailed = true; break; }
             offset += length;
             addWire(protocol::kFrameHeaderSize + length);
@@ -304,7 +360,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (writeFailed || !status.isOk()) { failWriter(status.isOk() ? Status::runtimeError("persistent data write failed") : status); break; }
         {
             std::lock_guard<std::mutex> lock(mutex);
-            pending.push_back({id});
+            pending.push_back({id, std::move(timing), fileStarted, Clock::now()});
             stats->pendingHighWatermark = std::max<std::uint32_t>(
                 stats->pendingHighWatermark, static_cast<std::uint32_t>(pending.size()));
         }
@@ -337,7 +393,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     bool download, const std::string& remoteRoot, PersistentTreeStats* stats,
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
     std::uint32_t channelIndex, std::uint32_t channelCount,
-    std::uint32_t expectedFileCount) {
+    std::uint32_t expectedFileCount, bool dynamic) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -348,7 +404,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     stats->pendingWindow = pendingWindow; // Receiver stays serial; report negotiated sender credit.
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
-    PersistentDataSession state;
+    PersistentDataSession state(dynamic);
     Status overall = Status::ok();
     for (;;) {
         auto frame = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
@@ -365,15 +421,21 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         auto decoded = PersistentDataSession::decodeBegin(frame.value());
         if (!decoded.isOk()) return decoded.status();
         const auto id = decoded.value();
-        if (!persistentFileAssignedToChannel(id.fileId, channelIndex, channelCount))
+        if (!dynamic && !persistentFileAssignedToChannel(id.fileId, channelIndex, channelCount))
             return Status::invalidArgument("persistent file arrived on wrong channel");
         status = state.begin(frame.value().header, id.relativePath);
         if (!status.isOk()) return status;
+        PersistentFileTiming timing;
+        timing.file = id; timing.channel = channelIndex;
+        const auto fileStarted = Clock::now();
+        const auto manifestStarted = Clock::now();
         status = notify(callback, id, Status::ok(), false);
+        timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) return status;
-        FileTransaction transaction;
+        FileTransaction transaction(stats->phaseTiming ? &timing : nullptr);
         Status fileStatus = transaction.begin(root, id, download, remoteRoot);
         for (;;) {
+            const auto payloadStarted = Clock::now();
             auto data = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
             if (!data.isOk()) {
                 (void)notify(callback, id, data.status(), true);
@@ -385,20 +447,76 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 if (!ended.isOk()) return ended.status();
                 break;
             }
+            timing.payloadIoSeconds += secondsSince(payloadStarted);
+            if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
             status = state.data(data.value().header, data.value().payload.size());
             if (!status.isOk()) return status;
             if (fileStatus.isOk()) fileStatus = transaction.write(data.value().header.offset, data.value().payload);
         }
-        if (fileStatus.isOk()) fileStatus = transaction.commit();
+        if (fileStatus.isOk()) { Timer timer{&timing.finalizeSeconds}; fileStatus = transaction.commit(); }
         ++stats->files;
         if (fileStatus.isOk()) stats->bytes += id.totalSize;
         else if (overall.isOk()) overall = fileStatus;
+        const auto completedStarted = Clock::now();
         status = notify(callback, id, fileStatus, true);
+        timing.manifestSeconds += secondsSince(completedStarted);
         if (!status.isOk()) return status;
+        const auto resultStarted = Clock::now();
         status = PersistentDataSession::writeResult(socket, id,
             fileStatus.isOk() ? FrameStatusCode::Ok : FrameStatusCode::WriteFailed);
         if (!status.isOk()) return status;
         stats->wireBytes += protocol::kFrameHeaderSize;
+        timing.fileResultSeconds = secondsSince(resultStarted);
+        timing.wallSeconds = secondsSince(fileStarted);
+        if (stats->phaseTiming) stats->fileTimings.push_back(std::move(timing));
     }
+}
+}  // namespace cpnetflux::core::io
+
+namespace cpnetflux::core::io {
+namespace {
+void quoted(std::ostream& out, const std::string& value) {
+    out << '"';
+    for (unsigned char c : value) {
+        if (c == '"' || c == '\\') out << '\\' << c;
+        else if (c < 32) {
+            constexpr char digits[] = "0123456789abcdef";
+            out << "\\u00" << digits[c>>4] << digits[c&15];
+        } else out << c;
+    }
+    out << '"';
+}
+void optionalSeconds(std::ostream& out, const std::optional<double>& value) {
+    if (value) out << *value; else out << "null";
+}
+}
+void appendPersistentFileTimings(std::ostream& out, const std::vector<PersistentFileTiming>& files) {
+    out << std::setprecision(17) << '[';
+    bool first = true;
+    for (const auto& t : files) {
+        if (!first) out << ',';
+        first = false;
+        out << "{\"file_id\":" << t.file.fileId << ",\"generation\":" << t.file.generation
+            << ",\"size\":" << t.file.totalSize << ",\"channel_index\":" << t.channel << ",\"relative_path\":";
+        quoted(out,t.file.relativePath);
+        out << ",\"transfer_id\":"; quoted(out,t.file.transferId);
+        out << ",\"measurement_scope\":\"" << (t.sender ? "local_sender" : "local_receiver")
+            << "\",\"queue_wait_seconds\":"; optionalSeconds(out,t.queueWaitSeconds);
+        out << ",\"first_payload_seconds\":"; optionalSeconds(out,t.firstPayloadSeconds);
+        out << ",\"read_seconds\":";
+        if (t.sender) out << t.readSeconds; else out << "null";
+        out << ",\"write_seconds\":";
+        if (!t.sender) out << t.writeSeconds; else out << "null";
+        out << ",\"first_payload_scope\":\"first_complete_application_payload_frame_relative_to_file_start\""
+            << ",\"file_result_scope\":\"" << (t.sender ? "file_end_to_valid_result_received" : "result_frame_write")
+            << "\",\"manifest_scope\":\"checkpoint_and_file_state_callback\""
+            << ",\"finalize_scope\":" << (t.sender ? "null" : "\"receiver_commit_includes_manifest_flush\"")
+            << ",\"payload_io_seconds\":" << t.payloadIoSeconds
+            << ",\"file_result_seconds\":" << t.fileResultSeconds
+            << ",\"manifest_seconds\":" << t.manifestSeconds << ",\"checksum_seconds\":null,\"finalize_seconds\":";
+        if (!t.sender) out << t.finalizeSeconds; else out << "null";
+        out << ",\"wall_seconds\":" << t.wallSeconds << '}';
+    }
+    out << ']';
 }
 }  // namespace cpnetflux::core::io

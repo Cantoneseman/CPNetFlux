@@ -40,7 +40,9 @@ common::Status PersistentDataSession::begin(const protocol::FrameHeader& header,
     }
     const common::Status valid = protocol::validateFrameHeader(header, kMaxPayload);
     if (!valid.isOk() || header.type != protocol::FrameType::FileBegin ||
-        header.streamId <= lastFileId_ || header.chunkId <= lastGeneration_ ||
+        header.streamId == 0 || header.chunkId == 0 ||
+        (unordered_ ? (seenFiles_.contains(header.streamId) || seenGenerations_.contains(header.chunkId)) :
+            (header.streamId <= lastFileId_ || header.chunkId <= lastGeneration_)) ||
         header.offset != 0 || !safeRelativePath(relativePath)) {
         return common::Status::invalidArgument("invalid FILE_BEGIN identity or path");
     }
@@ -50,6 +52,7 @@ common::Status PersistentDataSession::begin(const protocol::FrameHeader& header,
     active_ = true;
     lastFileId_ = header.streamId;
     lastGeneration_ = header.chunkId;
+    if (unordered_) { seenFiles_.insert(header.streamId); seenGenerations_.insert(header.chunkId); }
     return common::Status::ok();
 }
 

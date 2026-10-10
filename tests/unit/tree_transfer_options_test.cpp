@@ -512,3 +512,11 @@ TEST(TreeTransferOptionsTest, DefaultsPersistentDataPendingWindowToTwo) {
     EXPECT_EQ(parsed.value().dataPendingWindow, 2U);
     std::filesystem::remove_all(root);
 }
+
+TEST(TreeTransferOptionsTest, AcceptsDynamicFileSchedulingForPersistentTree) {
+    const char* argv[] = {"client", "--source-dir", "remote", "--dest-dir", "/tmp/cpnetflux-dynamic-option",
+        "--data-session-reuse", "tree", "--checksum", "none", "--file-scheduling", "dynamic"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Download);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+}
