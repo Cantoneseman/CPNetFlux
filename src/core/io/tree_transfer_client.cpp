@@ -280,7 +280,8 @@ class ControlClient {
     }
 
     [[nodiscard]] common::Result<bool> negotiatePersistent(std::uint32_t requestedWindow,
-        std::uint32_t requestedChannels, std::uint32_t* actualWindow,
+        std::uint32_t requestedChannels, checksum::ChecksumAlgorithm checksumAlgorithm,
+        bool resume, DataTlsMode dataTlsMode, std::uint32_t* actualWindow,
         std::uint32_t* actualChannels, bool dynamic = false) {
         if (requestedWindow == 0 || requestedWindow > 16 ||
             requestedChannels == 0 || requestedChannels > kPersistentTreeMaxChannels ||
@@ -293,18 +294,30 @@ class ControlClient {
             ::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0)
             return common::Status::runtimeError("persistent control timeout configuration failed");
         std::string request = "XCPNETFLUX V2";
-        if (requestedWindow != 1 || requestedChannels != 1 || dynamic) {
+        if (requestedWindow != 1 || requestedChannels != 1 || dynamic || resume ||
+            checksumAlgorithm != checksum::ChecksumAlgorithm::None || dataTlsMode != DataTlsMode::Off) {
             request += " WINDOW=" + std::to_string(requestedWindow);
             if (requestedChannels != 1)
                 request += " CHANNELS=" + std::to_string(requestedChannels);
         }
+        request += " CHECKSUM=" + std::string(checksum::checksumAlgorithmName(checksumAlgorithm));
+        request += " RESUME=" + std::string(resume ? "1" : "0");
+        request += " DATA_TLS=" + std::string(dataTlsModeName(dataTlsMode));
         if (dynamic) request += " SCHED=dynamic";
         auto reply = command(request);
         if (!reply.isOk()) return reply.status();
         if (reply.value().code == 200) {
-            if ((dynamic && joined(reply.value()).find(" scheduling=dynamic") == std::string::npos) ||
+            const std::string replyText = joined(reply.value());
+            const std::string checksumToken = "checksum=" +
+                std::string(checksum::checksumAlgorithmName(checksumAlgorithm));
+            const std::string resumeToken = "resume=" + std::string(resume ? "1" : "0");
+            const std::string tlsToken = "data_tls=" + std::string(dataTlsModeName(dataTlsMode));
+            if ((dynamic && replyText.find(" scheduling=dynamic") == std::string::npos) ||
                 (requestedChannels > 1 &&
-                joined(reply.value()).find("channels=" + std::to_string(requestedChannels)) == std::string::npos)) {
+                 replyText.find("channels=" + std::to_string(requestedChannels)) == std::string::npos) ||
+                replyText.find(checksumToken) == std::string::npos ||
+                replyText.find(resumeToken) == std::string::npos ||
+                replyText.find(tlsToken) == std::string::npos) {
                 timeout = {0, 0};
                 (void)::setsockopt(control_.fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
                 (void)::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
@@ -3069,21 +3082,34 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
 }
 
 bool persistentEligible(const config::TreeTransferOptions& options) {
-    return options.reuseDataSession && !options.resume && options.maxFiles == 0 &&
+    return options.reuseDataSession && options.maxFiles == 0 &&
         options.fileParallelism >= 1 && options.fileParallelism <= kPersistentTreeMaxChannels &&
-        options.connections == 1 && options.schedulerMode == config::TreeSchedulerMode::Off &&
+        options.schedulerMode == config::TreeSchedulerMode::Off &&
         options.compressionMode == config::CompressionMode::Off &&
-        options.checksumAlgorithm == checksum::ChecksumAlgorithm::None &&
-        options.dataTlsMode == DataTlsMode::Off;
+        options.controlPipelineDepth == 0;
 }
 
 common::Status tryPersistentDirectory(const config::TreeTransferOptions& options,
     core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
     bool upload, bool* used, ControlClient* connected = nullptr) {
     *used = false;
-    if (!persistentEligible(options)) return common::Status::ok();
+    if (!options.reuseDataSession) return common::Status::ok();
+    if (!persistentEligible(options)) {
+        return common::Status::invalidArgument(
+            "V2 persistent tree configuration is unsupported; explicitly select "
+            "--data-session-reuse off for the legacy path");
+    }
+    if (options.resume && !options.dynamicFileScheduling) {
+        return common::Status::invalidArgument(
+            "V2 resume requires dynamic file scheduling");
+    }
 
     const std::uint32_t channelCount = options.fileParallelism;
+    config::TreeTransferOptions persistentOptions = options;
+    // A persistent directory channel carries one file stream at a time. The
+    // user-facing connection count remains a legacy control setting; V2 uses
+    // fileParallelism for its bounded data channels.
+    persistentOptions.connections = 1;
     const std::string batchId = options.dynamicFileScheduling ? generateTransferId() : "";
     std::unique_ptr<DynamicFileQueue> ready;
     std::vector<PersistentFileIdentity> files;
@@ -3091,10 +3117,12 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         if (manifest->files.size() > UINT32_MAX)
             return common::Status::invalidArgument("too many files for persistent directory");
         files.reserve(manifest->files.size());
-        for (const auto& file : manifest->files) {
-            const auto id = static_cast<std::uint32_t>(files.size() + 1);
+        for (std::size_t index = 0; index < manifest->files.size(); ++index) {
+            const auto& file = manifest->files[index];
+            if (options.resume && file.status == core::tree::TreeFileStatus::Completed) continue;
+            const auto id = static_cast<std::uint32_t>(index + 1);
             files.push_back({id, id, file.size, file.relativePath, file.transferId,
-                             options.chunkSize, file.mtimeUnixSeconds});
+                             options.chunkSize, file.mtimeUnixSeconds, options.checksumAlgorithm, {}});
         }
     }
 
@@ -3120,7 +3148,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     channels.reserve(channelCount);
     for (std::uint32_t index = 0; index < channelCount; ++index) {
         auto channel = std::make_unique<Channel>();
-        if (index == 0 && connected != nullptr) {
+        if (index == 0 && connected != nullptr && options.connections == 1) {
             channel->control = connected;
         } else {
             channel->ownedControl = std::make_unique<ControlClient>();
@@ -3158,7 +3186,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             auto& channel = *channels[index];
             const auto preparing = std::chrono::steady_clock::now();
             if (!(index == 0 && connected != nullptr)) {
-                channel.status = ensureControlReadyWithStats(channel.control, options, stats);
+                channel.status = ensureControlReadyWithStats(channel.control, persistentOptions, stats);
                 if (!channel.status.isOk()) {
                     recordFailure(channel.status);
                     return;
@@ -3166,7 +3194,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
             std::uint32_t actualWindow = 1, actualChannels = 1;
             auto capability = channel.control->negotiatePersistent(
-                options.dataPendingWindow, channelCount, &actualWindow, &actualChannels, options.dynamicFileScheduling);
+                options.dataPendingWindow, channelCount, options.checksumAlgorithm, options.resume,
+                options.dataTlsMode, &actualWindow, &actualChannels, options.dynamicFileScheduling);
             if (!capability.isOk()) {
                 channel.status = capability.status();
                 recordFailure(channel.status);
@@ -3185,8 +3214,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     for (auto& worker : workers) worker.join();
     if (!firstFailure.isOk()) return firstFailure;
     if (std::any_of(channels.begin(), channels.end(),
-                    [](const auto& channel) { return !channel->capable; }))
-        return common::Status::ok();
+                    [](const auto& channel) { return !channel->capable; })) {
+        return common::Status::invalidArgument(
+            "server rejected the requested V2 persistent tree capability; explicitly select "
+            "--data-session-reuse off for the legacy path");
+    }
 
     *used = true;
     stats->persistentData = true;
@@ -3233,7 +3265,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
             channel.prepareSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now()-preparing).count();
             const auto connecting = std::chrono::steady_clock::now();
-            auto data = connectFramedDataSocket(options.host.c_str(), port.value(), DataTlsMode::Off, options.tls);
+            auto data = connectFramedDataSocket(options.host.c_str(), port.value(), options.dataTlsMode, options.tls);
             channel.connectSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now()-connecting).count();
             if (!data.isOk()) {
                 channel.status = data.status();
@@ -3337,7 +3369,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     &channel.observed, callback, options.dataPendingWindow, index, channelCount, ready.get())
                 : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
                     &channel.observed, callback, options.dataPendingWindow, index, channelCount,
-                    channel.expectedFileCount, options.dynamicFileScheduling);
+                    channel.expectedFileCount, options.dynamicFileScheduling, options.resume);
             {
                 std::lock_guard<std::mutex> lock(channel.dataMutex);
                 channel.data = FramedDataSocket{};
@@ -3807,14 +3839,15 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
     core::tree::TreeManifest manifest;
     TreeRunStats stats;
     ControlClient control;
-    const common::Status readyStatus = ensureControlReadyWithStats(&control, options, &stats);
-    if (!readyStatus.isOk()) {
-        return readyStatus;
+    const bool needInitialControl = !options.reuseDataSession || !persistentEligible(options);
+    if (needInitialControl) {
+        const common::Status readyStatus = ensureControlReadyWithStats(&control, options, &stats);
+        if (!readyStatus.isOk()) return readyStatus;
     }
 
     bool usedPersistent = false;
     auto persistentStatus = tryPersistentDirectory(options, &manifest, manifestPath,
-        &stats, false, &usedPersistent, &control);
+        &stats, false, &usedPersistent, needInitialControl ? &control : nullptr);
     if (usedPersistent || !persistentStatus.isOk())
         return emitTreeSummary("tree_download_complete", "download", persistentStatus, options,
                                manifest, stats, startedAt);

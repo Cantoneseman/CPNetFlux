@@ -155,6 +155,8 @@ def run_phase(
             "dataset",
             "--connections",
             "2",
+            "--data-session-reuse",
+            "off",
             "--file-parallelism",
             "2",
         ]
@@ -173,6 +175,8 @@ def run_phase(
             str(destination),
             "--connections",
             "2",
+            "--data-session-reuse",
+            "off",
             "--file-parallelism",
             "2",
         ]

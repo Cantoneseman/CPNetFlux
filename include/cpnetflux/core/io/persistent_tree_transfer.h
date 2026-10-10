@@ -25,7 +25,8 @@ struct PersistentFileTiming {
     bool sender = false;
     std::optional<double> queueWaitSeconds, firstPayloadSeconds;
     double readSeconds = 0, writeSeconds = 0, payloadIoSeconds = 0;
-    double fileResultSeconds = 0, manifestSeconds = 0, finalizeSeconds = 0, wallSeconds = 0;
+    double fileResultSeconds = 0, manifestSeconds = 0, checksumSeconds = 0,
+        finalizeSeconds = 0, wallSeconds = 0;
 };
 void appendPersistentFileTimings(std::ostream& out, const std::vector<PersistentFileTiming>& files);
 struct PersistentTreeStats {
@@ -54,5 +55,6 @@ using PersistentFileCallback = std::function<common::Status(
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},
     std::uint32_t pendingWindow = 1, std::uint32_t channelIndex = 0,
     std::uint32_t channelCount = 1,
-    std::uint32_t expectedFileCount = kUnknownPersistentFileCount, bool dynamic = false);
+    std::uint32_t expectedFileCount = kUnknownPersistentFileCount, bool dynamic = false,
+    bool resume = false);
 }  // namespace cpnetflux::core::io

@@ -16,6 +16,7 @@
 #include <ostream>
 #include <iomanip>
 #include "cpnetflux/checkpoint/manifest_store.h"
+#include "cpnetflux/checkpoint/download_manifest.h"
 #include "cpnetflux/core/session/transfer_session.h"
 #include "cpnetflux/core/session/download_session.h"
 #include "cpnetflux/core/tree/tree_scan.h"
@@ -39,7 +40,7 @@ class FileTransaction {
  public:
     explicit FileTransaction(PersistentFileTiming* timing) : timing_(timing) {}
     Status begin(const std::string& root, const PersistentFileIdentity& id,
-                 bool download, const std::string& remoteRoot) {
+                 bool download, const std::string& remoteRoot, bool resume) {
         auto valid = tree::validateTreeRelativePath(id.relativePath);
         if (!valid.isOk()) return valid;
         std::error_code error;
@@ -58,53 +59,99 @@ class FileTransaction {
             if (error) return Status::runtimeError("create persistent destination directory failed");
         }
         output_ = (parent / relative.filename()).string();
-        if (fs::symlink_status(output_, error).type() != fs::file_type::not_found)
-            return Status::invalidArgument("persistent output already exists");
-        if (download) {
+        const auto existing = fs::symlink_status(output_, error);
+        if (existing.type() != fs::file_type::not_found) {
+            if (!resume || !download || error || !fs::is_regular_file(existing))
+                return Status::invalidArgument("persistent output already exists");
+            std::error_code sizeError;
+            const auto size = fs::file_size(output_, sizeError);
+            if (sizeError || size != id.totalSize) return Status::invalidArgument("persistent output identity mismatch");
+            skipped_ = true;
+            identity_ = id;
+            active_ = true;
+            return Status::ok();
+        }
+        if (resume) {
+            if (download) {
+                std::string sessionTransferId = id.transferId;
+                const auto manifestPath = checkpoint::downloadManifestPathForOutput(output_);
+                auto loaded = checkpoint::loadDownloadManifest(manifestPath);
+                if (loaded.isOk() && loaded.value().sourcePath ==
+                        (fs::path(remoteRoot) / relative).lexically_normal().generic_string() &&
+                    loaded.value().totalSize == id.totalSize &&
+                    loaded.value().chunkSize == id.chunkSize &&
+                    loaded.value().checksumAlgorithm == id.checksumAlgorithm) {
+                    sessionTransferId = loaded.value().transferId;
+                }
+                auto resumed = session::DownloadSession::resume(output_,
+                    (fs::path(remoteRoot) / relative).lexically_normal().generic_string(),
+                    sessionTransferId, id.totalSize, id.chunkSize, id.checksumAlgorithm);
+                if (!resumed.isOk()) return resumed.status();
+                session_ = std::move(resumed.value());
+            } else {
+                auto resumed = session::TransferSession::resume(output_, id.transferId,
+                    id.totalSize, id.chunkSize, id.checksumAlgorithm);
+                if (!resumed.isOk()) return resumed.status();
+                session_ = std::move(resumed.value());
+            }
+        } else if (download) {
             auto created = session::DownloadSession::createNew(output_,
                 (fs::path(remoteRoot) / relative).lexically_normal().generic_string(), id.transferId, id.totalSize,
-                id.chunkSize, checksum::ChecksumAlgorithm::None);
+                id.chunkSize, id.checksumAlgorithm);
             if (!created.isOk()) return created.status();
             session_ = std::move(created.value());
         } else {
             auto created = session::TransferSession::createNew(output_, id.transferId, id.totalSize,
-                id.chunkSize, checksum::ChecksumAlgorithm::None);
+                id.chunkSize, id.checksumAlgorithm);
             if (!created.isOk()) return created.status();
             session_ = std::move(created.value());
         }
         temp_ = std::visit([](auto& s) { return s.manifest().tempPath; }, session_);
         const auto manifest = std::visit([](auto& s) { return s.manifestPath(); }, session_);
-        if (fs::symlink_status(manifest, error).type() != fs::file_type::not_found)
+        if (!resume && fs::symlink_status(manifest, error).type() != fs::file_type::not_found)
             return Status::invalidArgument("persistent manifest already exists; use resume");
         auto file = storage::PosixFile::openReadWriteExclusive(temp_);
+        if (resume) file = storage::PosixFile::openReadWrite(temp_);
         if (!file.isOk()) return file.status();
         file_ = std::move(file.value());
         active_ = true;
         identity_ = id;
+        checksumComputer_ = checksum::ChecksumComputer(id.checksumAlgorithm);
         auto resized = file_.resize(id.totalSize);
         if (!resized.isOk()) return resized;
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
-        return std::visit([](auto& s) { return s.save(); }, session_);
+        return resume ? common::Status::ok() : std::visit([](auto& s) { return s.save(); }, session_);
     }
     Status write(std::uint64_t offset, const std::vector<std::uint8_t>& bytes) {
+        if (skipped_) return Status::ok();
         const auto writing = Clock::now();
         auto status = file_.writeAtAll(offset, bytes.data(), bytes.size());
         if (timing_) timing_->writeSeconds += secondsSince(writing);
         if (!status.isOk()) return status;
         const auto end = offset + bytes.size();
-        while (recorded_ < end) {
-            const auto length = std::min(identity_.chunkSize, identity_.totalSize - recorded_);
-            if (length > end - recorded_) break;
+        std::size_t consumed = 0;
+        while (consumed < bytes.size()) {
+            const auto chunkOffset = (offset + consumed) / identity_.chunkSize * identity_.chunkSize;
+            if (chunkOffset != recorded_) return Status::invalidArgument("persistent chunk order mismatch");
+            const auto length = std::min<std::uint64_t>(identity_.chunkSize, identity_.totalSize - recorded_);
+            const auto part = std::min<std::size_t>(length - chunkBytes_, bytes.size() - consumed);
+            checksumComputer_.update(bytes.data() + consumed, part);
+            chunkBytes_ += part;
+            consumed += part;
+            if (chunkBytes_ != length) continue;
             Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
             status = std::visit([&](auto& s) { return s.recordVerifiedChunk(
                 recorded_ / identity_.chunkSize, recorded_, length,
-                checksum::ChecksumValue{checksum::ChecksumAlgorithm::None, 0}); }, session_);
+                checksumComputer_.finalize()); }, session_);
             if (!status.isOk()) return status;
             recorded_ += length;
+            chunkBytes_ = 0;
+            checksumComputer_ = checksum::ChecksumComputer(identity_.checksumAlgorithm);
         }
         return Status::ok();
     }
     Status commit() {
+        if (skipped_) { active_ = false; return Status::ok(); }
         timespec times[2]{{0, UTIME_OMIT}, {identity_.mtimeUnixSeconds, 0}};
         if (::futimens(file_.fd(), times) != 0) return Status::runtimeError("persistent mtime failed");
         common::Status status;
@@ -124,16 +171,18 @@ class FileTransaction {
     }
     ~FileTransaction() {
         // Partial files/checkpoints stay available to the existing v1 resume engine.
-        if (active_ && !published_) (void)std::visit([](auto& s) { return s.markFailed(); }, session_);
+        if (active_ && !published_ && !skipped_) (void)std::visit([](auto& s) { return s.markFailed(); }, session_);
     }
  private:
     PersistentFileTiming* timing_;
     Session session_;
     storage::PosixFile file_;
     PersistentFileIdentity identity_;
+    checksum::ChecksumComputer checksumComputer_{checksum::ChecksumAlgorithm::None};
     std::string output_, temp_;
     std::uint64_t recorded_ = 0;
-    bool active_ = false, published_ = false;
+    std::uint64_t chunkBytes_ = 0;
+    bool active_ = false, published_ = false, skipped_ = false;
 };
 
 Status notify(const PersistentFileCallback& callback, const PersistentFileIdentity& id,
@@ -331,16 +380,20 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         status = PersistentDataSession::writeBegin(socket, id);
         if (!status.isOk()) { failWriter(status); break; }
         const auto metadata = protocol::encodeSessionInitPayload({protocol::SessionMode::New,
-            id.transferId, id.totalSize, id.chunkSize, checksum::ChecksumAlgorithm::None, id.relativePath});
+            id.transferId, id.totalSize, id.chunkSize, id.checksumAlgorithm, id.relativePath});
         if (!metadata.isOk()) { failWriter(metadata.status()); break; }
         addWire(protocol::kFrameHeaderSize + metadata.value().size() + 8);
         bool writeFailed = false;
+        checksum::ChecksumComputer checksumComputer(id.checksumAlgorithm);
         for (std::uint64_t offset = 0; offset < id.totalSize;) {
             const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), id.totalSize - offset));
             const auto reading = Clock::now();
             status = file.readAtAll(offset, buffer.data(), length);
             timing.readSeconds += secondsSince(reading);
             if (!status.isOk()) { writeFailed = true; break; }
+            const auto checksumStarted = Clock::now();
+            checksumComputer.update(buffer.data(), length);
+            timing.checksumSeconds += secondsSince(checksumStarted);
             const auto payloadStarted = Clock::now();
             status = PersistentDataSession::writeData(socket, id, offset, buffer.data(), length);
             timing.payloadIoSeconds += secondsSince(payloadStarted);
@@ -356,7 +409,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             status = Status::runtimeError("persistent source changed during transfer");
             writeFailed = true;
         }
-        if (!writeFailed) status = PersistentDataSession::writeEnd(socket, id);
+        if (!writeFailed) status = PersistentDataSession::writeEnd(socket, id, checksumComputer.finalize());
         if (writeFailed || !status.isOk()) { failWriter(status.isOk() ? Status::runtimeError("persistent data write failed") : status); break; }
         {
             std::lock_guard<std::mutex> lock(mutex);
@@ -393,7 +446,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     bool download, const std::string& remoteRoot, PersistentTreeStats* stats,
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
     std::uint32_t channelIndex, std::uint32_t channelCount,
-    std::uint32_t expectedFileCount, bool dynamic) {
+    std::uint32_t expectedFileCount, bool dynamic, bool resume) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -423,7 +476,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         const auto id = decoded.value();
         if (!dynamic && !persistentFileAssignedToChannel(id.fileId, channelIndex, channelCount))
             return Status::invalidArgument("persistent file arrived on wrong channel");
-        status = state.begin(frame.value().header, id.relativePath);
+        status = state.begin(frame.value().header, id.relativePath, id.checksumAlgorithm);
         if (!status.isOk()) return status;
         PersistentFileTiming timing;
         timing.file = id; timing.channel = channelIndex;
@@ -433,7 +486,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) return status;
         FileTransaction transaction(stats->phaseTiming ? &timing : nullptr);
-        Status fileStatus = transaction.begin(root, id, download, remoteRoot);
+        Status fileStatus = transaction.begin(root, id, download, remoteRoot, resume);
         for (;;) {
             const auto payloadStarted = Clock::now();
             auto data = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
@@ -443,13 +496,15 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             }
             stats->wireBytes += protocol::kFrameHeaderSize + data.value().payload.size();
             if (data.value().header.type == FrameType::FileEnd) {
-                auto ended = state.end(data.value().header);
+                auto ended = state.end(data.value().header, data.value().payload.data(), data.value().payload.size());
                 if (!ended.isOk()) return ended.status();
                 break;
             }
             timing.payloadIoSeconds += secondsSince(payloadStarted);
             if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
-            status = state.data(data.value().header, data.value().payload.size());
+            const auto checksumStarted = Clock::now();
+            status = state.data(data.value().header, data.value().payload.size(), data.value().payload.data());
+            timing.checksumSeconds += secondsSince(checksumStarted);
             if (!status.isOk()) return status;
             if (fileStatus.isOk()) fileStatus = transaction.write(data.value().header.offset, data.value().payload);
         }
@@ -513,7 +568,8 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"finalize_scope\":" << (t.sender ? "null" : "\"receiver_commit_includes_manifest_flush\"")
             << ",\"payload_io_seconds\":" << t.payloadIoSeconds
             << ",\"file_result_seconds\":" << t.fileResultSeconds
-            << ",\"manifest_seconds\":" << t.manifestSeconds << ",\"checksum_seconds\":null,\"finalize_seconds\":";
+            << ",\"manifest_seconds\":" << t.manifestSeconds << ",\"checksum_seconds\":"
+            << t.checksumSeconds << ",\"finalize_seconds\":";
         if (!t.sender) out << t.finalizeSeconds; else out << "null";
         out << ",\"wall_seconds\":" << t.wallSeconds << '}';
     }

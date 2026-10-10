@@ -94,6 +94,37 @@ TEST(PersistentSessionTest, SuccessResultMustMatchGenerationAndTotalSize) {
     EXPECT_FALSE(PersistentDataSession::readResult(&pair.sender, id).isOk());
 }
 
+TEST(PersistentSessionTest, CarriesChecksumAlgorithmAndFileEndDigest) {
+    SocketPair pair;
+    PersistentFileIdentity id{1, 1, 4, "checksum.bin", "checksum-transfer"};
+    id.checksumAlgorithm = cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
+    const std::uint8_t bytes[] = {1, 2, 3, 4};
+    cpnetflux::checksum::ChecksumComputer computer(id.checksumAlgorithm);
+    computer.update(bytes, sizeof(bytes));
+    const auto expected = computer.finalize();
+
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    auto begin = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
+    ASSERT_TRUE(begin.isOk()) << begin.status().message();
+    auto decoded = PersistentDataSession::decodeBegin(begin.value());
+    ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
+    EXPECT_EQ(decoded.value().checksumAlgorithm, id.checksumAlgorithm);
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(begin.value().header, decoded.value().relativePath,
+                            decoded.value().checksumAlgorithm).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, bytes, sizeof(bytes)).isOk());
+    auto data = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
+    ASSERT_TRUE(data.isOk()) << data.status().message();
+    ASSERT_TRUE(state.data(data.value().header, data.value().payload.size(), data.value().payload.data()).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, expected).isOk());
+    auto end = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
+    ASSERT_TRUE(end.isOk()) << end.status().message();
+    auto completed = state.end(end.value().header, end.value().payload.data(), end.value().payload.size());
+    ASSERT_TRUE(completed.isOk()) << completed.status().message();
+    EXPECT_EQ(completed.value().checksum.algorithm, expected.algorithm);
+    EXPECT_EQ(completed.value().checksum.value, expected.value);
+}
+
 TEST(PersistentSessionTest, OversizedFrameRejectedBeforePayloadRead) {
     SocketPair pair;
     auto h = beginHeader(1);

@@ -117,6 +117,10 @@ def stop_server(process: subprocess.Popen, log: Path) -> None:
 
 
 def run_checked(cmd: list[str], *, expect_success: bool = True) -> subprocess.CompletedProcess[str]:
+    # Legacy tree smoke cases select V1 explicitly now that V2 is the default.
+    if (cmd and Path(cmd[0]).name.startswith("cpnetflux-tree-") and
+            "--data-session-reuse" not in cmd):
+        cmd = [cmd[0], "--data-session-reuse", "off", *cmd[1:]]
     completed = subprocess.run(cmd, text=True, capture_output=True, check=False)
     if expect_success and completed.returncode != 0:
         raise RuntimeError(

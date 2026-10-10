@@ -8,7 +8,8 @@ namespace cpnetflux::core::io {
 bool samePersistentIdentity(const PersistentFileIdentity& a, const PersistentFileIdentity& b) noexcept {
     return a.fileId == b.fileId && a.generation == b.generation && a.totalSize == b.totalSize &&
         a.relativePath == b.relativePath && a.transferId == b.transferId &&
-        a.chunkSize == b.chunkSize && a.mtimeUnixSeconds == b.mtimeUnixSeconds;
+        a.chunkSize == b.chunkSize && a.mtimeUnixSeconds == b.mtimeUnixSeconds &&
+        a.checksumAlgorithm == b.checksumAlgorithm;
 }
 DynamicFileQueue::DynamicFileQueue(std::vector<PersistentFileIdentity> files,
     std::uint32_t channels, std::uint32_t window, std::size_t capacity)

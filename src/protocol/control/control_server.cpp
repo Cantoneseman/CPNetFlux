@@ -879,7 +879,7 @@ struct DynamicDirectory {
 common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     const std::string& key, const std::string& destination, bool upload,
     std::uint32_t channels, std::uint32_t window, std::uint32_t requestedTotal,
-    std::uint64_t chunkSize) {
+    std::uint64_t chunkSize, checksum::ChecksumAlgorithm checksumAlgorithm) {
     static std::mutex mutex;
     static std::unordered_map<std::string, std::weak_ptr<DynamicDirectory>> batches;
     std::lock_guard lock(mutex);
@@ -910,7 +910,8 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
         std::vector<core::io::PersistentFileIdentity> files;
         for (const auto& file : scanned.value()) {
             const auto id = static_cast<std::uint32_t>(files.size()+1);
-            files.push_back({id,id,file.size,file.relativePath,generateTransferId(),chunkSize,file.mtimeUnixSeconds});
+            files.push_back({id,id,file.size,file.relativePath,generateTransferId(),chunkSize,file.mtimeUnixSeconds,
+                             checksumAlgorithm, {}});
         }
         created->queue = std::make_unique<core::io::DynamicFileQueue>(
             std::move(files),channels,window,channels*window*2);
@@ -937,7 +938,8 @@ struct DynamicDirectoryGuard {
 common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlSession* session,
     PassiveListener* passive, const ControlServerOptions& options, bool upload,
     const std::string& requested, std::uint32_t pendingWindow, std::uint32_t channelIndex,
-    std::uint32_t channelCount, std::uint32_t requestedTotalFiles, const std::string& batchId = {}) {
+    std::uint32_t channelCount, std::uint32_t requestedTotalFiles, const std::string& batchId = {},
+    bool resume = false) {
     namespace fs = std::filesystem;
     if (channelCount == 0 || channelCount > core::io::kPersistentTreeMaxChannels ||
         channelIndex >= channelCount)
@@ -970,7 +972,8 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     if (!batchId.empty()) {
         auto group = acquireDynamicDirectory(options.host + ":" + std::to_string(options.port) + ":" +
             root.value().fullPath + "/" + batchId, destination.string(),
-            upload, channelCount, pendingWindow, requestedTotalFiles, options.chunkSize);
+            upload, channelCount, pendingWindow, requestedTotalFiles, options.chunkSize,
+            options.checksumAlgorithm);
         if (!group.isOk()) return sendLine(control, formatReply(550, group.status().message()));
         guard.directory = group.value();
         auto attached = guard.directory->batch->attach(channelIndex);
@@ -989,7 +992,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         for (const auto& file : scanned.value()) {
             const auto id = static_cast<std::uint32_t>(files.size() + 1);
             files.push_back({id, id, file.size, file.relativePath, generateTransferId(),
-                             options.chunkSize, file.mtimeUnixSeconds});
+                             options.chunkSize, file.mtimeUnixSeconds, options.checksumAlgorithm, {}});
         }
         files.erase(std::remove_if(files.begin(), files.end(), [&](const auto& file) {
             return !core::io::persistentFileAssignedToChannel(file.fileId, channelIndex, channelCount);
@@ -1020,10 +1023,13 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         session->clearPassiveReady();
         return sendLine(control, formatReply(425, "Persistent data accept timed out"));
     }
-    data = core::io::FramedDataSocket(core::io::UniqueFd(::accept4(passive->fd.get(), nullptr, nullptr, SOCK_CLOEXEC)));
+    auto acceptedData = core::io::acceptFramedDataSocket(
+        core::io::UniqueFd(::accept4(passive->fd.get(), nullptr, nullptr, SOCK_CLOEXEC)),
+        options.dataTlsMode, options.tls);
     passive->fd.reset();
     session->clearPassiveReady();
-    if (!data.valid()) return common::Status::runtimeError("persistent data accept failed");
+    if (!acceptedData.isOk()) return acceptedData.status();
+    data = std::move(acceptedData.value());
     if (guard.directory) {
         guard.directory->batch->bind(channelIndex, control->fd(), data.fd());
         status = guard.directory->batch->waitReady(std::chrono::seconds(30));
@@ -1036,7 +1042,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         return guard.directory->batch->fileEvent(channelIndex,id,fileStatus,complete);
     };
     status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats, callback,
-                     pendingWindow, channelIndex, channelCount, expectedChannelFiles, guard.directory != nullptr)
+                     pendingWindow, channelIndex, channelCount, expectedChannelFiles, guard.directory != nullptr, resume)
                     : core::io::sendPersistentTree(&data, destination.string(), files, &stats, callback,
                      pendingWindow, channelIndex, channelCount, guard.directory ? guard.directory->queue.get() : nullptr);
     std::string details;
@@ -1090,6 +1096,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     std::uint32_t persistentWindow = 1;
     std::uint32_t persistentChannels = 1;
     bool persistentDynamic = false;
+    bool persistentResume = false;
     AsyncTransferRegistry asyncTransfers(logger, control.fd());
 
     if (!sendLine(&control, formatReply(220, "CPNetFlux GridFTP control ready")).isOk()) {
@@ -1105,7 +1112,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
         }
 
         const bool persistentNegotiation = line.value() == "XCPNETFLUX V2" ||
-            line.value().starts_with("XCPNETFLUX V2 WINDOW=");
+            line.value().starts_with("XCPNETFLUX V2 ");
         const bool persistentTreeCommand = line.value().starts_with("XDIR ") ||
             line.value().starts_with("XDIRP ") || line.value().starts_with("XDIRD ");
         if (persistentNegotiation || persistentTreeCommand) {
@@ -1121,46 +1128,48 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 std::uint32_t requestedWindow = 1;
                 std::uint32_t requestedChannels = 1;
                 bool requestedDynamic = false;
-                if (line.value().starts_with("XCPNETFLUX V2 WINDOW=")) {
-                    auto text = line.value().substr(std::string("XCPNETFLUX V2 WINDOW=").size());
-                    constexpr std::string_view suffix = " SCHED=dynamic";
-                    if (text.ends_with(suffix)) {
-                        requestedDynamic = true;
-                        text.resize(text.size()-suffix.size());
+                auto checksumAlgorithm = checksum::ChecksumAlgorithm::None;
+                bool requestedResume = false;
+                auto requestedDataTls = core::io::DataTlsMode::Off;
+                std::istringstream request(line.value().substr(std::string("XCPNETFLUX V2").size()));
+                std::string token;
+                bool valid = true;
+                while (request >> token) {
+                    const auto separator = token.find('=');
+                    if (separator == std::string::npos) { valid = false; break; }
+                    const auto key = token.substr(0, separator);
+                    const auto value = token.substr(separator + 1);
+                    if (key == "WINDOW") {
+                        unsigned long parsed = 0;
+                        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+                        valid = result.ec == std::errc() && result.ptr == value.data() + value.size() && parsed > 0 && parsed <= 16;
+                        requestedWindow = static_cast<std::uint32_t>(parsed);
+                    } else if (key == "CHANNELS") {
+                        unsigned long parsed = 0;
+                        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+                        valid = result.ec == std::errc() && result.ptr == value.data() + value.size() && parsed > 0 && parsed <= core::io::kPersistentTreeMaxChannels;
+                        requestedChannels = static_cast<std::uint32_t>(parsed);
+                    } else if (key == "SCHED") {
+                        valid = value == "dynamic";
+                        requestedDynamic = valid;
+                    } else if (key == "CHECKSUM") {
+                        auto parsed = checksum::parseChecksumAlgorithm(value);
+                        valid = parsed.isOk();
+                        if (valid) checksumAlgorithm = parsed.value();
+                    } else if (key == "RESUME") {
+                        valid = value == "0" || value == "1";
+                        requestedResume = value == "1";
+                    } else if (key == "DATA_TLS") {
+                        auto parsed = core::io::parseDataTlsMode(value);
+                        valid = parsed.isOk();
+                        if (valid) requestedDataTls = parsed.value();
+                    } else {
+                        valid = false;
                     }
-                    const auto separator = text.find(' ');
-                    const auto windowText = text.substr(0, separator);
-                    unsigned long parsedWindow = 0;
-                    const auto windowResult = std::from_chars(
-                        windowText.data(), windowText.data() + windowText.size(), parsedWindow);
-                    bool valid = windowResult.ec == std::errc() &&
-                        windowResult.ptr == windowText.data() + windowText.size() &&
-                        parsedWindow > 0 && parsedWindow <= 16;
-                    if (valid && separator != std::string::npos) {
-                        const auto channelText = text.substr(separator + 1);
-                        constexpr std::string_view prefix = "CHANNELS=";
-                        if (!channelText.starts_with(prefix)) {
-                            valid = false;
-                        } else {
-                            const auto value = channelText.substr(prefix.size());
-                            unsigned long parsedChannels = 0;
-                            const auto channelResult = std::from_chars(
-                                value.data(), value.data() + value.size(), parsedChannels);
-                            valid = channelResult.ec == std::errc() &&
-                                channelResult.ptr == value.data() + value.size() &&
-                                parsedChannels > 1 &&
-                                parsedChannels <= core::io::kPersistentTreeMaxChannels;
-                            if (valid) requestedChannels = static_cast<std::uint32_t>(parsedChannels);
-                        }
-                    }
-                    if (!valid) {
-                        (void)sendLine(&control, formatReply(504, "Invalid persistent window/channel request"));
-                        continue;
-                    }
-                    requestedWindow = static_cast<std::uint32_t>(parsedWindow);
+                    if (!valid) break;
                 }
-                persistentNegotiated = options.checksumAlgorithm == checksum::ChecksumAlgorithm::None &&
-                    options.dataTlsMode == core::io::DataTlsMode::Off &&
+                persistentNegotiated = valid && checksumAlgorithm == options.checksumAlgorithm &&
+                    requestedDataTls == options.dataTlsMode &&
                     options.fileIo.backend == storage::FileIoBackendKind::Posix &&
                     options.commitSyncPolicy == core::session::CommitSyncPolicy::None &&
                     options.preallocateMode == storage::PreallocateMode::Off &&
@@ -1170,9 +1179,13 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     persistentWindow = requestedWindow;
                     persistentChannels = requestedChannels;
                     persistentDynamic = requestedDynamic;
+                    persistentResume = requestedResume;
                 }
                 const std::string accepted = "CPNetFlux V2 file-transactions/1 window=" +
                     std::to_string(requestedWindow) + " channels=" + std::to_string(requestedChannels) +
+                    " checksum=" + checksum::checksumAlgorithmName(checksumAlgorithm) +
+                    " resume=" + std::string(requestedResume ? "1" : "0") +
+                    " data_tls=" + core::io::dataTlsModeName(requestedDataTls) +
                     (requestedDynamic ? " scheduling=dynamic" : "");
                 (void)sendLine(&control, formatReply(persistentNegotiated ? 200 : 504,
                     persistentNegotiated ? accepted : "Unsupported V2 configuration"));
@@ -1220,7 +1233,8 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 continue;
             }
             auto status = runPersistentDirectory(&control, &session, &passive, options,
-                upload, requested, persistentWindow, channelIndex, channelCount, totalFiles, batchId);
+                upload, requested, persistentWindow, channelIndex, channelCount, totalFiles, batchId,
+                persistentResume);
             if (!status.isOk()) return;
             continue;
         }

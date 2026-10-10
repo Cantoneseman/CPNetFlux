@@ -28,7 +28,7 @@ def check_timings(summary, count, sender, scheduling):
     for t in timings:
         for key in ('payload_io_seconds', 'file_result_seconds', 'manifest_seconds', 'wall_seconds'):
             assert math.isfinite(t[key]) and t[key] >= 0, t
-        assert t['checksum_seconds'] is None
+        assert math.isfinite(t['checksum_seconds']) and t['checksum_seconds'] >= 0
         assert t['measurement_scope'] == ('local_sender' if sender else 'local_receiver')
         if t['size']:
             assert 0 <= t['first_payload_seconds'] <= t['wall_seconds'], t
@@ -86,20 +86,22 @@ def main():
     (root / 'input.json').write_text(json.dumps({'sha256_tree': expected, 'sizes': sizes}))
     port = free_port()
     log = root / 'server.log'
+    checksum = 'none' if args.case == 'compatibility' else 'crc32c'
     with log.open('w') as output:
         server = subprocess.Popen([
             str((args.legacy_build_dir if args.case == 'compatibility' else args.build_dir) / 'cpnetflux-gridftp-server'), '--host', '127.0.0.1',
             '--port', str(port), '--data-port-base', str(clamp_passive_data_port_base(free_port())),
-            '--root', str(server_root), '--connections', '1', '--checksum', 'none',
+            '--root', str(server_root), '--connections', '1', '--checksum', checksum,
         ], stdout=output, stderr=subprocess.STDOUT)
     try:
         wait_for_control(port)
         def run(direction, src, dst, name, mode='dynamic', extra=(), success=True):
             summary = root / (name + '.json')
+            reuse = 'off' if args.case == 'compatibility' else 'tree'
             command = [str(args.build_dir / f'cpnetflux-tree-{direction}-client'),
                 '--host', '127.0.0.1', '--port', str(port), '--source-dir', str(src), '--dest-dir', str(dst),
-                '--connections', '1', '--file-parallelism', '4', '--checksum', 'none',
-                '--data-session-reuse', 'tree', '--file-scheduling', mode, '--phase-timing', 'on',
+                '--connections', '1', '--file-parallelism', '4', '--checksum', checksum,
+                '--data-session-reuse', reuse, '--file-scheduling', mode, '--phase-timing', 'on',
                 '--json-summary', str(summary), *extra]
             p = subprocess.run(command, capture_output=True, text=True, timeout=60)
             (root / (name + '.log')).write_text(p.stdout + p.stderr)
@@ -124,20 +126,21 @@ def main():
                 ('download', 'up-compatibility', root / 'down-compatibility'),
             ):
                 fallback = run(direction, src, dst, direction + '-compatibility')
-                assert fallback['requested_mode'] == 'persistent_tree'
+                assert fallback['requested_mode'] == 'v1'
                 assert fallback['actual_mode'] == fallback['actual_file_scheduling'] == 'v1'
-                assert fallback['fallback_reason'] == 'v2_requested_capability_unsupported'
+                assert fallback['fallback_reason'] == ''
                 assert fallback['completed_files'] == len(sizes)
             assert tree_hash(server_root / 'up-compatibility') == expected
             assert tree_hash(root / 'down-compatibility') == expected
             manifest_check(server_root / 'up-compatibility', len(sizes), False)
             manifest_check(root / 'down-compatibility', len(sizes), True)
         if args.case == 'mixed':
-            # Legacy resume continues to use its established manifest semantics.
+            # V2 resume reuses the persistent tree session and validates the final tree.
             resumed = run('download', 'up-dynamic', root / 'download-dynamic', 'resume',
                           extra=['--resume'])
-            assert resumed['actual_mode'] == 'v1'
-            assert resumed['fallback_reason'] == 'v2_configuration_ineligible'
+            assert resumed['actual_mode'] == 'persistent_tree'
+            assert resumed['data_session_reuse_mode'] == 'tree'
+            assert resumed['fallback_reason'] == ''
             assert tree_hash(root / 'download-dynamic') == expected
             collision = server_root / 'collision'
             collision.mkdir()
@@ -154,8 +157,10 @@ def main():
             with socket.create_connection(('127.0.0.1', port), timeout=3) as sock:
                 control = sock.makefile('rwb', buffering=0)
                 assert control.readline().startswith(b'220')
+                negotiation = ('XCPNETFLUX V2 WINDOW=2 CHANNELS=4 SCHED=dynamic '
+                               'CHECKSUM=crc32c RESUME=0 DATA_TLS=off')
                 for cmd in ('USER cpnetflux', 'PASS cpnetflux', 'TYPE I', 'OPTS PARALLELISM=1',
-                            'XCPNETFLUX V2 WINDOW=2 CHANNELS=4 SCHED=dynamic', 'EPSV'):
+                            negotiation, 'EPSV'):
                     control.write(cmd.encode() + b'\r\n')
                     reply = control.readline()
                     assert reply[:1] in (b'2', b'3')

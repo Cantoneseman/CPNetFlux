@@ -161,7 +161,8 @@ def main():
             baseline = run('upload', source, 'baseline', 'baseline', ['--data-session-reuse', 'off'])
             assert baseline['data_session_reuse_mode'] == 'off'
             assert tree_hash(server_root / 'baseline') == expected
-            resumed = run('download', 'uploaded', downloaded, 'resume', ['--resume'])
+            resumed = run('download', 'uploaded', downloaded, 'resume',
+                          ['--resume', '--data-session-reuse', 'off'])
             assert resumed['data_session_reuse_mode'] == 'off'
             assert tree_hash(downloaded) == expected
 
@@ -270,7 +271,8 @@ def main():
             ], stdout=output, stderr=subprocess.STDOUT)
         try:
             wait_for_control(port)
-            fallback = run('upload', source, 'unsupported-fallback', 'unsupported-fallback')
+            fallback = run('upload', source, 'unsupported-fallback', 'unsupported-fallback',
+                           ['--data-session-reuse', 'off'])
             assert fallback['data_session_reuse_mode'] == 'off'
             assert tree_hash(server_root / 'unsupported-fallback') == expected
         finally:

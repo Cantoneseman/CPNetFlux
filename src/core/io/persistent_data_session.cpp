@@ -34,7 +34,8 @@ bool PersistentDataSession::safeRelativePath(const std::string& path) noexcept {
 }
 
 common::Status PersistentDataSession::begin(const protocol::FrameHeader& header,
-                                             const std::string& relativePath) {
+                                             const std::string& relativePath,
+                                             checksum::ChecksumAlgorithm checksumAlgorithm) {
     if (active_) {
         return common::Status::runtimeError("persistent file already active");
     }
@@ -47,7 +48,9 @@ common::Status PersistentDataSession::begin(const protocol::FrameHeader& header,
         return common::Status::invalidArgument("invalid FILE_BEGIN identity or path");
     }
     current_ = PersistentFileIdentity{header.streamId, header.chunkId, header.totalSize,
-                                      relativePath};
+                                      relativePath, {}, 1048576, 0, checksumAlgorithm, {}};
+    checksumAlgorithm_ = checksumAlgorithm;
+    checksumComputer_ = checksum::ChecksumComputer(checksumAlgorithm);
     receivedBytes_ = 0;
     active_ = true;
     lastFileId_ = header.streamId;
@@ -65,7 +68,8 @@ common::Status PersistentDataSession::match(const protocol::FrameHeader& header)
 }
 
 common::Status PersistentDataSession::data(const protocol::FrameHeader& header,
-                                            std::size_t logicalBytes) {
+                                            std::size_t logicalBytes,
+                                            const std::uint8_t* payload) {
     const common::Status identity = match(header);
     if (!identity.isOk()) {
         return identity;
@@ -78,24 +82,41 @@ common::Status PersistentDataSession::data(const protocol::FrameHeader& header,
         return common::Status::invalidArgument("persistent DATA exceeds file boundary");
     }
     receivedBytes_ += logicalBytes;
+    if (checksumAlgorithm_ != checksum::ChecksumAlgorithm::None && payload == nullptr)
+        return common::Status::invalidArgument("persistent checksum payload missing");
+    checksumComputer_.update(payload, logicalBytes);
     return common::Status::ok();
 }
 
 common::Result<PersistentFileIdentity> PersistentDataSession::end(
-    const protocol::FrameHeader& header) {
+    const protocol::FrameHeader& header, const std::uint8_t* digest, std::size_t digestSize) {
     const common::Status identity = match(header);
     if (!identity.isOk()) {
         return identity;
     }
-    if (!protocol::validateFrameHeader(header, 0).isOk() ||
+    if (!protocol::validateFrameHeader(header, 4).isOk() ||
         header.type != protocol::FrameType::FileEnd || header.offset != current_.totalSize ||
         receivedBytes_ != current_.totalSize) {
         return common::Status::invalidArgument("persistent FILE_END is incomplete");
     }
+    const auto expected = checksumComputer_.finalize();
+    if (checksumAlgorithm_ != checksum::ChecksumAlgorithm::None) {
+        if (digest == nullptr || digestSize != sizeof(std::uint32_t))
+            return common::Status::invalidArgument("persistent FILE_END checksum missing");
+        const std::uint32_t actual = (static_cast<std::uint32_t>(digest[0]) << 24U) |
+            (static_cast<std::uint32_t>(digest[1]) << 16U) |
+            (static_cast<std::uint32_t>(digest[2]) << 8U) | digest[3];
+        if (actual != expected.value)
+            return common::Status::invalidArgument("persistent FILE_END checksum mismatch");
+    } else if (digestSize != 0) {
+        return common::Status::invalidArgument("persistent FILE_END has unexpected checksum");
+    }
     PersistentFileIdentity completed = current_;
+    completed.checksum = expected;
     active_ = false;
     current_ = {};
     receivedBytes_ = 0;
+    checksumAlgorithm_ = checksum::ChecksumAlgorithm::None;
     return completed;
 }
 
@@ -155,6 +176,8 @@ common::Status PersistentDataSession::writeFrame(FramedDataSocket* socket,
 common::Status PersistentDataSession::writeBegin(FramedDataSocket* socket,
                                                   const PersistentFileIdentity& identity) {
     if (identity.fileId == 0 || identity.generation == 0 || !safeRelativePath(identity.relativePath) ||
+        (identity.checksumAlgorithm != checksum::ChecksumAlgorithm::None &&
+         identity.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c) ||
         !checkpoint::isValidTransferId(identity.transferId) || identity.transferId.size() > 128 ||
         identity.totalSize > static_cast<std::uint64_t>(INT64_MAX)) {
         return common::Status::invalidArgument("invalid persistent file identity");
@@ -168,7 +191,7 @@ common::Status PersistentDataSession::writeBegin(FramedDataSocket* socket,
     metadata.transferId = identity.transferId;
     metadata.totalSize = identity.totalSize;
     metadata.chunkSize = identity.chunkSize;
-    metadata.checksumAlgorithm = checksum::ChecksumAlgorithm::None;
+    metadata.checksumAlgorithm = identity.checksumAlgorithm;
     metadata.sourcePath = identity.relativePath;
     auto encoded = protocol::encodeSessionInitPayload(metadata);
     if (!encoded.isOk()) return encoded.status();
@@ -200,14 +223,26 @@ common::Status PersistentDataSession::writeData(FramedDataSocket* socket,
 }
 
 common::Status PersistentDataSession::writeEnd(FramedDataSocket* socket,
-                                                const PersistentFileIdentity& identity) {
+                                                const PersistentFileIdentity& identity,
+                                                checksum::ChecksumValue checksum) {
+    if (checksum.algorithm != identity.checksumAlgorithm)
+        return common::Status::invalidArgument("persistent FILE_END checksum algorithm mismatch");
     protocol::FrameHeader header;
     header.type = protocol::FrameType::FileEnd;
     header.streamId = identity.fileId;
     header.chunkId = identity.generation;
     header.totalSize = identity.totalSize;
     header.offset = identity.totalSize;
-    return writeFrame(socket, header, nullptr, 0);
+    std::uint8_t digest[4]{};
+    std::size_t digestSize = 0;
+    if (checksum.algorithm != checksum::ChecksumAlgorithm::None) {
+        digest[0] = static_cast<std::uint8_t>(checksum.value >> 24U);
+        digest[1] = static_cast<std::uint8_t>(checksum.value >> 16U);
+        digest[2] = static_cast<std::uint8_t>(checksum.value >> 8U);
+        digest[3] = static_cast<std::uint8_t>(checksum.value);
+        digestSize = sizeof(digest);
+    }
+    return writeFrame(socket, header, digest, digestSize);
 }
 
 common::Status PersistentDataSession::writeResult(FramedDataSocket* socket,
@@ -245,7 +280,7 @@ common::Result<PersistentFileIdentity> PersistentDataSession::decodeBegin(const 
     auto metadata = protocol::decodeSessionInitPayload(frame.payload.data(), frame.payload.size() - 8);
     if (!metadata.isOk()) return metadata.status();
     const auto& m = metadata.value();
-    if (m.mode != protocol::SessionMode::New || m.checksumAlgorithm != checksum::ChecksumAlgorithm::None ||
+    if (m.mode != protocol::SessionMode::New ||
         m.totalSize != frame.header.totalSize || m.totalSize > static_cast<std::uint64_t>(INT64_MAX) ||
         !safeRelativePath(m.sourcePath) || !checkpoint::isValidTransferId(m.transferId) || m.transferId.size() > 128)
         return common::Status::invalidArgument("unsupported FILE_BEGIN metadata");
@@ -255,7 +290,8 @@ common::Result<PersistentFileIdentity> PersistentDataSession::decodeBegin(const 
     if (mtime > static_cast<std::uint64_t>(INT64_MAX))
         return common::Status::invalidArgument("invalid persistent mtime");
     return PersistentFileIdentity{frame.header.streamId, frame.header.chunkId, m.totalSize,
-                                  m.sourcePath, m.transferId, m.chunkSize, static_cast<std::int64_t>(mtime)};
+                                  m.sourcePath, m.transferId, m.chunkSize, static_cast<std::int64_t>(mtime),
+                                  m.checksumAlgorithm, {}};
 }
 
 common::Result<protocol::FrameStatusCode> PersistentDataSession::readResult(

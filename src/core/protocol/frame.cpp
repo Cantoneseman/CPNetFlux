@@ -203,7 +203,7 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
         return common::Status::ok();
     }
     if (header.type == FrameType::FileEnd) {
-        if (header.flags != 0 || header.statusCode != FrameStatusCode::Ok || header.payloadSize != 0 ||
+        if (header.flags != 0 || header.statusCode != FrameStatusCode::Ok || header.payloadSize > 4 ||
             header.streamId == 0 || header.chunkId == 0 || header.offset != header.totalSize)
             return common::Status::invalidArgument("FILE_END header is invalid");
         return common::Status::ok();

@@ -9,6 +9,7 @@
 
 #include "cpnetflux/common/status.h"
 #include "cpnetflux/core/protocol/frame.h"
+#include "cpnetflux/checksum/checksum.h"
 
 namespace cpnetflux::core::io {
 
@@ -20,6 +21,8 @@ struct PersistentFileIdentity {
     std::string transferId;
     std::uint64_t chunkSize = 1048576;
     std::int64_t mtimeUnixSeconds = 0;
+    checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::None;
+    checksum::ChecksumValue checksum;
 };
 
 struct PersistentFrame {
@@ -32,10 +35,14 @@ class PersistentDataSession {
     explicit PersistentDataSession(bool unordered = false) : unordered_(unordered) {}
     static constexpr std::uint32_t kMaxPayload = 65536;
     [[nodiscard]] common::Status begin(const protocol::FrameHeader& header,
-                                       const std::string& relativePath);
+                                       const std::string& relativePath,
+                                       checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::None);
     [[nodiscard]] common::Status data(const protocol::FrameHeader& header,
-                                      std::size_t logicalBytes);
-    [[nodiscard]] common::Result<PersistentFileIdentity> end(const protocol::FrameHeader& header);
+                                      std::size_t logicalBytes,
+                                      const std::uint8_t* payload = nullptr);
+    [[nodiscard]] common::Result<PersistentFileIdentity> end(const protocol::FrameHeader& header,
+                                                             const std::uint8_t* digest = nullptr,
+                                                             std::size_t digestSize = 0);
     [[nodiscard]] common::Status fail(const protocol::FrameHeader& header,
                                       protocol::FrameStatusCode status);
 
@@ -47,7 +54,8 @@ class PersistentDataSession {
                                                   const std::uint8_t* payload,
                                                   std::size_t length);
     [[nodiscard]] static common::Status writeEnd(FramedDataSocket* socket,
-                                                 const PersistentFileIdentity& identity);
+                                                 const PersistentFileIdentity& identity,
+                                                 checksum::ChecksumValue checksum = {});
     [[nodiscard]] static common::Status writeResult(FramedDataSocket* socket,
                                                     const PersistentFileIdentity& identity,
                                                     protocol::FrameStatusCode status);
@@ -78,6 +86,8 @@ class PersistentDataSession {
     bool active_ = false;
     PersistentFileIdentity current_;
     std::uint64_t receivedBytes_ = 0;
+    checksum::ChecksumAlgorithm checksumAlgorithm_ = checksum::ChecksumAlgorithm::None;
+    checksum::ChecksumComputer checksumComputer_{checksum::ChecksumAlgorithm::None};
     std::uint32_t lastFileId_ = 0;
     std::uint64_t lastGeneration_ = 0;
 };

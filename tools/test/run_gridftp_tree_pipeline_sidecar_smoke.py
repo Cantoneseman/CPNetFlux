@@ -100,6 +100,7 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
             "--connections", "1", "--file-parallelism", str(parallelism),
             "--control-reuse", "worker", "--control-pipeline-depth", str(depth),
             "--scheduler", "off", "--compression", "off", "--checksum", "crc32c",
+            "--data-session-reuse", "off",
             "--phase-timing", "on",
         ]
         run_checked([

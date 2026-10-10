@@ -50,7 +50,7 @@ struct TreeTransferOptions {
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;
     checksum::ChecksumBackend checksumBackend = checksum::ChecksumBackend::Auto;
     bool resume = false;
-    bool reuseDataSession = false;
+    bool reuseDataSession = true;
     bool dynamicFileScheduling = true;
     std::uint32_t dataPendingWindow = 2;
     std::uint64_t maxFiles = 0;

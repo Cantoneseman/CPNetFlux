@@ -165,6 +165,7 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     TreeTransferOptions options;
     bool hasSourceDir = false;
     bool hasDestDir = false;
+    bool reuseDataSessionExplicit = false;
     int index = 1;
     while (index < argc) {
         const std::string_view option(argv[index]);
@@ -228,6 +229,7 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         } else if (option == "--data-session-reuse") {
             if (value != "off" && value != "tree")
                 return common::Status::invalidArgument("--data-session-reuse must be off or tree");
+            reuseDataSessionExplicit = true;
             options.reuseDataSession = value == "tree";
         } else if (option == "--file-scheduling") {
             if (value != "static" && value != "dynamic")
@@ -455,11 +457,14 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             "persistent tree channels are limited to 8");
     }
     if (options.controlPipelineDepth != 0) {
-        if (options.reuseDataSession) {
+        if (options.reuseDataSession && reuseDataSessionExplicit) {
             return common::Status::invalidArgument(
                 "cannot combine --data-session-reuse tree with --control-pipeline-depth; "
                 "select one directory transfer mode");
         }
+        // The pipeline is a separately selected legacy control path. Preserve its
+        // historical defaults while requiring an explicit `tree` choice to opt into V2.
+        options.reuseDataSession = false;
         if (options.controlReuseMode != ControlReuseMode::Worker ||
             options.schedulerMode != TreeSchedulerMode::Off || options.resume) {
             return common::Status::invalidArgument(

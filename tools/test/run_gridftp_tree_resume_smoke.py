@@ -30,6 +30,8 @@ def run_upload_resume(build_dir: Path, temp: Path) -> None:
             "dataset",
             "--connections",
             "2",
+            "--data-session-reuse",
+            "off",
         ]
         run_checked(base_cmd + ["--max-files", "1"], expect_success=False)
         run_checked(base_cmd + ["--resume"])
@@ -64,6 +66,8 @@ def run_download_resume(build_dir: Path, temp: Path) -> None:
             str(dest),
             "--connections",
             "2",
+            "--data-session-reuse",
+            "off",
         ]
         run_checked(base_cmd + ["--max-files", "1"], expect_success=False)
         run_checked(base_cmd + ["--resume"])
