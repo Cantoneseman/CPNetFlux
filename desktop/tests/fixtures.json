@@ -312,7 +312,8 @@
             "transfer_status": "pending",
             "integrity_status": "pending",
             "evidence_status": "pending",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       }
@@ -358,7 +359,8 @@
               "message": null,
               "error": null
             }
-          }
+          },
+          "adapter": "real"
         }
       }
     },
@@ -411,7 +413,8 @@
               "message": "登录失败",
               "error": null
             }
-          }
+          },
+          "adapter": "real"
         }
       }
     },
@@ -464,7 +467,8 @@
               "message": null,
               "error": null
             }
-          }
+          },
+          "adapter": "real"
         }
       }
     },
@@ -517,7 +521,8 @@
                 "range_id": null
               }
             }
-          }
+          },
+          "adapter": "real"
         }
       }
     },
@@ -552,7 +557,8 @@
           "pause_supported": false,
           "control_tls_verified": true,
           "data_tls_supported": true,
-          "directory_permission_probe_supported": false
+          "directory_permission_probe_supported": false,
+          "adapter": "real"
         }
       }
     },
@@ -713,7 +719,8 @@
               "transfer_status": "pending",
               "integrity_status": "pending",
               "evidence_status": "pending",
-              "error": null
+              "error": null,
+              "adapter": "demo"
             }
           ],
           "next_cursor": null
@@ -806,7 +813,8 @@
             "transfer_status": "pending",
             "integrity_status": "pending",
             "evidence_status": "pending",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       }
@@ -889,7 +897,8 @@
             "transfer_status": "pending",
             "integrity_status": "pending",
             "evidence_status": "pending",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       }
@@ -971,7 +980,8 @@
             "transfer_status": "pass",
             "integrity_status": "pass",
             "evidence_status": "complete",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       }
@@ -1054,7 +1064,8 @@
             "transfer_status": "pass",
             "integrity_status": "pass",
             "evidence_status": "complete",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       }
@@ -1136,7 +1147,8 @@
             "transfer_status": "pending",
             "integrity_status": "pending",
             "evidence_status": "pending",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       }
@@ -1363,7 +1375,8 @@
               "transfer_status": "pending",
               "integrity_status": "pending",
               "evidence_status": "pending",
-              "error": null
+              "error": null,
+              "adapter": "demo"
             }
           ]
         }
@@ -1466,7 +1479,8 @@
               "transfer_status": "pending",
               "integrity_status": "pending",
               "evidence_status": "pending",
-              "error": null
+              "error": null,
+              "adapter": "demo"
             }
           ]
         }
@@ -1556,7 +1570,8 @@
             "transfer_status": "pending",
             "integrity_status": "pending",
             "evidence_status": "pending",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       }
@@ -1645,7 +1660,8 @@
             "transfer_status": "pending",
             "integrity_status": "pending",
             "evidence_status": "pending",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       }
@@ -2057,7 +2073,8 @@
             "transfer_status": "pending",
             "integrity_status": "pending",
             "evidence_status": "pending",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       },
@@ -2140,7 +2157,8 @@
             "transfer_status": "pass",
             "integrity_status": "pass",
             "evidence_status": "complete",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       },
@@ -2223,7 +2241,8 @@
             "transfer_status": "pass",
             "integrity_status": "pass",
             "evidence_status": "complete",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       },
@@ -2306,7 +2325,8 @@
             "transfer_status": "pass",
             "integrity_status": "pass",
             "evidence_status": "complete",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       },
@@ -2389,7 +2409,8 @@
             "transfer_status": "pass",
             "integrity_status": "not_requested",
             "evidence_status": "complete",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       },
@@ -2436,7 +2457,8 @@
               "message": null,
               "error": null
             }
-          }
+          },
+          "adapter": "real"
         }
       },
       "semantic": false
@@ -2518,7 +2540,8 @@
             "transfer_status": "pending",
             "integrity_status": "pending",
             "evidence_status": "pending",
-            "error": null
+            "error": null,
+            "adapter": "demo"
           }
         }
       },

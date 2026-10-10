@@ -846,6 +846,12 @@
               "type": "null"
             }
           ]
+        },
+        "adapter": {
+          "enum": [
+            "demo",
+            "real"
+          ]
         }
       },
       "required": [
@@ -868,7 +874,8 @@
         "transfer_status",
         "integrity_status",
         "evidence_status",
-        "error"
+        "error",
+        "adapter"
       ],
       "additionalProperties": false,
       "allOf": [
@@ -1325,6 +1332,12 @@
             "data_port"
           ],
           "additionalProperties": false
+        },
+        "adapter": {
+          "enum": [
+            "demo",
+            "real"
+          ]
         }
       },
       "required": [
@@ -1332,7 +1345,8 @@
         "node_id",
         "ready",
         "authentication",
-        "checks"
+        "checks",
+        "adapter"
       ],
       "additionalProperties": false,
       "allOf": [
@@ -1483,6 +1497,12 @@
         },
         "directory_permission_probe_supported": {
           "type": "boolean"
+        },
+        "adapter": {
+          "enum": [
+            "demo",
+            "real"
+          ]
         }
       },
       "required": [
@@ -1501,7 +1521,8 @@
         "pause_supported",
         "control_tls_verified",
         "data_tls_supported",
-        "directory_permission_probe_supported"
+        "directory_permission_probe_supported",
+        "adapter"
       ],
       "additionalProperties": false
     },
