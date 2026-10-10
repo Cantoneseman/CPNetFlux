@@ -1,0 +1,2611 @@
+{
+  "valid": [
+    {
+      "name": "node.testConnection",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "node.testConnection",
+        "params": {
+          "node_id": "n1",
+          "root_id": "home",
+          "path": "dataset",
+          "access": "write"
+        }
+      }
+    },
+    {
+      "name": "node.capabilities",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "node.capabilities",
+        "params": {
+          "node_id": "n1"
+        }
+      }
+    },
+    {
+      "name": "directory.list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "directory.list",
+        "params": {
+          "node_id": "n1",
+          "root_id": "home",
+          "path": "",
+          "cursor": null,
+          "limit": 100
+        }
+      }
+    },
+    {
+      "name": "transfer.create",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.create",
+        "params": {
+          "operation_id": "create-1",
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "/home/student/data",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "dataset",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "auto",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": 256,
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "required",
+            "fallback_policy": "allow_compatible",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          }
+        }
+      }
+    },
+    {
+      "name": "transfer.start",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.start",
+        "params": {
+          "transfer_id": "t1",
+          "operation_id": "op-1",
+          "expected_revision": 0
+        }
+      }
+    },
+    {
+      "name": "transfer.pause",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.pause",
+        "params": {
+          "transfer_id": "t1",
+          "operation_id": "op-1",
+          "expected_revision": 0
+        }
+      }
+    },
+    {
+      "name": "transfer.cancel",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.cancel",
+        "params": {
+          "transfer_id": "t1",
+          "operation_id": "op-1",
+          "expected_revision": 0
+        }
+      }
+    },
+    {
+      "name": "transfer.resume",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.resume",
+        "params": {
+          "transfer_id": "t1",
+          "operation_id": "op-1",
+          "expected_revision": 0,
+          "checkpoint_id": "cp1"
+        }
+      }
+    },
+    {
+      "name": "transfer.get",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.get",
+        "params": {
+          "transfer_id": "t1"
+        }
+      }
+    },
+    {
+      "name": "transfer.subscribe",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.subscribe",
+        "params": {
+          "transfer_ids": [
+            "t1"
+          ],
+          "agent_epoch": null,
+          "after_sequence": null
+        }
+      }
+    },
+    {
+      "name": "transfer.list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.list",
+        "params": {
+          "cursor": null,
+          "limit": 100
+        }
+      }
+    },
+    {
+      "name": "profile.list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "profile.list",
+        "params": {}
+      }
+    },
+    {
+      "name": "profile.create",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "profile.create",
+        "params": {
+          "operation_id": "pc1",
+          "profile": {
+            "node_id": "n1",
+            "name": "实验室",
+            "host": "node.example",
+            "control_port": 22310,
+            "server_name": "node.example",
+            "ca_path": "/home/student/.config/cpnetflux/ca.pem",
+            "auth_mode": "token",
+            "credential_ref": "secret-service:cpnetflux/n1",
+            "default_root_id": "home"
+          }
+        }
+      }
+    },
+    {
+      "name": "profile.update",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "profile.update",
+        "params": {
+          "operation_id": "pu1",
+          "profile": {
+            "node_id": "n1",
+            "name": "实验室",
+            "host": "node.example",
+            "control_port": 22310,
+            "server_name": "node.example",
+            "ca_path": "/home/student/.config/cpnetflux/ca.pem",
+            "auth_mode": "token",
+            "credential_ref": "secret-service:cpnetflux/n1",
+            "default_root_id": "home"
+          }
+        }
+      }
+    },
+    {
+      "name": "profile.delete",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "profile.delete",
+        "params": {
+          "operation_id": "pd1",
+          "node_id": "n1"
+        }
+      }
+    },
+    {
+      "name": "queued_unknown",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "queued",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "unknown",
+            "actual_scheduler": "unknown",
+            "actual_range_policy": "unknown",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "queued",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": null,
+              "files_committed": null,
+              "files_failed": null,
+              "files_skipped": null,
+              "bytes_total": null,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": null,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": false,
+            "commit_confirmed": false,
+            "transfer_status": "pending",
+            "integrity_status": "pending",
+            "evidence_status": "pending",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "connection_ready",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "connection_test",
+          "node_id": "n1",
+          "ready": true,
+          "authentication": "authenticated",
+          "checks": {
+            "dns_control_port": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "tls_identity": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "login": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "capabilities": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "directory_permission": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "data_port": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "auth_failed_test",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "connection_test",
+          "node_id": "n1",
+          "ready": false,
+          "authentication": "failed",
+          "checks": {
+            "dns_control_port": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "tls_identity": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "login": {
+              "state": "failed",
+              "message": "未通过",
+              "error": {
+                "code": "auth_failed",
+                "scope": "node",
+                "message": "脱敏错误",
+                "retryable": false,
+                "transfer_id": null,
+                "file_id": null,
+                "range_id": null
+              }
+            },
+            "capabilities": {
+              "state": "skipped",
+              "message": "登录失败",
+              "error": null
+            },
+            "directory_permission": {
+              "state": "skipped",
+              "message": "登录失败",
+              "error": null
+            },
+            "data_port": {
+              "state": "skipped",
+              "message": "登录失败",
+              "error": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "permission_denied_test",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "connection_test",
+          "node_id": "n1",
+          "ready": false,
+          "authentication": "authenticated",
+          "checks": {
+            "dns_control_port": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "tls_identity": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "login": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "capabilities": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "directory_permission": {
+              "state": "failed",
+              "message": "未通过",
+              "error": {
+                "code": "permission_denied",
+                "scope": "node",
+                "message": "脱敏错误",
+                "retryable": false,
+                "transfer_id": null,
+                "file_id": null,
+                "range_id": null
+              }
+            },
+            "data_port": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "data_port_unreachable_test",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "connection_test",
+          "node_id": "n1",
+          "ready": false,
+          "authentication": "authenticated",
+          "checks": {
+            "dns_control_port": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "tls_identity": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "login": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "capabilities": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "directory_permission": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "data_port": {
+              "state": "failed",
+              "message": "未通过",
+              "error": {
+                "code": "data_port_unreachable",
+                "scope": "node",
+                "message": "脱敏错误",
+                "retryable": false,
+                "transfer_id": null,
+                "file_id": null,
+                "range_id": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "capabilities",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "capabilities",
+          "node_id": "n1",
+          "observed_at": "2026-10-10T08:00:00Z",
+          "protocol_version": "draft-input",
+          "modes": [
+            "v1",
+            "v2"
+          ],
+          "schedulers": [
+            "static"
+          ],
+          "range_policies": [
+            "file"
+          ],
+          "max_channel_count": 8,
+          "max_pending_window": 2,
+          "max_queue_depth": 256,
+          "checksums": [
+            "none",
+            "crc32c"
+          ],
+          "resume_supported": true,
+          "pause_supported": false,
+          "control_tls_verified": true,
+          "data_tls_supported": true,
+          "directory_permission_probe_supported": false
+        }
+      }
+    },
+    {
+      "name": "directory",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "directory",
+          "node_id": "n1",
+          "root_id": "home",
+          "path": "",
+          "entries": [
+            {
+              "name": "数据",
+              "type": "directory",
+              "size": null,
+              "readable": true,
+              "writable": null
+            }
+          ],
+          "next_cursor": null,
+          "snapshot_id": "dir1"
+        }
+      }
+    },
+    {
+      "name": "profile",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "profile",
+          "profile": {
+            "node_id": "n1",
+            "name": "实验室",
+            "host": "node.example",
+            "control_port": 22310,
+            "server_name": "node.example",
+            "ca_path": "/home/student/.config/cpnetflux/ca.pem",
+            "auth_mode": "token",
+            "credential_ref": "secret-service:cpnetflux/n1",
+            "default_root_id": "home"
+          }
+        }
+      }
+    },
+    {
+      "name": "profile_list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "profile_list",
+          "profiles": [
+            {
+              "node_id": "n1",
+              "name": "实验室",
+              "host": "node.example",
+              "control_port": 22310,
+              "server_name": "node.example",
+              "ca_path": "/home/student/.config/cpnetflux/ca.pem",
+              "auth_mode": "token",
+              "credential_ref": "secret-service:cpnetflux/n1",
+              "default_root_id": "home"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "deleted",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "deleted",
+          "node_id": "n1"
+        }
+      }
+    },
+    {
+      "name": "transfer_list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer_list",
+          "snapshots": [
+            {
+              "transfer_id": "t1",
+              "revision": 0,
+              "state": "queued",
+              "direction": "upload",
+              "source": {
+                "kind": "local",
+                "path": "/home/student/data",
+                "node_id": null,
+                "root_id": null
+              },
+              "destination": {
+                "kind": "remote",
+                "path": "dataset",
+                "node_id": "n1",
+                "root_id": "home"
+              },
+              "policy": {
+                "requested_mode": "auto",
+                "scheduler": "auto",
+                "channel_count": "auto",
+                "pending_window": 2,
+                "queue_depth": 256,
+                "range_policy": "auto",
+                "checksum_policy": "required_crc32c",
+                "resume_policy": "allow",
+                "control_tls": "verify_ca",
+                "data_tls": "required",
+                "fallback_policy": "allow_compatible",
+                "conflict_policy": "fail",
+                "experimental_raw_ack": false
+              },
+              "actual_mode": "unknown",
+              "actual_scheduler": "unknown",
+              "actual_range_policy": "unknown",
+              "fallback_reason": null,
+              "attempt": {
+                "attempt_id": "a1",
+                "attempt_number": 1,
+                "state": "queued",
+                "cancel_requested": false,
+                "started_at": null,
+                "ended_at": null
+              },
+              "metrics": {
+                "files_total": null,
+                "files_committed": null,
+                "files_failed": null,
+                "files_skipped": null,
+                "bytes_total": null,
+                "bytes_transferred": null,
+                "bytes_verified": null,
+                "bytes_committed": null,
+                "channel_count_active": null,
+                "queue_depth_current": null,
+                "data_connections": null,
+                "speed_bps": null,
+                "average_speed_bps": null,
+                "eta_seconds": null
+              },
+              "recovery": {
+                "eligibility": "unknown",
+                "checkpoint_id": null,
+                "reason": null
+              },
+              "scan_complete": false,
+              "commit_confirmed": false,
+              "transfer_status": "pending",
+              "integrity_status": "pending",
+              "evidence_status": "pending",
+              "error": null
+            }
+          ],
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "name": "visible_v1_fallback",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "negotiating",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "v2",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v1",
+            "actual_scheduler": "static",
+            "actual_range_policy": "file",
+            "fallback_reason": {
+              "code": "checksum_unsupported",
+              "message": "V2尚未支持所需校验，保留策略使用V1",
+              "required": [
+                "crc32c"
+              ],
+              "available": [
+                "none"
+              ]
+            },
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "running",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": null,
+              "files_committed": null,
+              "files_failed": null,
+              "files_skipped": null,
+              "bytes_total": null,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": null,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": false,
+            "commit_confirmed": false,
+            "transfer_status": "pending",
+            "integrity_status": "pending",
+            "evidence_status": "pending",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_pending",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "operation",
+          "outcome": "accepted",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 1,
+            "state": "transferring",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "cancelling",
+              "cancel_requested": true,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": null,
+              "files_committed": null,
+              "files_failed": null,
+              "files_skipped": null,
+              "bytes_total": null,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": null,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": false,
+            "commit_confirmed": false,
+            "transfer_status": "pending",
+            "integrity_status": "pending",
+            "evidence_status": "pending",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "completed",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "completed",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "completed",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": 2,
+              "files_committed": 2,
+              "files_failed": 0,
+              "files_skipped": 0,
+              "bytes_total": 100,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": 100,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": true,
+            "commit_confirmed": true,
+            "transfer_status": "pass",
+            "integrity_status": "pass",
+            "evidence_status": "complete",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_completed",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "operation",
+          "outcome": "already_terminal",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "completed",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "completed",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": 2,
+              "files_committed": 2,
+              "files_failed": 0,
+              "files_skipped": 0,
+              "bytes_total": 100,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": 100,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": true,
+            "commit_confirmed": true,
+            "transfer_status": "pass",
+            "integrity_status": "pass",
+            "evidence_status": "complete",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "recovery_eligible",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 2,
+            "state": "recoverable",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "recoverable",
+              "cancel_requested": true,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": null,
+              "files_committed": null,
+              "files_failed": null,
+              "files_skipped": null,
+              "bytes_total": null,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": null,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "eligible",
+              "checkpoint_id": "cp1",
+              "reason": null
+            },
+            "scan_complete": false,
+            "commit_confirmed": false,
+            "transfer_status": "pending",
+            "integrity_status": "pending",
+            "evidence_status": "pending",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "unsupported",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "error": {
+          "code": -32001,
+          "message": "unsupported",
+          "data": {
+            "code": "unsupported",
+            "scope": "transfer",
+            "message": "脱敏错误",
+            "retryable": false,
+            "transfer_id": "t1",
+            "file_id": null,
+            "range_id": null
+          }
+        }
+      }
+    },
+    {
+      "name": "auth_failed",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "error": {
+          "code": -32004,
+          "message": "auth_failed",
+          "data": {
+            "code": "auth_failed",
+            "scope": "node",
+            "message": "脱敏错误",
+            "retryable": false,
+            "transfer_id": null,
+            "file_id": null,
+            "range_id": null
+          }
+        }
+      }
+    },
+    {
+      "name": "keyring_locked",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "error": {
+          "code": -32004,
+          "message": "keyring_locked",
+          "data": {
+            "code": "keyring_locked",
+            "scope": "node",
+            "message": "脱敏错误",
+            "retryable": false,
+            "transfer_id": null,
+            "file_id": null,
+            "range_id": null
+          }
+        }
+      }
+    },
+    {
+      "name": "permission_denied",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "error": {
+          "code": -32006,
+          "message": "permission_denied",
+          "data": {
+            "code": "permission_denied",
+            "scope": "node",
+            "message": "脱敏错误",
+            "retryable": false,
+            "transfer_id": null,
+            "file_id": null,
+            "range_id": null
+          }
+        }
+      }
+    },
+    {
+      "name": "checkpoint_missing",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "error": {
+          "code": -32009,
+          "message": "checkpoint_missing",
+          "data": {
+            "code": "checkpoint_missing",
+            "scope": "transfer",
+            "message": "脱敏错误",
+            "retryable": false,
+            "transfer_id": "t1",
+            "file_id": null,
+            "range_id": null
+          }
+        }
+      }
+    },
+    {
+      "name": "source_changed",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "error": {
+          "code": -32010,
+          "message": "source_changed",
+          "data": {
+            "code": "source_changed",
+            "scope": "transfer",
+            "message": "脱敏错误",
+            "retryable": false,
+            "transfer_id": "t1",
+            "file_id": null,
+            "range_id": null
+          }
+        }
+      }
+    },
+    {
+      "name": "tls_identity_failed",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "error": {
+          "code": -32005,
+          "message": "tls_identity_failed",
+          "data": {
+            "code": "tls_identity_failed",
+            "scope": "node",
+            "message": "脱敏错误",
+            "retryable": false,
+            "transfer_id": null,
+            "file_id": null,
+            "range_id": null
+          }
+        }
+      }
+    },
+    {
+      "name": "initial_sync",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "subscription",
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 4,
+          "reset": true,
+          "snapshots": [
+            {
+              "transfer_id": "t1",
+              "revision": 0,
+              "state": "transferring",
+              "direction": "upload",
+              "source": {
+                "kind": "local",
+                "path": "/home/student/data",
+                "node_id": null,
+                "root_id": null
+              },
+              "destination": {
+                "kind": "remote",
+                "path": "dataset",
+                "node_id": "n1",
+                "root_id": "home"
+              },
+              "policy": {
+                "requested_mode": "auto",
+                "scheduler": "auto",
+                "channel_count": "auto",
+                "pending_window": 2,
+                "queue_depth": 256,
+                "range_policy": "auto",
+                "checksum_policy": "required_crc32c",
+                "resume_policy": "allow",
+                "control_tls": "verify_ca",
+                "data_tls": "required",
+                "fallback_policy": "allow_compatible",
+                "conflict_policy": "fail",
+                "experimental_raw_ack": false
+              },
+              "actual_mode": "v2",
+              "actual_scheduler": "dynamic_ring",
+              "actual_range_policy": "range_stripe",
+              "fallback_reason": null,
+              "attempt": {
+                "attempt_id": "a1",
+                "attempt_number": 1,
+                "state": "running",
+                "cancel_requested": false,
+                "started_at": null,
+                "ended_at": null
+              },
+              "metrics": {
+                "files_total": null,
+                "files_committed": null,
+                "files_failed": null,
+                "files_skipped": null,
+                "bytes_total": null,
+                "bytes_transferred": null,
+                "bytes_verified": null,
+                "bytes_committed": null,
+                "channel_count_active": null,
+                "queue_depth_current": null,
+                "data_connections": null,
+                "speed_bps": null,
+                "average_speed_bps": null,
+                "eta_seconds": null
+              },
+              "recovery": {
+                "eligibility": "unknown",
+                "checkpoint_id": null,
+                "reason": null
+              },
+              "scan_complete": false,
+              "commit_confirmed": false,
+              "transfer_status": "pending",
+              "integrity_status": "pending",
+              "evidence_status": "pending",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "replay_sync",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "subscription",
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 4,
+          "reset": false,
+          "snapshots": []
+        }
+      }
+    },
+    {
+      "name": "epoch_reset",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "subscription",
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch2",
+          "sequence": 0,
+          "reset": true,
+          "snapshots": [
+            {
+              "transfer_id": "t1",
+              "revision": 2,
+              "state": "recoverable",
+              "direction": "upload",
+              "source": {
+                "kind": "local",
+                "path": "/home/student/data",
+                "node_id": null,
+                "root_id": null
+              },
+              "destination": {
+                "kind": "remote",
+                "path": "dataset",
+                "node_id": "n1",
+                "root_id": "home"
+              },
+              "policy": {
+                "requested_mode": "auto",
+                "scheduler": "auto",
+                "channel_count": "auto",
+                "pending_window": 2,
+                "queue_depth": 256,
+                "range_policy": "auto",
+                "checksum_policy": "required_crc32c",
+                "resume_policy": "allow",
+                "control_tls": "verify_ca",
+                "data_tls": "required",
+                "fallback_policy": "allow_compatible",
+                "conflict_policy": "fail",
+                "experimental_raw_ack": false
+              },
+              "actual_mode": "v2",
+              "actual_scheduler": "dynamic_ring",
+              "actual_range_policy": "range_stripe",
+              "fallback_reason": null,
+              "attempt": {
+                "attempt_id": "a1",
+                "attempt_number": 1,
+                "state": "recoverable",
+                "cancel_requested": true,
+                "started_at": null,
+                "ended_at": null
+              },
+              "metrics": {
+                "files_total": null,
+                "files_committed": null,
+                "files_failed": null,
+                "files_skipped": null,
+                "bytes_total": null,
+                "bytes_transferred": null,
+                "bytes_verified": null,
+                "bytes_committed": null,
+                "channel_count_active": null,
+                "queue_depth_current": null,
+                "data_connections": null,
+                "speed_bps": null,
+                "average_speed_bps": null,
+                "eta_seconds": null
+              },
+              "recovery": {
+                "eligibility": "eligible",
+                "checkpoint_id": "cp1",
+                "reason": null
+              },
+              "scan_complete": false,
+              "commit_confirmed": false,
+              "transfer_status": "pending",
+              "integrity_status": "pending",
+              "evidence_status": "pending",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "transfer.snapshot",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "transfer.event",
+        "params": {
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 5,
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "revision": 0,
+          "timestamp": "2026-10-10T08:00:00Z",
+          "type": "transfer.snapshot",
+          "payload": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "transferring",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "running",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": null,
+              "files_committed": null,
+              "files_failed": null,
+              "files_skipped": null,
+              "bytes_total": null,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": null,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": false,
+            "commit_confirmed": false,
+            "transfer_status": "pending",
+            "integrity_status": "pending",
+            "evidence_status": "pending",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "transfer.state",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "transfer.event",
+        "params": {
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 6,
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "revision": 0,
+          "timestamp": "2026-10-10T08:00:00Z",
+          "type": "transfer.state",
+          "payload": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "transferring",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "running",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": null,
+              "files_committed": null,
+              "files_failed": null,
+              "files_skipped": null,
+              "bytes_total": null,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": null,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": false,
+            "commit_confirmed": false,
+            "transfer_status": "pending",
+            "integrity_status": "pending",
+            "evidence_status": "pending",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "file.state",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "transfer.event",
+        "params": {
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 7,
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "revision": 0,
+          "timestamp": "2026-10-10T08:00:00Z",
+          "type": "file.state",
+          "payload": {
+            "transfer_id": "t1",
+            "attempt_id": "a1",
+            "file_id": "f1",
+            "generation": 1,
+            "relative_path": "large.bin",
+            "size": 100,
+            "mtime_ns": 1000,
+            "state": "transferring",
+            "bytes_transferred": 50,
+            "bytes_verified": 25,
+            "range_count": 2,
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "range.state",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "transfer.event",
+        "params": {
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 8,
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "revision": 0,
+          "timestamp": "2026-10-10T08:00:00Z",
+          "type": "range.state",
+          "payload": {
+            "transfer_id": "t1",
+            "attempt_id": "a1",
+            "file_id": "f1",
+            "range_id": "r1",
+            "generation": 1,
+            "offset": 0,
+            "length": 50,
+            "state": "checkpointed",
+            "bytes_transferred": 50,
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "connection.state",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "transfer.event",
+        "params": {
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 9,
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "revision": 0,
+          "timestamp": "2026-10-10T08:00:00Z",
+          "type": "connection.state",
+          "payload": {
+            "transfer_id": "t1",
+            "attempt_id": "a1",
+            "connection_id": "c1",
+            "channel_id": "ch1",
+            "role": "data",
+            "state": "ready",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "name": "transfer.error",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "transfer.event",
+        "params": {
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 10,
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "revision": 0,
+          "timestamp": "2026-10-10T08:00:00Z",
+          "type": "transfer.error",
+          "payload": {
+            "code": "source_changed",
+            "scope": "transfer",
+            "message": "脱敏错误",
+            "retryable": false,
+            "transfer_id": "t1",
+            "file_id": null,
+            "range_id": null
+          }
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown_method",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.destroy",
+        "params": {
+          "node_id": "n1",
+          "root_id": "home",
+          "path": "dataset",
+          "access": "write"
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "plaintext_token",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.create",
+        "params": {
+          "operation_id": "create-1",
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "/home/student/data",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "dataset",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "auto",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": 256,
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "required",
+            "fallback_policy": "allow_compatible",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          },
+          "token": "not-a-real-token"
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "local_absolute_required",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.create",
+        "params": {
+          "operation_id": "create-1",
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "relative",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "dataset",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "auto",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": 256,
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "required",
+            "fallback_policy": "allow_compatible",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "remote_escape",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.create",
+        "params": {
+          "operation_id": "create-1",
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "/home/student/data",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "../outside",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "auto",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": 256,
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "required",
+            "fallback_policy": "allow_compatible",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "queue_bound",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.create",
+        "params": {
+          "operation_id": "create-1",
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "/home/student/data",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "dataset",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "auto",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": 0,
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "required",
+            "fallback_policy": "allow_compatible",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "raw_without_ack",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.create",
+        "params": {
+          "operation_id": "create-1",
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "/home/student/data",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "dataset",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "auto",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": 256,
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "off",
+            "fallback_policy": "allow_compatible",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "missing_fallback",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "negotiating",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "v2",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v1",
+            "actual_scheduler": "static",
+            "actual_range_policy": "file",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "running",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": null,
+              "files_committed": null,
+              "files_failed": null,
+              "files_skipped": null,
+              "bytes_total": null,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": null,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": false,
+            "commit_confirmed": false,
+            "transfer_status": "pending",
+            "integrity_status": "pending",
+            "evidence_status": "pending",
+            "error": null
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "completed_no_commit",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "completed",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "completed",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": 2,
+              "files_committed": 2,
+              "files_failed": 0,
+              "files_skipped": 0,
+              "bytes_total": 100,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": 100,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": true,
+            "commit_confirmed": false,
+            "transfer_status": "pass",
+            "integrity_status": "pass",
+            "evidence_status": "complete",
+            "error": null
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "completed_unknown_bytes",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "completed",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "completed",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": 2,
+              "files_committed": 2,
+              "files_failed": 0,
+              "files_skipped": 0,
+              "bytes_total": 100,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": null,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": true,
+            "commit_confirmed": true,
+            "transfer_status": "pass",
+            "integrity_status": "pass",
+            "evidence_status": "complete",
+            "error": null
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "completed_partial_bytes",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "completed",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "completed",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": 2,
+              "files_committed": 2,
+              "files_failed": 0,
+              "files_skipped": 0,
+              "bytes_total": 100,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": 99,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": true,
+            "commit_confirmed": true,
+            "transfer_status": "pass",
+            "integrity_status": "pass",
+            "evidence_status": "complete",
+            "error": null
+          }
+        }
+      },
+      "semantic": true
+    },
+    {
+      "name": "required_checksum_not_verified",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "completed",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "completed",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": 2,
+              "files_committed": 2,
+              "files_failed": 0,
+              "files_skipped": 0,
+              "bytes_total": 100,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": 100,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": true,
+            "commit_confirmed": true,
+            "transfer_status": "pass",
+            "integrity_status": "not_requested",
+            "evidence_status": "complete",
+            "error": null
+          }
+        }
+      },
+      "semantic": true
+    },
+    {
+      "name": "ready_with_failed_data_port",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "connection_test",
+          "node_id": "n1",
+          "ready": true,
+          "authentication": "authenticated",
+          "checks": {
+            "dns_control_port": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "tls_identity": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "login": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "capabilities": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "directory_permission": {
+              "state": "passed",
+              "message": null,
+              "error": null
+            },
+            "data_port": {
+              "state": "failed",
+              "message": null,
+              "error": null
+            }
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "eligible_no_checkpoint",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 2,
+            "state": "recoverable",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "recoverable",
+              "cancel_requested": true,
+              "started_at": null,
+              "ended_at": null
+            },
+            "metrics": {
+              "files_total": null,
+              "files_committed": null,
+              "files_failed": null,
+              "files_skipped": null,
+              "bytes_total": null,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": null,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "eligible",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": false,
+            "commit_confirmed": false,
+            "transfer_status": "pending",
+            "integrity_status": "pending",
+            "evidence_status": "pending",
+            "error": null
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "zero_range",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "transfer.event",
+        "params": {
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 8,
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "revision": 0,
+          "timestamp": "2026-10-10T08:00:00Z",
+          "type": "range.state",
+          "payload": {
+            "transfer_id": "t1",
+            "attempt_id": "a1",
+            "file_id": "f1",
+            "range_id": "r1",
+            "generation": 1,
+            "offset": 0,
+            "length": 0,
+            "state": "checkpointed",
+            "bytes_transferred": 50,
+            "error": null
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "event_identity_mismatch",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "transfer.event",
+        "params": {
+          "subscription_id": "sub1",
+          "agent_epoch": "epoch1",
+          "sequence": 7,
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "revision": 0,
+          "timestamp": "2026-10-10T08:00:00Z",
+          "type": "file.state",
+          "payload": {
+            "transfer_id": "t1",
+            "attempt_id": "old",
+            "file_id": "f1",
+            "generation": 1,
+            "relative_path": "large.bin",
+            "size": 100,
+            "mtime_ns": 1000,
+            "state": "transferring",
+            "bytes_transferred": 50,
+            "bytes_verified": 25,
+            "range_count": 2,
+            "error": null
+          }
+        }
+      },
+      "semantic": true
+    },
+    {
+      "name": "error_code_mismatch",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "error": {
+          "code": -32004,
+          "message": "unsupported",
+          "data": {
+            "code": "unsupported",
+            "scope": "transfer",
+            "message": "脱敏错误",
+            "retryable": false,
+            "transfer_id": "t1",
+            "file_id": null,
+            "range_id": null
+          }
+        }
+      },
+      "semantic": true
+    }
+  ]
+}

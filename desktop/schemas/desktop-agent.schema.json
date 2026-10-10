@@ -1,0 +1,3089 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CPNetFlux desktop-agent draft-1",
+  "$defs": {
+    "errorDetail": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "unsupported",
+            "invalid_state",
+            "not_found",
+            "auth_failed",
+            "tls_identity_failed",
+            "permission_denied",
+            "data_port_unreachable",
+            "capability_mismatch",
+            "checkpoint_missing",
+            "source_changed",
+            "cursor_expired",
+            "revision_conflict",
+            "keyring_locked",
+            "protocol_error",
+            "internal_error"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "rpc",
+            "node",
+            "transfer",
+            "file",
+            "range",
+            "connection"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "transfer_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "file_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "range_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "scope",
+        "message",
+        "retryable",
+        "transfer_id",
+        "file_id",
+        "range_id"
+      ],
+      "additionalProperties": false
+    },
+    "fallback": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "checksum_unsupported",
+            "resume_unsupported",
+            "data_tls_unsupported",
+            "mode_unsupported",
+            "scheduler_unsupported",
+            "range_unsupported",
+            "version_mismatch",
+            "policy_requires_v1"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "available": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "required",
+        "available"
+      ],
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "requested_mode": {
+          "enum": [
+            "auto",
+            "v1",
+            "v2"
+          ]
+        },
+        "scheduler": {
+          "enum": [
+            "auto",
+            "static",
+            "dynamic_ring"
+          ]
+        },
+        "channel_count": {
+          "enum": [
+            "auto",
+            1,
+            2,
+            4,
+            8
+          ]
+        },
+        "pending_window": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "queue_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "range_policy": {
+          "enum": [
+            "auto",
+            "file",
+            "range_stripe"
+          ]
+        },
+        "checksum_policy": {
+          "enum": [
+            "required_crc32c",
+            "none"
+          ]
+        },
+        "resume_policy": {
+          "enum": [
+            "never",
+            "allow",
+            "require"
+          ]
+        },
+        "control_tls": {
+          "const": "verify_ca"
+        },
+        "data_tls": {
+          "enum": [
+            "required",
+            "off"
+          ]
+        },
+        "fallback_policy": {
+          "enum": [
+            "allow_compatible",
+            "reject"
+          ]
+        },
+        "conflict_policy": {
+          "enum": [
+            "fail",
+            "skip",
+            "replace"
+          ]
+        },
+        "experimental_raw_ack": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "requested_mode",
+        "scheduler",
+        "channel_count",
+        "pending_window",
+        "queue_depth",
+        "range_policy",
+        "checksum_policy",
+        "resume_policy",
+        "control_tls",
+        "data_tls",
+        "fallback_policy",
+        "conflict_policy",
+        "experimental_raw_ack"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "checksum_policy": {
+                    "const": "none"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "data_tls": {
+                    "const": "off"
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "experimental_raw_ack": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "endpoint": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "local",
+            "remote"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "root_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "path",
+        "node_id",
+        "root_id"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "local"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "pattern": "^/"
+              },
+              "node_id": {
+                "type": "null"
+              },
+              "root_id": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\u0000).*$"
+              },
+              "node_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "root_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "create": {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "direction": {
+          "enum": [
+            "upload",
+            "download"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "destination": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        }
+      },
+      "required": [
+        "operation_id",
+        "direction",
+        "source",
+        "destination",
+        "policy"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "direction": {
+                "const": "upload"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "properties": {
+                  "kind": {
+                    "const": "local"
+                  }
+                }
+              },
+              "destination": {
+                "properties": {
+                  "kind": {
+                    "const": "remote"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "source": {
+                "properties": {
+                  "kind": {
+                    "const": "remote"
+                  }
+                }
+              },
+              "destination": {
+                "properties": {
+                  "kind": {
+                    "const": "local"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "files_total": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "files_committed": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "files_failed": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "files_skipped": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bytes_total": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bytes_transferred": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bytes_verified": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bytes_committed": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "channel_count_active": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "queue_depth_current": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "data_connections": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "speed_bps": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "average_speed_bps": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "eta_seconds": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "files_total",
+        "files_committed",
+        "files_failed",
+        "files_skipped",
+        "bytes_total",
+        "bytes_transferred",
+        "bytes_verified",
+        "bytes_committed",
+        "channel_count_active",
+        "queue_depth_current",
+        "data_connections",
+        "speed_bps",
+        "average_speed_bps",
+        "eta_seconds"
+      ],
+      "additionalProperties": false
+    },
+    "attempt": {
+      "type": "object",
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "running",
+            "cancelling",
+            "paused",
+            "completed",
+            "failed",
+            "cancelled",
+            "recoverable"
+          ]
+        },
+        "cancel_requested": {
+          "type": "boolean"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "attempt_id",
+        "attempt_number",
+        "state",
+        "cancel_requested",
+        "started_at",
+        "ended_at"
+      ],
+      "additionalProperties": false
+    },
+    "recovery": {
+      "type": "object",
+      "properties": {
+        "eligibility": {
+          "enum": [
+            "unknown",
+            "eligible",
+            "ineligible"
+          ]
+        },
+        "checkpoint_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "eligibility",
+        "checkpoint_id",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "eligibility": {
+                "const": "eligible"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "checkpoint_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "transfer": {
+      "type": "object",
+      "properties": {
+        "transfer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "scanning",
+            "connecting",
+            "negotiating",
+            "transferring",
+            "committing",
+            "completed",
+            "failed",
+            "cancelled",
+            "recoverable",
+            "paused"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "upload",
+            "download"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "destination": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "actual_mode": {
+          "enum": [
+            "unknown",
+            "v1",
+            "v2"
+          ]
+        },
+        "actual_scheduler": {
+          "enum": [
+            "unknown",
+            "static",
+            "dynamic_ring"
+          ]
+        },
+        "actual_range_policy": {
+          "enum": [
+            "unknown",
+            "file",
+            "range_stripe"
+          ]
+        },
+        "fallback_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/fallback"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attempt": {
+          "$ref": "#/$defs/attempt"
+        },
+        "metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "recovery": {
+          "$ref": "#/$defs/recovery"
+        },
+        "scan_complete": {
+          "type": "boolean"
+        },
+        "commit_confirmed": {
+          "type": "boolean"
+        },
+        "transfer_status": {
+          "enum": [
+            "unknown",
+            "pending",
+            "pass",
+            "fail"
+          ]
+        },
+        "integrity_status": {
+          "enum": [
+            "unknown",
+            "pending",
+            "pass",
+            "fail",
+            "not_requested"
+          ]
+        },
+        "evidence_status": {
+          "enum": [
+            "unknown",
+            "pending",
+            "complete",
+            "incomplete"
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/errorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "transfer_id",
+        "revision",
+        "state",
+        "direction",
+        "source",
+        "destination",
+        "policy",
+        "actual_mode",
+        "actual_scheduler",
+        "actual_range_policy",
+        "fallback_reason",
+        "attempt",
+        "metrics",
+        "recovery",
+        "scan_complete",
+        "commit_confirmed",
+        "transfer_status",
+        "integrity_status",
+        "evidence_status",
+        "error"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "actual_mode": {
+                "const": "v1"
+              },
+              "policy": {
+                "properties": {
+                  "requested_mode": {
+                    "enum": [
+                      "auto",
+                      "v2"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fallback_reason": {
+                "$ref": "#/$defs/fallback"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "completed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "scan_complete": {
+                "const": true
+              },
+              "commit_confirmed": {
+                "const": true
+              },
+              "transfer_status": {
+                "const": "pass"
+              },
+              "integrity_status": {
+                "enum": [
+                  "pass",
+                  "not_requested"
+                ]
+              },
+              "evidence_status": {
+                "const": "complete"
+              },
+              "error": {
+                "type": "null"
+              },
+              "attempt": {
+                "properties": {
+                  "state": {
+                    "const": "completed"
+                  }
+                }
+              },
+              "metrics": {
+                "properties": {
+                  "files_total": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "files_committed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "files_skipped": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "bytes_total": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "bytes_committed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "files_failed": {
+                    "const": 0
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "file": {
+      "type": "object",
+      "properties": {
+        "transfer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "relative_path": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\u0000).*$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "mtime_ns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "claimed",
+            "transferring",
+            "verifying",
+            "committing",
+            "committed",
+            "failed",
+            "cancelled",
+            "recoverable",
+            "skipped"
+          ]
+        },
+        "bytes_transferred": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bytes_verified": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "range_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/errorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "transfer_id",
+        "attempt_id",
+        "file_id",
+        "generation",
+        "relative_path",
+        "size",
+        "mtime_ns",
+        "state",
+        "bytes_transferred",
+        "bytes_verified",
+        "range_count",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "range": {
+      "type": "object",
+      "properties": {
+        "transfer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "range_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "claimed",
+            "transferring",
+            "received",
+            "verified",
+            "checkpointed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "bytes_transferred": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/errorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "transfer_id",
+        "attempt_id",
+        "file_id",
+        "range_id",
+        "generation",
+        "offset",
+        "length",
+        "state",
+        "bytes_transferred",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "connection": {
+      "type": "object",
+      "properties": {
+        "transfer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "control",
+            "data"
+          ]
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "resolving",
+            "connecting",
+            "tls",
+            "authenticating",
+            "negotiating",
+            "ready",
+            "closed",
+            "failed"
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/errorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "transfer_id",
+        "attempt_id",
+        "connection_id",
+        "channel_id",
+        "role",
+        "state",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "check": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [
+            "pending",
+            "running",
+            "passed",
+            "failed",
+            "unsupported",
+            "skipped"
+          ]
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/errorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "message",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "connectionTest": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "connection_test"
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "authentication": {
+          "enum": [
+            "unknown",
+            "not_required",
+            "required",
+            "authenticating",
+            "authenticated",
+            "expired",
+            "failed",
+            "keyring_locked"
+          ]
+        },
+        "checks": {
+          "type": "object",
+          "properties": {
+            "dns_control_port": {
+              "$ref": "#/$defs/check"
+            },
+            "tls_identity": {
+              "$ref": "#/$defs/check"
+            },
+            "login": {
+              "$ref": "#/$defs/check"
+            },
+            "capabilities": {
+              "$ref": "#/$defs/check"
+            },
+            "directory_permission": {
+              "$ref": "#/$defs/check"
+            },
+            "data_port": {
+              "$ref": "#/$defs/check"
+            }
+          },
+          "required": [
+            "dns_control_port",
+            "tls_identity",
+            "login",
+            "capabilities",
+            "directory_permission",
+            "data_port"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "kind",
+        "node_id",
+        "ready",
+        "authentication",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ready": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "authentication": {
+                "const": "authenticated"
+              },
+              "checks": {
+                "properties": {
+                  "dns_control_port": {
+                    "properties": {
+                      "state": {
+                        "const": "passed"
+                      }
+                    }
+                  },
+                  "tls_identity": {
+                    "properties": {
+                      "state": {
+                        "const": "passed"
+                      }
+                    }
+                  },
+                  "login": {
+                    "properties": {
+                      "state": {
+                        "const": "passed"
+                      }
+                    }
+                  },
+                  "capabilities": {
+                    "properties": {
+                      "state": {
+                        "const": "passed"
+                      }
+                    }
+                  },
+                  "directory_permission": {
+                    "properties": {
+                      "state": {
+                        "const": "passed"
+                      }
+                    }
+                  },
+                  "data_port": {
+                    "properties": {
+                      "state": {
+                        "const": "passed"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "capabilities"
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "protocol_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "modes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "v1",
+              "v2"
+            ]
+          }
+        },
+        "schedulers": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "static",
+              "dynamic_ring"
+            ]
+          }
+        },
+        "range_policies": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "file",
+              "range_stripe"
+            ]
+          }
+        },
+        "max_channel_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "max_pending_window": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_queue_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "checksums": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "none",
+              "crc32c"
+            ]
+          }
+        },
+        "resume_supported": {
+          "type": "boolean"
+        },
+        "pause_supported": {
+          "type": "boolean"
+        },
+        "control_tls_verified": {
+          "type": "boolean"
+        },
+        "data_tls_supported": {
+          "type": "boolean"
+        },
+        "directory_permission_probe_supported": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "node_id",
+        "observed_at",
+        "protocol_version",
+        "modes",
+        "schedulers",
+        "range_policies",
+        "max_channel_count",
+        "max_pending_window",
+        "max_queue_depth",
+        "checksums",
+        "resume_supported",
+        "pause_supported",
+        "control_tls_verified",
+        "data_tls_supported",
+        "directory_permission_probe_supported"
+      ],
+      "additionalProperties": false
+    },
+    "entry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/\\u0000]+$"
+        },
+        "type": {
+          "enum": [
+            "file",
+            "directory",
+            "symlink",
+            "other"
+          ]
+        },
+        "size": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "readable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "writable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "size",
+        "readable",
+        "writable"
+      ],
+      "additionalProperties": false
+    },
+    "directory": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "directory"
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\u0000).*$"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/entry"
+          }
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "node_id",
+        "root_id",
+        "path",
+        "entries",
+        "next_cursor",
+        "snapshot_id"
+      ],
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "control_port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "server_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ca_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "auth_mode": {
+          "enum": [
+            "token",
+            "admin_credential",
+            "anonymous"
+          ]
+        },
+        "credential_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "default_root_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "node_id",
+        "name",
+        "host",
+        "control_port",
+        "server_name",
+        "ca_path",
+        "auth_mode",
+        "credential_ref",
+        "default_root_id"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "auth_mode": {
+                "enum": [
+                  "token",
+                  "admin_credential"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "credential_ref": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "node.testConnection"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "root_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\u0000).*$"
+                },
+                "access": {
+                  "enum": [
+                    "read",
+                    "write"
+                  ]
+                }
+              },
+              "required": [
+                "node_id",
+                "root_id",
+                "path",
+                "access"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "node.capabilities"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "node_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "directory.list"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "root_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\u0000).*$"
+                },
+                "cursor": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "node_id",
+                "root_id",
+                "path",
+                "cursor",
+                "limit"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.create"
+            },
+            "params": {
+              "$ref": "#/$defs/create"
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.start"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "operation_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "transfer_id",
+                "operation_id",
+                "expected_revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.pause"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "operation_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "transfer_id",
+                "operation_id",
+                "expected_revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.cancel"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "operation_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "transfer_id",
+                "operation_id",
+                "expected_revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.resume"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "operation_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expected_revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "checkpoint_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "transfer_id",
+                "operation_id",
+                "expected_revision",
+                "checkpoint_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.get"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "transfer_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.subscribe"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "agent_epoch": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "after_sequence": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "transfer_ids",
+                "agent_epoch",
+                "after_sequence"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.list"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "cursor": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "cursor",
+                "limit"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "profile.list"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "profile.create"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "operation_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "profile": {
+                  "$ref": "#/$defs/profile"
+                }
+              },
+              "required": [
+                "operation_id",
+                "profile"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "profile.update"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "operation_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "profile": {
+                  "$ref": "#/$defs/profile"
+                }
+              },
+              "required": [
+                "operation_id",
+                "profile"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "profile.delete"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "operation_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "operation_id",
+                "node_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "transferResult": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "transfer"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/transfer"
+        }
+      },
+      "required": [
+        "kind",
+        "snapshot"
+      ],
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "operation"
+        },
+        "outcome": {
+          "enum": [
+            "accepted",
+            "already_terminal",
+            "already_running"
+          ]
+        },
+        "snapshot": {
+          "$ref": "#/$defs/transfer"
+        }
+      },
+      "required": [
+        "kind",
+        "outcome",
+        "snapshot"
+      ],
+      "additionalProperties": false
+    },
+    "subscription": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "subscription"
+        },
+        "subscription_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_epoch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reset": {
+          "type": "boolean"
+        },
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transfer"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "subscription_id",
+        "agent_epoch",
+        "sequence",
+        "reset",
+        "snapshots"
+      ],
+      "additionalProperties": false
+    },
+    "transferList": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "transfer_list"
+        },
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transfer"
+          }
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "snapshots",
+        "next_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "profileResult": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "profile"
+        },
+        "profile": {
+          "$ref": "#/$defs/profile"
+        }
+      },
+      "required": [
+        "kind",
+        "profile"
+      ],
+      "additionalProperties": false
+    },
+    "profileList": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "profile_list"
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/profile"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "profiles"
+      ],
+      "additionalProperties": false
+    },
+    "deleted": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "deleted"
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "node_id"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/connectionTest"
+            },
+            {
+              "$ref": "#/$defs/capabilities"
+            },
+            {
+              "$ref": "#/$defs/directory"
+            },
+            {
+              "$ref": "#/$defs/transferResult"
+            },
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "$ref": "#/$defs/subscription"
+            },
+            {
+              "$ref": "#/$defs/transferList"
+            },
+            {
+              "$ref": "#/$defs/profileResult"
+            },
+            {
+              "$ref": "#/$defs/profileList"
+            },
+            {
+              "$ref": "#/$defs/deleted"
+            }
+          ]
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "integer",
+              "enum": [
+                -32700,
+                -32600,
+                -32601,
+                -32602,
+                -32603,
+                -32001,
+                -32002,
+                -32003,
+                -32004,
+                -32005,
+                -32006,
+                -32007,
+                -32008,
+                -32009,
+                -32010,
+                -32011,
+                -32012
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "data": {
+              "$ref": "#/$defs/errorDetail"
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "data"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "method": {
+              "const": "transfer.event"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "subscription_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "agent_epoch": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "attempt_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "type": {
+                  "const": "transfer.snapshot"
+                },
+                "payload": {
+                  "$ref": "#/$defs/transfer"
+                }
+              },
+              "required": [
+                "subscription_id",
+                "agent_epoch",
+                "sequence",
+                "transfer_id",
+                "attempt_id",
+                "revision",
+                "timestamp",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "method": {
+              "const": "transfer.event"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "subscription_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "agent_epoch": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "attempt_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "type": {
+                  "const": "transfer.state"
+                },
+                "payload": {
+                  "$ref": "#/$defs/transfer"
+                }
+              },
+              "required": [
+                "subscription_id",
+                "agent_epoch",
+                "sequence",
+                "transfer_id",
+                "attempt_id",
+                "revision",
+                "timestamp",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "method": {
+              "const": "transfer.event"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "subscription_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "agent_epoch": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "attempt_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "type": {
+                  "const": "file.state"
+                },
+                "payload": {
+                  "$ref": "#/$defs/file"
+                }
+              },
+              "required": [
+                "subscription_id",
+                "agent_epoch",
+                "sequence",
+                "transfer_id",
+                "attempt_id",
+                "revision",
+                "timestamp",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "method": {
+              "const": "transfer.event"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "subscription_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "agent_epoch": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "attempt_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "type": {
+                  "const": "range.state"
+                },
+                "payload": {
+                  "$ref": "#/$defs/range"
+                }
+              },
+              "required": [
+                "subscription_id",
+                "agent_epoch",
+                "sequence",
+                "transfer_id",
+                "attempt_id",
+                "revision",
+                "timestamp",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "method": {
+              "const": "transfer.event"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "subscription_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "agent_epoch": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "attempt_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "type": {
+                  "const": "connection.state"
+                },
+                "payload": {
+                  "$ref": "#/$defs/connection"
+                }
+              },
+              "required": [
+                "subscription_id",
+                "agent_epoch",
+                "sequence",
+                "transfer_id",
+                "attempt_id",
+                "revision",
+                "timestamp",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "method": {
+              "const": "transfer.event"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "subscription_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "agent_epoch": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "attempt_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "type": {
+                  "const": "transfer.error"
+                },
+                "payload": {
+                  "$ref": "#/$defs/errorDetail"
+                }
+              },
+              "required": [
+                "subscription_id",
+                "agent_epoch",
+                "sequence",
+                "transfer_id",
+                "attempt_id",
+                "revision",
+                "timestamp",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    },
+    {
+      "$ref": "#/$defs/error"
+    },
+    {
+      "$ref": "#/$defs/event"
+    }
+  ],
+  "description": "Design prototype, not backend implementation. Semantic invariants are in rpc-contract.md."
+}
