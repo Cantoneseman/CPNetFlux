@@ -1,7 +1,7 @@
 # V3-RANGE-01 结果
 
 日期：2026-10-11
-状态：代码与测试完成，代码提交已生成，待 push 与远端回读
+状态：代码、测试、push 与远端 SHA 回读完成
 
 ## 输入与工作区
 
@@ -34,6 +34,6 @@
 ## 提交记录
 
 - 代码 commit：5dc6036c3be5c0f51a194d7571078cfa3e8537f5
-- 文档记录 commit：待生成
-- push：待执行
-- 远端 SHA：待回读
+- 文档记录 commit：8b822d9047d5577acdda5e31e18ca2584a94dc91
+- push：origin codex/V3-RANGE-01 已成功
+- 远端 SHA：8b822d9047d5577acdda5e31e18ca2584a94dc91
