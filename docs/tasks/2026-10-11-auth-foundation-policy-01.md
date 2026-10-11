@@ -45,3 +45,5 @@
 - The existing data-TLS smoke certificate fixture was updated with `subjectAltName=DNS:localhost,IP:127.0.0.1` so hostname/IP verification tests the intended behavior.
 
 状态：已完成，实现、单元、集成与兼容性门禁已通过。
+
+Implementation commit: `ff460e9c007ce6c5abcfc1c056003bf72ec3cbed`; GitHub remote readback matched `refs/heads/codex/AUTH-FOUNDATION-01`.

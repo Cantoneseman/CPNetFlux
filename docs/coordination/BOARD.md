@@ -13,7 +13,7 @@
 | DIR-V2-TRANSFER-ENGINE-01 | done（一期；完整架构未完成） | 显式 `--data-session-reuse tree`，单 worker/流；固定提交证据见 `docs/tasks/2026-10-09-data-session-reuse-result.md` |
 | DIR-V2-SHORT-COMPARE | 待实验指令 | 固定提交/二进制，两端空间与 GSI 重验，短目录 reuse 开关 + GridFTP；脚本执行，不持续轮询 |
 | DIR-V2-BOUNDED-SCHEDULING | 后续 | 固定通道预算、有界 pending 和异步读写，目前未实现 |
-| AUTH-FOUNDATION-01 / AUTH-POLICY-01 | review | 双向 TLS、token 文件安全、服务级读写策略；任务范围与当前证据见 [认证任务记录](../tasks/2026-10-11-auth-foundation-policy-01.md) |
+| AUTH-FOUNDATION-01 / AUTH-POLICY-01 | done | 双向 TLS、token 文件安全、服务级读写策略；任务范围与当前证据见 [认证任务记录](../tasks/2026-10-11-auth-foundation-policy-01.md) |
 
 以下为历史任务记录；时间、blocked 和旧门只描述当时事实，不是当前执行前置条件。
 
