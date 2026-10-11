@@ -207,7 +207,7 @@ def experiment(a):
     script_commit=subprocess.check_output(['git','-C',str(Path(__file__).resolve().parents[2]),'rev-parse','HEAD'],text=True).strip()
     provenance={'code_sha':CODE_SHA,'script_commit':script_commit,
         'binary_sha256':{name:hashlib.sha256((a.build/name).read_bytes()).hexdigest() for name in ('cpnetflux-tree-upload-client','cpnetflux-file-client')},
-        'gridftp_version':subprocess.check_output(['globus-url-copy','-version'],text=True).strip(),
+        'gridftp_version':(lambda p:(p.stdout+p.stderr).strip())(subprocess.run(['globus-url-copy','-version'],text=True,capture_output=True,check=False)),
         'security':'CP TLS/control+data CRC32C+manifest; GridFTP GSI PRIVATE; authentication policies differ'}
     (a.run/'provenance.json').write_text(json.dumps(provenance,indent=2))
     emit(a,{'state':'STARTED','pid':os.getpid(),**provenance,'lifetime_seconds':1800})
