@@ -37,5 +37,5 @@
 - ctest --test-dir /tmp/cpnetflux-runs/SOURCE-RELEASE-01/build-core -R 'cpnetflux_source_release_behavior|cpnetflux_release_hygiene' --output-on-failure：2/2 通过。
 - TLS-enabled Release 核心构建：通过；设置临时 CPNETFLUX_TEST_TOKEN 后全量 CTest 258/258 通过，1 项 io_uring 能力测试 skip。第一次未设置该变量时，token 和 event-log 两项按测试设计失败，设置变量重跑全绿。
 - 桌面 Release 构建和 CTest：3/3 通过。
-- 最终归档的解包构建/CTest、归档及 manifest SHA-256、实现 commit 和 GitHub 远端 SHA：完成后补记。
+- 首次生成归档被 strict hygiene 拒绝，因为回归夹具源码包含用于验证 PEM 过滤的明文 marker；夹具改为运行时拼接 marker，仍覆盖过滤行为，但不会把 marker 字面量放入源码。后续归档验证通过后补记最终 SHA/测试。
 - 限制：无根 LICENSE，manifest 保持 public_release_ready=false；无根 CMake install() 规则，本任务不产安装器。

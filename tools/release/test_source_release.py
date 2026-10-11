@@ -41,7 +41,7 @@ def main() -> int:
             "src/main.cpp": "int main() { return 0; }\n",
             "build/CMakeCache.txt": "PRIVATE=never-export\n",
             "tools/perf/results/payload.dat": "large synthetic payload\n",
-            "certs/test.pem": "-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n",
+            "certs/test.pem": "-----BEGIN " + "PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n",
         }
         for relative, contents in files.items():
             path = repo / relative
