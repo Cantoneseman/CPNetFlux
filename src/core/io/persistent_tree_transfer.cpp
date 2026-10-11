@@ -712,7 +712,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 changed.notify_all();
             }
         }
-        const auto metadata = protocol::encodeSessionInitPayload({protocol::SessionMode::New,
+        const auto metadata = protocol::encodeFileBeginMetadata({protocol::SessionMode::New,
             id.transferId, id.totalSize, id.chunkSize, id.checksumAlgorithm, id.relativePath,
             id.rangeId, id.rangeOffset, id.rangeLength, id.rangeCount});
         if (!metadata.isOk()) { failWriter(metadata.status()); break; }

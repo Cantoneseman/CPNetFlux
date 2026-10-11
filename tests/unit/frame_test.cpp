@@ -107,9 +107,9 @@ TEST(FrameTest, ValidatesDataFinAndFinalStatusFrames) {
     EXPECT_TRUE(cpnetflux::core::protocol::validateFrameHeader(error, 64).isOk());
 
     cpnetflux::core::protocol::FrameHeader sessionInit;
-    sessionInit.type = cpnetflux::core::protocol::FrameType::SessionInit;
+    sessionInit.type = static_cast<cpnetflux::core::protocol::FrameType>(5);
     sessionInit.payloadSize = 32;
-    EXPECT_TRUE(cpnetflux::core::protocol::validateFrameHeader(sessionInit, 64).isOk());
+    EXPECT_FALSE(cpnetflux::core::protocol::validateFrameHeader(sessionInit, 64).isOk());
 
     cpnetflux::core::protocol::FrameHeader resumeResponse;
     resumeResponse.type = cpnetflux::core::protocol::FrameType::ResumeResponse;
@@ -117,9 +117,9 @@ TEST(FrameTest, ValidatesDataFinAndFinalStatusFrames) {
     EXPECT_TRUE(cpnetflux::core::protocol::validateFrameHeader(resumeResponse, 64).isOk());
 
     cpnetflux::core::protocol::FrameHeader chunkComplete;
-    chunkComplete.type = cpnetflux::core::protocol::FrameType::ChunkComplete;
+    chunkComplete.type = static_cast<cpnetflux::core::protocol::FrameType>(7);
     chunkComplete.payloadSize = 32;
-    EXPECT_TRUE(cpnetflux::core::protocol::validateFrameHeader(chunkComplete, 64).isOk());
+    EXPECT_FALSE(cpnetflux::core::protocol::validateFrameHeader(chunkComplete, 64).isOk());
 }
 
 TEST(FrameTest, RejectsInvalidHeaders) {
@@ -212,21 +212,21 @@ TEST(FrameTest, RejectsUnknownTypeDuringDecode) {
     EXPECT_FALSE(decoded.isOk());
 }
 
-TEST(SessionControlTest, EncodesAndDecodesSessionInitPayload) {
-    cpnetflux::core::protocol::SessionInitPayload payload;
-    payload.mode = cpnetflux::core::protocol::SessionMode::Resume;
+TEST(SessionControlTest, EncodesAndDecodesFileBeginMetadata) {
+    cpnetflux::core::protocol::FileBeginMetadata payload;
+    payload.mode = cpnetflux::core::protocol::SessionMode::New;
     payload.transferId = "phase2a-smoke";
     payload.totalSize = 4096;
     payload.chunkSize = 1024;
     payload.checksumAlgorithm = cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
 
-    const auto encoded = cpnetflux::core::protocol::encodeSessionInitPayload(payload);
+    const auto encoded = cpnetflux::core::protocol::encodeFileBeginMetadata(payload);
     ASSERT_TRUE(encoded.isOk()) << encoded.status().message();
 
-    const auto decoded = cpnetflux::core::protocol::decodeSessionInitPayload(encoded.value().data(),
+    const auto decoded = cpnetflux::core::protocol::decodeFileBeginMetadata(encoded.value().data(),
                                                                             encoded.value().size());
     ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
-    EXPECT_EQ(decoded.value().mode, cpnetflux::core::protocol::SessionMode::Resume);
+    EXPECT_EQ(decoded.value().mode, cpnetflux::core::protocol::SessionMode::New);
     EXPECT_EQ(decoded.value().transferId, "phase2a-smoke");
     EXPECT_EQ(decoded.value().totalSize, 4096U);
     EXPECT_EQ(decoded.value().chunkSize, 1024U);
@@ -234,8 +234,8 @@ TEST(SessionControlTest, EncodesAndDecodesSessionInitPayload) {
     EXPECT_TRUE(decoded.value().sourcePath.empty());
 }
 
-TEST(SessionControlTest, EncodesAndDecodesRangeSessionInitExtension) {
-    cpnetflux::core::protocol::SessionInitPayload payload;
+TEST(SessionControlTest, EncodesAndDecodesRangeMetadataExtension) {
+    cpnetflux::core::protocol::FileBeginMetadata payload;
     payload.mode = cpnetflux::core::protocol::SessionMode::New;
     payload.transferId = "range-transfer";
     payload.sourcePath = "nested/source.bin";
@@ -247,9 +247,9 @@ TEST(SessionControlTest, EncodesAndDecodesRangeSessionInitExtension) {
     payload.rangeLength = 4096;
     payload.rangeCount = 4;
     payload.attempt = 3;
-    const auto encoded = cpnetflux::core::protocol::encodeSessionInitPayload(payload);
+    const auto encoded = cpnetflux::core::protocol::encodeFileBeginMetadata(payload);
     ASSERT_TRUE(encoded.isOk()) << encoded.status().message();
-    const auto decoded = cpnetflux::core::protocol::decodeSessionInitPayload(
+    const auto decoded = cpnetflux::core::protocol::decodeFileBeginMetadata(
         encoded.value().data(), encoded.value().size());
     ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
     EXPECT_EQ(decoded.value().rangeId, 2U);
@@ -259,22 +259,22 @@ TEST(SessionControlTest, EncodesAndDecodesRangeSessionInitExtension) {
     EXPECT_EQ(decoded.value().attempt, 3U);
 }
 
-TEST(SessionControlTest, EncodesAndDecodesSessionInitSourcePathExtension) {
-    cpnetflux::core::protocol::SessionInitPayload payload;
-    payload.mode = cpnetflux::core::protocol::SessionMode::Resume;
+TEST(SessionControlTest, EncodesAndDecodesMetadataSourcePathExtension) {
+    cpnetflux::core::protocol::FileBeginMetadata payload;
+    payload.mode = cpnetflux::core::protocol::SessionMode::New;
     payload.transferId = "phase3c-download";
     payload.sourcePath = "nested/source.bin";
     payload.totalSize = 8192;
     payload.chunkSize = 1024;
     payload.checksumAlgorithm = cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
 
-    const auto encoded = cpnetflux::core::protocol::encodeSessionInitPayload(payload);
+    const auto encoded = cpnetflux::core::protocol::encodeFileBeginMetadata(payload);
     ASSERT_TRUE(encoded.isOk()) << encoded.status().message();
 
-    const auto decoded = cpnetflux::core::protocol::decodeSessionInitPayload(encoded.value().data(),
+    const auto decoded = cpnetflux::core::protocol::decodeFileBeginMetadata(encoded.value().data(),
                                                                             encoded.value().size());
     ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
-    EXPECT_EQ(decoded.value().mode, cpnetflux::core::protocol::SessionMode::Resume);
+    EXPECT_EQ(decoded.value().mode, cpnetflux::core::protocol::SessionMode::New);
     EXPECT_EQ(decoded.value().transferId, "phase3c-download");
     EXPECT_EQ(decoded.value().sourcePath, "nested/source.bin");
     EXPECT_EQ(decoded.value().totalSize, 8192U);
@@ -298,51 +298,8 @@ TEST(SessionControlTest, EncodesAndDecodesResumeResponsePayload) {
     EXPECT_EQ(decoded.value().missingRanges[1].end, 4096U);
 }
 
-TEST(SessionControlTest, EncodesAndDecodesChunkCompletePayload) {
-    cpnetflux::core::protocol::ChunkCompletePayload payload;
-    payload.chunkId = 7;
-    payload.offset = 1048576;
-    payload.length = 1048576;
-    payload.checksum = cpnetflux::checksum::ChecksumValue{
-        cpnetflux::checksum::ChecksumAlgorithm::Crc32c,
-        0xe3069283U,
-    };
-
-    const auto encoded = cpnetflux::core::protocol::encodeChunkCompletePayload(payload);
-    ASSERT_TRUE(encoded.isOk()) << encoded.status().message();
-    ASSERT_EQ(encoded.value().size(), 32U);
-
-    const auto decoded = cpnetflux::core::protocol::decodeChunkCompletePayload(
-        encoded.value().data(), encoded.value().size());
-    ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
-    EXPECT_EQ(decoded.value().chunkId, 7U);
-    EXPECT_EQ(decoded.value().offset, 1048576U);
-    EXPECT_EQ(decoded.value().length, 1048576U);
-    EXPECT_EQ(decoded.value().checksum.algorithm, cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
-    EXPECT_EQ(decoded.value().checksum.value, 0xe3069283U);
-}
-
-TEST(SessionControlTest, EncodesAndDecodesUnifiedRangeIdentity) {
-    cpnetflux::core::protocol::ChunkCompletePayload payload;
-    payload.chunkId = 3;
-    payload.offset = 3 * 4096;
-    payload.length = 4096;
-    payload.rangeId = 4;
-    payload.attempt = 2;
-    payload.checksum = cpnetflux::checksum::ChecksumValue{
-        cpnetflux::checksum::ChecksumAlgorithm::Crc32c, 0x12345678U};
-    const auto encoded = cpnetflux::core::protocol::encodeChunkCompletePayload(payload);
-    ASSERT_TRUE(encoded.isOk()) << encoded.status().message();
-    ASSERT_EQ(encoded.value().size(), 48U);
-    const auto decoded = cpnetflux::core::protocol::decodeChunkCompletePayload(
-        encoded.value().data(), encoded.value().size());
-    ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
-    EXPECT_EQ(decoded.value().rangeId, 4U);
-    EXPECT_EQ(decoded.value().attempt, 2U);
-}
-
 TEST(SessionControlTest, RejectsInvalidControlPayloads) {
-    EXPECT_FALSE(cpnetflux::core::protocol::decodeSessionInitPayload(nullptr, 0).isOk());
+    EXPECT_FALSE(cpnetflux::core::protocol::decodeFileBeginMetadata(nullptr, 0).isOk());
 
     std::vector<std::uint8_t> invalidResumePayload(8);
     invalidResumePayload[7] = 1;
@@ -350,11 +307,7 @@ TEST(SessionControlTest, RejectsInvalidControlPayloads) {
                                                                        invalidResumePayload.size())
                      .isOk());
 
-    std::vector<std::uint8_t> invalidChunkComplete(32);
-    invalidChunkComplete[25] = 99;
-    EXPECT_FALSE(cpnetflux::core::protocol::decodeChunkCompletePayload(invalidChunkComplete.data(),
-                                                                      invalidChunkComplete.size())
-                     .isOk());
+
 }
 
 
@@ -395,4 +348,13 @@ TEST(PersistentDataSessionTest, LoopbackRejectsDuplicateGenerationAndOversizedPa
  const std::uint8_t v=1; ASSERT_TRUE(PersistentDataSession::writeData(&tx,a,0,&v,1).isOk());
  f=PersistentDataSession::readNext(&rx,64); ASSERT_TRUE(f.isOk()); EXPECT_TRUE(s.data(f.value().header,1).isOk());
  auto h=f.value().header; h.payloadSize=65; EXPECT_FALSE(validateFrameHeader(h,64).isOk());
+}
+
+TEST(FrameTest, RetiredV1WireTypesCannotDecodeOrValidate) {
+    using namespace cpnetflux::core::protocol;
+    for (unsigned type:{5U,7U}) {
+        FrameHeader header;header.type=static_cast<FrameType>(type);header.payloadSize=32;
+        EXPECT_FALSE(validateFrameHeader(header,64).isOk());
+        EXPECT_FALSE(decodeFrameHeader(encodeFrameHeader(header)).isOk());
+    }
 }

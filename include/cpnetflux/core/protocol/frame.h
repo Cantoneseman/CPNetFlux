@@ -25,9 +25,7 @@ enum class FrameType : std::uint16_t {
     Fin = 2,
     Complete = 3,
     Error = 4,
-    SessionInit = 5,
     ResumeResponse = 6,
-    ChunkComplete = 7,
     FileBegin = 8,
     FileEnd = 9,
     FileResult = 10,
@@ -67,10 +65,9 @@ struct FrameHeader {
 
 enum class SessionMode : std::uint16_t {
     New = 1,
-    Resume = 2,
 };
 
-struct SessionInitPayload {
+struct FileBeginMetadata {
     SessionMode mode = SessionMode::New;
     std::string transferId;
     std::uint64_t totalSize = 0;
@@ -89,17 +86,6 @@ struct ResumeResponsePayload {
     std::vector<core::chunk::CompletedRange> missingRanges;
 };
 
-struct ChunkCompletePayload {
-    std::uint64_t chunkId = 0;
-    std::uint64_t offset = 0;
-    std::uint64_t length = 0;
-    checksum::ChecksumValue checksum;
-    // rangeId/attempt are the canonical identity for V3 callers. A zero rangeId
-    // keeps the 32-byte V1 payload compatible with older peers.
-    std::uint64_t rangeId = 0;
-    std::uint64_t attempt = 0;
-};
-
 using EncodedFrameHeader = std::array<std::uint8_t, kFrameHeaderSize>;
 
 EncodedFrameHeader encodeFrameHeader(const FrameHeader& header) noexcept;
@@ -108,17 +94,13 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
 common::Status validateDataFramePayload(const FrameHeader& header, const std::uint8_t* payload,
                                         std::size_t payloadSize, std::uint32_t maxLogicalSize);
 
-common::Result<std::vector<std::uint8_t>> encodeSessionInitPayload(
-    const SessionInitPayload& payload);
-common::Result<SessionInitPayload> decodeSessionInitPayload(const std::uint8_t* data,
+common::Result<std::vector<std::uint8_t>> encodeFileBeginMetadata(
+    const FileBeginMetadata& payload);
+common::Result<FileBeginMetadata> decodeFileBeginMetadata(const std::uint8_t* data,
                                                             std::size_t size);
 common::Result<std::vector<std::uint8_t>> encodeResumeResponsePayload(
     const ResumeResponsePayload& payload);
 common::Result<ResumeResponsePayload> decodeResumeResponsePayload(const std::uint8_t* data,
                                                                   std::size_t size);
-common::Result<std::vector<std::uint8_t>> encodeChunkCompletePayload(
-    const ChunkCompletePayload& payload);
-common::Result<ChunkCompletePayload> decodeChunkCompletePayload(const std::uint8_t* data,
-                                                                std::size_t size);
 
 }  // namespace cpnetflux::core::protocol

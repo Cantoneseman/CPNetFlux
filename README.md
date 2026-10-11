@@ -1,3 +1,5 @@
+> 2026-10-11：单文件 STOR/RETR 与目录已统一使用 V3 事务内核；V1 引擎及 SessionInit/ChunkComplete wire 已删除。旧 CLI --data-session-reuse off 仅选择同一内核的 per-file 编排；旧 wire 明确拒绝，客户端与服务端须同步升级。checksum/resume/TLS/压缩/IO/提交策略保留，功能和实验边界见 docs/tasks/2026-10-11-v1-retire-01.md。
+
 # CPNetFlux
 
 CPNetFlux 是面向算力网的大规模可靠数据传输底座。它提供 GridFTP 风格控制接口，并在内部使用自研的分块、校验、断点恢复和目录编排引擎。

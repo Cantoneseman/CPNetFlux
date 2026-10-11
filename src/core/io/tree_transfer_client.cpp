@@ -1271,10 +1271,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"actual_mode\": \"" << (stats.persistentData ? "persistent_tree" : (stats.perFileStarted ? "per_file" : "unknown")) << "\",\n";
     output << "  \"requested_file_scheduling\": \"" << (options.dynamicFileScheduling ? "dynamic" : "static") << "\",\n";
     output << "  \"actual_file_scheduling\": \"" << (stats.persistentData ? (stats.dynamicScheduling ? "dynamic" : "static") : (stats.perFileStarted ? "per_file" : "unknown")) << "\",\n";
-    output << "  \"fallback_reason\": \"" << (options.reuseDataSession && !stats.persistentData && stats.perFileStarted ?
-        ((options.resume || options.maxFiles || options.connections != 1 || options.schedulerMode != config::TreeSchedulerMode::Off ||
-          options.compressionMode != config::CompressionMode::Off || options.checksumAlgorithm != checksum::ChecksumAlgorithm::None || options.dataTlsMode != DataTlsMode::Off) ?
-            "v2_configuration_ineligible" : "v2_requested_capability_unsupported") : "") << "\",\n";
+    output << "  \"fallback_reason\": \"\",\n";
     output << "  \"data_session_reuse_mode\": \"" << (stats.persistentData ? "tree" : "off") << "\",\n";
     output << "  \"data_connect_count\": " << (stats.persistentData ? stats.persistentDataConnectCount : stats.dataTransferCount.load() * options.connections) << ",\n";
     output << "  \"data_connect_count_source\": \"" << (stats.persistentData ? "observed" : "estimated") << "\",\n";

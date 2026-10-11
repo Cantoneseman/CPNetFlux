@@ -340,6 +340,8 @@ if(CPNETFLUX_BUILD_TESTS)
     )
 
     gtest_discover_tests(cpnetflux_unit_tests)
+    add_test(NAME cpnetflux_v1_retirement_gate
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/check_v1_retired.py)
 
     add_test(
         NAME cpnetflux_file_transfer_smoke

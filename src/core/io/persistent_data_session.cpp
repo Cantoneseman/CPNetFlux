@@ -261,7 +261,7 @@ common::Status PersistentDataSession::writeBegin(FramedDataSocket* socket,
     header.rangeId = identity.rangeId;
     header.attempt = identity.attempt;
     header.totalSize = identity.totalSize;
-    protocol::SessionInitPayload metadata;
+    protocol::FileBeginMetadata metadata;
     metadata.transferId = identity.transferId;
     metadata.totalSize = identity.totalSize;
     metadata.chunkSize = identity.chunkSize;
@@ -272,7 +272,7 @@ common::Status PersistentDataSession::writeBegin(FramedDataSocket* socket,
     metadata.rangeLength = identity.rangeLength;
     metadata.rangeCount = identity.rangeCount;
     metadata.attempt = identity.attempt;
-    auto encoded = protocol::encodeSessionInitPayload(metadata);
+    auto encoded = protocol::encodeFileBeginMetadata(metadata);
     if (!encoded.isOk()) return encoded.status();
     auto bytes = std::move(encoded.value());
     if (identity.mtimeUnixSeconds < 0 || bytes.size() > 8184)
@@ -427,7 +427,7 @@ common::Result<PersistentFileIdentity> PersistentDataSession::decodeBegin(const 
         frame.header.type != protocol::FrameType::FileBegin || frame.payload.size() < 8 ||
         frame.payload.size() > 8192 || frame.payload.size() != frame.header.payloadSize)
         return common::Status::invalidArgument("invalid FILE_BEGIN metadata");
-    auto metadata = protocol::decodeSessionInitPayload(frame.payload.data(), frame.payload.size() - 8);
+    auto metadata = protocol::decodeFileBeginMetadata(frame.payload.data(), frame.payload.size() - 8);
     if (!metadata.isOk()) return metadata.status();
     const auto& m = metadata.value();
     if (m.mode != protocol::SessionMode::New ||

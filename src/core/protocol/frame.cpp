@@ -70,9 +70,7 @@ bool isKnownType(std::uint16_t type) noexcept {
            type == static_cast<std::uint16_t>(FrameType::Fin) ||
            type == static_cast<std::uint16_t>(FrameType::Complete) ||
            type == static_cast<std::uint16_t>(FrameType::Error) ||
-           type == static_cast<std::uint16_t>(FrameType::SessionInit) ||
            type == static_cast<std::uint16_t>(FrameType::ResumeResponse) ||
-           type == static_cast<std::uint16_t>(FrameType::ChunkComplete) ||
            type == static_cast<std::uint16_t>(FrameType::FileBegin) ||
            type == static_cast<std::uint16_t>(FrameType::FileEnd) ||
            type == static_cast<std::uint16_t>(FrameType::FileResult) ||
@@ -123,8 +121,7 @@ std::uint64_t readPayloadU64(const std::uint8_t* data, std::size_t offset) noexc
 }
 
 bool isKnownSessionMode(std::uint16_t mode) noexcept {
-    return mode == static_cast<std::uint16_t>(SessionMode::New) ||
-           mode == static_cast<std::uint16_t>(SessionMode::Resume);
+    return mode == static_cast<std::uint16_t>(SessionMode::New);
 }
 
 bool isKnownChecksumAlgorithm(std::uint16_t algorithm) noexcept {
@@ -247,8 +244,7 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
         }
         return common::Status::ok();
     }
-    if (header.type == FrameType::SessionInit || header.type == FrameType::ResumeResponse ||
-        header.type == FrameType::ChunkComplete) {
+    if (header.type == FrameType::ResumeResponse) {
         if (header.flags != 0) {
             return common::Status::invalidArgument("control frame flags must be zero");
         }
@@ -337,8 +333,8 @@ common::Status validateDataFramePayload(const FrameHeader& header, const std::ui
     return common::Status::ok();
 }
 
-common::Result<std::vector<std::uint8_t>> encodeSessionInitPayload(
-    const SessionInitPayload& payload) {
+common::Result<std::vector<std::uint8_t>> encodeFileBeginMetadata(
+    const FileBeginMetadata& payload) {
     if (payload.transferId.empty() ||
         payload.transferId.size() >
             static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max())) {
@@ -388,7 +384,7 @@ common::Result<std::vector<std::uint8_t>> encodeSessionInitPayload(
     return encoded;
 }
 
-common::Result<SessionInitPayload> decodeSessionInitPayload(const std::uint8_t* data,
+common::Result<FileBeginMetadata> decodeFileBeginMetadata(const std::uint8_t* data,
                                                             std::size_t size) {
     if (size < 24) {
         return common::Status::invalidArgument("session init payload is too small");
@@ -410,7 +406,7 @@ common::Result<SessionInitPayload> decodeSessionInitPayload(const std::uint8_t* 
         return common::Status::invalidArgument("invalid transfer_id payload length");
     }
 
-    SessionInitPayload payload;
+    FileBeginMetadata payload;
     payload.mode = static_cast<SessionMode>(mode);
     payload.checksumAlgorithm = static_cast<checksum::ChecksumAlgorithm>(algorithm);
     payload.totalSize = readPayloadU64(data, 8);
@@ -510,61 +506,5 @@ common::Result<ResumeResponsePayload> decodeResumeResponsePayload(const std::uin
     return payload;
 }
 
-common::Result<std::vector<std::uint8_t>> encodeChunkCompletePayload(
-    const ChunkCompletePayload& payload) {
-    if (payload.length == 0) {
-        return common::Status::invalidArgument("chunk complete length must be greater than zero");
-    }
-
-    const bool hasRangeIdentity = payload.rangeId != 0 || payload.attempt != 0;
-    if (hasRangeIdentity && payload.rangeId == 0) {
-        return common::Status::invalidArgument("range attempt requires range id");
-    }
-    std::vector<std::uint8_t> encoded;
-    encoded.reserve(hasRangeIdentity ? 48 : 32);
-    appendU64(encoded, payload.chunkId);
-    appendU64(encoded, payload.offset);
-    appendU64(encoded, payload.length);
-    appendU16(encoded, static_cast<std::uint16_t>(payload.checksum.algorithm));
-    appendU16(encoded, 0);
-    appendU32(encoded, payload.checksum.value);
-    if (hasRangeIdentity) {
-        appendU64(encoded, payload.rangeId);
-        appendU64(encoded, payload.attempt);
-    }
-    return encoded;
-}
-
-common::Result<ChunkCompletePayload> decodeChunkCompletePayload(const std::uint8_t* data,
-                                                                std::size_t size) {
-    if (size != 32 && size != 48) {
-        return common::Status::invalidArgument("invalid chunk complete payload size");
-    }
-    const std::uint16_t algorithm = readPayloadU16(data, 24);
-    if (!isKnownChecksumAlgorithm(algorithm)) {
-        return common::Status::invalidArgument("invalid chunk checksum algorithm");
-    }
-    if (readPayloadU16(data, 26) != 0) {
-        return common::Status::invalidArgument("chunk complete reserved field must be zero");
-    }
-
-    ChunkCompletePayload payload;
-    payload.chunkId = readPayloadU64(data, 0);
-    payload.offset = readPayloadU64(data, 8);
-    payload.length = readPayloadU64(data, 16);
-    payload.checksum.algorithm = static_cast<checksum::ChecksumAlgorithm>(algorithm);
-    payload.checksum.value = readPayloadU32(data, 28);
-    if (size == 48) {
-        payload.rangeId = readPayloadU64(data, 32);
-        payload.attempt = readPayloadU64(data, 40);
-        if (payload.rangeId == 0) {
-            return common::Status::invalidArgument("range complete payload has no range id");
-        }
-    }
-    if (payload.length == 0) {
-        return common::Status::invalidArgument("chunk complete length must be greater than zero");
-    }
-    return payload;
-}
 
 }  // namespace cpnetflux::core::protocol
