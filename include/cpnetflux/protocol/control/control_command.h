@@ -69,8 +69,10 @@ struct ControlResponse {
 
 class ControlSession {
    public:
-    ControlSession(std::string user, std::string password, std::uint32_t defaultConnections);
-    ControlSession(ControlAuthConfig auth, std::uint32_t defaultConnections);
+    ControlSession(std::string user, std::string password, std::uint32_t defaultConnections,
+                   AccessPolicy accessPolicy = AccessPolicy::ReadWrite);
+    ControlSession(ControlAuthConfig auth, std::uint32_t defaultConnections,
+                   AccessPolicy accessPolicy = AccessPolicy::ReadWrite);
 
     [[nodiscard]] ControlResponse handleCommand(const ControlCommand& command);
     void markPassiveReady() noexcept;
@@ -89,6 +91,7 @@ class ControlSession {
     std::string expectedUser_;
     std::string expectedPassword_;
     ControlAuthConfig auth_;
+    AccessPolicy accessPolicy_ = AccessPolicy::ReadWrite;
     std::uint32_t connections_ = 1;
     bool userAccepted_ = false;
     bool authenticated_ = false;

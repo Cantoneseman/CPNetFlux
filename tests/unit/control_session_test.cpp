@@ -9,6 +9,7 @@ namespace {
 
 using cpnetflux::protocol::control::ControlAction;
 using cpnetflux::protocol::control::ControlSession;
+using cpnetflux::protocol::control::AccessPolicy;
 using cpnetflux::protocol::control::parseControlCommand;
 using cpnetflux::protocol::control::replyCode;
 
@@ -191,6 +192,31 @@ TEST(ControlSessionTest, PipelineOptInIsExplicitPerControlSession) {
     EXPECT_TRUE(session.pipelineOptIn());
     EXPECT_EQ(replyCode(handle(&session, "OPTS PIPELINE=0")), 200);
     EXPECT_FALSE(session.pipelineOptIn());
+}
+
+TEST(ControlSessionTest, ReadOnlyPolicyRejectsWritesButAllowsResumedDownloads) {
+    ControlSession session("cpnetflux", "secret", 1, AccessPolicy::ReadOnly);
+    ASSERT_EQ(handle(&session, "USER cpnetflux").lines.front(), "331 User name okay, need password");
+    ASSERT_EQ(handle(&session, "PASS secret").lines.front(), "230 User logged in");
+    ASSERT_EQ(handle(&session, "TYPE I").lines.front(), "200 Type set to I");
+    EXPECT_EQ(handle(&session, "STOR output.bin").lines.front(), "550 write access denied");
+
+    EXPECT_EQ(handle(&session, "REST GFID:download-token").lines.front(),
+              "350 Restart marker accepted transfer_id=GFID:download-token");
+    auto passive = handle(&session, "EPSV");
+    ASSERT_EQ(passive.action, ControlAction::OpenPassiveEpsv);
+    session.markPassiveReady();
+    EXPECT_EQ(handle(&session, "RETR input.bin").action, ControlAction::StartRetr);
+}
+
+TEST(ControlSessionTest, WriteOnlyPolicyRejectsReadsAfterLogin) {
+    ControlSession session("cpnetflux", "secret", 1, AccessPolicy::WriteOnly);
+    ASSERT_EQ(handle(&session, "USER cpnetflux").lines.front(), "331 User name okay, need password");
+    ASSERT_EQ(handle(&session, "PASS secret").lines.front(), "230 User logged in");
+    EXPECT_EQ(handle(&session, "SIZE input.bin").lines.front(), "550 read access denied");
+    EXPECT_EQ(handle(&session, "PWD").lines.front(), "550 read access denied");
+    EXPECT_EQ(handle(&session, "CWD private").lines.front(), "550 read access denied");
+    EXPECT_EQ(handle(&session, "RETR input.bin").lines.front(), "550 read access denied");
 }
 
 TEST(ControlSessionTest, UnsupportedReturns502) {

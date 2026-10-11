@@ -20,6 +20,7 @@ using cpnetflux::core::session::ManifestFlushPolicy;
 using cpnetflux::protocol::control::ControlListEntry;
 using cpnetflux::protocol::control::ControlPathKind;
 using cpnetflux::protocol::control::AuthMode;
+using cpnetflux::protocol::control::AccessPolicy;
 using cpnetflux::protocol::control::kMaxPassiveDataPortBase;
 using cpnetflux::protocol::control::formatList;
 using cpnetflux::protocol::control::formatMdtmTime;
@@ -186,6 +187,51 @@ TEST(ControlOptionsTest, ParsesTlsOptionsAndRejectsUnsafeKeys) {
     std::filesystem::remove(key);
 }
 
+TEST(ControlOptionsTest, ParsesMutualTlsAndAccessPolicy) {
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / "cpnetflux-control-mtls-root";
+    const std::filesystem::path cert =
+        std::filesystem::temp_directory_path() / "cpnetflux-control-mtls-cert.pem";
+    const std::filesystem::path key =
+        std::filesystem::temp_directory_path() / "cpnetflux-control-mtls-key.pem";
+    const std::filesystem::path ca =
+        std::filesystem::temp_directory_path() / "cpnetflux-control-mtls-ca.pem";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    for (const auto& path : {cert, key, ca}) {
+        std::ofstream output(path);
+        output << "placeholder\n";
+    }
+    std::filesystem::permissions(key, std::filesystem::perms::owner_read |
+                                          std::filesystem::perms::owner_write);
+    const std::string rootText = root.string();
+    const std::string certText = cert.string();
+    const std::string keyText = key.string();
+    const std::string caText = ca.string();
+    const char* argv[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
+                          "--tls-mode", "required", "--tls-cert-file", certText.c_str(),
+                          "--tls-key-file", keyText.c_str(), "--tls-ca-file", caText.c_str(),
+                          "--tls-client-auth", "required", "--access-policy", "read-only"};
+    auto parsed = parseControlServerOptions(static_cast<int>(std::size(argv)), argv);
+    if (cpnetflux::core::io::tlsSupportAvailable()) {
+        ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+        EXPECT_EQ(parsed.value().tls.clientAuth, cpnetflux::core::io::TlsClientAuth::Required);
+        EXPECT_EQ(parsed.value().accessPolicy, AccessPolicy::ReadOnly);
+    } else {
+        EXPECT_FALSE(parsed.isOk());
+    }
+
+    const char* missingCa[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
+                               "--tls-mode", "required", "--tls-cert-file", certText.c_str(),
+                               "--tls-key-file", keyText.c_str(), "--tls-client-auth", "required"};
+    EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(missingCa)), missingCa).isOk());
+
+    std::filesystem::remove_all(root);
+    std::filesystem::remove(cert);
+    std::filesystem::remove(key);
+    std::filesystem::remove(ca);
+}
+
 TEST(ControlOptionsTest, ParsesTokenAuthAndRejectsBadTokenFiles) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-control-token-root";
@@ -209,6 +255,18 @@ TEST(ControlOptionsTest, ParsesTokenAuthAndRejectsBadTokenFiles) {
     EXPECT_EQ(parsed.value().auth.token, "alpha-token");
     EXPECT_EQ(parsed.value().user, "token");
 
+    const std::filesystem::path tokenLink =
+        std::filesystem::temp_directory_path() / "cpnetflux-control-token-link.txt";
+    std::filesystem::remove(tokenLink);
+    std::filesystem::create_symlink(token, tokenLink);
+    const std::string tokenLinkText = tokenLink.string();
+    const char* symlinkToken[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
+                                  "--auth-mode", "token", "--auth-token-file",
+                                  tokenLinkText.c_str()};
+    EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(symlinkToken)),
+                                           symlinkToken).isOk());
+    std::filesystem::remove(tokenLink);
+
     const char* missingFile[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
                                  "--auth-mode", "token"};
     EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(missingFile)), missingFile)
@@ -226,6 +284,14 @@ TEST(ControlOptionsTest, ParsesTokenAuthAndRejectsBadTokenFiles) {
     {
         std::ofstream output(token, std::ios::trunc);
         output << "\n";
+    }
+    std::filesystem::permissions(token, std::filesystem::perms::owner_read |
+                                            std::filesystem::perms::owner_write);
+    EXPECT_FALSE(parseControlServerOptions(static_cast<int>(std::size(argv)), argv).isOk());
+
+    {
+        std::ofstream output(token, std::ios::trunc);
+        output << std::string(4097, 'x');
     }
     std::filesystem::permissions(token, std::filesystem::perms::owner_read |
                                             std::filesystem::perms::owner_write);
@@ -458,6 +524,33 @@ TEST(ControlOptionsTest, ResolvesPathsRelativeToWorkingDirectory) {
     EXPECT_EQ(directory.value().virtualPath, "/subdir");
 
     std::filesystem::remove_all(root);
+}
+
+TEST(ControlOptionsTest, RejectsSymlinkedStorTarget) {
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / "cpnetflux-control-stor-symlink-root";
+    const std::filesystem::path outside =
+        std::filesystem::temp_directory_path() / "cpnetflux-control-stor-symlink-outside";
+    std::filesystem::remove_all(root);
+    std::filesystem::remove_all(outside);
+    std::filesystem::create_directories(root);
+    std::filesystem::create_directories(outside);
+    std::error_code error;
+    std::filesystem::create_symlink(outside / "target.bin", root / "target.bin", error);
+    if (error) {
+        GTEST_SKIP() << "symlink creation is unavailable: " << error.message();
+    }
+    EXPECT_FALSE(resolveStorPath(root.string(), "target.bin").isOk());
+
+    std::filesystem::remove(root / "target.bin");
+    std::filesystem::create_directory_symlink(outside, root / "escape", error);
+    ASSERT_FALSE(error) << error.message();
+    EXPECT_FALSE(resolveStorPath(root.string(), "escape/new/nested/output.bin").isOk());
+    EXPECT_FALSE(std::filesystem::exists(outside / "new"))
+        << "rejected symlink paths must not create directories outside the configured root";
+
+    std::filesystem::remove_all(root);
+    std::filesystem::remove_all(outside);
 }
 
 TEST(ControlOptionsTest, RejectsSymlinkEscape) {

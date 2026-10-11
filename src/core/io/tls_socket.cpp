@@ -3,6 +3,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 
+#include <arpa/inet.h>
 #include <cerrno>
 #include <fcntl.h>
 #include <climits>
@@ -124,10 +125,35 @@ const char* dataTlsModeName(DataTlsMode mode) noexcept {
     return "off";
 }
 
+common::Result<TlsClientAuth> parseTlsClientAuth(std::string_view value) {
+    if (value == "none") {
+        return TlsClientAuth::None;
+    }
+    if (value == "required") {
+        return TlsClientAuth::Required;
+    }
+    return common::Status::invalidArgument(
+        "--tls-client-auth must be none or required");
+}
+
+const char* tlsClientAuthName(TlsClientAuth mode) noexcept {
+    switch (mode) {
+        case TlsClientAuth::None:
+            return "none";
+        case TlsClientAuth::Required:
+            return "required";
+    }
+    return "none";
+}
+
 bool tlsSupportAvailable() noexcept { return true; }
 
 common::Status validateTlsServerConfig(const TlsConfig& config) {
     if (config.mode == TlsMode::Off) {
+        if (config.clientAuth != TlsClientAuth::None) {
+            return common::Status::invalidArgument(
+                "TLS client authentication requires --tls-mode required");
+        }
         return common::Status::ok();
     }
     if (config.mode == TlsMode::Explicit) {
@@ -152,16 +178,44 @@ common::Status validateTlsServerConfig(const TlsConfig& config) {
             return status;
         }
     }
+    if (config.clientAuth == TlsClientAuth::Required && config.caFile.empty()) {
+        return common::Status::invalidArgument(
+            "TLS client authentication requires a CA file");
+    }
     return common::Status::ok();
 }
 
 common::Status validateTlsClientConfig(const TlsConfig& config) {
     if (config.mode == TlsMode::Off) {
+        if (!config.certFile.empty() || !config.keyFile.empty() ||
+            !config.caFile.empty()) {
+            return common::Status::invalidArgument(
+                "TLS certificate and CA files require TLS mode required");
+        }
         return common::Status::ok();
     }
     if (config.mode == TlsMode::Explicit) {
         return common::Status::invalidArgument(
             "TLS explicit mode is reserved for a later phase");
+    }
+    if ((!config.certFile.empty() && config.keyFile.empty()) ||
+        (config.certFile.empty() && !config.keyFile.empty())) {
+        return common::Status::invalidArgument(
+            "TLS client certificate and key must be provided together");
+    }
+    if (!config.certFile.empty()) {
+        common::Status status = requireRegularReadableFile(config.certFile, "TLS client certificate");
+        if (!status.isOk()) {
+            return status;
+        }
+        status = requireRegularReadableFile(config.keyFile, "TLS client private key");
+        if (!status.isOk()) {
+            return status;
+        }
+        status = validatePrivateKeyPermissions(config.keyFile);
+        if (!status.isOk()) {
+            return status;
+        }
     }
     if (!config.caFile.empty()) {
         return requireRegularReadableFile(config.caFile, "TLS CA");
@@ -187,8 +241,7 @@ common::Status validateDataTlsClientConfig(DataTlsMode dataMode, const TlsConfig
     }
     TlsConfig clientConfig = tlsConfig;
     clientConfig.mode = TlsMode::Required;
-    clientConfig.certFile.clear();
-    clientConfig.keyFile.clear();
+    clientConfig.clientAuth = TlsClientAuth::None;
     return validateTlsClientConfig(clientConfig);
 }
 
@@ -348,6 +401,9 @@ common::Result<TlsServerContext> TlsServerContext::create(const TlsConfig& confi
         SSL_CTX_load_verify_locations(context, config.caFile.c_str(), nullptr) != 1) {
         return opensslStatus("TLS CA load");
     }
+    if (config.clientAuth == TlsClientAuth::Required) {
+        SSL_CTX_set_verify(context, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+    }
     return TlsServerContext(std::move(impl));
 }
 
@@ -401,6 +457,17 @@ common::Result<TlsClientContext> TlsClientContext::create(const TlsConfig& confi
         return opensslStatus("TLS client context");
     }
     std::unique_ptr<Impl> impl = std::make_unique<Impl>(context);
+    if (!config.certFile.empty()) {
+        if (SSL_CTX_use_certificate_file(context, config.certFile.c_str(), SSL_FILETYPE_PEM) != 1) {
+            return opensslStatus("TLS client certificate load");
+        }
+        if (SSL_CTX_use_PrivateKey_file(context, config.keyFile.c_str(), SSL_FILETYPE_PEM) != 1) {
+            return opensslStatus("TLS client private key load");
+        }
+        if (SSL_CTX_check_private_key(context) != 1) {
+            return opensslStatus("TLS client private key check");
+        }
+    }
     if (!config.caFile.empty()) {
         if (SSL_CTX_load_verify_locations(context, config.caFile.c_str(), nullptr) != 1) {
             return opensslStatus("TLS CA load");
@@ -424,7 +491,22 @@ common::Result<TlsConnection> TlsClientContext::connect(UniqueFd fd,
     std::unique_ptr<TlsConnection::Impl> connectionImpl =
         std::make_unique<TlsConnection::Impl>(ssl);
     if (!host.empty()) {
-        (void)SSL_set_tlsext_host_name(ssl, host.c_str());
+        in_addr ipv4 {};
+        in6_addr ipv6 {};
+        const bool isIpAddress = ::inet_pton(AF_INET, host.c_str(), &ipv4) == 1 ||
+                                 ::inet_pton(AF_INET6, host.c_str(), &ipv6) == 1;
+        if (!isIpAddress && SSL_set_tlsext_host_name(ssl, host.c_str()) != 1) {
+            return opensslStatus("TLS server name setup");
+        }
+        if ((SSL_get_verify_mode(ssl) & SSL_VERIFY_PEER) != 0) {
+            X509_VERIFY_PARAM* parameters = SSL_get0_param(ssl);
+            const int configured = isIpAddress
+                                       ? X509_VERIFY_PARAM_set1_ip_asc(parameters, host.c_str())
+                                       : SSL_set1_host(ssl, host.c_str());
+            if (configured != 1) {
+                return opensslStatus("TLS server identity setup");
+            }
+        }
     }
     if (SSL_set_fd(ssl, fd.get()) != 1) {
         return opensslStatus("TLS bind fd");

@@ -291,6 +291,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/checksum_test.cpp
         tests/unit/chunk_planner_test.cpp
         tests/unit/connection_context_test.cpp
+        tests/unit/control_auth_test.cpp
         tests/unit/control_command_test.cpp
         tests/unit/control_options_test.cpp
         tests/unit/control_session_test.cpp
@@ -351,6 +352,12 @@ if(CPNETFLUX_BUILD_TESTS)
         NAME cpnetflux_gridftp_control_stor_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_control_stor_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
+    if(CPNETFLUX_HAS_TLS)
+        add_test(
+            NAME cpnetflux_gridftp_control_mtls_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_control_mtls_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+        )
+    endif()
     add_test(
         NAME cpnetflux_gridftp_control_resume_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_control_resume_smoke.py --build-dir ${CMAKE_BINARY_DIR}

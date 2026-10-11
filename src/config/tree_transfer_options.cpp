@@ -414,6 +414,16 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return common::Status::invalidArgument("--tls-ca-file must not be empty");
             }
             options.tls.caFile = std::string(value);
+        } else if (option == "--tls-cert-file") {
+            if (value.empty()) {
+                return common::Status::invalidArgument("--tls-cert-file must not be empty");
+            }
+            options.tls.certFile = std::string(value);
+        } else if (option == "--tls-key-file") {
+            if (value.empty()) {
+                return common::Status::invalidArgument("--tls-key-file must not be empty");
+            }
+            options.tls.keyFile = std::string(value);
         } else if (option == "--data-tls-mode") {
             auto parsed = core::io::parseDataTlsMode(value);
             if (!parsed.isOk()) {
@@ -530,6 +540,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--scheduler-workitem-min-bytes <N>] [--scheduler-workitem-max-bytes <N>] "
            "[--scheduler-default-rtt-ms <N>] [--scheduler-min-compress-gbps <float>] "
            "[--tls-mode off|required] [--tls-ca-file <path>] "
+           "[--tls-cert-file <path>] [--tls-key-file <path>] "
            "[--data-tls-mode off|required]";
 }
 

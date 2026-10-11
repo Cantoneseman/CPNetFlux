@@ -66,10 +66,35 @@ const char* dataTlsModeName(DataTlsMode mode) noexcept {
     return "off";
 }
 
+common::Result<TlsClientAuth> parseTlsClientAuth(std::string_view value) {
+    if (value == "none") {
+        return TlsClientAuth::None;
+    }
+    if (value == "required") {
+        return TlsClientAuth::Required;
+    }
+    return common::Status::invalidArgument(
+        "--tls-client-auth must be none or required");
+}
+
+const char* tlsClientAuthName(TlsClientAuth mode) noexcept {
+    switch (mode) {
+        case TlsClientAuth::None:
+            return "none";
+        case TlsClientAuth::Required:
+            return "required";
+    }
+    return "none";
+}
+
 bool tlsSupportAvailable() noexcept { return false; }
 
 common::Status validateTlsServerConfig(const TlsConfig& config) {
     if (config.mode == TlsMode::Off) {
+        if (config.clientAuth != TlsClientAuth::None) {
+            return common::Status::invalidArgument(
+                "TLS client authentication requires --tls-mode required");
+        }
         return common::Status::ok();
     }
     if (config.mode == TlsMode::Explicit) {
@@ -110,8 +135,7 @@ common::Status validateDataTlsClientConfig(DataTlsMode dataMode, const TlsConfig
     }
     TlsConfig clientConfig = tlsConfig;
     clientConfig.mode = TlsMode::Required;
-    clientConfig.certFile.clear();
-    clientConfig.keyFile.clear();
+    clientConfig.clientAuth = TlsClientAuth::None;
     return validateTlsClientConfig(clientConfig);
 }
 

@@ -40,6 +40,7 @@ struct ControlServerOptions {
     storage::PreallocateMode preallocateMode = storage::PreallocateMode::Off;
     storage::FileIoConfig fileIo;
     ControlAuthConfig auth;
+    AccessPolicy accessPolicy = AccessPolicy::ReadWrite;
     std::string user = "cpnetflux";
     std::string password = "cpnetflux";
     std::string eventLogPath;

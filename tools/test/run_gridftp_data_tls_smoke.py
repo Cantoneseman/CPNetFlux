@@ -112,6 +112,8 @@ def generate_cert(cert: Path, key: Path) -> bool:
             "-nodes",
             "-subj",
             "/CN=localhost",
+            "-addext",
+            "subjectAltName=DNS:localhost,IP:127.0.0.1",
         ],
         check=True,
         stdout=subprocess.DEVNULL,

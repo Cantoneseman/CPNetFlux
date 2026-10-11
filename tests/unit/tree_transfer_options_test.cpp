@@ -283,26 +283,41 @@ TEST(TreeTransferOptionsTest, ParsesTlsClientOptions) {
         std::filesystem::temp_directory_path() / "cpnetflux-tree-options-tls-root";
     const std::filesystem::path ca =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-options-ca.pem";
+    const std::filesystem::path cert =
+        std::filesystem::temp_directory_path() / "cpnetflux-tree-options-cert.pem";
+    const std::filesystem::path key =
+        std::filesystem::temp_directory_path() / "cpnetflux-tree-options-key.pem";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
-    {
-        std::ofstream output(ca);
-        output << "not-a-real-ca\n";
+    for (const auto& path : {ca, cert, key}) {
+        std::ofstream output(path);
+        output << "test fixture\n";
     }
+    std::filesystem::permissions(key, std::filesystem::perms::owner_read |
+                                       std::filesystem::perms::owner_write);
     const std::string rootText = root.string();
     const std::string caText = ca.string();
+    const std::string certText = cert.string();
+    const std::string keyText = key.string();
     const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
                           "--dest-dir", "remote", "--tls-mode", "required",
-                          "--tls-ca-file", caText.c_str(), "--data-tls-mode", "required"};
+                          "--tls-ca-file", caText.c_str(), "--tls-cert-file",
+                          certText.c_str(), "--tls-key-file", keyText.c_str(),
+                          "--data-tls-mode", "required"};
     auto parsed = cpnetflux::config::parseTreeTransferOptions(
         static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
     if (cpnetflux::core::io::tlsSupportAvailable()) {
         ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
         EXPECT_EQ(parsed.value().tls.mode, cpnetflux::core::io::TlsMode::Required);
         EXPECT_EQ(parsed.value().tls.caFile, caText);
+        EXPECT_EQ(parsed.value().tls.certFile, certText);
+        EXPECT_EQ(parsed.value().tls.keyFile, keyText);
         EXPECT_EQ(parsed.value().dataTlsMode, cpnetflux::core::io::DataTlsMode::Required);
     } else {
         EXPECT_FALSE(parsed.isOk());
+        std::filesystem::remove(ca);
+        std::filesystem::remove(cert);
+        std::filesystem::remove(key);
     }
 
     const char* explicitTls[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
@@ -314,6 +329,8 @@ TEST(TreeTransferOptionsTest, ParsesTlsClientOptions) {
 
     std::filesystem::remove_all(root);
     std::filesystem::remove(ca);
+    std::filesystem::remove(cert);
+    std::filesystem::remove(key);
 }
 
 TEST(TreeTransferOptionsTest, ParsesTokenAuthOptions) {

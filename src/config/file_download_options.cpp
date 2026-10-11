@@ -215,6 +215,16 @@ common::Result<FileDownloadOptions> parseFileDownloadOptions(int argc, const cha
                 return common::Status::invalidArgument("--tls-ca-file must not be empty");
             }
             options.dataTls.caFile = std::string(value);
+        } else if (option == "--tls-cert-file") {
+            if (value.empty()) {
+                return common::Status::invalidArgument("--tls-cert-file must not be empty");
+            }
+            options.dataTls.certFile = std::string(value);
+        } else if (option == "--tls-key-file") {
+            if (value.empty()) {
+                return common::Status::invalidArgument("--tls-key-file must not be empty");
+            }
+            options.dataTls.keyFile = std::string(value);
         } else if (option == "--transfer-id") {
             if (value.empty()) {
                 return common::Status::invalidArgument("--transfer-id must not be empty");
@@ -289,6 +299,7 @@ std::string fileDownloadUsage(const char* programName) {
            "[--file-io-advice <off|sequential|noreuse|dontneed|sequential_dontneed>] "
            "[--posix-write-strategy <auto|direct|coalesced>] "
            "[--event-log <path>] [--data-tls-mode <off|required>] [--tls-ca-file <path>] "
+           "[--tls-cert-file <path>] [--tls-key-file <path>] "
            "[--overwrite] [--resume] "
            "[--max-chunks <N>]";
 }
