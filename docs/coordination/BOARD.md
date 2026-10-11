@@ -15,7 +15,7 @@
 | DIR-V2-BOUNDED-SCHEDULING | 后续 | 固定通道预算、有界 pending 和异步读写，目前未实现 |
 | AUTH-FOUNDATION-01 / AUTH-POLICY-01 | done | 双向 TLS、token 文件安全、服务级读写策略；任务范围与当前证据见 [认证任务记录](../tasks/2026-10-11-auth-foundation-policy-01.md) |
 | AGENT-API-01 | done | API 2.0.0 合同与 demo agent 最小兼容通过 3/3 CTest；commit/push `344c326f`，远端 SHA 一致；prompt 已发送既有桌面线程 |
-| SOURCE-RELEASE-01 | in_progress | 从已推送干净 commit 生成脱敏可复现源码包，并从解包目录构建/CTest；无 LICENSE，不做公开 release/安装器 |
+| SOURCE-RELEASE-01 | done | 确定性源码候选包、strict hygiene、解包核心 258/258 和桌面 3/3 CTest 通过；无 LICENSE，不做公开 release/安装器；见 [任务记录](../tasks/2026-10-11-source-release-01.md) |
 
 以下为历史任务记录；时间、blocked 和旧门只描述当时事实，不是当前执行前置条件。
 

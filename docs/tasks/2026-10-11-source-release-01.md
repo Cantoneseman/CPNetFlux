@@ -3,6 +3,7 @@
 日期：2026-10-11
 输入提交：`d7b45a8bc9a18d4e861ad0e12deeaacfdc70604e`（AGENT-API-01 完成并已 push）
 实现分支：`codex/SOURCE-RELEASE-01`
+实现提交（候选包已完成解包全量验收）：`b4d6c2d7aafe74892266e7aa7ea31271db0c3478`
 实施目录：深圳 CPNetFlux worktree `/tmp/cpnetflux-runs/SOURCE-RELEASE-01/src`
 
 ## 目标与范围
@@ -37,5 +38,5 @@
 - ctest --test-dir /tmp/cpnetflux-runs/SOURCE-RELEASE-01/build-core -R 'cpnetflux_source_release_behavior|cpnetflux_release_hygiene' --output-on-failure：2/2 通过。
 - TLS-enabled Release 核心构建：通过；设置临时 CPNETFLUX_TEST_TOKEN 后全量 CTest 258/258 通过，1 项 io_uring 能力测试 skip。第一次未设置该变量时，token 和 event-log 两项按测试设计失败，设置变量重跑全绿。
 - 桌面 Release 构建和 CTest：3/3 通过。
-- 首次打包先由 strict hygiene 拒绝回归夹具中的 PEM marker；夹具改为运行时拼接。随后从解包候选执行全量 CTest，发现 exporter 的 token 文件名规则误删了两个包含 token 的 Python smoke 源码；现在保留已知源代码后缀并继续过滤 token 数据文件，两个回归测试覆盖此边界。
-- 限制：无根 LICENSE，manifest 保持 public_release_ready=false；无根 CMake install() 规则，本任务不产安装器。
+- 首次打包先由 strict hygiene 拒绝回归夹具中的 PEM marker；夹具改为运行时拼接。随后从解包候选执行全量 CTest，发现 exporter 的 token 文件名规则误删两个包含 token 的 Python smoke 源码；已修复并为源码与 token 数据文件保留/过滤边界加入回归测试。
+- 限制：无根 LICENSE，manifest 保持 public_release_ready=false；无根 CMake install() 规则，本任务不产安装器。最终分支/远端 SHA、归档 SHA 和解包复验均记录在本轮交接。
