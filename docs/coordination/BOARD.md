@@ -14,7 +14,7 @@
 | DIR-V2-SHORT-COMPARE | 待实验指令 | 固定提交/二进制，两端空间与 GSI 重验，短目录 reuse 开关 + GridFTP；脚本执行，不持续轮询 |
 | DIR-V2-BOUNDED-SCHEDULING | 后续 | 固定通道预算、有界 pending 和异步读写，目前未实现 |
 | AUTH-FOUNDATION-01 / AUTH-POLICY-01 | done | 双向 TLS、token 文件安全、服务级读写策略；任务范围与当前证据见 [认证任务记录](../tasks/2026-10-11-auth-foundation-policy-01.md) |
-| AGENT-API-01 | in_progress | 冻结 API 2.0.0 schema、实体分页/策略回读/取消恢复语义；向桌面既有线程交接 `AGENT-BACKEND-02` |
+| AGENT-API-01 | done | API 2.0.0 合同与 demo agent 最小兼容通过 3/3 CTest；commit/push `344c326f`，远端 SHA 一致；prompt 已发送既有桌面线程 |
 | SOURCE-RELEASE-01 | ready | 仅从明确干净 commit 生成脱敏、可复现源码归档；独立构建/CTest；不发布二进制/安装器或对外 release |
 
 以下为历史任务记录；时间、blocked 和旧门只描述当时事实，不是当前执行前置条件。
