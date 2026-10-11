@@ -1,10 +1,10 @@
 # CPNetFlux Linux Desktop Shell
 
-本目录是 Linux 桌面端第一版 `DESKTOP-SHELL-01`。它包含中文 Qt 6/QML UI、独立 Python `cpnetflux-agent` 和明确标注的 demo adapter。
+本目录是 CPNetFlux Linux 桌面端原型，包含中文 Qt 6/QML UI、独立 Python `cpnetflux-agent` 和明确标注的 demo adapter。00 已冻结 `desktop-agent API 2.0.0`；当前原型尚未实现全部 2.0.0 接口，也不执行真实传输。见 `desktop/docs/rpc-contract.md` 与 `desktop/docs/acceptance.md`。
 
 ## 构建
 
-依赖：Qt 6.2（Core、Gui、Qml、Quick、QuickControls2、Network）、CMake 3.20+、Ninja、C++20、Python 3、Python `jsonschema`。agent 不保存密码或 token；libsecret/Secret Service 尚未接入，因此 profile 只接受 `credential_ref`。
+依赖：Qt 6.2（Core、Gui、Qml、Quick、QuickControls2、Network）、CMake 3.20+、Ninja、C++20、Python 3、Python `jsonschema`。
 
 ```bash
 cmake -S desktop -B desktop/build -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -18,10 +18,8 @@ ctest --test-dir desktop/build --output-on-failure
 
 ```bash
 mkdir -m 700 -p "$XDG_RUNTIME_DIR/cpnetflux" "$XDG_STATE_HOME/cpnetflux-desktop"
-python3 desktop/agent/cpnetflux_agent.py --demo   --runtime-dir "$XDG_RUNTIME_DIR/cpnetflux"   --state-dir "$XDG_STATE_HOME/cpnetflux-desktop"
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software   desktop/build/cpnetflux-desktop   --socket "$XDG_RUNTIME_DIR/cpnetflux/agent.sock"
+python3 desktop/agent/cpnetflux_agent.py --demo --runtime-dir "$XDG_RUNTIME_DIR/cpnetflux" --state-dir "$XDG_STATE_HOME/cpnetflux-desktop"
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software desktop/build/cpnetflux-desktop   --socket "$XDG_RUNTIME_DIR/cpnetflux/agent.sock"
 ```
 
-可在第二个终端运行页面：`--page 0..6` 分别是任务首页、新建传输、详情、节点、目录、历史、高级设置。`--smoke-ms 900` 运行离屏启动门禁并退出。真实节点探测、目录浏览和 V2/V3 真实能力仍返回 `unsupported`/未知，不会伪报成功。
-
-agent 通过 Unix domain socket 验证同 UID、socket 0600、父目录 0700，单帧上限 1 MiB；UI 退出只断开订阅，agent 任务继续。agent 进程以用户服务方式独立管理；本 shell 不提供 systemd 安装单元。
+可在第二个终端运行页面：`--page 0..6` 分别是任务首页、新建传输、详情、节点、目录、历史、高级设置。`--smoke-ms 900` 运行离屏启动门禁并退出。当前 demo 保持明确标记；真实节点探测、目录浏览、V2/V3 传输、安全凭据注入仍须按 API 2.0.0 后续实现。

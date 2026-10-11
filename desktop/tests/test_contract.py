@@ -1,4 +1,4 @@
-"""Offline draft contract gate. Does not implement or test a live transfer backend."""
+"""Offline frozen desktop-agent API 2.0 contract gate; no live transfer backend."""
 import copy
 import json
 from pathlib import Path
@@ -21,13 +21,39 @@ ERROR_CODES = {
     -32603: {"internal_error"},
 }
 
+
 def snapshot_semantics(s):
     m = s["metrics"]
+    effective = s["effective_policy"]
     for committed, total in [("bytes_committed", "bytes_total"),
                              ("files_committed", "files_total")]:
         if m[committed] is not None and m[total] is not None:
             if m[committed] > m[total]:
                 raise ValueError("committed exceeds total")
+    if effective["resolution"] == "pending":
+        if s["actual_mode"] != "unknown" or effective["mode"] != "unknown":
+            raise ValueError("pending policy cannot claim a negotiated mode")
+        if any(effective[k] != "unknown" for k in ("scheduler", "range_policy", "checksum", "control_tls", "data_tls")):
+            raise ValueError("pending policy cannot claim effective settings")
+        if effective["resume_enabled"] is not None or effective["channel_count"] is not None or effective["applied_at"] is not None:
+            raise ValueError("pending policy contains effective values")
+    else:
+        if effective["mode"] != s["actual_mode"] or effective["mode"] == "unknown":
+            raise ValueError("actual mode differs from backend policy readback")
+        if effective["scheduler"] != s["actual_scheduler"] or effective["range_policy"] != s["actual_range_policy"]:
+            raise ValueError("actual scheduler/range differs from policy readback")
+        if effective["applied_at"] is None or effective["channel_count"] is None:
+            raise ValueError("resolved policy needs timestamp and actual channel count")
+        requested = s["policy"]
+        required_checksum = "crc32c" if requested["checksum_policy"] == "required_crc32c" else "none"
+        if effective["checksum"] != required_checksum:
+            raise ValueError("backend did not preserve requested checksum policy")
+        if requested["data_tls"] == "required" and effective["data_tls"] != "verified":
+            raise ValueError("required data TLS is not verified")
+        if requested["data_tls"] == "off" and effective["data_tls"] != "off":
+            raise ValueError("data TLS readback differs from requested policy")
+        if requested["resume_policy"] == "require" and effective["resume_enabled"] is not True:
+            raise ValueError("required resume is unavailable")
     if s["state"] == "completed":
         if m["bytes_committed"] != m["bytes_total"]:
             raise ValueError("partial bytes cannot complete")
@@ -35,11 +61,32 @@ def snapshot_semantics(s):
             raise ValueError("partial files cannot complete")
         if s["policy"]["checksum_policy"] != "none" and s["integrity_status"] != "pass":
             raise ValueError("required checksum missing")
-    if s["actual_mode"] == "v1" and s["policy"]["requested_mode"] == "v2":
+    if s["actual_mode"] == "v1" and s["policy"]["requested_mode"] in {"auto", "v2"}:
         if s["policy"]["fallback_policy"] == "reject":
             raise ValueError("fallback forbidden")
+        if s["fallback_reason"] is None:
+            raise ValueError("fallback needs an explicit reason")
     if s["state"] in {"paused", "recoverable"} and s["recovery"]["eligibility"] != "eligible":
         raise ValueError("recovery evidence missing")
+    if s["state"] == "cancelled" and s["attempt"]["quiescence"] != "confirmed":
+        raise ValueError("cancelled requires a backend quiescence barrier")
+    if s["attempt"]["state"] == "cancelling" and s["attempt"]["quiescence"] != "pending":
+        raise ValueError("cancelling cannot claim quiescence")
+
+
+def validate_page(result):
+    kind = result["kind"]
+    for item in result["items"]:
+        if kind == "attempt_list":
+            continue
+        if item["transfer_id"] != result["transfer_id"]:
+            raise ValueError("page transfer identity mismatch")
+        if item["attempt_id"] != result["attempt_id"]:
+            raise ValueError("page attempt identity mismatch")
+        if kind == "range_list":
+            if item["file_id"] != result["file_id"] or item["generation"] != result["generation"]:
+                raise ValueError("page file generation identity mismatch")
+
 
 def validate(message):
     VALIDATOR.validate(message)
@@ -48,6 +95,8 @@ def validate(message):
         if e["data"]["code"] not in ERROR_CODES[e["code"]]:
             raise ValueError("error code mismatch")
     result = message.get("result", {})
+    if result.get("kind") in {"attempt_list", "file_list", "range_list"}:
+        validate_page(result)
     snapshots = result.get("snapshots", [])
     if "snapshot" in result:
         snapshots = [result["snapshot"]]
@@ -55,6 +104,16 @@ def validate(message):
         raise ValueError("replay subscription has snapshots")
     for s in snapshots:
         snapshot_semantics(s)
+    if result.get("kind") == "transfer":
+        snapshot_semantics(result["snapshot"])
+    if result.get("kind") == "transfer_list":
+        for s in result["snapshots"]:
+            snapshot_semantics(s)
+    if result.get("kind") == "capabilities":
+        caps = result["mode_capabilities"]
+        modes = [cap["mode"] for cap in caps]
+        if len(set(modes)) != len(modes) or set(modes) != set(result["modes"]):
+            raise ValueError("mode capability matrix is incomplete or duplicated")
     if message.get("method") == "transfer.event":
         p = message["params"]
         entity = p["payload"]
@@ -64,11 +123,17 @@ def validate(message):
             snapshot_semantics(entity)
             if entity["revision"] != p["revision"] or entity["attempt"]["attempt_id"] != p["attempt_id"]:
                 raise ValueError("snapshot event mismatch")
+        elif p["type"] == "file.state":
+            if entity["attempt_id"] != p["attempt_id"]:
+                raise ValueError("file attempt identity mismatch")
+        elif p["type"] == "range.state":
+            if entity["attempt_id"] != p["attempt_id"]:
+                raise ValueError("range attempt identity mismatch")
+            if entity["bytes_transferred"] is not None and entity["bytes_transferred"] > entity["length"]:
+                raise ValueError("range bytes exceed length")
         elif p["type"] != "transfer.error" and entity["attempt_id"] != p["attempt_id"]:
             raise ValueError("attempt identity mismatch")
-        if p["type"] == "range.state" and entity["bytes_transferred"] is not None:
-            if entity["bytes_transferred"] > entity["length"]:
-                raise ValueError("range bytes exceed length")
+
 
 class ContractTests(unittest.TestCase):
     def test_schema(self):
@@ -89,11 +154,11 @@ class ContractTests(unittest.TestCase):
 
     def test_method_coverage(self):
         methods = {v["message"].get("method") for v in VECTORS["valid"]}
-        required = {"node.testConnection", "node.capabilities", "directory.list",
-                    "transfer.create", "transfer.start", "transfer.pause",
-                    "transfer.cancel", "transfer.resume", "transfer.get",
-                    "transfer.subscribe", "transfer.list", "profile.list",
-                    "profile.create", "profile.update", "profile.delete"}
+        required = {"agent.getInfo", "node.testConnection", "node.capabilities", "directory.list",
+                    "transfer.create", "transfer.start", "transfer.pause", "transfer.cancel",
+                    "transfer.resume", "transfer.get", "transfer.subscribe", "transfer.list",
+                    "attempt.list", "file.list", "range.list", "profile.list", "profile.create",
+                    "profile.update", "profile.delete"}
         self.assertTrue(required <= methods)
 
     def test_recovery_attempt_and_cancel_contract_vectors(self):
@@ -107,7 +172,7 @@ class ContractTests(unittest.TestCase):
         recovered = copy.deepcopy(by_name["recovery_eligible"]["result"]["snapshot"])
         old_attempt = copy.deepcopy(recovered["attempt"])
         recovered.update(state="queued", revision=3)
-        recovered["attempt"].update(attempt_id="a2", attempt_number=2, state="queued", cancel_requested=False)
+        recovered["attempt"].update(attempt_id="a2", attempt_number=2, state="queued", cancel_requested=False, quiescence="not_applicable")
         validate({"jsonrpc": "2.0", "id": "resume1", "result": {"kind": "operation", "outcome": "accepted", "snapshot": recovered}})
         self.assertNotEqual(old_attempt["attempt_id"], recovered["attempt"]["attempt_id"])
         self.assertEqual(by_name["unsupported"]["error"]["code"], -32001)
@@ -121,9 +186,25 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(replay["sequence"], initial["sequence"])
         self.assertNotEqual(initial["agent_epoch"], reset["agent_epoch"])
         self.assertTrue(reset["reset"])
-        # Snapshot watermark is 4; example following events begin at 5.
         events = [v["message"]["params"] for v in VECTORS["valid"] if v["message"].get("method") == "transfer.event"]
         self.assertEqual([p["sequence"] for p in events], list(range(5, 11)))
+
+    def test_v2_handshake_and_entity_page_watermarks(self):
+        by_name = {v["name"]: v["message"] for v in VECTORS["valid"]}
+        info = by_name["agent_info"]["result"]
+        self.assertEqual(info["api_version"], "2.0.0")
+        for name, kind in (("attempt_list", "attempt_list"), ("file_list", "file_list"), ("range_list", "range_list")):
+            page = by_name[name]["result"]
+            self.assertEqual(page["kind"], kind)
+            self.assertEqual(page["snapshot_sequence"], 8)
+            validate_page(page)
+
+    def test_policy_readback_and_mode_capability_facts(self):
+        by_name = {v["name"]: v["message"]["result"] for v in VECTORS["valid"] if "result" in v["message"]}
+        snapshot_semantics(by_name["completed"]["snapshot"])
+        self.assertEqual(by_name["capabilities"]["mode_capabilities"][0]["mode"], "v1")
+        self.assertEqual(by_name["visible_v1_fallback"]["snapshot"]["effective_policy"]["checksum"], "none")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
