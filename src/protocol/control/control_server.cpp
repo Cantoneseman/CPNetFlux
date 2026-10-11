@@ -875,6 +875,7 @@ struct DynamicDirectory {
     double scanSeconds = 0;
     std::shared_ptr<core::io::PersistentDirectoryBatch> batch;
     std::unique_ptr<core::io::DynamicFileQueue> queue;
+    std::shared_ptr<core::io::PersistentTransferContext> transactions = core::io::makePersistentTransferContext();
 };
 common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     const std::string& key, const std::string& destination, bool upload,
@@ -1044,7 +1045,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         return guard.directory->batch->fileEvent(channelIndex,id,fileStatus,complete);
     };
     status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats, callback,
-                     pendingWindow, channelIndex, channelCount, expectedChannelFiles, guard.directory != nullptr, resume)
+                     pendingWindow, channelIndex, channelCount, expectedChannelFiles, guard.directory != nullptr, resume, guard.directory ? guard.directory->transactions : nullptr)
                     : core::io::sendPersistentTree(&data, destination.string(), files, &stats, callback,
                      pendingWindow, channelIndex, channelCount, guard.directory ? guard.directory->queue.get() : nullptr);
     std::string details;

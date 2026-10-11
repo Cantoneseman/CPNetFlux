@@ -411,3 +411,84 @@ TEST(PersistentTreeRangeTest, LoopbackTransfersTwoRangesAndPublishesAfterFinalRa
     std::string actual((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     EXPECT_EQ(actual, content);
 }
+
+TEST(PersistentTreeRangeTest, IncompleteCoverageCannotPublishDespiteMatchingRangeCount) {
+    SocketPair pair; TempRoot source; TempRoot destination;
+    std::ofstream(source.path / "gap.bin") << "ABCDEFGH";
+    struct stat st{}; ASSERT_EQ(::stat((source.path / "gap.bin").c_str(), &st),0);
+    PersistentFileIdentity id{1,7,8,"gap.bin","gap-transfer",4,st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::None,{},1,0,4,1};
+    PersistentTreeStats received, sent; cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver,destination.path.string(),false,"",
+            &received,{},1,0,1,1,true,false);
+    });
+    auto status = sendPersistentTree(&pair.sender,source.path.string(),{id},&sent);
+    ::shutdown(pair.sender.fd(),SHUT_RDWR);
+    receiver.join();
+    EXPECT_FALSE(status.isOk());
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "gap.bin"));
+}
+
+TEST(PersistentTreeRangeTest, DisconnectReleasesTransactionAndResumeRechecksCorruptCheckpoint) {
+    TempRoot source, destination;
+    std::ofstream(source.path/"resume.bin")<<"ABCDEFGH";
+    struct stat st{}; ASSERT_EQ(::stat((source.path/"resume.bin").c_str(),&st),0);
+    PersistentFileIdentity a{1,7,8,"resume.bin","resume-range",4,st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c,{},1,0,4,2};
+    auto b=a; b.rangeId=2; b.rangeOffset=4;
+    {
+        SocketPair pair; PersistentTreeStats stats; cpnetflux::common::Status result;
+        std::jthread receiver([&] {result=receivePersistentTree(&pair.receiver,destination.path.string(),
+            false,"",&stats,{},1,0,1,1,true,false);});
+        ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender,a).isOk());
+        auto response=PersistentDataSession::readResumeResponse(&pair.sender,a);
+        ASSERT_TRUE(response.isOk());
+        const std::uint8_t bytes[]={'A','B','C','D'};
+        cpnetflux::checksum::ChecksumComputer computer(a.checksumAlgorithm);
+        computer.update(bytes,4);
+        ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender,a,0,bytes,4).isOk());
+        ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender,a,computer.finalize()).isOk());
+        auto done=PersistentDataSession::readResult(&pair.sender,a); ASSERT_TRUE(done.isOk());
+        ASSERT_EQ(done.value(),FrameStatusCode::Ok);
+        ::shutdown(pair.sender.fd(),SHUT_RDWR); receiver.join();
+        EXPECT_FALSE(result.isOk());
+    }
+    auto saved=cpnetflux::checkpoint::ManifestStore::load(
+        cpnetflux::checkpoint::manifestPathForOutput((destination.path/"resume.bin").string()));
+    ASSERT_TRUE(saved.isOk()); ASSERT_EQ(saved.value().verifiedChunks.size(),1U);
+    EXPECT_EQ(saved.value().state,cpnetflux::checkpoint::ManifestState::Failed);
+    { std::fstream partial(saved.value().tempPath,std::ios::in|std::ios::out|std::ios::binary);
+      partial.put('X'); }
+    SocketPair pair; PersistentTreeStats received,sent; cpnetflux::common::Status result;
+    std::jthread receiver([&] {result=receivePersistentTree(&pair.receiver,destination.path.string(),
+        false,"",&received,{},1,0,1,1,true,true);});
+    auto status=sendPersistentTree(&pair.sender,source.path.string(),{a,b},&sent);
+    ::shutdown(pair.sender.fd(),SHUT_RDWR); receiver.join();
+    ASSERT_TRUE(status.isOk())<<status.message(); ASSERT_TRUE(result.isOk())<<result.message();
+    std::ifstream output(destination.path/"resume.bin");
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),"ABCDEFGH");
+}
+
+TEST(PersistentTreeRangeTest, SeparateChannelsShareOneTransactionAndCommitFullCoverage) {
+    TempRoot source,destination; std::ofstream(source.path/"parallel.bin")<<"ABCDEFGH";
+    struct stat st{}; ASSERT_EQ(::stat((source.path/"parallel.bin").c_str(),&st),0);
+    auto context=makePersistentTransferContext();
+    SocketPair left,right; PersistentTreeStats ra,rb,sa,sb;
+    PersistentFileIdentity a{1,7,8,"parallel.bin","parallel-range",4,st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c,{},1,0,4,2};
+    auto b=a; b.rangeId=2; b.rangeOffset=4;
+    cpnetflux::common::Status l,r,sl,sr;
+    std::jthread rxLeft([&] {l=receivePersistentTree(&left.receiver,destination.path.string(),
+        false,"",&ra,{},1,0,2,kUnknownPersistentFileCount,true,false,context);});
+    std::jthread rxRight([&] {r=receivePersistentTree(&right.receiver,destination.path.string(),
+        false,"",&rb,{},1,1,2,kUnknownPersistentFileCount,true,false,context);});
+    DynamicFileQueue queue({a,b},2,1,2);
+    std::jthread txLeft([&] {sl=sendPersistentTree(&left.sender,source.path.string(),{},&sa,{},1,0,2,&queue);});
+    std::jthread txRight([&] {sr=sendPersistentTree(&right.sender,source.path.string(),{},&sb,{},1,1,2,&queue);});
+    txLeft.join();txRight.join();rxLeft.join();rxRight.join();
+    EXPECT_TRUE(sl.isOk())<<sl.message();EXPECT_TRUE(sr.isOk())<<sr.message();
+    EXPECT_TRUE(l.isOk())<<l.message();EXPECT_TRUE(r.isOk())<<r.message();
+    std::ifstream output(destination.path/"parallel.bin");
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),"ABCDEFGH");
+}

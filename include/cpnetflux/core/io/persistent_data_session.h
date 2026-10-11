@@ -64,7 +64,7 @@ class PersistentDataSession {
     [[nodiscard]] static common::Status writeEnd(FramedDataSocket* socket,
                                                  const PersistentFileIdentity& identity,
                                                  checksum::ChecksumValue checksum = {}, bool skipped = false);
-    [[nodiscard]] static common::Status writeResumeResponse(FramedDataSocket* socket, const PersistentFileIdentity& identity, const std::vector<core::chunk::CompletedRange>& missingRanges);
+    [[nodiscard]] static common::Status writeResumeResponse(FramedDataSocket* socket, const PersistentFileIdentity& identity, const std::vector<core::chunk::CompletedRange>& missingRanges, protocol::FrameStatusCode statusCode = protocol::FrameStatusCode::Ok);
     [[nodiscard]] static common::Result<protocol::ResumeResponsePayload> readResumeResponse(FramedDataSocket* socket, const PersistentFileIdentity& identity);
     [[nodiscard]] static common::Status writeResult(FramedDataSocket* socket,
                                                     const PersistentFileIdentity& identity,

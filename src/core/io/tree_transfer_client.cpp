@@ -3127,7 +3127,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     }
 
     const std::uint32_t logicalFileCount = static_cast<std::uint32_t>(files.size());
-    auto expandedFiles = upload ? expandPersistentFileRanges(files, channelCount)
+    auto expandedFiles = upload && options.dynamicFileScheduling ? expandPersistentFileRanges(files, channelCount)
                                 : common::Result<std::vector<PersistentFileIdentity>>(files);
     if (!expandedFiles.isOk()) return expandedFiles.status();
     if (upload) files = std::move(expandedFiles.value());
@@ -3399,6 +3399,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         return saveManifest(manifest, manifestPath);
     };
 
+    auto transactions = makePersistentTransferContext();
     workers.clear();
     for (std::uint32_t index = 0; index < channelCount; ++index) {
         workers.emplace_back([&, index]() {
@@ -3409,7 +3410,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     &channel.observed, callback, options.dataPendingWindow, index, channelCount, ready.get())
                 : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
                     &channel.observed, callback, options.dataPendingWindow, index, channelCount,
-                    channel.expectedFileCount, options.dynamicFileScheduling, options.resume);
+                    channel.expectedFileCount, options.dynamicFileScheduling, options.resume, transactions);
             {
                 std::lock_guard<std::mutex> lock(channel.dataMutex);
                 channel.data = FramedDataSocket{};

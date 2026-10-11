@@ -12,7 +12,7 @@ from gridftp_port_window import clamp_passive_data_port_base
 from run_cpnetflux_tree_data_reuse_smoke import unique_json_object
 
 
-def check_timings(summary, count, sender, scheduling):
+def check_timings(summary, count, sender, scheduling, ranged=False):
     assert summary['actual_mode'] == 'persistent_tree', summary
     assert summary['actual_file_scheduling'] == scheduling, summary
     assert summary['fallback_reason'] == ''
@@ -22,8 +22,17 @@ def check_timings(summary, count, sender, scheduling):
     assert summary['data_pending_high_watermark'] <= summary['data_pending_window']
     assert summary['phase_timing_schema'] == 'persistent_file_timing_v1'
     timings = summary['file_timings']
-    assert len(timings) == count, (len(timings), count)
+    assert (len(timings) > count if ranged else len(timings) == count), (len(timings), count)
     assert len({t['file_id'] for t in timings}) == count
+    if ranged:
+        assert len({t['channel_index'] for t in timings}) > 1, timings
+        assert len({(t['file_id'], t['range_id']) for t in timings}) == len(timings), timings
+        ordered = sorted(timings, key=lambda t: t['offset'])
+        end = 0
+        for t in ordered:
+            assert t['offset'] == end and t['length'] > 0, t
+            end += t['length']
+        assert end == ordered[0]['size']
     assert len({t['relative_path'] for t in timings}) == count
     for t in timings:
         for key in ('payload_io_seconds', 'file_result_seconds', 'manifest_seconds', 'wall_seconds'):
@@ -72,7 +81,7 @@ def main():
     elif args.case == 'compatibility':
         sizes = [0, 1, 65537]
     else:
-        sizes = [64 * 1048576]  # Whole-file regression only; range mode is deferred.
+        sizes = [129 * 1048576]  # Exceeds the four-channel adaptive range threshold.
     for index, size in enumerate(sizes):
         path = source / f'f-{index:03d}.bin'
         with path.open('wb') as out:
@@ -110,13 +119,13 @@ def main():
         modes = [] if args.case == 'compatibility' else (['dynamic', 'static'] if args.case == 'mixed' else ['dynamic'])
         for mode in modes:
             up = run('upload', source, 'up-' + mode, 'upload-' + mode, mode)
-            check_timings(up, len(sizes), True, mode)
+            check_timings(up, len(sizes), True, mode, args.case == 'large')
             assert up['completed_files'] == len(sizes) and up['data_connect_count'] == 4
             assert tree_hash(server_root / ('up-' + mode)) == expected
             manifest_check(server_root / ('up-' + mode), len(sizes), False)
             target = root / ('download-' + mode)
             down = run('download', 'up-' + mode, target, 'download-' + mode, mode)
-            check_timings(down, len(sizes), False, mode)
+            check_timings(down, len(sizes), False, mode, args.case == 'large')
             assert down['completed_files'] == len(sizes) and down['data_connect_count'] == 4
             assert tree_hash(target) == expected
             manifest_check(target, len(sizes), True)
@@ -174,7 +183,7 @@ def main():
                 time.sleep(.02)
             assert sockets() <= before, 'dynamic batch leaked sockets after cancellation'
         print(json.dumps({'case': args.case, 'hash': expected, 'result': 'passed',
-                          'range_mode': 'deferred'}, sort_keys=True))
+                          'range_mode': 'verified' if args.case == 'large' else 'whole_file'}, sort_keys=True))
     finally:
         stop_server(server, log)
 

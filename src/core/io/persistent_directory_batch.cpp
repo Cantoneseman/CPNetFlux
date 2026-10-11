@@ -104,34 +104,41 @@ common::Status PersistentDirectoryBatch::fileEvent(std::uint32_t channel,
         return common::Status::invalidArgument("invalid dynamic batch file identity");
     auto found = files_.find(id.fileId);
     auto base = id;
-    base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = 0;
+    base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
     if (!complete) {
         if (found == files_.end()) {
             if (paths_.contains(id.relativePath) || transfers_.contains(id.transferId))
                 return common::Status::invalidArgument("duplicate dynamic batch file identity/path");
             paths_.insert(id.relativePath); transfers_.insert(id.transferId);
-            files_.emplace(id.fileId, File{base, channel, id.rangeCount, {}, false});
-        } else {
-            const auto& existing = found->second;
-            if (existing.owner != channel || existing.done || !samePersistentIdentity(existing.id, base) ||
-                existing.rangeCount != id.rangeCount)
-                return common::Status::invalidArgument("stale or foreign dynamic file begin");
+            found = files_.emplace(id.fileId,File{base,channel,id.rangeCount,{},false,{}}).first;
+        } else if (found->second.done || !samePersistentIdentity(found->second.id,base) ||
+                   found->second.rangeCount != id.rangeCount) {
+            return common::Status::invalidArgument("stale dynamic file begin");
         }
+        auto& file = found->second;
+        if (file.leases.contains(id.rangeId) || file.ranges.contains(id.rangeId))
+            return common::Status::invalidArgument("duplicate active range");
+        for (const auto& [rangeId,lease] : file.leases) {
+            if (id.rangeOffset < lease.id.rangeOffset+lease.id.rangeLength &&
+                lease.id.rangeOffset < id.rangeOffset+id.rangeLength)
+                return common::Status::invalidArgument("overlapping active range");
+        }
+        file.leases.emplace(id.rangeId,File::Lease{channel,id});
     } else {
-        if (found == files_.end() || found->second.owner != channel || found->second.done ||
-            !samePersistentIdentity(found->second.id, base))
-            return common::Status::invalidArgument("stale or foreign dynamic file completion");
+        if (found == files_.end() || found->second.done ||
+            !samePersistentIdentity(found->second.id,base))
+            return common::Status::invalidArgument("stale dynamic file completion");
+        auto& file = found->second;
+        auto lease = file.leases.find(id.rangeId);
+        if (lease == file.leases.end() || lease->second.owner != channel ||
+            !samePersistentIdentity(lease->second.id,id))
+            return common::Status::invalidArgument("foreign or stale range completion");
         if (!status.isOk()) { failLocked(status); return status; }
-        if (id.rangeId == 0) {
-            found->second.done = true;
+        file.leases.erase(lease);
+        file.ranges.insert(id.rangeId);
+        if (id.rangeId == 0 || file.ranges.size() == file.rangeCount) {
+            file.done = true;
             ++completed_;
-        } else {
-            if (!found->second.ranges.insert(id.rangeId).second)
-                return common::Status::invalidArgument("duplicate dynamic range completion");
-            if (found->second.ranges.size() == found->second.rangeCount) {
-                found->second.done = true;
-                ++completed_;
-            }
         }
     }
     return common::Status::ok();

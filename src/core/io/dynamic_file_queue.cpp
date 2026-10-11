@@ -32,27 +32,49 @@ DynamicFileQueue::DynamicFileQueue(std::vector<PersistentFileIdentity> files,
     }
     ring_.resize(capacity);
     credits_.resize(channels);
-    std::unordered_set<std::uint32_t> ids;
-    std::unordered_set<std::string> rangeKeys, paths, transfers;
+    std::unordered_map<std::uint32_t, std::vector<PersistentFileIdentity>> groups;
+    std::unordered_map<std::string,std::uint32_t> paths,transfers;
     for (const auto& file : files_) {
-        const bool ranged = file.rangeId != 0;
-        const bool uniqueFile = ids.insert(file.fileId).second;
-        const bool uniqueRange = rangeKeys.insert(activeKey(file)).second;
-        const bool uniquePath = paths.insert(file.relativePath).second;
-        const bool uniqueTransfer = transfers.insert(file.transferId).second;
-        if (file.fileId == 0 || file.generation == 0 || file.chunkSize == 0 ||
-            !tree::validateTreeRelativePath(file.relativePath).isOk() || file.transferId.empty() ||
-            (!ranged && (!uniqueFile || !uniquePath || !uniqueTransfer)) ||
-            (ranged && (!uniqueRange || file.rangeLength == 0 || file.rangeCount == 0 ||
-                        file.rangeId > file.rangeCount || file.rangeOffset > file.totalSize ||
-                        file.rangeLength > file.totalSize - file.rangeOffset))) {
-            status_ = common::Status::invalidArgument("invalid or duplicate dynamic file identity");
+        if (!file.fileId || !file.generation || !file.chunkSize || file.transferId.empty() ||
+            !tree::validateTreeRelativePath(file.relativePath).isOk() ||
+            (paths.contains(file.relativePath) && paths[file.relativePath] != file.fileId) ||
+            (transfers.contains(file.transferId) && transfers[file.transferId] != file.fileId)) {
+            status_ = common::Status::invalidArgument("invalid or aliased dynamic file identity");
             return;
         }
-        if (ranged) {
-            // All ranges of one file intentionally share path and transfer identity.
-            paths.erase(file.relativePath);
-            transfers.erase(file.transferId);
+        paths[file.relativePath] = transfers[file.transferId] = file.fileId;
+        groups[file.fileId].push_back(file);
+    }
+    for (auto& [fileId, ranges] : groups) {
+        auto base = ranges.front();
+        base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
+        if (ranges.front().rangeId == 0) {
+            if (ranges.size() != 1) {
+                status_ = common::Status::invalidArgument("duplicate whole-file identity"); return;
+            }
+            continue;
+        }
+        std::sort(ranges.begin(),ranges.end(),[](const auto& a,const auto& b) {
+            return a.rangeOffset < b.rangeOffset;
+        });
+        std::unordered_set<std::uint64_t> ids;
+        std::uint64_t nextOffset = 0;
+        for (const auto& file : ranges) {
+            auto candidate = file;
+            candidate.rangeId = candidate.rangeOffset = candidate.rangeLength =
+                candidate.rangeCount = candidate.attempt = 0;
+            if (!samePersistentIdentity(base,candidate) || !file.rangeId ||
+                file.rangeCount != ranges.size() || file.rangeId > file.rangeCount ||
+                !ids.insert(file.rangeId).second || !file.rangeLength ||
+                file.rangeOffset != nextOffset || file.rangeOffset > file.totalSize ||
+                file.rangeLength > file.totalSize-file.rangeOffset) {
+                status_ = common::Status::invalidArgument("ranges do not partition one stable file");
+                return;
+            }
+            nextOffset += file.rangeLength;
+        }
+        if (nextOffset != base.totalSize) {
+            status_ = common::Status::invalidArgument("incomplete range partition"); return;
         }
     }
     std::stable_sort(files_.begin(), files_.end(), [](const auto& a, const auto& b) {

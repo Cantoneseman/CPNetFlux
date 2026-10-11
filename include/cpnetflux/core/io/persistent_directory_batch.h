@@ -29,6 +29,8 @@ class PersistentDirectoryBatch {
         std::uint64_t rangeCount = 0;
         std::unordered_set<std::uint64_t> ranges;
         bool done = false;
+        struct Lease { std::uint32_t owner; PersistentFileIdentity id; };
+        std::unordered_map<std::uint64_t, Lease> leases;
     };
     common::Status wait(bool finishing, std::chrono::milliseconds timeout);
     void failLocked(const common::Status& status);

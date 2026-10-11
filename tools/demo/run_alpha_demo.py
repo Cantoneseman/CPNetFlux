@@ -736,6 +736,8 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
                 "2",
                 "--file-parallelism",
                 "2",
+                "--data-session-reuse",
+                "off",
             ] + demo.auth_args() + demo.tls_args() + demo.data_tls_args()
             partial_upload = run_command(
                 upload_base + (["--event-log", event_log] if event_log else []) + ["--max-files", "1"],
@@ -759,6 +761,8 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
                 "2",
                 "--file-parallelism",
                 "2",
+                "--data-session-reuse",
+                "off",
             ] + demo.auth_args() + demo.tls_args() + demo.data_tls_args()
             partial_download = run_command(
                 download_base + (["--event-log", event_log] if event_log else []) + ["--max-files", "1"],

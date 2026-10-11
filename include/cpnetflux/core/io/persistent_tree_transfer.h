@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <cstdint>
 #include <vector>
 #include <optional>
@@ -10,6 +11,8 @@
 #include "cpnetflux/core/tree/tree_scan.h"
 
 namespace cpnetflux::core::io {
+struct PersistentTransferContext;
+[[nodiscard]] std::shared_ptr<PersistentTransferContext> makePersistentTransferContext();
 inline constexpr std::uint32_t kPersistentTreeMaxChannels = 8;
 inline constexpr std::uint32_t kUnknownPersistentFileCount = UINT32_MAX;
 
@@ -58,5 +61,5 @@ using PersistentFileCallback = std::function<common::Status(
     std::uint32_t pendingWindow = 1, std::uint32_t channelIndex = 0,
     std::uint32_t channelCount = 1,
     std::uint32_t expectedFileCount = kUnknownPersistentFileCount, bool dynamic = false,
-    bool resume = false);
+    bool resume = false, std::shared_ptr<PersistentTransferContext> context = {});
 }  // namespace cpnetflux::core::io

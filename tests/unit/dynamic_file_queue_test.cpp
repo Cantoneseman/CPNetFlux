@@ -116,3 +116,40 @@ TEST(PersistentDirectoryBatchTest, ActiveControlDisconnectReclaimsIdleDataSocket
     batch.unbind(0);
     ::close(control[0]);::close(data[0]);::close(data[1]);
 }
+
+TEST(DynamicFileQueueTest, RangesMustShareBaseIdentityAndPartitionOneFile) {
+    auto first = tasks(1)[0];
+    first.totalSize = 8; first.rangeId = 1; first.rangeLength = 4; first.rangeCount = 2;
+    auto second = first; second.rangeId = 2; second.rangeOffset = 4;
+    for (int mismatch = 0; mismatch < 6; ++mismatch) {
+        auto wrong = second;
+        if (mismatch == 0) wrong.relativePath = "other";
+        if (mismatch == 1) ++wrong.generation;
+        if (mismatch == 2) ++wrong.chunkSize;
+        if (mismatch == 3) ++wrong.mtimeUnixSeconds;
+        if (mismatch == 4) wrong.rangeOffset = 2;
+        if (mismatch == 5) wrong.fileId = 2;
+        DynamicFileQueue q({first,wrong},2,1,2);
+        EXPECT_FALSE(q.claim(0).isOk()) << mismatch;
+    }
+    DynamicFileQueue valid({first,second},2,1,2);
+    EXPECT_TRUE(valid.claim(0).isOk());
+    DynamicFileQueue gap({first},2,1,2);
+    EXPECT_FALSE(gap.claim(0).isOk());
+}
+
+TEST(PersistentDirectoryBatchTest, OneFileRangesHaveIndependentChannelLeases) {
+    PersistentDirectoryBatch batch(1,2);
+    for (unsigned c=0;c<2;++c) { ASSERT_TRUE(batch.attach(c).isOk()); batch.bind(c,-1,-1); }
+    auto a=tasks(1)[0]; a.totalSize=8; a.rangeId=1; a.rangeLength=4; a.rangeCount=2;
+    auto b=a; b.rangeId=2; b.rangeOffset=4;
+    ASSERT_TRUE(batch.fileEvent(0,a,Status::ok(),false).isOk());
+    ASSERT_TRUE(batch.fileEvent(1,b,Status::ok(),false).isOk());
+    EXPECT_FALSE(batch.fileEvent(0,b,Status::ok(),true).isOk());
+    ASSERT_TRUE(batch.fileEvent(1,b,Status::ok(),true).isOk());
+    ASSERT_TRUE(batch.fileEvent(0,a,Status::ok(),true).isOk());
+    Status left;
+    std::jthread worker([&] {left=batch.finish(0,std::chrono::seconds(1));});
+    EXPECT_TRUE(batch.finish(1,std::chrono::seconds(1)).isOk()); worker.join();
+    EXPECT_TRUE(left.isOk());
+}

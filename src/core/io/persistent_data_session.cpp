@@ -315,9 +315,9 @@ common::Status PersistentDataSession::writeEnd(FramedDataSocket* socket,
 
 common::Status PersistentDataSession::writeResumeResponse(
     FramedDataSocket* socket, const PersistentFileIdentity& identity,
-    const std::vector<core::chunk::CompletedRange>& missingRanges) {
+    const std::vector<core::chunk::CompletedRange>& missingRanges, protocol::FrameStatusCode statusCode) {
     protocol::ResumeResponsePayload payload;
-    payload.statusCode = protocol::FrameStatusCode::Ok;
+    payload.statusCode = statusCode;
     payload.missingRanges = missingRanges;
     auto encoded = protocol::encodeResumeResponsePayload(payload);
     if (!encoded.isOk()) return encoded.status();
@@ -344,7 +344,14 @@ common::Result<protocol::ResumeResponsePayload> PersistentDataSession::readResum
             std::to_string(header.rangeId) + ":" + std::to_string(header.totalSize) + " expected " +
             std::to_string(identity.fileId) + ":" + std::to_string(identity.generation) + ":" +
             std::to_string(identity.rangeId) + ":" + std::to_string(identity.totalSize));
-    return protocol::decodeResumeResponsePayload(frame.value().payload.data(), frame.value().payload.size());
+    auto decoded = protocol::decodeResumeResponsePayload(frame.value().payload.data(), frame.value().payload.size());
+    if (!decoded.isOk()) return decoded.status();
+    if (decoded.value().statusCode == protocol::FrameStatusCode::Ok && !decoded.value().missingRanges.empty() &&
+        (decoded.value().missingRanges.size() != 1 ||
+         decoded.value().missingRanges[0].begin != identity.rangeOffset ||
+         decoded.value().missingRanges[0].end != identity.rangeOffset+identity.rangeLength))
+        return common::Status::invalidArgument("range resume response exceeds the claimed range");
+    return decoded;
 }
 
 common::Status PersistentDataSession::writeResult(FramedDataSocket* socket,
