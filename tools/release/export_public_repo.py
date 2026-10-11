@@ -69,7 +69,7 @@ EXCLUDE_PREFIX_PARTS = {
 
 SOURCE_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
-    ".py", ".sh", ".cmake", ".qml",
+    ".py", ".sh", ".cmake", ".qml", ".md", ".rst",
 }
 
 

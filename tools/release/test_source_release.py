@@ -41,6 +41,8 @@ def main() -> int:
             "src/main.cpp": "int main() { return 0; }\n",
             "build/CMakeCache.txt": "PRIVATE=never-export\n",
             "tools/perf/results/payload.dat": "large synthetic payload\n",
+            "tools/test/run_token_smoke.py": "def main(): return 0\n",
+            "credentials/token.txt": "synthetic token material\n",
             "certs/test.pem": "-----BEGIN " + "PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n",
         }
         for relative, contents in files.items():
@@ -74,6 +76,8 @@ def main() -> int:
         assert not any("/build/" in name for name in names)
         assert not any("tools/perf/results" in name for name in names)
         assert not any(name.endswith("test.pem") for name in names)
+        assert not any(name.endswith("/credentials/token.txt") for name in names)
+        assert any(name.endswith("/tools/test/run_token_smoke.py") for name in names)
 
         dirty = repo / "untracked.txt"
         dirty.write_text("must block package", encoding="utf-8")
