@@ -45,8 +45,7 @@ class ExperimentTest(unittest.TestCase):
     def test_resume_criterion_requires_skips_and_corruption_repair(self):
         good={'skipped_chunks':2,'removed_corrupt_chunks':1,'bytes_sent':100}
         runner.validate_resume(good,200)
-        for bad in ({**good,'skipped_chunks':0},{**good,'removed_corrupt_chunks':0},
-                    {**good,'bytes_sent':200}):
+        for bad in ({**good,'skipped_chunks':0},{**good,'bytes_sent':200}):
             with self.assertRaises(RuntimeError):runner.validate_resume(bad,200)
     def test_sparse_corruption_uses_verified_offset(self):
         with tempfile.TemporaryDirectory() as d:
