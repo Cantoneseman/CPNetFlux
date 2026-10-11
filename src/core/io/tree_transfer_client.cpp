@@ -385,7 +385,7 @@ class ControlClient {
     [[nodiscard]] common::Status waitTransferComplete(
         const std::string& expectedTransferId = {}, std::string* directoryReply = nullptr) {
         // V2 directory completion uses a single untagged control terminal reply.
-        // Per-file V1/pipeline completion retains transfer_id matching below.
+        // Per-file V3/pipeline completion retains transfer_id matching below.
         if (expectedTransferId.empty()) {
             auto reply = readReply();
             if (!reply.isOk()) return reply.status();
@@ -905,7 +905,7 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> controlReconnectCount{0};
     std::atomic<std::uint64_t> dataTransferCount{0};
     bool persistentData = false;
-    bool legacyStarted = false;
+    bool perFileStarted = false;
     std::uint64_t persistentDataConnectCount = 0;
     std::uint32_t pendingWindow = 1;
     std::uint32_t pendingHighWatermark = 0;
@@ -1266,11 +1266,12 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"control_connect_count\": " << stats.controlConnectCount.load() << ",\n";
     output << "  \"control_reconnect_count\": " << stats.controlReconnectCount.load() << ",\n";
     output << "  \"data_transfer_count\": " << stats.dataTransferCount.load() << ",\n";
-    output << "  \"requested_mode\": \"" << (options.reuseDataSession ? "persistent_tree" : "v1") << "\",\n";
-    output << "  \"actual_mode\": \"" << (stats.persistentData ? "persistent_tree" : (stats.legacyStarted ? "v1" : "unknown")) << "\",\n";
+    output << "  \"actual_transport\": \"v3\",\n";
+    output << "  \"requested_mode\": \"" << (options.reuseDataSession ? "persistent_tree" : "per_file") << "\",\n";
+    output << "  \"actual_mode\": \"" << (stats.persistentData ? "persistent_tree" : (stats.perFileStarted ? "per_file" : "unknown")) << "\",\n";
     output << "  \"requested_file_scheduling\": \"" << (options.dynamicFileScheduling ? "dynamic" : "static") << "\",\n";
-    output << "  \"actual_file_scheduling\": \"" << (stats.persistentData ? (stats.dynamicScheduling ? "dynamic" : "static") : (stats.legacyStarted ? "v1" : "unknown")) << "\",\n";
-    output << "  \"fallback_reason\": \"" << (options.reuseDataSession && !stats.persistentData && stats.legacyStarted ?
+    output << "  \"actual_file_scheduling\": \"" << (stats.persistentData ? (stats.dynamicScheduling ? "dynamic" : "static") : (stats.perFileStarted ? "per_file" : "unknown")) << "\",\n";
+    output << "  \"fallback_reason\": \"" << (options.reuseDataSession && !stats.persistentData && stats.perFileStarted ?
         ((options.resume || options.maxFiles || options.connections != 1 || options.schedulerMode != config::TreeSchedulerMode::Off ||
           options.compressionMode != config::CompressionMode::Off || options.checksumAlgorithm != checksum::ChecksumAlgorithm::None || options.dataTlsMode != DataTlsMode::Off) ?
             "v2_configuration_ineligible" : "v2_requested_capability_unsupported") : "") << "\",\n";
@@ -3097,7 +3098,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     if (!persistentEligible(options)) {
         return common::Status::invalidArgument(
             "V2 persistent tree configuration is unsupported; explicitly select "
-            "--data-session-reuse off for the legacy path");
+            "--data-session-reuse off for per-file V3 orchestration");
     }
     if (options.resume && !options.dynamicFileScheduling) {
         return common::Status::invalidArgument(
@@ -3107,7 +3108,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     const std::uint32_t channelCount = options.fileParallelism;
     config::TreeTransferOptions persistentOptions = options;
     // A persistent directory channel carries one file stream at a time. The
-    // user-facing connection count remains a legacy control setting; V2 uses
+    // user-facing connection count remains a per-file control setting; V2 uses
     // fileParallelism for its bounded data channels.
     persistentOptions.connections = 1;
     const std::string batchId = options.dynamicFileScheduling ? generateTransferId() : "";
@@ -3225,7 +3226,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     [](const auto& channel) { return !channel->capable; })) {
         return common::Status::invalidArgument(
             "server rejected the requested V2 persistent tree capability; explicitly select "
-            "--data-session-reuse off for the legacy path");
+            "--data-session-reuse off for per-file V3 orchestration");
     }
 
     *used = true;
@@ -3241,7 +3242,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         if (error) return common::Status::runtimeError("cannot create persistent local destination");
         manifest->mode = core::tree::TreeTransferMode::Download;
         manifest->rootLogicalPath = options.sourceDir;
-        manifest->checksumAlgorithm = checksum::ChecksumAlgorithm::None;
+        manifest->checksumAlgorithm = options.checksumAlgorithm;
         manifest->createdAtUnixNanos = checkpoint::nowUnixNanos();
         auto saved = saveManifest(manifest, manifestPath);
         if (!saved.isOk()) return saved;
@@ -3399,6 +3400,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         return saveManifest(manifest, manifestPath);
     };
 
+    config::FileTransferOptions transferOptions;
+    transferOptions.resume=options.resume;transferOptions.bufferSize=options.bufferSize;
+    transferOptions.checksumBackend=options.checksumBackend;
+    transferOptions.hotPathCompression=options.hotPathCompression;
     auto transactions = makePersistentTransferContext();
     workers.clear();
     for (std::uint32_t index = 0; index < channelCount; ++index) {
@@ -3407,7 +3412,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             channel.observed.phaseTiming = options.phaseTiming;
             auto transferStatus = upload
                 ? sendPersistentTree(&channel.data, options.sourceDir, channel.files,
-                    &channel.observed, callback, options.dataPendingWindow, index, channelCount, ready.get())
+                    &channel.observed, callback, options.dataPendingWindow, index, channelCount, ready.get(), &transferOptions)
                 : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
                     &channel.observed, callback, options.dataPendingWindow, index, channelCount,
                     channel.expectedFileCount, options.dynamicFileScheduling, options.resume, transactions);
@@ -3856,13 +3861,13 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
         preflightUploadResume(options, &manifest, manifestPath);
     if (!preflightStatus.isOk()) {
         TreeRunStats stats;
-        stats.legacyStarted = true;
+        stats.perFileStarted = true;
         return emitTreeSummary("tree_upload_complete", "upload", preflightStatus, summaryOptions,
                                manifest, stats, startedAt);
     }
 
     TreeRunStats stats;
-    stats.legacyStarted = true;
+    stats.perFileStarted = true;
     const common::Status status =
         useControlPipeline
             ? runPipelinedTreeScheduler(&manifest, manifestPath, options, true, &stats)
@@ -3892,7 +3897,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
     if (usedPersistent || !persistentStatus.isOk())
         return emitTreeSummary("tree_download_complete", "download", persistentStatus, options,
                                manifest, stats, startedAt);
-    stats.legacyStarted = true;
+    stats.perFileStarted = true;
 
     if (options.resume) {
         auto loaded = core::tree::loadTreeManifest(manifestPath);

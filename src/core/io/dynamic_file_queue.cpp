@@ -26,7 +26,7 @@ static std::string activeKey(const PersistentFileIdentity& file) {
 DynamicFileQueue::DynamicFileQueue(std::vector<PersistentFileIdentity> files,
     std::uint32_t channels, std::uint32_t window, std::size_t capacity)
     : files_(std::move(files)), window_(window) {
-    if (channels == 0 || channels > 8 || window == 0 || window > 16 || capacity == 0 || capacity > 256) {
+    if (channels == 0 || channels > 64 || window == 0 || window > 16 || capacity == 0 || capacity > 256) {
         status_ = common::Status::invalidArgument("invalid dynamic queue bounds");
         return;
     }

@@ -24,14 +24,18 @@
 #include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/core/chunk/range_planner.h"
 #include "cpnetflux/storage/posix_file.h"
+#include "cpnetflux/core/protocol/compressed_data.h"
 
 namespace cpnetflux::core::io {
 struct PersistentTransferContext {
     std::mutex mutex;
     std::unordered_map<std::string, std::shared_ptr<void>> files;
+    PersistentTransferPolicy policy;
 };
-std::shared_ptr<PersistentTransferContext> makePersistentTransferContext() {
-    return std::make_shared<PersistentTransferContext>();
+std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(const PersistentTransferPolicy& policy) {
+    auto context = std::make_shared<PersistentTransferContext>();
+    context->policy = policy;
+    return context;
 }
 namespace {
 using common::Status;
@@ -48,7 +52,9 @@ struct Timer {
 
 class FileTransaction {
  public:
-    explicit FileTransaction(PersistentFileTiming* timing) : timing_(timing) {}
+    explicit FileTransaction(PersistentFileTiming* timing, const PersistentTransferPolicy& policy = {},
+                             storage::FileIoStats* ioStats = nullptr)
+        : timing_(timing), policy_(policy), ioContext_(policy.options.fileIo), ioStats_(ioStats) {}
     Status begin(const std::string& root, const PersistentFileIdentity& id,
                  bool download, const std::string& remoteRoot, bool resume) {
         auto valid = tree::validateTreeRelativePath(id.relativePath);
@@ -68,14 +74,42 @@ class FileTransaction {
             }
             if (error) return Status::runtimeError("create persistent destination directory failed");
         }
-        output_ = (parent / relative.filename()).string();
+        output_ = policy_.outputPath.empty() ? (parent / relative.filename()).string() : policy_.outputPath;
+        auto available = ioContext_.validateAvailable();
+        if (!available.isOk()) return available;
         const auto existing = fs::symlink_status(output_, error);
-        if (existing.type() != fs::file_type::not_found) {
+        if (existing.type() != fs::file_type::not_found && !policy_.options.overwrite) {
             if (!resume || !download || error || !fs::is_regular_file(existing))
                 return Status::invalidArgument("persistent output already exists");
             std::error_code sizeError;
             const auto size = fs::file_size(output_, sizeError);
             if (sizeError || size != id.totalSize) return Status::invalidArgument("persistent output identity mismatch");
+            auto loaded = checkpoint::loadDownloadManifest(checkpoint::downloadManifestPathForOutput(output_));
+            if (!loaded.isOk()) return loaded.status();
+            const auto& m = loaded.value();
+            if (m.state != checkpoint::ManifestState::Committed || m.totalSize != id.totalSize ||
+                m.checksumAlgorithm != id.checksumAlgorithm || m.sourcePath !=
+                    (fs::path(remoteRoot)/relative).lexically_normal().generic_string())
+                return Status::invalidArgument("committed download identity mismatch");
+            auto existingFile = storage::PosixFile::openReadOnly(output_);
+            if (!existingFile.isOk()) return existingFile.status();
+            chunk::RangeList coverage;
+            std::vector<std::uint8_t> checkBuffer(65536);
+            for (const auto& record : m.verifiedChunks) {
+                checksum::ChecksumComputer computer(id.checksumAlgorithm,policy_.options.checksumBackend);
+                for (std::uint64_t pos=0;pos<record.length;) {
+                    auto count = static_cast<std::size_t>(std::min<std::uint64_t>(checkBuffer.size(),record.length-pos));
+                    auto read = existingFile.value().readAtAll(record.offset+pos,checkBuffer.data(),count);
+                    if (!read.isOk()) return read;
+                    computer.update(checkBuffer.data(),count);pos+=count;
+                }
+                if (computer.finalize().value != record.checksum.value)
+                    return Status::invalidArgument("committed download checksum mismatch");
+                auto inserted = coverage.insert(record.offset,record.length,id.totalSize);
+                if (!inserted.isOk()) return inserted;
+            }
+            if (!coverage.missingRanges(id.totalSize).empty())
+                return Status::invalidArgument("committed download coverage mismatch");
             skipped_ = true;
             identity_ = id;
             active_ = true;
@@ -95,24 +129,28 @@ class FileTransaction {
                 }
                 auto resumed = session::DownloadSession::resume(output_,
                     (fs::path(remoteRoot) / relative).lexically_normal().generic_string(),
-                    sessionTransferId, id.totalSize, id.chunkSize, id.checksumAlgorithm);
+                    sessionTransferId, id.totalSize, id.chunkSize, id.checksumAlgorithm,policy_.options.checksumBackend,
+                    policy_.options.manifestFlushPolicy,policy_.options.manifestFlushIntervalChunks);
                 if (!resumed.isOk()) return resumed.status();
                 session_ = std::move(resumed.value());
             } else {
                 auto resumed = session::TransferSession::resume(output_, id.transferId,
-                    id.totalSize, id.chunkSize, id.checksumAlgorithm);
+                    id.totalSize, id.chunkSize, id.checksumAlgorithm,policy_.options.checksumBackend,
+                    policy_.options.manifestFlushPolicy,policy_.options.manifestFlushIntervalChunks);
                 if (!resumed.isOk()) return resumed.status();
                 session_ = std::move(resumed.value());
             }
         } else if (download) {
             auto created = session::DownloadSession::createNew(output_,
                 (fs::path(remoteRoot) / relative).lexically_normal().generic_string(), id.transferId, id.totalSize,
-                id.chunkSize, id.checksumAlgorithm);
+                id.chunkSize, id.checksumAlgorithm,policy_.options.checksumBackend,
+                    policy_.options.manifestFlushPolicy,policy_.options.manifestFlushIntervalChunks);
             if (!created.isOk()) return created.status();
             session_ = std::move(created.value());
         } else {
             auto created = session::TransferSession::createNew(output_, id.transferId, id.totalSize,
-                id.chunkSize, id.checksumAlgorithm);
+                id.chunkSize, id.checksumAlgorithm,policy_.options.checksumBackend,
+                    policy_.options.manifestFlushPolicy,policy_.options.manifestFlushIntervalChunks);
             if (!created.isOk()) return created.status();
             session_ = std::move(created.value());
         }
@@ -126,26 +164,34 @@ class FileTransaction {
         file_ = std::move(file.value());
         active_ = true;
         identity_ = id;
-        checksumComputer_ = checksum::ChecksumComputer(id.checksumAlgorithm);
+        checksumComputer_ = checksum::ChecksumComputer(id.checksumAlgorithm,policy_.options.checksumBackend);
         if (resume) {
             auto verified = std::visit([&](auto& s) { return s.verifyTempChunks(file_); }, session_);
             if (!verified.isOk()) return verified;
         }
         auto resized = file_.resize(id.totalSize);
         if (!resized.isOk()) return resized;
+        if (policy_.options.preallocateMode == storage::PreallocateMode::Full) {
+            auto allocated = file_.preallocate(id.totalSize);
+            if (!allocated.isOk()) return allocated;
+        }
+        writer_ = std::make_unique<storage::BufferedFileWriter>(file_,ioContext_,ioStats_);
+        auto advice = storage::applyFileIoAdvice(file_,policy_.options.fileIo.advice,0,id.totalSize);
+        if (!advice.isOk()) return advice;
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
         return resume ? common::Status::ok() : std::visit([](auto& s) { return s.save(); }, session_);
     }
     Status write(std::uint64_t offset, const std::vector<std::uint8_t>& bytes) {
         if (skipped_) return Status::ok();
         const auto writing = Clock::now();
-        auto status = file_.writeAtAll(offset, bytes.data(), bytes.size());
+        auto status = writer_->write(offset, bytes.data(), bytes.size());
         if (timing_) timing_->writeSeconds += secondsSince(writing);
         if (!status.isOk()) return status;
         const auto end = offset + bytes.size();
         std::size_t consumed = 0;
         while (consumed < bytes.size()) {
             const auto chunkOffset = (offset + consumed) / identity_.chunkSize * identity_.chunkSize;
+            if (chunkBytes_ == 0) recorded_ = chunkOffset;
             if (chunkOffset != recorded_) return Status::invalidArgument("persistent chunk order mismatch");
             const auto length = std::min<std::uint64_t>(identity_.chunkSize, identity_.totalSize - recorded_);
             const auto part = std::min<std::size_t>(length - chunkBytes_, bytes.size() - consumed);
@@ -153,6 +199,8 @@ class FileTransaction {
             chunkBytes_ += part;
             consumed += part;
             if (chunkBytes_ != length) continue;
+            auto flushed = writer_->flush();
+            if (!flushed.isOk()) return flushed;
             Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
             status = std::visit([&](auto& s) { return s.recordVerifiedChunk(
                 recorded_ / identity_.chunkSize, recorded_, length,
@@ -160,16 +208,22 @@ class FileTransaction {
             if (!status.isOk()) return status;
             recorded_ += length;
             chunkBytes_ = 0;
-            checksumComputer_ = checksum::ChecksumComputer(identity_.checksumAlgorithm);
+            checksumComputer_ = checksum::ChecksumComputer(identity_.checksumAlgorithm,policy_.options.checksumBackend);
         }
         return Status::ok();
     }
     Status commit() {
         if (skipped_) { active_ = false; return Status::ok(); }
+        auto flushed = writer_->flush();
+        if (!flushed.isOk()) return flushed;
         if (!std::visit([](const auto& s) { return s.missingRanges().empty(); }, session_))
             return Status::invalidArgument("persistent commit requires complete verified coverage");
-        auto verified = std::visit([&](auto& s) { return s.verifyTempChunks(file_); }, session_);
-        if (!verified.isOk()) return verified;
+        const bool fullVerify = policy_.options.finalVerifyPolicy == session::FinalVerifyPolicy::Full ||
+            identity_.checksumAlgorithm == checksum::ChecksumAlgorithm::None;
+        if (fullVerify) {
+            auto verified = std::visit([&](auto& s) { return s.verifyTempChunks(file_); }, session_);
+            if (!verified.isOk()) return verified;
+        }
         if (!std::visit([](const auto& s) { return s.missingRanges().empty(); }, session_))
             return Status::invalidArgument("persistent final verification found missing ranges");
         timespec times[2]{{0, UTIME_OMIT}, {identity_.mtimeUnixSeconds, 0}};
@@ -178,16 +232,37 @@ class FileTransaction {
         { Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
           status = std::visit([](auto& s) { return s.flushManifest(); }, session_); }
         if (!status.isOk()) return status;
-        // Atomic no-replace publication: a raced destination must never be overwritten.
-        if (::link(temp_.c_str(), output_.c_str()) != 0)
+        if (policy_.options.commitSyncPolicy != session::CommitSyncPolicy::None) {
+            status = file_.sync();
+            if (!status.isOk()) return status;
+        }
+        if (policy_.options.overwrite) {
+            if (::rename(temp_.c_str(),output_.c_str()) != 0)
+                return Status::runtimeError("persistent replace failed");
+        } else if (::link(temp_.c_str(), output_.c_str()) != 0)
             return Status::runtimeError("persistent publish failed (output exists or IO error)");
+        if (policy_.options.commitSyncPolicy == session::CommitSyncPolicy::FsyncFileAndDir) {
+            status = storage::PosixFile::fsyncParentDirectory(output_);
+            if (!status.isOk()) return status;
+        }
         published_ = true;
         { Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
           status = std::visit([](auto& s) { return s.markCommitted(); }, session_); }
         if (!status.isOk()) return status;
-        if (::unlink(temp_.c_str()) != 0) return Status::runtimeError("persistent temp unlink failed");
+        if (!policy_.options.overwrite && ::unlink(temp_.c_str()) != 0)
+            return Status::runtimeError("persistent temp unlink failed");
         active_ = false;
         return Status::ok();
+    }
+    std::uint64_t loadedVerifiedChunks() const {
+        return skipped_ ? 0 : std::visit([](const auto& s) { return s.stats().loadedVerifiedChunks; },session_);
+    }
+    std::uint64_t removedCorruptChunks() const {
+        return skipped_ ? 0 : std::visit([](const auto& s) { return s.stats().removedCorruptChunks; },session_);
+    }
+    std::vector<chunk::CompletedRange> missingRanges() const {
+        return skipped_ ? std::vector<chunk::CompletedRange>{} :
+            std::visit([](const auto& s) { return s.missingRanges(); },session_);
     }
     bool rangeComplete(std::uint64_t offset, std::uint64_t length) const {
         if (!active_ || length == 0 || offset > identity_.totalSize || length > identity_.totalSize - offset)
@@ -204,7 +279,7 @@ class FileTransaction {
         if (!active_ || offset > identity_.totalSize || bytes.size() > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range write exceeds file boundary");
         const auto started = Clock::now();
-        auto status = file_.writeAtAll(offset, bytes.data(), bytes.size());
+        auto status = writer_->write(offset, bytes.data(), bytes.size());
         if (timing_) timing_->writeSeconds += secondsSince(started);
         return status;
     }
@@ -215,7 +290,18 @@ class FileTransaction {
             length > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range completion is invalid");
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
-        auto status = std::visit([&](auto& s) { return s.recordVerifiedChunk(rangeId, offset, length, checksum); }, session_);
+        auto flushed = writer_->flush();
+        if (!flushed.isOk()) return flushed;
+        const auto recordId=std::visit([](const auto& s) {
+            std::uint64_t next=0;
+            for (const auto& r:s.manifest().verifiedChunks) {
+                if (r.chunkId==UINT64_MAX) return UINT64_MAX;
+                next=std::max(next,r.chunkId+1);
+            }
+            return next;
+        },session_);
+        if (recordId==UINT64_MAX) return Status::invalidArgument("checkpoint record ID exhausted");
+        auto status = std::visit([&](auto& s) { return s.recordVerifiedChunk(recordId, offset, length, checksum); }, session_);
         if (!status.isOk()) return status;
         // A range result acknowledges a durable checkpoint, including on disconnect.
         return std::visit([](auto& s) { return s.flushManifest(); }, session_);
@@ -226,6 +312,10 @@ class FileTransaction {
     }
  private:
     PersistentFileTiming* timing_;
+    PersistentTransferPolicy policy_;
+    storage::FileIoContext ioContext_;
+    storage::FileIoStats* ioStats_;
+    std::unique_ptr<storage::BufferedFileWriter> writer_;
     Session session_;
     storage::PosixFile file_;
     PersistentFileIdentity identity_;
@@ -238,7 +328,14 @@ class FileTransaction {
 
 class RangeFileCoordinator {
  public:
-    struct Slot { PersistentFileIdentity id; bool active = true, completed = false; };
+    struct Slot {
+        PersistentFileIdentity id;
+        bool active = true, completed = false;
+        std::vector<chunk::CompletedRange> missing;
+        std::size_t next = 0;
+        std::uint64_t position = 0;
+        checksum::ChecksumComputer checksum{checksum::ChecksumAlgorithm::None};
+    };
     struct Entry {
         std::mutex mutex;
         std::unique_ptr<FileTransaction> transaction;
@@ -267,7 +364,7 @@ class RangeFileCoordinator {
                     entry->base.rangeCount = entry->base.attempt = 0;
                 entry->rangeCount = id.rangeCount;
                 // The transaction outlives any channel's stack timing object.
-                entry->transaction = std::make_unique<FileTransaction>(nullptr);
+                entry->transaction = std::make_unique<FileTransaction>(nullptr,context.policy);
                 auto status = entry->transaction->begin(root,entry->base,download,remoteRoot,resume);
                 if (!status.isOk()) return status;
                 context.files.emplace(key,entry);
@@ -287,7 +384,20 @@ class RangeFileCoordinator {
                 id.rangeOffset < slot.id.rangeOffset+slot.id.rangeLength)
                 return Status::invalidArgument("overlapping range claim");
         }
-        entry->slots.emplace(id.rangeId,Slot{id});
+        Slot slot;
+        slot.id=id;slot.checksum=checksum::ChecksumComputer(id.checksumAlgorithm);
+        for (const auto& missing:entry->transaction->missingRanges()) {
+            const auto begin=std::max(missing.begin,id.rangeOffset);
+            const auto end=std::min(missing.end,id.rangeOffset+id.rangeLength);
+            // Chunk-sized checkpoints let old V1 resumes and interrupted V3 ranges share coverage.
+            for (auto pos=begin;pos<end;) {
+                auto next=std::min(end,(pos/id.chunkSize+1)*id.chunkSize);
+                if (next<=pos) next=end;
+                slot.missing.push_back({pos,next});pos=next;
+            }
+        }
+        slot.position=slot.missing.empty() ? id.rangeOffset+id.rangeLength : slot.missing[0].begin;
+        entry->slots.emplace(id.rangeId,std::move(slot));
         return entry;
     }
     static Status write(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
@@ -299,7 +409,28 @@ class RangeFileCoordinator {
             offset > id.rangeOffset+id.rangeLength ||
             bytes.size() > id.rangeOffset+id.rangeLength-offset)
             return Status::invalidArgument("range write without exclusive valid slot");
-        return entry->transaction->writeRange(offset,bytes);
+        auto& lease=slot->second;
+        if (lease.next>=lease.missing.size() || offset!=lease.position ||
+            bytes.size()>lease.missing[lease.next].end-lease.position)
+            return Status::invalidArgument("range DATA touches already verified bytes");
+        auto status=entry->transaction->writeRange(offset,bytes);
+        if (!status.isOk()) return status;
+        lease.checksum.update(bytes.data(),bytes.size());
+        lease.position+=bytes.size();
+        if (lease.position==lease.missing[lease.next].end) {
+            const auto piece=lease.missing[lease.next];
+            status=entry->transaction->recordRange(id.rangeId,piece.begin,piece.end-piece.begin,lease.checksum.finalize());
+            if (!status.isOk()) return status;
+            ++lease.next;
+            lease.position=lease.next==lease.missing.size() ? id.rangeOffset+id.rangeLength : lease.missing[lease.next].begin;
+            lease.checksum=checksum::ChecksumComputer(id.checksumAlgorithm);
+        }
+        return Status::ok();
+    }
+    static std::vector<chunk::CompletedRange> missingRanges(const std::shared_ptr<Entry>& entry,
+                                                           const PersistentFileIdentity& id) {
+        std::lock_guard lock(entry->mutex);
+        return entry->slots.at(id.rangeId).missing;
     }
     static bool rangeComplete(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id) {
         std::lock_guard lock(entry->mutex);
@@ -314,9 +445,9 @@ class RangeFileCoordinator {
             return Status::invalidArgument("invalid or duplicate range completion");
         if (skipped && !entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength))
             return Status::invalidArgument("skipped range is not verified");
-        auto status = skipped ? Status::ok() :
-            entry->transaction->recordRange(id.rangeId,id.rangeOffset,id.rangeLength,checksum);
-        if (!status.isOk()) return status;
+        if (slot->second.next!=slot->second.missing.size())
+            return Status::invalidArgument("range completion has missing bytes");
+        auto status = Status::ok();
         slot->second.completed = true;
         slot->second.active = false;
         if (++entry->completed == entry->rangeCount) {
@@ -340,7 +471,7 @@ bool sourceMatches(const struct stat& st, const PersistentFileIdentity& id) {
 
 common::Result<std::vector<PersistentFileIdentity>> expandPersistentFileRanges(
     const std::vector<PersistentFileIdentity>& files, std::uint32_t channelCount) {
-    if (channelCount == 0 || channelCount > kPersistentTreeMaxChannels)
+    if (channelCount == 0 || channelCount > kUnifiedFileMaxChannels)
         return Status::invalidArgument("invalid range planner channel count");
     std::vector<PersistentFileIdentity> expanded;
     for (const auto& file : files) {
@@ -404,12 +535,12 @@ common::Result<std::vector<tree::TreeFileInfo>> scanPersistentTree(const std::st
 common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& root,
     const std::vector<PersistentFileIdentity>& files, PersistentTreeStats* stats,
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
-    std::uint32_t channelIndex, std::uint32_t channelCount, DynamicFileQueue* ready) {
+    std::uint32_t channelIndex, std::uint32_t channelCount, DynamicFileQueue* ready, const config::FileTransferOptions* transferOptions) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
         return Status::invalidArgument("persistent pending window must be in range 1..16");
-    if (channelCount == 0 || channelCount > kPersistentTreeMaxChannels ||
+    if (channelCount == 0 || channelCount > kUnifiedFileMaxChannels ||
         channelIndex >= channelCount)
         return Status::invalidArgument("persistent channel index/count is invalid");
     stats->pendingWindow = pendingWindow;
@@ -540,7 +671,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         const auto fileStarted = Clock::now();
         status = tree::validateTreeRelativePath(id.relativePath);
         if (!status.isOk()) { failWriter(status); break; }
-        UniqueFd fd(::open((fs::path(root) / id.relativePath).c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+        const auto sourcePath = transferOptions && !transferOptions->path.empty()
+            ? transferOptions->path : (fs::path(root)/id.relativePath).string();
+        UniqueFd fd(::open(sourcePath.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
         if (!fd.isValid()) { failWriter(Status::runtimeError("open persistent source failed")); break; }
         struct stat before{};
         if (::fstat(fd.get(), &before) != 0 || !sourceMatches(before, id)) {
@@ -551,23 +684,28 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         status = notifySafe(id, Status::ok(), false);
         timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) { failWriter(status); break; }
-        if (id.rangeId != 0) {
+        const bool needsHandshake = id.rangeId != 0 || (transferOptions && transferOptions->resume);
+        if (needsHandshake) {
             std::unique_lock<std::mutex> lock(mutex);
             changed.wait(lock, [&] { return abort || (!awaitingResume && pending.empty()); });
             if (abort) break;
             awaitingResume = true;
             changed.notify_all();
         }
-        status = PersistentDataSession::writeBegin(socket, id);
+        status = PersistentDataSession::writeBegin(socket, id,transferOptions && transferOptions->resume);
         if (!status.isOk()) { failWriter(status); break; }
         bool skipRange = false;
-        if (id.rangeId != 0) {
+        std::vector<chunk::CompletedRange> missing{{id.rangeId ? id.rangeOffset : 0,
+            id.rangeId ? id.rangeOffset+id.rangeLength : id.totalSize}};
+        if (id.totalSize == 0) missing.clear();
+        if (needsHandshake) {
             auto resume = PersistentDataSession::readResumeResponse(socket, id);
             if (!resume.isOk()) { failWriter(resume.status()); break; }
             if (resume.value().statusCode != FrameStatusCode::Ok) {
                 failWriter(Status::runtimeError("persistent range resume rejected")); break;
             }
-            skipRange = resume.value().missingRanges.empty();
+            missing = resume.value().missingRanges;
+            skipRange = missing.empty();
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 awaitingResume = false;
@@ -580,26 +718,91 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (!metadata.isOk()) { failWriter(metadata.status()); break; }
         addWire(protocol::kFrameHeaderSize + metadata.value().size() + 8);
         bool writeFailed = false;
-        checksum::ChecksumComputer checksumComputer(id.checksumAlgorithm);
-        for (std::uint64_t offset = id.rangeId == 0 ? 0 : id.rangeOffset;
-             !skipRange && offset < (id.rangeId == 0 ? id.totalSize : id.rangeOffset + id.rangeLength);) {
-            const auto rangeEnd = id.rangeId == 0 ? id.totalSize : id.rangeOffset + id.rangeLength;
-            const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), rangeEnd - offset));
-            const auto reading = Clock::now();
-            status = file.readAtAll(offset, buffer.data(), length);
-            timing.readSeconds += secondsSince(reading);
-            if (!status.isOk()) { writeFailed = true; break; }
-            const auto checksumStarted = Clock::now();
-            checksumComputer.update(buffer.data(), length);
-            timing.checksumSeconds += secondsSince(checksumStarted);
-            const auto payloadStarted = Clock::now();
-            status = PersistentDataSession::writeData(socket, id, offset, buffer.data(), length);
-            timing.payloadIoSeconds += secondsSince(payloadStarted);
-            if (status.isOk() && !timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
-            if (!status.isOk()) { writeFailed = true; break; }
-            offset += length;
-            addWire(protocol::kFrameHeaderSize + length);
+        const auto options = transferOptions ? *transferOptions : config::FileTransferOptions{};
+        storage::FileIoContext ioContext(options.fileIo);
+        auto available = ioContext.validateAvailable();
+        if (!available.isOk()) { failWriter(available); break; }
+        auto advice = storage::applyFileIoAdvice(file,options.fileIo.advice,0,id.totalSize);
+        if (!advice.isOk()) { failWriter(advice); break; }
+        checksum::ChecksumComputer checksumComputer(id.checksumAlgorithm,options.checksumBackend);
+        std::uint64_t payloadSent = 0;
+        for (const auto& piece : missing) {
+            for (std::uint64_t offset=piece.begin; offset<piece.end;) {
+                const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(
+                    std::min<std::size_t>(buffer.size()-4,options.bufferSize),std::min<std::uint64_t>(
+                        piece.end-offset,id.chunkSize-offset%id.chunkSize)));
+                if (options.maxChunks && payloadSent >= options.maxChunks*id.chunkSize) {
+                    status=Status::runtimeError("transfer interrupted by max-chunks");writeFailed=true;break;
+                }
+                const auto reading=Clock::now();
+                status=storage::readAtAll(file,offset,buffer.data(),length,ioContext,&stats->fileIoStats);
+                timing.readSeconds+=secondsSince(reading);
+                if (!status.isOk()) {writeFailed=true;break;}
+                const auto checksumStarted=Clock::now();
+                checksumComputer.update(buffer.data(),length);
+                checksum::ChecksumComputer frameChecksum(id.checksumAlgorithm,options.checksumBackend);
+                frameChecksum.update(buffer.data(),length);
+                const auto frameDigest=frameChecksum.finalize().value;
+                timing.checksumSeconds+=secondsSince(checksumStarted);
+                const auto chunkIndex=offset/id.chunkSize;
+                if (options.hasCorruptChunk && chunkIndex==options.corruptChunk)
+                    buffer[0]^=0xffU;
+                std::vector<std::uint8_t> compressed;
+                auto* bytes=buffer.data();std::size_t wireLength=length;std::uint16_t flags=0;
+                auto& runtime=stats->runtime;
+                if (options.hotPathCompression.enabled && options.hotPathCompression.candidate &&
+                    !options.hotPathCompression.forceRaw) {
+                    ++runtime.compressionAttempts;
+                    auto encoded=options.hotPathCompression.testForceCompressFailure
+                        ? common::Result<std::vector<std::uint8_t>>(Status::runtimeError("compression_failure"))
+                        : protocol::encodeCompressedDataPayload(bytes,length,
+                            options.hotPathCompression.maxPayloadBytes ?
+                            std::min(options.bufferSize,options.hotPathCompression.maxPayloadBytes) : options.bufferSize);
+                    if (encoded.isOk() && encoded.value().size()<length) {
+                        compressed=std::move(encoded.value());bytes=compressed.data();wireLength=compressed.size();
+                        flags=protocol::kDataCompressed;++runtime.compressedFrames;
+                        runtime.compressedLogicalBytes+=length;runtime.compressedWireBytes+=wireLength;
+                        if (options.hotPathCompression.testCorruptCompressedPayload &&
+                            wireLength>protocol::kCompressedDataPrefixSize)
+                            compressed[protocol::kCompressedDataPrefixSize]^=0xffU;
+                    } else {
+                        ++runtime.rawFallbackFrames;
+                        runtime.compressionFallbackReason=encoded.isOk() ? "poor_ratio" : "compression_failure";
+                        if (!encoded.isOk()) ++runtime.compressionFailures;
+                    }
+                }
+                std::vector<std::uint8_t> protectedPayload;
+                if (id.checksumAlgorithm != checksum::ChecksumAlgorithm::None) {
+                    protectedPayload={static_cast<std::uint8_t>(frameDigest>>24),
+                        static_cast<std::uint8_t>(frameDigest>>16),static_cast<std::uint8_t>(frameDigest>>8),
+                        static_cast<std::uint8_t>(frameDigest)};
+                    protectedPayload.insert(protectedPayload.end(),bytes,bytes+wireLength);
+                    bytes=protectedPayload.data();wireLength=protectedPayload.size();flags|=protocol::kDataChecksum;
+                }
+                protocol::FrameHeader header;
+                header.type=FrameType::Data;header.streamId=id.fileId;header.chunkId=id.generation;
+                header.rangeId=id.rangeId;header.attempt=id.attempt;header.offset=offset;
+                header.totalSize=id.totalSize;header.payloadSize=wireLength;header.flags=flags;
+                auto encoded=protocol::encodeFrameHeader(header);
+                const auto payloadStarted=Clock::now();
+                status=socket->writeAll(encoded.data(),encoded.size());
+                if (status.isOk()) status=socket->writeAll(bytes,wireLength);
+                if (status.isOk() && options.hasDuplicateCorruptChunk &&
+                    chunkIndex==options.duplicateCorruptChunk) {
+                    buffer[0]^=0xffU;
+                    status=socket->writeAll(encoded.data(),encoded.size());
+                    if (status.isOk()) status=socket->writeAll(buffer.data(),length);
+                }
+                timing.payloadIoSeconds+=secondsSince(payloadStarted);
+                if (status.isOk() && !timing.firstPayloadSeconds) timing.firstPayloadSeconds=secondsSince(fileStarted);
+                if (!status.isOk()) {writeFailed=true;break;}
+                offset+=length;payloadSent+=length;stats->payloadBytes+=length;
+                addWire(protocol::kFrameHeaderSize+wireLength);
+            }
+            if (writeFailed) break;
         }
+        const auto expectedBytes=id.rangeId ? id.rangeLength : id.totalSize;
+        stats->skippedBytes+=expectedBytes-payloadSent;
         struct stat after{};
         if (!writeFailed && (::fstat(file.fd(), &after) != 0 || !sourceMatches(after, id) ||
             before.st_mtim.tv_nsec != after.st_mtim.tv_nsec || before.st_ctim.tv_sec != after.st_ctim.tv_sec ||
@@ -610,7 +813,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (!writeFailed) status = PersistentDataSession::writeEnd(socket, id,
             skipRange ? checksum::ChecksumValue{} : checksumComputer.finalize(), skipRange);
         if (writeFailed || !status.isOk()) { failWriter(status.isOk() ? Status::runtimeError("persistent data write failed") : status); break; }
-        if (id.rangeId != 0 || socket->tlsEnabled()) {
+        if (needsHandshake || socket->tlsEnabled()) {
             const auto resultStarted = Clock::now();
             auto result = PersistentDataSession::readResult(socket, id);
             if (!result.isOk()) { failWriter(result.status()); break; }
@@ -682,7 +885,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
         return Status::invalidArgument("persistent pending window must be in range 1..16");
-    if (channelCount == 0 || channelCount > kPersistentTreeMaxChannels ||
+    if (channelCount == 0 || channelCount > kUnifiedFileMaxChannels ||
         channelIndex >= channelCount)
         return Status::invalidArgument("persistent channel index/count is invalid");
     stats->pendingWindow = pendingWindow; // Receiver stays serial; report negotiated sender credit.
@@ -732,17 +935,31 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 return rejected.isOk() ? started.status() : rejected;
             } else {
                 rangeEntry = std::move(started.value());
-                const std::vector<core::chunk::CompletedRange> missing =
-                    RangeFileCoordinator::rangeComplete(rangeEntry, id)
-                        ? std::vector<core::chunk::CompletedRange>{}
-                        : std::vector<core::chunk::CompletedRange>{{id.rangeOffset,
-                            id.rangeOffset + id.rangeLength}};
+                const auto missing=RangeFileCoordinator::missingRanges(rangeEntry,id);
+                status=state.setMissingRanges(missing);
+                if (!status.isOk()) return status;
                 status = PersistentDataSession::writeResumeResponse(socket, id, missing);
                 if (!status.isOk()) fileStatus = status;
             }
         } else {
-            transaction = std::make_unique<FileTransaction>(stats->phaseTiming ? &timing : nullptr);
-            fileStatus = transaction->begin(root, id, download, remoteRoot, resume);
+            transaction = std::make_unique<FileTransaction>(stats->phaseTiming ? &timing : nullptr,context->policy,&stats->fileIoStats);
+            const bool requestedResume = resume || (frame.value().header.flags & protocol::kFileResume);
+            fileStatus = transaction->begin(root, id, download, remoteRoot, requestedResume);
+            if (fileStatus.isOk()) {
+                stats->loadedVerifiedChunks += transaction->loadedVerifiedChunks();
+                stats->removedCorruptChunks += transaction->removedCorruptChunks();
+            }
+            if (frame.value().header.flags & protocol::kFileResume) {
+                if (!fileStatus.isOk()) {
+                    (void)PersistentDataSession::writeResumeResponse(socket,id,{},FrameStatusCode::WriteFailed);
+                    return fileStatus;
+                }
+                auto missing = transaction->missingRanges();
+                status = state.setMissingRanges(missing);
+                if (!status.isOk()) return status;
+                status = PersistentDataSession::writeResumeResponse(socket,id,missing);
+                if (!status.isOk()) return status;
+            }
         }
         for (;;) {
             const auto payloadStarted = Clock::now();
@@ -765,14 +982,49 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             timing.payloadIoSeconds += secondsSince(payloadStarted);
             if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
             const auto checksumStarted = Clock::now();
-            status = state.data(data.value().header, data.value().payload.size(), data.value().payload.data());
+            std::vector<std::uint8_t> logical = data.value().payload;
+            std::optional<std::uint32_t> expectedDigest;
+            if (data.value().header.flags & protocol::kDataChecksum) {
+                if (id.checksumAlgorithm==checksum::ChecksumAlgorithm::None || logical.size()<=4)
+                    return Status::invalidArgument("unexpected DATA checksum");
+                expectedDigest=(static_cast<std::uint32_t>(logical[0])<<24)|
+                    (static_cast<std::uint32_t>(logical[1])<<16)|
+                    (static_cast<std::uint32_t>(logical[2])<<8)|logical[3];
+                logical.erase(logical.begin(),logical.begin()+4);
+            }
+            if (data.value().header.flags & protocol::kDataCompressed) {
+                auto size = protocol::compressedDataPayloadLogicalLength(logical.data(),logical.size());
+                if (!size.isOk()) return size.status();
+                auto decoded = protocol::decodeCompressedDataPayload(logical.data(),logical.size(),
+                    size.value(),PersistentDataSession::kMaxPayload);
+                if (!decoded.isOk()) { ++stats->runtime.decompressionFailures; return decoded.status(); }
+                logical = std::move(decoded.value());
+                ++stats->runtime.compressedFrames;
+                stats->runtime.compressedLogicalBytes += logical.size();
+                stats->runtime.compressedWireBytes += data.value().payload.size();
+            }
+            if (id.checksumAlgorithm!=checksum::ChecksumAlgorithm::None && !expectedDigest)
+                return Status::invalidArgument("DATA checksum is required before checkpointing");
+            if (expectedDigest) {
+                checksum::ChecksumComputer checksum(id.checksumAlgorithm);
+                checksum.update(logical.data(),logical.size());
+                if (checksum.finalize().value!=*expectedDigest)
+                    return Status::invalidArgument("DATA checksum mismatch before write");
+            }
+            auto logicalHeader=data.value().header;
+            logicalHeader.flags=0;logicalHeader.payloadSize=logical.size();
+            status = state.data(logicalHeader, logical.size(), logical.data());
             timing.checksumSeconds += secondsSince(checksumStarted);
             if (!status.isOk()) return status;
             if (fileStatus.isOk()) {
                 Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
                 fileStatus = rangeEntry ? RangeFileCoordinator::write(rangeEntry, id, data.value().header.offset,
-                                                                       data.value().payload)
-                                         : transaction->write(data.value().header.offset, data.value().payload);
+                                                                       logical)
+                                         : transaction->write(data.value().header.offset, logical);
+                stats->payloadBytes += logical.size();
+                if (context->policy.options.maxChunks &&
+                    stats->payloadBytes >= context->policy.options.maxChunks*id.chunkSize)
+                    return Status::runtimeError("transfer interrupted by max-chunks");
             }
         }
         if (fileStatus.isOk() && transaction) {

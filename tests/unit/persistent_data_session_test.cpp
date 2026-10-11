@@ -115,7 +115,11 @@ TEST(PersistentSessionTest, CarriesChecksumAlgorithmAndFileEndDigest) {
     ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, bytes, sizeof(bytes)).isOk());
     auto data = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
     ASSERT_TRUE(data.isOk()) << data.status().message();
-    ASSERT_TRUE(state.data(data.value().header, data.value().payload.size(), data.value().payload.data()).isOk());
+    auto logicalHeader=data.value().header;
+    auto prefix=(logicalHeader.flags&kDataChecksum)?4U:0U;
+    logicalHeader.flags=0;logicalHeader.payloadSize-=prefix;
+    ASSERT_TRUE(state.data(logicalHeader, data.value().payload.size()-prefix,
+        data.value().payload.data()+prefix).isOk());
     ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, expected).isOk());
     auto end = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
     ASSERT_TRUE(end.isOk()) << end.status().message();
@@ -322,7 +326,11 @@ TEST(PersistentSessionTest, CarriesRangeIdentityAndAcceptsOffsetRelativeData) {
     ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 8, bytes, sizeof(bytes)).isOk());
     auto data = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
     ASSERT_TRUE(data.isOk());
-    ASSERT_TRUE(state.data(data.value().header, data.value().payload.size(), data.value().payload.data()).isOk());
+    auto logicalHeader=data.value().header;
+    auto prefix=(logicalHeader.flags&kDataChecksum)?4U:0U;
+    logicalHeader.flags=0;logicalHeader.payloadSize-=prefix;
+    ASSERT_TRUE(state.data(logicalHeader, data.value().payload.size()-prefix,
+        data.value().payload.data()+prefix).isOk());
     ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, expected).isOk());
     auto end = PersistentDataSession::readNext(&pair.receiver, PersistentDataSession::kMaxPayload);
     ASSERT_TRUE(end.isOk());
@@ -491,4 +499,97 @@ TEST(PersistentTreeRangeTest, SeparateChannelsShareOneTransactionAndCommitFullCo
     EXPECT_TRUE(l.isOk())<<l.message();EXPECT_TRUE(r.isOk())<<r.message();
     std::ifstream output(destination.path/"parallel.bin");
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),"ABCDEFGH");
+}
+
+TEST(PersistentSessionTest, SparseResumeRejectsWritingVerifiedBytesAndRequiresAllMissingBytes) {
+    PersistentDataSession state;
+    auto header=beginHeader(12);header.flags=kFileResume;
+    PersistentFileIdentity id{1,1,12,"sparse","sparse",4,0};
+    ASSERT_TRUE(state.begin(header,id).isOk());
+    ASSERT_TRUE(state.setMissingRanges({{4,8}}).isOk());
+    header.type=FrameType::Data;header.flags=0;header.payloadSize=4;header.offset=0;
+    std::uint8_t bytes[4]{};
+    EXPECT_FALSE(state.data(header,4,bytes).isOk());
+    header.offset=4;ASSERT_TRUE(state.data(header,4,bytes).isOk());
+    header.offset=8;EXPECT_FALSE(state.data(header,4,bytes).isOk());
+    header.type=FrameType::FileEnd;header.payloadSize=0;header.offset=12;
+    ASSERT_TRUE(state.end(header).isOk());
+}
+
+TEST(PersistentTreeRangeTest, UnifiedPolicySupportsCompressionBufferedIoPreallocationAndAtomicOverwrite) {
+    SocketPair pair; TempRoot source,destination;
+    const std::string content(131072,'A');
+    std::ofstream(source.path/"policy.bin")<<content;
+    std::ofstream(destination.path/"policy.bin")<<"existing";
+    struct stat st{};ASSERT_EQ(::stat((source.path/"policy.bin").c_str(),&st),0);
+    PersistentFileIdentity id{1,7,content.size(),"policy.bin","policy",65536,st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    cpnetflux::config::FileTransferOptions options;
+    options.path=(source.path/"policy.bin").string();
+    options.hotPathCompression.enabled=options.hotPathCompression.candidate=true;
+    options.fileIo.bufferSize=131072;
+    options.fileIo.posixWriteStrategy=cpnetflux::storage::PosixWriteStrategy::Coalesced;
+    PersistentTransferPolicy policy;
+    policy.options=options;policy.options.overwrite=true;
+    policy.options.preallocateMode=cpnetflux::storage::PreallocateMode::Full;
+    policy.options.commitSyncPolicy=cpnetflux::core::session::CommitSyncPolicy::FsyncFileAndDir;
+    auto context=makePersistentTransferContext(policy);
+    PersistentTreeStats received,sent;cpnetflux::common::Status result;
+    std::jthread receiver([&] {result=receivePersistentTree(&pair.receiver,destination.path.string(),
+        false,"",&received,{},1,0,1,1,false,false,context);});
+    auto status=sendPersistentTree(&pair.sender,source.path.string(),{id},&sent,{},1,0,1,nullptr,&options);
+    receiver.join();
+    ASSERT_TRUE(status.isOk())<<status.message();ASSERT_TRUE(result.isOk())<<result.message();
+    EXPECT_GT(sent.runtime.compressedFrames,0U);
+    EXPECT_LT(sent.wireBytes,content.size());
+    EXPECT_GT(received.fileIoStats.posixWriteSyscallCount(),0U);
+    std::ifstream output(destination.path/"policy.bin");
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),content);
+}
+
+TEST(PersistentTreeRangeTest, RangeResumeConsumesLegacyChunkManifestAndSendsOnlyMissingBytes) {
+    TempRoot source,destination;std::ofstream(source.path/"old.bin")<<"ABCDEFGH";
+    struct stat st{};ASSERT_EQ(::stat((source.path/"old.bin").c_str(),&st),0);
+    auto session=cpnetflux::core::session::TransferSession::createNew(
+        (destination.path/"old.bin").string(),"old-resume",8,4,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
+    ASSERT_TRUE(session.isOk());ASSERT_TRUE(session.value().save().isOk());
+    const std::uint8_t first[]={'A','B','C','D'};
+    cpnetflux::checksum::ChecksumComputer checksum(cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
+    checksum.update(first,4);
+    { std::ofstream temp(session.value().manifest().tempPath);temp<<"ABCDxxxx"; }
+    ASSERT_TRUE(session.value().recordVerifiedChunk(0,0,4,checksum.finalize()).isOk());
+    ASSERT_TRUE(session.value().markFailed().isOk());
+    PersistentFileIdentity a{1,7,8,"old.bin","old-resume",4,st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c,{},1,0,4,2};
+    auto b=a;b.rangeId=2;b.rangeOffset=4;
+    SocketPair pair;PersistentTreeStats received,sent;cpnetflux::common::Status result;
+    std::jthread receiver([&] {result=receivePersistentTree(&pair.receiver,destination.path.string(),
+        false,"",&received,{},1,0,1,1,true,true);});
+    auto status=sendPersistentTree(&pair.sender,source.path.string(),{a,b},&sent);
+    receiver.join();ASSERT_TRUE(status.isOk())<<status.message();ASSERT_TRUE(result.isOk())<<result.message();
+    EXPECT_EQ(sent.payloadBytes,4U);EXPECT_EQ(sent.skippedBytes,4U);
+    std::ifstream output(destination.path/"old.bin");
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),"ABCDEFGH");
+}
+
+TEST(PersistentTreeRangeTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
+    SocketPair pair;TempRoot source,destination;
+    std::ofstream(source.path/"bad.bin")<<std::string(65536,'A');
+    struct stat st{};ASSERT_EQ(::stat((source.path/"bad.bin").c_str(),&st),0);
+    PersistentFileIdentity id{1,7,65536,"bad.bin","bad-checksum",65536,st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    cpnetflux::config::FileTransferOptions options;
+    options.path=(source.path/"bad.bin").string();options.hasCorruptChunk=true;options.corruptChunk=0;
+    PersistentTreeStats received,sent;cpnetflux::common::Status result;
+    std::jthread receiver([&] {
+        result=receivePersistentTree(&pair.receiver,destination.path.string(),false,"",&received);
+        ::shutdown(pair.receiver.fd(),SHUT_RDWR);
+    });
+    auto status=sendPersistentTree(&pair.sender,source.path.string(),{id},&sent,{},1,0,1,nullptr,&options);
+    receiver.join();EXPECT_FALSE(status.isOk());EXPECT_FALSE(result.isOk());
+    auto checkpoint=cpnetflux::checkpoint::ManifestStore::load(
+        cpnetflux::checkpoint::manifestPathForOutput((destination.path/"bad.bin").string()));
+    ASSERT_TRUE(checkpoint.isOk());EXPECT_TRUE(checkpoint.value().verifiedChunks.empty());
+    EXPECT_FALSE(std::filesystem::exists(destination.path/"bad.bin"));
 }

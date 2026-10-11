@@ -17,6 +17,8 @@ inline constexpr std::uint16_t kFrameVersion = 1;
 inline constexpr std::uint16_t kFrameHeaderSize = 64;
 inline constexpr std::uint16_t kDataCompressed = 0x0001U;
 inline constexpr std::uint16_t kRangeSkipped = 0x0002U;
+inline constexpr std::uint16_t kFileResume = 0x0004U;
+inline constexpr std::uint16_t kDataChecksum = 0x0008U;
 
 enum class FrameType : std::uint16_t {
     Data = 1,

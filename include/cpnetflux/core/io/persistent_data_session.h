@@ -45,6 +45,7 @@ class PersistentDataSession {
                                        checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::None);
     [[nodiscard]] common::Status begin(const protocol::FrameHeader& header,
                                        const PersistentFileIdentity& identity);
+    [[nodiscard]] common::Status setMissingRanges(const std::vector<core::chunk::CompletedRange>& missing);
     [[nodiscard]] common::Status data(const protocol::FrameHeader& header,
                                       std::size_t logicalBytes,
                                       const std::uint8_t* payload = nullptr);
@@ -55,7 +56,7 @@ class PersistentDataSession {
                                       protocol::FrameStatusCode status);
 
     [[nodiscard]] static common::Status writeBegin(FramedDataSocket* socket,
-                                                   const PersistentFileIdentity& identity);
+                                                   const PersistentFileIdentity& identity, bool resume = false);
     [[nodiscard]] static common::Status writeData(FramedDataSocket* socket,
                                                   const PersistentFileIdentity& identity,
                                                   std::uint64_t offset,
@@ -95,6 +96,9 @@ class PersistentDataSession {
     std::unordered_set<std::uint64_t> seenGenerations_;
     std::unordered_set<std::string> seenRangeIdentities_;
     bool active_ = false;
+    bool sparse_ = false;
+    std::vector<core::chunk::CompletedRange> missing_;
+    std::size_t missingIndex_ = 0;
     PersistentFileIdentity current_;
     std::uint64_t receivedBytes_ = 0;
     checksum::ChecksumAlgorithm checksumAlgorithm_ = checksum::ChecksumAlgorithm::None;

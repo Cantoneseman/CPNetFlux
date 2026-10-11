@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include "cpnetflux/config/file_transfer_options.h"
 #include <memory>
 #include <cstdint>
 #include <vector>
@@ -11,9 +12,15 @@
 #include "cpnetflux/core/tree/tree_scan.h"
 
 namespace cpnetflux::core::io {
+struct PersistentTransferPolicy {
+    config::FileTransferOptions options;
+    std::string outputPath;
+};
 struct PersistentTransferContext;
-[[nodiscard]] std::shared_ptr<PersistentTransferContext> makePersistentTransferContext();
+[[nodiscard]] std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(
+    const PersistentTransferPolicy& policy = {});
 inline constexpr std::uint32_t kPersistentTreeMaxChannels = 8;
+inline constexpr std::uint32_t kUnifiedFileMaxChannels = 64;
 inline constexpr std::uint32_t kUnknownPersistentFileCount = UINT32_MAX;
 
 [[nodiscard]] inline bool persistentFileAssignedToChannel(
@@ -37,6 +44,9 @@ struct PersistentTreeStats {
     std::vector<PersistentFileTiming> fileTimings;
     std::uint64_t files = 0;
     std::uint64_t bytes = 0;
+    std::uint64_t payloadBytes = 0, skippedBytes = 0, loadedVerifiedChunks = 0, removedCorruptChunks = 0;
+    storage::FileIoStats fileIoStats;
+    TransferRuntimeMetrics runtime;
     std::uint64_t wireBytes = 0;  // Application frames, both directions; excludes TCP/IP.
     double completeWaitSeconds = 0;
     double queueWaitSeconds = 0;
@@ -54,7 +64,8 @@ using PersistentFileCallback = std::function<common::Status(
     const std::string& root, const std::vector<PersistentFileIdentity>& files,
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},
     std::uint32_t pendingWindow = 1, std::uint32_t channelIndex = 0,
-    std::uint32_t channelCount = 1, DynamicFileQueue* ready = nullptr);
+    std::uint32_t channelCount = 1, DynamicFileQueue* ready = nullptr,
+    const config::FileTransferOptions* options = nullptr);
 [[nodiscard]] common::Status receivePersistentTree(FramedDataSocket* socket,
     const std::string& root, bool download, const std::string& remoteRoot,
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},

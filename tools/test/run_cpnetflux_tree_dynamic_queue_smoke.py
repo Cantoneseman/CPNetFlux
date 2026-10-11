@@ -135,8 +135,8 @@ def main():
                 ('download', 'up-compatibility', root / 'down-compatibility'),
             ):
                 fallback = run(direction, src, dst, direction + '-compatibility')
-                assert fallback['requested_mode'] == 'v1'
-                assert fallback['actual_mode'] == fallback['actual_file_scheduling'] == 'v1'
+                assert fallback['requested_mode'] == 'per_file'
+                assert fallback['actual_mode'] == fallback['actual_file_scheduling'] == 'per_file'
                 assert fallback['fallback_reason'] == ''
                 assert fallback['completed_files'] == len(sizes)
             assert tree_hash(server_root / 'up-compatibility') == expected

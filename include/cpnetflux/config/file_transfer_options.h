@@ -32,6 +32,7 @@ struct FileTransferOptions {
     std::uint64_t corruptChunk = 0;
     std::uint64_t duplicateCorruptChunk = 0;
     std::string path;
+    std::string logicalSourcePath;
     std::string transferId;
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;
     checksum::ChecksumBackend checksumBackend = checksum::ChecksumBackend::Auto;

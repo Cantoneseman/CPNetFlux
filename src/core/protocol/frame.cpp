@@ -196,7 +196,7 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
         return common::Status::invalidArgument("frame payload exceeds buffer size");
     }
     if (header.type == FrameType::FileBegin) {
-        if (header.flags != 0 || header.statusCode != FrameStatusCode::Ok || header.payloadSize == 0 ||
+        if ((header.flags & ~kFileResume) != 0 || header.statusCode != FrameStatusCode::Ok || header.payloadSize == 0 ||
             header.streamId == 0 || header.chunkId == 0 || header.offset != 0)
             return common::Status::invalidArgument("FILE_BEGIN header is invalid");
         return common::Status::ok();
@@ -275,12 +275,12 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
     if (header.type != FrameType::Data) {
         return common::Status::invalidArgument("invalid frame type");
     }
-    if ((header.flags & ~kDataCompressed) != 0) {
+    if ((header.flags & ~(kDataCompressed|kDataChecksum)) != 0) {
         return common::Status::invalidArgument("DATA frame has unknown flags");
     }
-    if (header.payloadSize == 0) {
-        return common::Status::invalidArgument("DATA frame payload must be greater than zero");
-    }
+    const auto checksumPrefix=(header.flags&kDataChecksum) ? 4U : 0U;
+    if (header.payloadSize <= checksumPrefix)
+        return common::Status::invalidArgument("DATA frame payload must be greater than checksum prefix");
     if ((header.flags & kDataCompressed) != 0) {
         if (header.payloadSize <= kCompressedDataPrefixSize) {
             return common::Status::invalidArgument("compressed DATA payload is too small");
@@ -291,7 +291,7 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
         return common::Status::ok();
     }
     if (header.offset > header.totalSize ||
-        static_cast<std::uint64_t>(header.payloadSize) > header.totalSize - header.offset) {
+        static_cast<std::uint64_t>(header.payloadSize-((header.flags&kDataChecksum)?4U:0U)) > header.totalSize - header.offset) {
         return common::Status::invalidArgument("frame payload range exceeds total size");
     }
 
@@ -307,7 +307,7 @@ common::Status validateDataFramePayload(const FrameHeader& header, const std::ui
     if (payloadSize != header.payloadSize) {
         return common::Status::invalidArgument("DATA payload size mismatch");
     }
-    if ((header.flags & ~kDataCompressed) != 0) {
+    if ((header.flags & ~(kDataCompressed|kDataChecksum)) != 0) {
         return common::Status::invalidArgument("DATA frame has unknown flags");
     }
     if ((header.flags & kDataCompressed) == 0) {
@@ -315,7 +315,7 @@ common::Status validateDataFramePayload(const FrameHeader& header, const std::ui
             return common::Status::invalidArgument("DATA logical payload exceeds buffer size");
         }
         if (header.offset > header.totalSize ||
-            static_cast<std::uint64_t>(header.payloadSize) > header.totalSize - header.offset) {
+            static_cast<std::uint64_t>(header.payloadSize-((header.flags&kDataChecksum)?4U:0U)) > header.totalSize - header.offset) {
             return common::Status::invalidArgument("frame payload range exceeds total size");
         }
         return common::Status::ok();

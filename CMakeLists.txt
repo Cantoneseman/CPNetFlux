@@ -100,6 +100,7 @@ add_library(cpnetflux_core STATIC
     src/core/io/connection_context.cpp
     src/core/io/file_download_client.cpp
     src/core/io/file_download_sender.cpp
+    src/core/io/unified_file_transfer.cpp
     src/core/io/file_transfer_client.cpp
     src/core/io/file_transfer_server.cpp
     src/core/io/framed_data_socket.cpp

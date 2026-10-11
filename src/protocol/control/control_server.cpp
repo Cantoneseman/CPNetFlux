@@ -868,6 +868,16 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
 }
 
 
+core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& options,bool resume=false) {
+    core::io::PersistentTransferPolicy p;
+    p.options.chunkSize=options.chunkSize;p.options.bufferSize=options.bufferSize;
+    p.options.checksumAlgorithm=options.checksumAlgorithm;p.options.checksumBackend=options.checksumBackend;
+    p.options.fileIo=options.fileIo;p.options.manifestFlushPolicy=options.manifestFlushPolicy;
+    p.options.manifestFlushIntervalChunks=options.manifestFlushIntervalChunks;
+    p.options.finalVerifyPolicy=options.finalVerifyPolicy;p.options.commitSyncPolicy=options.commitSyncPolicy;
+    p.options.preallocateMode=options.preallocateMode;p.options.resume=resume;
+    return p;
+}
 struct DynamicDirectory {
     std::string destination;
     bool upload;
@@ -880,7 +890,8 @@ struct DynamicDirectory {
 common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     const std::string& key, const std::string& destination, bool upload,
     std::uint32_t channels, std::uint32_t window, std::uint32_t requestedTotal,
-    std::uint64_t chunkSize, checksum::ChecksumAlgorithm checksumAlgorithm) {
+    std::uint64_t chunkSize, checksum::ChecksumAlgorithm checksumAlgorithm,
+    const ControlServerOptions& policyOptions) {
     static std::mutex mutex;
     static std::unordered_map<std::string, std::weak_ptr<DynamicDirectory>> batches;
     std::lock_guard lock(mutex);
@@ -898,6 +909,7 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     }
     if (batches.size() >= 64) return common::Status::runtimeError("dynamic batch capacity exhausted");
     auto created = std::make_shared<DynamicDirectory>();
+    created->transactions=core::io::makePersistentTransferContext(persistentPolicy(policyOptions));
     created->destination = destination; created->upload = upload;
     created->channels = channels; created->window = window; created->total = requestedTotal;
     if (!upload) {
@@ -976,7 +988,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         auto group = acquireDynamicDirectory(options.host + ":" + std::to_string(options.port) + ":" +
             root.value().fullPath + "/" + batchId, destination.string(),
             upload, channelCount, pendingWindow, requestedTotalFiles, options.chunkSize,
-            options.checksumAlgorithm);
+            options.checksumAlgorithm, options);
         if (!group.isOk()) return sendLine(control, formatReply(550, group.status().message()));
         guard.directory = group.value();
         auto attached = guard.directory->batch->attach(channelIndex);
@@ -1044,10 +1056,13 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     if (guard.directory) callback = [&](const auto& id, const auto& fileStatus, bool complete) {
         return guard.directory->batch->fileEvent(channelIndex,id,fileStatus,complete);
     };
+    auto policy=persistentPolicy(options,resume);
+    auto transactions=guard.directory ? guard.directory->transactions :
+        core::io::makePersistentTransferContext(policy);
     status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats, callback,
-                     pendingWindow, channelIndex, channelCount, expectedChannelFiles, guard.directory != nullptr, resume, guard.directory ? guard.directory->transactions : nullptr)
+                     pendingWindow, channelIndex, channelCount, expectedChannelFiles, guard.directory != nullptr, resume, transactions)
                     : core::io::sendPersistentTree(&data, destination.string(), files, &stats, callback,
-                     pendingWindow, channelIndex, channelCount, guard.directory ? guard.directory->queue.get() : nullptr);
+                     pendingWindow, channelIndex, channelCount, guard.directory ? guard.directory->queue.get() : nullptr, &policy.options);
     std::string details;
     if (guard.directory) {
         if (!status.isOk()) guard.directory->batch->cancel(status);
@@ -1172,12 +1187,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     if (!valid) break;
                 }
                 persistentNegotiated = valid && checksumAlgorithm == options.checksumAlgorithm &&
-                    requestedDataTls == options.dataTlsMode &&
-                    options.fileIo.backend == storage::FileIoBackendKind::Posix &&
-                    options.commitSyncPolicy == core::session::CommitSyncPolicy::None &&
-                    options.preallocateMode == storage::PreallocateMode::Off &&
-                    options.manifestFlushPolicy == core::session::ManifestFlushPolicy::EveryNChunks &&
-                    options.manifestFlushIntervalChunks == core::session::kDefaultManifestFlushIntervalChunks;
+                    requestedDataTls == options.dataTlsMode;
                 if (persistentNegotiated) {
                     persistentWindow = requestedWindow;
                     persistentChannels = requestedChannels;
