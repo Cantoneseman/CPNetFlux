@@ -451,6 +451,10 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/release/test_public_hygiene.py
     )
     add_test(
+        NAME cpnetflux_source_release_behavior
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/release/test_source_release.py
+    )
+    add_test(
         NAME cpnetflux_alpha_release_helper_behavior
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/release/test_alpha_release_helpers.py
     )

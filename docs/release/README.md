@@ -132,17 +132,36 @@ Outputs:
 The RC is the recommended final alpha handoff command. It is not a production
 certification: see `docs/release/ALPHA_LIMITATIONS.md`.
 
-## Public Hygiene
+## Public Hygiene and Source Candidate
 
-`AGENTS.md` is private and must not enter public exports. Public publishing must
-use:
+`AGENTS.md` is private and must not enter public exports. For an auditable,
+commit-pinned source candidate, first commit and push the exact source revision,
+then run the packager from a clean checkout:
 
 ```bash
-rm -rf /tmp/cpnetflux-public
-python3 tools/release/export_public_repo.py --output /tmp/cpnetflux-public --force
-python3 tools/release/check_public_hygiene.py --path /tmp/cpnetflux-public --strict
+commit=$(git rev-parse HEAD)
+python3 tools/release/create_source_release.py \
+  --commit "$commit" \
+  --remote origin \
+  --remote-ref codex/<task-id> \
+  --output "/tmp/cpnetflux-runs/source-release/cpnetflux-source-${commit:0:12}.tar.gz"
 ```
 
-Do not place passwords, tokens, private keys, cookies, or real private topology
-values in public documents. Use placeholders such as `<remote>` and
-`<server-host>`.
+The tool refuses dirty worktrees, a HEAD/commit mismatch, an invalid or
+unpublished remote ref, an existing output, or a remote ref that moves during
+packaging. It exports from the committed Git tree, strips private and generated
+files, runs strict hygiene, and writes a neighboring JSON manifest containing
+the verified source commit/ref plus source-tree and archive SHA-256 values.
+Archive metadata is normalized so the same commit produces identical archive
+bytes. Keep the archive and its manifest together.
+
+A passing hygiene scan does not grant redistribution rights. The manifest marks
+`public_release_ready` false until a root license is present and reviewed.
+Do not publish this source candidate as a public release until licensing is
+resolved. The package is source-only; this workflow does not produce an
+installer or signed binary.
+
+For detailed source-package checks and current limitations, see
+[`SOURCE_RELEASE_01.md`](SOURCE_RELEASE_01.md). Do not place passwords,
+tokens, private keys, cookies, or real private topology values in public
+documents. Use placeholders such as `<remote>` and `<server-host>`.
