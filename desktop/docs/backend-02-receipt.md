@@ -22,3 +22,5 @@ ctest --test-dir desktop/build --output-on-failure
 ## 下一步
 
 需要 00/底层提供结构化 transfer summary/event、真实 per-mode capability/effective-policy 回读、取消 quiescence/checkpoint 证据和安全 secret-store 注入后，才能进入受控真实 adapter 接入。
+
+阶段提交：51a781a1f82f9c1fa698758abb1edc46020116c。push 与远端 SHA 回读由本阶段结束命令记录。
