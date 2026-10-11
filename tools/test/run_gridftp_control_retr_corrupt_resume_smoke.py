@@ -186,10 +186,17 @@ def run_smoke(args: argparse.Namespace) -> int:
 
             part_path = Path(str(output) + f".part.{transfer_id}")
             assert part_path.exists()
+            manifest_path = Path(str(output) + ".cpnetflux.download.manifest")
+            manifest_line = next(
+                line for line in manifest_path.read_text(encoding="utf-8").splitlines()
+                if line.startswith("verified_chunks=")
+            )
+            first_record = manifest_line.split("=", 1)[1].split(",", 1)[0].split(":")
+            corrupt_offset = int(first_record[1]) + min(17, int(first_record[2]) - 1)
             with part_path.open("r+b") as handle:
-                handle.seek(17)
+                handle.seek(corrupt_offset)
                 original = handle.read(1)
-                handle.seek(17)
+                handle.seek(corrupt_offset)
                 handle.write(bytes([original[0] ^ 0x5A]))
 
             sock, buffer, data_port = login_and_epsv(control_port)
@@ -226,8 +233,11 @@ def run_smoke(args: argparse.Namespace) -> int:
             actual_sha = sha256_file(output)
             if expected_sha != actual_sha:
                 raise RuntimeError(f"sha256 mismatch: {expected_sha} != {actual_sha}")
-            if "removed_corrupt_chunks=1" not in (resumed.stdout + resumed.stderr):
+            resume_stats = resumed.stdout + resumed.stderr
+            if "removed_corrupt_chunks=1" not in resume_stats:
                 raise RuntimeError(f"missing corrupt chunk repair stat: {resumed.stdout}")
+            if not re.search(r"\bloaded_verified_chunks=[1-9]\d*\b", resume_stats):
+                raise RuntimeError(f"missing loaded verified chunk stat: {resumed.stdout}")
             print(f"gridftp control RETR corrupt resume smoke passed transfer_id={transfer_id}")
             return 0
         finally:

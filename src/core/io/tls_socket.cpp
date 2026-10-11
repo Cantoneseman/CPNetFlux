@@ -11,6 +11,7 @@
 #include <utility>
 
 #include <sys/socket.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -75,7 +76,18 @@ common::Status tlsIoStatus(SSL* ssl, int result, const char* operation) {
     return opensslStatus(operation);
 }
 
-void initializeOpenSsl() { (void)OPENSSL_init_ssl(0, nullptr); }
+void initializeOpenSsl() {
+    (void)OPENSSL_init_ssl(0, nullptr);
+    // OpenSSL may write close_notify during SSL_shutdown or teardown. Unlike
+    // plain send(), that path cannot carry MSG_NOSIGNAL on every supported
+    // OpenSSL/socket combination; a peer RST must become an I/O error rather
+    // than terminate the transfer service with SIGPIPE.
+    struct sigaction action {};
+    action.sa_handler = SIG_IGN;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    (void)::sigaction(SIGPIPE, &action, nullptr);
+}
 
 }  // namespace
 

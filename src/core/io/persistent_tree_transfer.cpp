@@ -343,6 +343,9 @@ class RangeFileCoordinator {
         std::unordered_map<std::uint64_t, Slot> slots;
         std::uint64_t rangeCount = 0, completed = 0;
         bool committed = false;
+        std::uint64_t loadedVerifiedChunks = 0;
+        std::uint64_t removedCorruptChunks = 0;
+        bool statsReported = false;
     };
     static common::Result<std::shared_ptr<Entry>> begin(PersistentTransferContext& context,
         const std::string& root, const PersistentFileIdentity& id, bool download,
@@ -367,6 +370,8 @@ class RangeFileCoordinator {
                 entry->transaction = std::make_unique<FileTransaction>(nullptr,context.policy);
                 auto status = entry->transaction->begin(root,entry->base,download,remoteRoot,resume);
                 if (!status.isOk()) return status;
+                entry->loadedVerifiedChunks = entry->transaction->loadedVerifiedChunks();
+                entry->removedCorruptChunks = entry->transaction->removedCorruptChunks();
                 context.files.emplace(key,entry);
             }
         }
@@ -426,6 +431,13 @@ class RangeFileCoordinator {
             lease.checksum=checksum::ChecksumComputer(id.checksumAlgorithm);
         }
         return Status::ok();
+    }
+    static std::pair<std::uint64_t, std::uint64_t> takeStats(
+        const std::shared_ptr<Entry>& entry) {
+        std::lock_guard lock(entry->mutex);
+        if (entry->statsReported) return {0, 0};
+        entry->statsReported = true;
+        return {entry->loadedVerifiedChunks, entry->removedCorruptChunks};
     }
     static std::vector<chunk::CompletedRange> missingRanges(const std::shared_ptr<Entry>& entry,
                                                            const PersistentFileIdentity& id) {
@@ -935,6 +947,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 return rejected.isOk() ? started.status() : rejected;
             } else {
                 rangeEntry = std::move(started.value());
+                const auto rangeStats = RangeFileCoordinator::takeStats(rangeEntry);
+                stats->loadedVerifiedChunks += rangeStats.first;
+                stats->removedCorruptChunks += rangeStats.second;
                 const auto missing=RangeFileCoordinator::missingRanges(rangeEntry,id);
                 status=state.setMissingRanges(missing);
                 if (!status.isOk()) return status;

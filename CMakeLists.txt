@@ -396,6 +396,10 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_data_tls_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     add_test(
+        NAME cpnetflux_v3_stability_matrix
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_stability_matrix.py --build-dir ${CMAKE_BINARY_DIR} --rounds 8
+    )
+    add_test(
         NAME cpnetflux_event_log_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_event_log_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
