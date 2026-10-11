@@ -67,6 +67,11 @@ EXCLUDE_PREFIX_PARTS = {
     ("tools", "perf", "results"),
 }
 
+SOURCE_SUFFIXES = {
+    ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
+    ".py", ".sh", ".cmake", ".qml",
+}
+
 
 class ExportStats:
     def __init__(self) -> None:
@@ -128,8 +133,9 @@ def should_exclude(path: Path, root: Path) -> bool:
     if path.suffix.lower() in EXCLUDE_SUFFIXES:
         return True
     lower_name = path.name.lower()
-    if "token" in lower_name or "secret" in lower_name:
-        return True
+    if path.is_file() and ("token" in lower_name or "secret" in lower_name):
+        if path.suffix.lower() not in SOURCE_SUFFIXES:
+            return True
     if path.is_file() and is_elf_file(path):
         return True
     for prefix in EXCLUDE_PREFIX_PARTS:
