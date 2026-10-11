@@ -468,6 +468,10 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_alpha_soak_smoke.py --build-dir ${CMAKE_BINARY_DIR} --iterations 1 --results-dir ${CMAKE_BINARY_DIR}/alpha-soak-smoke
     )
     add_test(
+        NAME cpnetflux_v3_experiment_behavior
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/test_v3_experiment.py
+    )
+    add_test(
         NAME cpnetflux_alpha_soak_helper_behavior
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/test_alpha_soak_smoke.py
     )

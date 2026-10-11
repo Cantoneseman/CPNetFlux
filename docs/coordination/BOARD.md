@@ -1,6 +1,6 @@
 # 当前执行（2026-10-11）
 
-V3-UNIFIED-01 实施中 -> V1-RETIRE-01 待能力门 -> EXP-V3-GRIDFTP-01 待代码门。用户已批准迁移 V1 全能力后删除；同一写入者在深圳隔离 worktree 执行，不修改根目录 dirty 文件。任务与回滚见 docs/tasks/2026-10-11-v3-unified-01.md。
+V3-UNIFIED-01 完成（e88d46c）；V3-ENGINE-01 完成（52d02df）；V1-RETIRE-01 完成（b3e4dc0），均已推送并回读一致。单文件与目录均走同一V3引擎，旧wire明确拒绝、要求成对升级。实验脚本 EXP-V3-GRIDFTP-01 已通过行为门与前台TLS/GSI读写预检，待记录真实后台启动。根目录原dirty状态保留，不宣称生产ready。范围见 docs/tasks/2026-10-11-exp-v3-gridftp-01.md；启动回执由实际PID证据补齐。
 
 # 总指挥任务板
 
