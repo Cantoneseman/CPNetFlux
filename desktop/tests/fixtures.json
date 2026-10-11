@@ -284,7 +284,8 @@
               "state": "queued",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": null,
@@ -313,7 +314,19 @@
             "integrity_status": "pending",
             "evidence_status": "pending",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "pending",
+              "mode": "unknown",
+              "scheduler": "unknown",
+              "range_policy": "unknown",
+              "checksum": "unknown",
+              "resume_enabled": null,
+              "control_tls": "unknown",
+              "data_tls": "unknown",
+              "channel_count": null,
+              "applied_at": null
+            }
           }
         }
       }
@@ -558,7 +571,49 @@
           "control_tls_verified": true,
           "data_tls_supported": true,
           "directory_permission_probe_supported": false,
-          "adapter": "real"
+          "adapter": "real",
+          "mode_capabilities": [
+            {
+              "mode": "v1",
+              "schedulers": [
+                "static"
+              ],
+              "range_policies": [
+                "file"
+              ],
+              "checksums": [
+                "none",
+                "crc32c"
+              ],
+              "resume_supported": true,
+              "pause_supported": false,
+              "control_tls_verified": true,
+              "data_tls_supported": true,
+              "max_channel_count": 8,
+              "max_pending_window": 2,
+              "max_queue_depth": 256
+            },
+            {
+              "mode": "v2",
+              "schedulers": [
+                "static"
+              ],
+              "range_policies": [
+                "file"
+              ],
+              "checksums": [
+                "none",
+                "crc32c"
+              ],
+              "resume_supported": true,
+              "pause_supported": false,
+              "control_tls_verified": true,
+              "data_tls_supported": true,
+              "max_channel_count": 8,
+              "max_pending_window": 2,
+              "max_queue_depth": 256
+            }
+          ]
         }
       }
     },
@@ -691,7 +746,8 @@
                 "state": "queued",
                 "cancel_requested": false,
                 "started_at": null,
-                "ended_at": null
+                "ended_at": null,
+                "quiescence": "not_applicable"
               },
               "metrics": {
                 "files_total": null,
@@ -720,7 +776,19 @@
               "integrity_status": "pending",
               "evidence_status": "pending",
               "error": null,
-              "adapter": "demo"
+              "adapter": "demo",
+              "effective_policy": {
+                "resolution": "pending",
+                "mode": "unknown",
+                "scheduler": "unknown",
+                "range_policy": "unknown",
+                "checksum": "unknown",
+                "resume_enabled": null,
+                "control_tls": "unknown",
+                "data_tls": "unknown",
+                "channel_count": null,
+                "applied_at": null
+              }
             }
           ],
           "next_cursor": null
@@ -758,25 +826,25 @@
               "pending_window": 2,
               "queue_depth": 256,
               "range_policy": "auto",
-              "checksum_policy": "required_crc32c",
+              "checksum_policy": "none",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
               "fallback_policy": "allow_compatible",
               "conflict_policy": "fail",
-              "experimental_raw_ack": false
+              "experimental_raw_ack": true
             },
             "actual_mode": "v1",
             "actual_scheduler": "static",
             "actual_range_policy": "file",
             "fallback_reason": {
-              "code": "checksum_unsupported",
-              "message": "V2尚未支持所需校验，保留策略使用V1",
+              "code": "mode_unsupported",
+              "message": "V2模式不可用，回退V1保持已请求的安全策略",
               "required": [
-                "crc32c"
+                "v2"
               ],
               "available": [
-                "none"
+                "v1"
               ]
             },
             "attempt": {
@@ -785,7 +853,8 @@
               "state": "running",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": null,
@@ -814,7 +883,19 @@
             "integrity_status": "pending",
             "evidence_status": "pending",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v1",
+              "scheduler": "static",
+              "range_policy": "file",
+              "checksum": "none",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       }
@@ -869,7 +950,8 @@
               "state": "cancelling",
               "cancel_requested": true,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "pending"
             },
             "metrics": {
               "files_total": null,
@@ -898,7 +980,19 @@
             "integrity_status": "pending",
             "evidence_status": "pending",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       }
@@ -952,7 +1046,8 @@
               "state": "completed",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": 2,
@@ -981,7 +1076,19 @@
             "integrity_status": "pass",
             "evidence_status": "complete",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       }
@@ -1036,7 +1143,8 @@
               "state": "completed",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": 2,
@@ -1065,7 +1173,19 @@
             "integrity_status": "pass",
             "evidence_status": "complete",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       }
@@ -1119,7 +1239,8 @@
               "state": "recoverable",
               "cancel_requested": true,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": null,
@@ -1148,7 +1269,19 @@
             "integrity_status": "pending",
             "evidence_status": "pending",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       }
@@ -1347,7 +1480,8 @@
                 "state": "running",
                 "cancel_requested": false,
                 "started_at": null,
-                "ended_at": null
+                "ended_at": null,
+                "quiescence": "not_applicable"
               },
               "metrics": {
                 "files_total": null,
@@ -1376,7 +1510,19 @@
               "integrity_status": "pending",
               "evidence_status": "pending",
               "error": null,
-              "adapter": "demo"
+              "adapter": "demo",
+              "effective_policy": {
+                "resolution": "resolved",
+                "mode": "v2",
+                "scheduler": "dynamic_ring",
+                "range_policy": "range_stripe",
+                "checksum": "crc32c",
+                "resume_enabled": true,
+                "control_tls": "verified",
+                "data_tls": "verified",
+                "channel_count": 1,
+                "applied_at": "2026-10-10T08:00:00Z"
+              }
             }
           ]
         }
@@ -1451,7 +1597,8 @@
                 "state": "recoverable",
                 "cancel_requested": true,
                 "started_at": null,
-                "ended_at": null
+                "ended_at": null,
+                "quiescence": "not_applicable"
               },
               "metrics": {
                 "files_total": null,
@@ -1480,7 +1627,19 @@
               "integrity_status": "pending",
               "evidence_status": "pending",
               "error": null,
-              "adapter": "demo"
+              "adapter": "demo",
+              "effective_policy": {
+                "resolution": "resolved",
+                "mode": "v2",
+                "scheduler": "dynamic_ring",
+                "range_policy": "range_stripe",
+                "checksum": "crc32c",
+                "resume_enabled": true,
+                "control_tls": "verified",
+                "data_tls": "verified",
+                "channel_count": 1,
+                "applied_at": "2026-10-10T08:00:00Z"
+              }
             }
           ]
         }
@@ -1542,7 +1701,8 @@
               "state": "running",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": null,
@@ -1571,7 +1731,19 @@
             "integrity_status": "pending",
             "evidence_status": "pending",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       }
@@ -1632,7 +1804,8 @@
               "state": "running",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": null,
@@ -1661,7 +1834,19 @@
             "integrity_status": "pending",
             "evidence_status": "pending",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       }
@@ -1692,7 +1877,13 @@
             "bytes_transferred": 50,
             "bytes_verified": 25,
             "range_count": 2,
-            "error": null
+            "error": null,
+            "checksum": {
+              "algorithm": "unknown",
+              "expected": null,
+              "actual": null,
+              "status": "unknown"
+            }
           }
         }
       }
@@ -1721,7 +1912,14 @@
             "length": 50,
             "state": "checkpointed",
             "bytes_transferred": 50,
-            "error": null
+            "error": null,
+            "attempt_number": 1,
+            "checksum": {
+              "algorithm": "crc32c",
+              "expected": "1234abcd",
+              "actual": "1234abcd",
+              "status": "pass"
+            }
           }
         }
       }
@@ -1775,6 +1973,187 @@
             "file_id": null,
             "range_id": null
           }
+        }
+      }
+    },
+    {
+      "name": "agent.getInfo",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "info1",
+        "method": "agent.getInfo",
+        "params": {}
+      }
+    },
+    {
+      "name": "attempt.list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "attempts1",
+        "method": "attempt.list",
+        "params": {
+          "transfer_id": "t1",
+          "cursor": null,
+          "limit": 100
+        }
+      }
+    },
+    {
+      "name": "file.list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "files1",
+        "method": "file.list",
+        "params": {
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "cursor": null,
+          "limit": 100
+        }
+      }
+    },
+    {
+      "name": "range.list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "ranges1",
+        "method": "range.list",
+        "params": {
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "file_id": "f1",
+          "generation": 1,
+          "cursor": null,
+          "limit": 100
+        }
+      }
+    },
+    {
+      "name": "agent_info",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "info1",
+        "result": {
+          "kind": "agent_info",
+          "api_version": "2.0.0",
+          "agent_version": "0.1.0",
+          "agent_epoch": "epoch1",
+          "adapter": "demo",
+          "max_frame_bytes": 1048576,
+          "max_concurrent_requests": 32,
+          "state_store": "persistent",
+          "features": [
+            "profiles",
+            "transfer_lifecycle",
+            "entity_pages"
+          ]
+        }
+      }
+    },
+    {
+      "name": "attempt_list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "attempts1",
+        "result": {
+          "kind": "attempt_list",
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "snapshot_id": "snap1",
+          "agent_epoch": "epoch1",
+          "revision": 1,
+          "snapshot_sequence": 8,
+          "next_cursor": null,
+          "items": [
+            {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "running",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null,
+              "quiescence": "not_applicable"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "file_list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "files1",
+        "result": {
+          "kind": "file_list",
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "snapshot_id": "snap1",
+          "agent_epoch": "epoch1",
+          "revision": 1,
+          "snapshot_sequence": 8,
+          "next_cursor": null,
+          "items": [
+            {
+              "transfer_id": "t1",
+              "attempt_id": "a1",
+              "file_id": "f1",
+              "generation": 1,
+              "relative_path": "large.bin",
+              "size": 100,
+              "mtime_ns": 1000,
+              "state": "transferring",
+              "bytes_transferred": 50,
+              "bytes_verified": 25,
+              "range_count": 2,
+              "error": null,
+              "checksum": {
+                "algorithm": "unknown",
+                "expected": null,
+                "actual": null,
+                "status": "unknown"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "range_list",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "ranges1",
+        "result": {
+          "kind": "range_list",
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "snapshot_id": "snap1",
+          "agent_epoch": "epoch1",
+          "revision": 1,
+          "snapshot_sequence": 8,
+          "next_cursor": null,
+          "file_id": "f1",
+          "generation": 1,
+          "items": [
+            {
+              "transfer_id": "t1",
+              "attempt_id": "a1",
+              "file_id": "f1",
+              "range_id": "r1",
+              "generation": 1,
+              "offset": 0,
+              "length": 50,
+              "state": "checkpointed",
+              "bytes_transferred": 50,
+              "error": null,
+              "attempt_number": 1,
+              "checksum": {
+                "algorithm": "crc32c",
+                "expected": "1234abcd",
+                "actual": "1234abcd",
+                "status": "pass"
+              }
+            }
+          ]
         }
       }
     }
@@ -2045,7 +2424,8 @@
               "state": "running",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": null,
@@ -2074,7 +2454,19 @@
             "integrity_status": "pending",
             "evidence_status": "pending",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v1",
+              "scheduler": "static",
+              "range_policy": "file",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       },
@@ -2129,7 +2521,8 @@
               "state": "completed",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": 2,
@@ -2158,7 +2551,19 @@
             "integrity_status": "pass",
             "evidence_status": "complete",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       },
@@ -2213,7 +2618,8 @@
               "state": "completed",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": 2,
@@ -2242,7 +2648,19 @@
             "integrity_status": "pass",
             "evidence_status": "complete",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       },
@@ -2297,7 +2715,8 @@
               "state": "completed",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": 2,
@@ -2326,7 +2745,19 @@
             "integrity_status": "pass",
             "evidence_status": "complete",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       },
@@ -2381,7 +2812,8 @@
               "state": "completed",
               "cancel_requested": false,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": 2,
@@ -2410,7 +2842,19 @@
             "integrity_status": "not_requested",
             "evidence_status": "complete",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       },
@@ -2512,7 +2956,8 @@
               "state": "recoverable",
               "cancel_requested": true,
               "started_at": null,
-              "ended_at": null
+              "ended_at": null,
+              "quiescence": "not_applicable"
             },
             "metrics": {
               "files_total": null,
@@ -2541,7 +2986,19 @@
             "integrity_status": "pending",
             "evidence_status": "pending",
             "error": null,
-            "adapter": "demo"
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "crc32c",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
           }
         }
       },
@@ -2571,7 +3028,14 @@
             "length": 0,
             "state": "checkpointed",
             "bytes_transferred": 50,
-            "error": null
+            "error": null,
+            "attempt_number": 1,
+            "checksum": {
+              "algorithm": "unknown",
+              "expected": null,
+              "actual": null,
+              "status": "unknown"
+            }
           }
         }
       },
@@ -2603,7 +3067,13 @@
             "bytes_transferred": 50,
             "bytes_verified": 25,
             "range_count": 2,
-            "error": null
+            "error": null,
+            "checksum": {
+              "algorithm": "unknown",
+              "expected": null,
+              "actual": null,
+              "status": "unknown"
+            }
           }
         }
       },
@@ -2629,6 +3099,144 @@
         }
       },
       "semantic": true
+    },
+    {
+      "name": "range_page_identity_mismatch",
+      "semantic": true,
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "badpage",
+        "result": {
+          "kind": "range_list",
+          "transfer_id": "t1",
+          "attempt_id": "a1",
+          "snapshot_id": "snap1",
+          "agent_epoch": "epoch1",
+          "revision": 1,
+          "snapshot_sequence": 8,
+          "next_cursor": null,
+          "file_id": "f1",
+          "generation": 1,
+          "items": [
+            {
+              "transfer_id": "other",
+              "attempt_id": "a1",
+              "file_id": "f1",
+              "range_id": "r1",
+              "generation": 1,
+              "offset": 0,
+              "length": 50,
+              "state": "checkpointed",
+              "bytes_transferred": 50,
+              "error": null,
+              "attempt_number": 1,
+              "checksum": {
+                "algorithm": "crc32c",
+                "expected": "1234abcd",
+                "actual": "1234abcd",
+                "status": "pass"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "effective_policy_lying",
+      "semantic": true,
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "badpolicy",
+        "result": {
+          "kind": "transfer",
+          "snapshot": {
+            "transfer_id": "t1",
+            "revision": 0,
+            "state": "completed",
+            "direction": "upload",
+            "source": {
+              "kind": "local",
+              "path": "/home/student/data",
+              "node_id": null,
+              "root_id": null
+            },
+            "destination": {
+              "kind": "remote",
+              "path": "dataset",
+              "node_id": "n1",
+              "root_id": "home"
+            },
+            "policy": {
+              "requested_mode": "auto",
+              "scheduler": "auto",
+              "channel_count": "auto",
+              "pending_window": 2,
+              "queue_depth": 256,
+              "range_policy": "auto",
+              "checksum_policy": "required_crc32c",
+              "resume_policy": "allow",
+              "control_tls": "verify_ca",
+              "data_tls": "required",
+              "fallback_policy": "allow_compatible",
+              "conflict_policy": "fail",
+              "experimental_raw_ack": false
+            },
+            "actual_mode": "v2",
+            "actual_scheduler": "dynamic_ring",
+            "actual_range_policy": "range_stripe",
+            "fallback_reason": null,
+            "attempt": {
+              "attempt_id": "a1",
+              "attempt_number": 1,
+              "state": "completed",
+              "cancel_requested": false,
+              "started_at": null,
+              "ended_at": null,
+              "quiescence": "not_applicable"
+            },
+            "metrics": {
+              "files_total": 2,
+              "files_committed": 2,
+              "files_failed": 0,
+              "files_skipped": 0,
+              "bytes_total": 100,
+              "bytes_transferred": null,
+              "bytes_verified": null,
+              "bytes_committed": 100,
+              "channel_count_active": null,
+              "queue_depth_current": null,
+              "data_connections": null,
+              "speed_bps": null,
+              "average_speed_bps": null,
+              "eta_seconds": null
+            },
+            "recovery": {
+              "eligibility": "unknown",
+              "checkpoint_id": null,
+              "reason": null
+            },
+            "scan_complete": true,
+            "commit_confirmed": true,
+            "transfer_status": "pass",
+            "integrity_status": "pass",
+            "evidence_status": "complete",
+            "error": null,
+            "adapter": "demo",
+            "effective_policy": {
+              "resolution": "resolved",
+              "mode": "v2",
+              "scheduler": "dynamic_ring",
+              "range_policy": "range_stripe",
+              "checksum": "none",
+              "resume_enabled": true,
+              "control_tls": "verified",
+              "data_tls": "verified",
+              "channel_count": 1,
+              "applied_at": "2026-10-10T08:00:00Z"
+            }
+          }
+        }
+      }
     }
   ]
 }

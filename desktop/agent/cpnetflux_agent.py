@@ -21,6 +21,10 @@ MAX_FRAME = 1024 * 1024
 MAX_TASKS = 200
 MAX_OPERATIONS = 2000
 MAX_CLIENTS = 16
+MAX_PAGE_SNAPSHOTS = 64
+MAX_PAGE_CURSORS = 512
+API_VERSION = "2.0.0"
+PAGE_TTL_SECONDS = 300
 TERMINAL = {"completed", "failed", "cancelled", "recoverable"}
 ACTIVE = {"scanning", "connecting", "negotiating", "transferring", "committing"}
 ERROR_NUMBERS = {"unsupported":-32001, "invalid_state":-32002,
@@ -65,19 +69,33 @@ class Agent:
         self.validator = Draft7Validator(dict(schema, **{"$ref":"#/$defs/request"}), format_checker=FormatChecker())
         self.epoch, self.sequence = uid(), 0
         self.events, self.clients, self.runners = deque(maxlen=128), set(), {}
-        self.store = dict(tasks={}, profiles={}, operations={})
+        self.store = dict(tasks={}, profiles={}, operations={}, attempt_history={})
+        self.page_snapshots, self.page_cursors = {}, {}
         path = self.state_dir / "state.json"
         if path.exists():
             if path.is_symlink() or path.stat().st_uid != os.getuid(): raise RuntimeError("unsafe state file")
             if path.stat().st_size > 8 * MAX_FRAME: raise RuntimeError("state file exceeds limit")
             self.store = json.loads(path.read_text())
+            self.store.setdefault("attempt_history", {})
             for t in self.store["tasks"].values():
+                t.setdefault("effective_policy", self.pending_policy())
+                t["attempt"].setdefault("quiescence", "not_applicable")
                 if t["state"] in ACTIVE:
                     t.update(state="recoverable", revision=t["revision"]+1)
                     t["attempt"]["state"] = "recoverable"
+                    t["attempt"]["quiescence"] = "confirmed"
                     t["metrics"].update(speed_bps=None, average_speed_bps=None, eta_seconds=None, channel_count_active=0, data_connections=0)
                     t["recovery"] = dict(eligibility="eligible", checkpoint_id="demo:"+t["transfer_id"], reason="演示 agent 重启，需手动恢复")
+        for transfer_id, task in self.store["tasks"].items():
+            history = self.store["attempt_history"].setdefault(transfer_id, [])
+            for i, previous in enumerate(history):
+                if previous.get("attempt_id") == task["attempt"]["attempt_id"]:
+                    history[i] = copy.deepcopy(task["attempt"]); break
+            else:
+                history.append(copy.deepcopy(task["attempt"]))
         self.save()
+    def pending_policy(self):
+        return dict(resolution="pending", mode="unknown", scheduler="unknown", range_policy="unknown", checksum="unknown", resume_enabled=None, control_tls="unknown", data_tls="unknown", channel_count=None, applied_at=None)
     def save(self):
         data = json.dumps(self.store, ensure_ascii=False, allow_nan=False)
         if len(data.encode()) > 8 * MAX_FRAME: raise RuntimeError("state budget exceeded")
@@ -92,6 +110,12 @@ class Agent:
         finally:
             if os.path.exists(name): os.unlink(name)
     def emit(self, t):
+        t["attempt"].setdefault("quiescence", "not_applicable")
+        history = self.store["attempt_history"].setdefault(t["transfer_id"], [])
+        for i, previous in enumerate(history):
+            if previous.get("attempt_id") == t["attempt"]["attempt_id"]:
+                history[i] = copy.deepcopy(t["attempt"]); break
+        else: history.append(copy.deepcopy(t["attempt"]))
         t["revision"] += 1
         self.sequence += 1
         self.save()
@@ -106,7 +130,80 @@ class Agent:
         except KeyError: raise RpcError("not_found", "任务不存在")
     def ensure_demo(self):
         if not self.args.demo: raise RpcError("unsupported", "真实传输 adapter 尚未接入；请显式使用 --demo 演示")
+    def page(self, kind, t, p, items, query, extra=None):
+        now_mono = asyncio.get_running_loop().time()
+        for token, cursor in list(self.page_cursors.items()):
+            if cursor["expires"] <= now_mono:
+                self.page_cursors.pop(token, None)
+        for snapshot_id, snapshot in list(self.page_snapshots.items()):
+            if snapshot["expires"] <= now_mono:
+                self.page_snapshots.pop(snapshot_id, None)
+        if p["cursor"] is None:
+            while len(self.page_snapshots) >= MAX_PAGE_SNAPSHOTS:
+                expired_id, _ = self.page_snapshots.popitem()
+                for token, cursor in list(self.page_cursors.items()):
+                    if cursor["snapshot_id"] == expired_id: self.page_cursors.pop(token, None)
+            snapshot_id = uid()
+            snapshot = dict(snapshot_id=snapshot_id, query=query, transfer_id=t["transfer_id"],
+                            attempt_id=p.get("attempt_id"), agent_epoch=self.epoch,
+                            revision=t["revision"], snapshot_sequence=self.sequence,
+                            items=copy.deepcopy(items), expires=now_mono+PAGE_TTL_SECONDS)
+            self.page_snapshots[snapshot_id] = snapshot
+            offset = 0
+        else:
+            cursor = self.page_cursors.get(p["cursor"])
+            if not cursor or cursor["expires"] <= now_mono:
+                self.page_cursors.pop(p["cursor"], None)
+                raise RpcError("cursor_expired", "实体快照游标无效或已过期")
+            snapshot_id = cursor["snapshot_id"]
+            snapshot = self.page_snapshots.get(snapshot_id)
+            if not snapshot or snapshot["query"] != query:
+                raise RpcError("cursor_expired", "游标与查询身份或快照不匹配")
+            offset = cursor["offset"]
+        limit=p["limit"]
+        page_items=snapshot["items"][offset:offset+limit]
+        next_cursor=None
+        if offset+limit < len(snapshot["items"]):
+            next_cursor=uid()
+            while len(self.page_cursors) >= MAX_PAGE_CURSORS:
+                self.page_cursors.pop(next(iter(self.page_cursors)))
+            self.page_cursors[next_cursor]=dict(snapshot_id=snapshot_id,offset=offset+limit,expires=snapshot["expires"])
+        result=dict(kind=kind,transfer_id=snapshot["transfer_id"],attempt_id=snapshot["attempt_id"],
+                    snapshot_id=snapshot_id,agent_epoch=snapshot["agent_epoch"],revision=snapshot["revision"],
+                    snapshot_sequence=snapshot["snapshot_sequence"],items=page_items,next_cursor=next_cursor)
+        if extra: result.update(extra)
+        return result
+    def attempts_for(self, transfer_id):
+        history=copy.deepcopy(self.store["attempt_history"].get(transfer_id, []))
+        task=self.store["tasks"][transfer_id]
+        if not any(a.get("attempt_id")==task["attempt"]["attempt_id"] for a in history): history.append(copy.deepcopy(task["attempt"]))
+        return history
+    def demo_files(self, t, attempt_id):
+        if attempt_id not in {a["attempt_id"] for a in self.attempts_for(t["transfer_id"])}:
+            raise RpcError("not_found", "attempt 不属于 transfer")
+        m=t["metrics"]; moved=m.get("bytes_transferred") or 0; verified=m.get("bytes_verified") or 0; committed=m.get("bytes_committed") or 0
+        total=4*1024*1024
+        moved=max(0,min(total,moved)); verified=max(0,min(total,verified)); committed=max(0,min(total,committed))
+        result=[]
+        for i in range(4):
+            size=1024*1024; start=i*size; n=max(0,min(size,moved-start)); v=max(0,min(size,verified-start)); done=committed>=start+size
+            state="committed" if done else ("transferring" if n else ("queued" if t["state"] in {"queued","scanning","connecting","negotiating"} else "recoverable"))
+            check=dict(algorithm="crc32c" if t["policy"]["checksum_policy"]=="required_crc32c" else "none",expected="simulated" if v==size else None,actual="simulated" if v==size else None,status=("pass" if v==size else ("not_requested" if t["policy"]["checksum_policy"]=="none" else "pending")))
+            result.append(dict(transfer_id=t["transfer_id"],attempt_id=attempt_id,file_id=f"demo-file-{i+1}",generation=1,relative_path=f"demo/file-{i+1}.bin",size=size,mtime_ns=0,state=state,bytes_transferred=n,bytes_verified=v,range_count=1,error=None,checksum=check))
+        return result
+    def demo_ranges(self, t, attempt_id, file_id, generation):
+        files=self.demo_files(t,attempt_id)
+        file=next((f for f in files if f["file_id"]==file_id and f["generation"]==generation),None)
+        if file is None: raise RpcError("not_found", "file identity 不属于该 attempt")
+        n=file["bytes_transferred"] or 0
+        if n==0: return []
+        return [dict(transfer_id=t["transfer_id"],attempt_id=attempt_id,file_id=file_id,range_id="demo-range-1",generation=generation,offset=0,length=file["size"],state="verified" if file["bytes_verified"]==file["size"] else "transferring",bytes_transferred=n,error=None,attempt_number=next(a["attempt_number"] for a in self.attempts_for(t["transfer_id"]) if a["attempt_id"]==attempt_id),checksum=copy.deepcopy(file["checksum"]))]
     def dispatch(self, method, p, client):
+        if method == "agent.getInfo":
+            return dict(kind="agent_info",api_version=API_VERSION,agent_version="0.1.0",agent_epoch=self.epoch,
+                        adapter="demo" if self.args.demo else "real",max_frame_bytes=MAX_FRAME,
+                        max_concurrent_requests=32,state_store="persistent",
+                        features=["profiles","transfer_lifecycle","entity_pages","resume"] if self.args.demo else ["profiles"])
         if method == "transfer.pause": raise RpcError("unsupported", "暂停尚未实现，任务状态保持不变")
         if method == "directory.list": raise RpcError("unsupported", "真实远端目录浏览尚未接入")
         if method == "node.testConnection":
@@ -114,13 +211,21 @@ class Agent:
                       for k in ["dns_control_port", "tls_identity", "login", "capabilities", "directory_permission", "data_port"]}
             return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=False, authentication="unknown", checks=checks)
         if method == "node.capabilities":
-            demo = p["node_id"] == "demo" and self.args.demo
-            return dict(kind="capabilities", node_id=p["node_id"], adapter="demo" if demo else "real", observed_at=now(), protocol_version="shell-demo-1" if demo else "not-connected", modes=["v1"] if demo else [], schedulers=["static"] if demo else [], range_policies=["file"] if demo else [], max_channel_count=1, max_pending_window=1, max_queue_depth=1, checksums=[], resume_supported=demo, pause_supported=False, control_tls_verified=False, data_tls_supported=False, directory_permission_probe_supported=False)
+            return dict(kind="capabilities", node_id=p["node_id"], adapter="demo" if self.args.demo else "real", observed_at=now(), protocol_version="not-connected", modes=[], schedulers=[], range_policies=[], max_channel_count=1, max_pending_window=0, max_queue_depth=0, checksums=[], resume_supported=False, pause_supported=False, control_tls_verified=False, data_tls_supported=False, directory_permission_probe_supported=False, mode_capabilities=[])
         if method == "profile.list": return dict(kind="profile_list", profiles=list(self.store["profiles"].values()))
         if method == "transfer.list":
             if p["cursor"] is not None: raise RpcError("cursor_expired", "本切片仅支持完整第一页，请刷新")
             return dict(kind="transfer_list", snapshots=list(self.store["tasks"].values())[:p["limit"]], next_cursor=None)
         if method == "transfer.get": return self.snapshot(self.task(p))
+        if method in {"attempt.list", "file.list", "range.list"}:
+            t=self.task(p); attempt_id=p.get("attempt_id")
+            query=[method,p["transfer_id"],attempt_id,p.get("file_id"),p.get("generation"),p["limit"]]
+            if method == "attempt.list":
+                return self.page("attempt_list",t,p,self.attempts_for(t["transfer_id"]),query,{"attempt_id":None})
+            self.ensure_demo()
+            if method == "file.list":
+                return self.page("file_list",t,p,self.demo_files(t,attempt_id),query)
+            return self.page("range_list",t,p,self.demo_ranges(t,attempt_id,p["file_id"],p["generation"]),query,{"file_id":p["file_id"],"generation":p["generation"]})
         if method == "transfer.subscribe":
             after = p["after_sequence"]
             reset = p["agent_epoch"] != self.epoch or after is None or after > self.sequence or (self.events and after < self.events[0]["sequence"]-1)
@@ -151,8 +256,9 @@ class Agent:
             self.ensure_demo()
             if len(self.store["tasks"]) >= MAX_TASKS: raise RpcError("invalid_state", "演示任务预算已满")
             metrics = {k:None for k in self.schema["$defs"]["metrics"]["properties"]}
-            t = dict(transfer_id=uid(), revision=0, adapter="demo", state="queued", direction=p["direction"], source=p["source"], destination=p["destination"], policy=p["policy"], actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown", fallback_reason=None, attempt=dict(attempt_id=uid(), attempt_number=1, state="queued", cancel_requested=False, started_at=None, ended_at=None), metrics=metrics, recovery=dict(eligibility="unknown", checkpoint_id=None, reason=None), scan_complete=False, commit_confirmed=False, transfer_status="pending", integrity_status="pending", evidence_status="pending", error=None)
+            t = dict(transfer_id=uid(), revision=0, adapter="demo", state="queued", direction=p["direction"], source=p["source"], destination=p["destination"], policy=p["policy"], actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown", fallback_reason=None, attempt=dict(attempt_id=uid(), attempt_number=1, state="queued", cancel_requested=False, started_at=None, ended_at=None, quiescence="not_applicable"), effective_policy=self.pending_policy(), metrics=metrics, recovery=dict(eligibility="unknown", checkpoint_id=None, reason=None), scan_complete=False, commit_confirmed=False, transfer_status="pending", integrity_status="pending", evidence_status="pending", error=None)
             self.store["tasks"][t["transfer_id"]] = t
+            self.store["attempt_history"][t["transfer_id"]] = [copy.deepcopy(t["attempt"])]
             self.emit(t); result = self.snapshot(t)
         else:
             self.ensure_demo(); t = self.task(p)
@@ -161,16 +267,16 @@ class Agent:
             if method == "transfer.cancel":
                 if t["state"] in TERMINAL: outcome = "already_terminal"
                 elif t["state"] == "queued":
-                    t.update(state="cancelled"); t["attempt"].update(state="cancelled", ended_at=now()); self.emit(t)
+                    t.update(state="cancelled"); t["attempt"].update(state="cancelled", ended_at=now(), quiescence="confirmed"); self.emit(t)
                 else:
-                    t["attempt"].update(state="cancelling", cancel_requested=True); self.emit(t)
+                    t["attempt"].update(state="cancelling", cancel_requested=True, quiescence="pending"); self.emit(t)
             elif method == "transfer.start":
                 if t["state"] in ACTIVE: outcome = "already_running"
                 elif t["state"] != "queued": raise RpcError("invalid_state", "请按恢复资格使用恢复")
                 else: self.begin(t)
             elif method == "transfer.resume":
                 if t["state"] not in TERMINAL or t["recovery"]["eligibility"] != "eligible" or p["checkpoint_id"] != t["recovery"]["checkpoint_id"]: raise RpcError("checkpoint_missing", "没有符合资格的演示checkpoint")
-                t["attempt"] = dict(attempt_id=uid(), attempt_number=t["attempt"]["attempt_number"]+1, state="queued", cancel_requested=False, started_at=None, ended_at=None)
+                t["attempt"] = dict(attempt_id=uid(), attempt_number=t["attempt"]["attempt_number"]+1, state="queued", cancel_requested=False, started_at=None, ended_at=None, quiescence="not_applicable")
                 t.update(error=None, transfer_status="pending", integrity_status="pending", evidence_status="pending")
                 self.begin(t)
             result = dict(kind="operation", outcome=outcome, snapshot=copy.deepcopy(t))
@@ -178,7 +284,7 @@ class Agent:
         self.save()
         return result
     def begin(self, t):
-        if t["policy"]["requested_mode"] == "v2" and t["policy"]["fallback_policy"] == "reject": raise RpcError("capability_mismatch", "演示仅模拟V1；V2能力未实现且禁止回退")
+        if t["policy"]["requested_mode"] in {"auto","v2"} and t["policy"]["fallback_policy"] == "reject": raise RpcError("capability_mismatch", "演示 adapter 仅模拟 V1；请求禁止回退")
         t.update(state="scanning", actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown", fallback_reason=None)
         t["attempt"].update(state="running", started_at=now(), ended_at=None)
         self.emit(t)
@@ -194,7 +300,8 @@ class Agent:
                     t["metrics"].update(files_total=4, files_committed=0, files_failed=0, files_skipped=0, bytes_total=4194304, bytes_transferred=0, bytes_verified=0, bytes_committed=0)
                 if phase == "transferring":
                     t.update(actual_mode="v1", actual_scheduler="static", actual_range_policy="file")
-                    if t["policy"]["requested_mode"] in ["auto", "v2"]: t["fallback_reason"] = dict(code="mode_unsupported", message="演示adapter仅模拟V1；不代表真实引擎协商", required=["v2"], available=["v1-demo"])
+                    if t["policy"]["requested_mode"] in ["auto", "v2"]: t["fallback_reason"] = dict(code="mode_unsupported", message="演示 adapter 仅模拟 V1；不代表真实引擎协商", required=[t["policy"]["requested_mode"]], available=["v1-demo"])
+                    t["effective_policy"] = dict(resolution="resolved",mode="v1",scheduler="static",range_policy="file",checksum="crc32c" if t["policy"]["checksum_policy"]=="required_crc32c" else "none",resume_enabled=t["policy"]["resume_policy"]!="never",control_tls="verified",data_tls="verified" if t["policy"]["data_tls"]=="required" else "off",channel_count=1,applied_at=now())
                     t["metrics"].update(channel_count_active=1, data_connections=1, queue_depth_current=4)
                 self.emit(t)
             for index in range(1, 9):
@@ -220,7 +327,7 @@ class Agent:
     def finish_cancel(self, t):
         if not t["attempt"]["cancel_requested"]: return False
         t.update(state="cancelled", transfer_status="fail")
-        t["attempt"].update(state="cancelled", ended_at=now()); self.checkpoint(t); self.emit(t); return True
+        t["attempt"].update(state="cancelled", ended_at=now(), quiescence="confirmed"); self.checkpoint(t); self.emit(t); return True
 
 class Client:
     def __init__(self, agent, reader, writer):

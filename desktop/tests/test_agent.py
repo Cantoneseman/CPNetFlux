@@ -107,6 +107,9 @@ class AgentTests(unittest.TestCase):
         resumed = self.mutate("transfer.resume", t, checkpoint_id=t["recovery"]["checkpoint_id"])["result"]["snapshot"]
         self.assertNotEqual(resumed["attempt"]["attempt_id"], old)
         self.assertEqual(self.terminal(resumed)["state"], "completed")
+        attempts=self.p.call("attempt.list",{"transfer_id":t["transfer_id"],"cursor":None,"limit":20})["result"]
+        self.assertEqual(len(attempts["items"]),2)
+        self.assertEqual({a["attempt_number"] for a in attempts["items"]},{1,2})
     def test_cancel_is_real_for_demo_and_terminal_is_preserved(self):
         t = self.create(); t = self.mutate("transfer.start", t)["result"]["snapshot"]
         t = self.mutate("transfer.cancel", t)["result"]["snapshot"]
@@ -133,6 +136,33 @@ class AgentTests(unittest.TestCase):
         self.assertNotEqual(reset["agent_epoch"], sub["agent_epoch"])
         self.assertEqual(len(reset["snapshots"]), 1)
         self.assertNotEqual(reset["snapshots"][0]["state"], "completed")
+        attempts=self.p.call("attempt.list",{"transfer_id":t["transfer_id"],"cursor":None,"limit":20})["result"]["items"]
+        self.assertEqual(len(attempts),1)
+        self.assertEqual(attempts[0]["state"],"recoverable")
+        self.assertEqual(attempts[0]["quiescence"],"confirmed")
+    def test_api_v2_handshake_and_snapshot_pagination(self):
+        info=self.p.call("agent.getInfo",{})["result"]
+        self.assertEqual(info["api_version"],"2.0.0")
+        self.assertEqual(info["max_frame_bytes"],1024*1024)
+        t=self.create()
+        self.assertEqual(t["effective_policy"]["resolution"],"pending")
+        first=self.p.call("file.list",{"transfer_id":t["transfer_id"],"attempt_id":t["attempt"]["attempt_id"],"cursor":None,"limit":2})["result"]
+        self.assertEqual(len(first["items"]),2)
+        self.assertIsNotNone(first["next_cursor"])
+        second=self.p.call("file.list",{"transfer_id":t["transfer_id"],"attempt_id":t["attempt"]["attempt_id"],"cursor":first["next_cursor"],"limit":2})["result"]
+        self.assertEqual(second["snapshot_id"],first["snapshot_id"])
+        self.assertEqual(second["snapshot_sequence"],first["snapshot_sequence"])
+        self.assertNotEqual(first["items"][0]["file_id"],second["items"][0]["file_id"])
+        mismatch=self.p.call("file.list",{"transfer_id":t["transfer_id"],"attempt_id":t["attempt"]["attempt_id"],"cursor":first["next_cursor"],"limit":1})
+        self.assertEqual(mismatch["error"]["data"]["code"],"cursor_expired")
+        ranges=self.p.call("range.list",{"transfer_id":t["transfer_id"],"attempt_id":t["attempt"]["attempt_id"],"file_id":first["items"][0]["file_id"],"generation":1,"cursor":None,"limit":20})["result"]
+        self.assertEqual(ranges["kind"],"range_list")
+        caps=self.p.call("node.capabilities",{"node_id":"demo"})["result"]
+        self.assertEqual(caps["modes"],[])
+        self.assertEqual(caps["mode_capabilities"],[])
+        attempts=self.p.call("attempt.list",{"transfer_id":t["transfer_id"],"cursor":None,"limit":20})["result"]
+        self.assertIsNone(attempts["attempt_id"])
+        self.assertEqual(attempts["items"][0]["attempt_id"],t["attempt"]["attempt_id"])
     def test_profile_secrets_and_real_probe_unsupported(self):
         profile = next(v["message"]["params"] for v in FIXTURES["valid"] if v["name"] == "profile.create")
         p = json.loads(json.dumps(profile)); p["profile"]["token"] = "forbidden-secret"
