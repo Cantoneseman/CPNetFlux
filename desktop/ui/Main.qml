@@ -166,10 +166,10 @@ ApplicationWindow {
                     }
                 }
                 // 2: detail
-                ScrollView { clip:true
-                    ColumnLayout { width:parent.width; spacing:14
+                ScrollView { id:detailScroll; objectName:"detailScroll"; clip:true; contentWidth:availableWidth
+                    ColumnLayout { width:detailScroll.availableWidth; spacing:14
                         Muted { visible:!window.selectedTask; text:"尚无任务，请先创建一项传输任务。" }
-                        Card { visible:!!window.selectedTask; Layout.fillWidth:true; implicitHeight:480
+                        Card { visible:!!window.selectedTask; Layout.fillWidth:true; implicitHeight:720
                             ColumnLayout { anchors.fill:parent; anchors.margins:22; spacing:12
                                 Heading { text:window.selectedTask?window.stateName(window.selectedTask.state):"无任务" }
                                 Muted { Layout.fillWidth:true; text:window.selectedTask ? (window.selectedTask.direction==="upload"?"上传":"下载")+" · "+window.selectedTask.source.path+" → "+window.selectedTask.destination.path : "" }
@@ -198,8 +198,8 @@ ApplicationWindow {
                     }
                 }
                 // 3: profiles
-                ScrollView { clip:true
-                    ColumnLayout { width:parent.width; spacing:14
+                ScrollView { id:profileScroll; clip:true; contentWidth:availableWidth
+                    ColumnLayout { width:profileScroll.availableWidth; spacing:14
                         Card { Layout.fillWidth:true; implicitHeight:580
                             ColumnLayout { anchors.fill:parent; anchors.margins:22; spacing:10
                                 Heading { text:"节点连接配置" }
@@ -239,8 +239,8 @@ ApplicationWindow {
                     Item { Layout.fillHeight:true }
                 } }
                 // 5: history
-                ScrollView { clip:true
-                    ColumnLayout { width:parent.width; spacing:12
+                ScrollView { id:historyScroll; clip:true; contentWidth:availableWidth
+                    ColumnLayout { width:historyScroll.availableWidth; spacing:12
                         Muted { Layout.fillWidth:true; text:"历史由agent持久保存。agent重启后运行任务标记可恢复，需手动恢复；当前 checkpoint 只记录模拟状态，不代表真实文件已校验。" }
                         Repeater { model:rpc.tasks
                             Card { required property var modelData; Layout.fillWidth:true; implicitHeight:95; visible:window.terminal(modelData.state)
@@ -262,9 +262,9 @@ ApplicationWindow {
                     Muted { Layout.fillWidth:true; text:"V2负责传输事务；V3负责有界动态环状队列及自适应range调度。此切片不模拟V3范围调度，不宣称V2可靠性可用。" }
                     Label { text:"当前服务支持：V1 生命周期 / 文件级状态 / 单模拟通道" }
                     Label { text:"V2 checksum / resume / data TLS：未接入"; color:"#a46a1b" }
-                    Label { text:"V3动态队列 / range striping：未接入"; color:"#a46a1b" }
+                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"V3 range striping 当前未接入桌面客户端；选择请求参数不会启动 range 并行传输。"; color:"#a46a1b" }
                     ComboBox { model:["通道自动选择（请求）"]; enabled:false }
-                    ComboBox { model:["range policy 自动（请求）"]; enabled:false }
+                    ComboBox { model:["range policy：桌面客户端未接入"]; enabled:false; Layout.fillWidth:true }
                     Muted { Layout.fillWidth:true; text:"速度、ETA和阶段耗时未观测时显示未知。暂停不支持；恢复按钮只用于agent实际实现的demo checkpoint。真实安全策略须由权威底层协商后回读。" }
                     Item { Layout.fillHeight:true }
                 } }

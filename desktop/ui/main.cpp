@@ -16,6 +16,7 @@ int main(int argc,char** argv) {
     parser.addOption({"page","初始页面0..6","number","0"});
     parser.addOption({"window-width","启动窗口宽度","pixels","1180"});
     parser.addOption({"window-height","启动窗口高度","pixels","780"});
+    parser.addOption({"layout-report","输出详情页滚动视口诊断"});
     parser.process(app);
     RpcClient rpc(parser.value("socket"));
     QQmlApplicationEngine engine; engine.rootContext()->setContextProperty("rpc",&rpc);
@@ -30,6 +31,10 @@ int main(int argc,char** argv) {
         bool ok=window && rpc.snapshotCount() >= 0;
         if(parser.isSet("screenshot") && window) window->grabWindow().save(parser.value("screenshot"));
         qInfo("desktop smoke: connected=%d snapshots=%d",rpc.connected(),rpc.snapshotCount());
+        if(parser.isSet("layout-report")) {
+            auto detail=engine.rootObjects().first()->findChild<QObject*>("detailScroll");
+            if(detail) qInfo("detail scroll: viewport=%f content=%f",detail->property("availableHeight").toReal(),detail->property("contentHeight").toReal());
+        }
         app.exit(ok?0:3);
     });
     return app.exec();

@@ -30,9 +30,14 @@ with tempfile.TemporaryDirectory() as tmp:
         for page in range(7):
             for width, height in [(1180, 780), (900, 650), (760, 560)]:
                 screenshot=root/(str(page)+"-"+str(width)+".png")
-                result=subprocess.run([binary,"--socket",str(path),"--page",str(page),"--window-width",str(width),"--window-height",str(height),"--smoke-ms","900","--screenshot",str(screenshot)], env=env, capture_output=True, text=True, timeout=8)
+                result=subprocess.run([binary,"--socket",str(path),"--page",str(page),"--window-width",str(width),"--window-height",str(height),"--smoke-ms","900","--screenshot",str(screenshot)] + (["--layout-report"] if page == 2 else []), env=env, capture_output=True, text=True, timeout=8)
                 assert result.returncode==0, str(result.returncode)+result.stderr
                 assert "snapshots=1" in result.stderr, result.stderr
+                if page == 2:
+                    assert "detail scroll: viewport=" in result.stderr, result.stderr
+                    values=result.stderr.split("detail scroll: viewport=",1)[1].splitlines()[0]
+                    fields=values.split("content="); viewport=float(fields[0].strip()); content=float(fields[1])
+                    assert content > viewport, "detail body must scroll: " + values
                 for marker in ["TypeError", "ReferenceError", "is not installed", "Cannot assign", "Binding loop", "failed to load"]:
                     assert marker not in result.stderr, result.stderr
                 if screenshot.exists() and screenshot.stat().st_size:
