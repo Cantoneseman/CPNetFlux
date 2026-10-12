@@ -26,3 +26,8 @@ install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/cpnetflux-agent-installed" DESTINA
 install(FILES agent/cpnetflux_agent.py DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/cpnetflux/agent)
 install(FILES schemas/desktop-agent.schema.json DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/cpnetflux/schemas)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/cpnetflux-desktop.desktop" DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+
+add_executable(cpnetflux-desktop-rpc-tests tests/rpc_client_test.cpp ui/rpc_client.cpp ui/rpc_client.h)
+target_link_libraries(cpnetflux-desktop-rpc-tests PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME desktop-rpc-behavior COMMAND cpnetflux-desktop-rpc-tests)
+set_tests_properties(desktop-rpc-behavior PROPERTIES TIMEOUT 30)

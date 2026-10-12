@@ -18,6 +18,9 @@ ApplicationWindow {
         return rpc.tasks.length ? rpc.tasks[0] : null
     }
     property var pageTitles: ["传输任务", "新建传输", "任务详情", "节点设置", "远端目录", "历史与恢复", "高级设置"]
+    function taskStateName(task) {
+        return stateName(task.state) + (task.state === "completed" && task.metrics.files_skipped > 0 ? "（含跳过）" : "")
+    }
     function stateName(s) {
         return ({queued:"排队中", scanning:"扫描中", connecting:"连接中", negotiating:"协商中", transferring:"传输中", committing:"提交中", completed:"演示完成", failed:"演示失败", cancelled:"演示已取消", recoverable:"可恢复", paused:"已暂停"})[s] || "未知"
     }
@@ -70,11 +73,11 @@ ApplicationWindow {
                 Heading { text: window.pageTitles[window.page] }
                 Item { Layout.fillWidth:true }
                 Label { text: rpc.connected ? "● 本地 agent 已连接" : "● agent 离线 / 重连中"; color:rpc.connected?"#267a5a":"#a64b31" }
-                Button { text:"刷新"; enabled:rpc.connected; onClicked:rpc.refresh() }
+                Button { text:"刷新"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.refresh() }
             }
             Rectangle {
                 Layout.fillWidth:true; implicitHeight:64; radius:8; color:"#fff1d7"
-                Label { anchors.fill:parent; anchors.margins:12; text:"演示数据 · 不读取、不发送任何真实文件。完成、失败、取消和恢复均为演示状态。\n真实传输 adapter、服务器探测与安全凭据尚未接入。"; color:"#83551e"; wrapMode:Text.WordWrap }
+                Label { anchors.fill:parent; anchors.margins:12; text:rpc.demoAdapter ? "演示数据 · 不读取、不发送任何真实文件。完成、失败、取消和恢复均为演示状态。" : "真实传输 adapter 尚未接入；创建/开始真实任务不可用。服务器探测和安全凭据待实现。CLI 可用于已认证传输。"; color:"#83551e"; wrapMode:Text.WordWrap }
             }
             Muted { Layout.fillWidth:true; text:rpc.message; maximumLineCount:2; elide:Text.ElideRight }
             StackLayout {
@@ -93,7 +96,7 @@ ApplicationWindow {
                             ColumnLayout { anchors.fill:parent; anchors.margins:24
                                 Heading { text:"开始体验一次目录传输" }
                                 Muted { Layout.fillWidth:true; text:"创建演示任务后点击开始。关闭窗口再打开，agent 中的演示任务仍会继续。实际节点需要先部署受控服务端。" }
-                                Button { text:"创建第一项演示任务"; enabled:rpc.connected && rpc.capabilities.adapter==="demo"; onClicked:rpc.demo() }
+                                Button { text:"创建第一项演示任务"; enabled:rpc.apiCompatible && !rpc.stale && rpc.demoAdapter; onClicked:rpc.demo() }
                             }
                         }
                         Repeater {
@@ -103,7 +106,7 @@ ApplicationWindow {
                                 Layout.fillWidth:true; implicitHeight:165
                                 ColumnLayout { anchors.fill:parent; anchors.margins:18; spacing:8
                                     RowLayout { Layout.fillWidth:true
-                                        Label { text:(modelData.direction==="upload"?"↑ 上传":"↓ 下载")+" · "+window.stateName(modelData.state); font.bold:true; color:"#14233b" }
+                                        Label { text:(modelData.direction==="upload"?"↑ 上传":"↓ 下载")+" · "+window.taskStateName(modelData); font.bold:true; color:"#14233b" }
                                         Item { Layout.fillWidth:true }
                                         Label { text:"演示数据"; color:"#a46a1b" }
                                         Button { text:"查看详情"; onClicked:window.selectTask(modelData) }
@@ -143,7 +146,7 @@ ApplicationWindow {
                                     ComboBox { id:scenario; model:["正常完成","中途失败，可恢复"]; Layout.fillWidth:true }
                                 }
                                 Muted { Layout.fillWidth:true; text:"请求：校验 CRC32C、控制 TLS 验证、数据 TLS 必需。演示不代表这些能力已实现；真实执行前必须协商。V2 引擎与 V3 调度分别表示。" }
-                                Button { objectName:"createButton"; text:"创建演示任务（排队）"; highlighted:true; enabled:rpc.connected && rpc.capabilities.adapter==="demo"
+                                Button { objectName:"createButton"; text:"创建演示任务（排队）"; highlighted:true; enabled:rpc.apiCompatible && !rpc.stale && rpc.demoAdapter
                                     onClicked:{ rpc.create(direction.currentIndex===0?"upload":"download",localPath.text,remotePath.text,scenario.currentIndex===1,["auto","v1","v2"][mode.currentIndex]); window.page=0 }
                                 }
                             }
@@ -156,11 +159,11 @@ ApplicationWindow {
                         Muted { visible:!window.selectedTask; text:"尚无任务，请先创建演示传输。" }
                         Card { visible:!!window.selectedTask; Layout.fillWidth:true; implicitHeight:480
                             ColumnLayout { anchors.fill:parent; anchors.margins:22; spacing:12
-                                Heading { text:window.selectedTask?window.stateName(window.selectedTask.state):"无任务" }
+                                Heading { text:window.selectedTask?window.taskStateName(window.selectedTask):"无任务" }
                                 Muted { Layout.fillWidth:true; text:window.selectedTask ? (window.selectedTask.direction==="upload"?"上传":"下载")+" · "+window.selectedTask.source.path+" → "+window.selectedTask.destination.path : "" }
                                 Label { text:window.selectedTask?"请求引擎 "+window.selectedTask.policy.requested_mode+" / 实际引擎 "+window.selectedTask.actual_mode+"（演示模拟）":""; color:"#274970" }
                                 Label { visible:!!window.selectedTask; text:"详情状态："+rpc.detailStatus+" · "+(rpc.stale?"stale / 待重连":"当前 agent epoch")+" · "+rpc.detailWatermark; color:rpc.stale?"#a64b31":"#657389"; elide:Text.ElideRight }
-                                RowLayout { visible:!!window.selectedTask; Button { text:"加载 attempt / file 分页"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) } Button { text:"继续加载 file"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() } Button { text:"加载 range"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() } }
+                                RowLayout { visible:!!window.selectedTask; Button { text:"加载 attempt / file 分页"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) } Button { text:"继续加载 attempt"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextAttempts() } Button { text:"继续加载 file"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() } Button { text:"加载 range"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() } }
                                 Label { visible:!!window.selectedTask; text:"attempt "+rpc.attempts.length+" · file "+rpc.files.length+" · range "+rpc.ranges.length+"（未知字段保持未知）"; color:"#657389" }
                                 Muted { Layout.fillWidth:true; text:window.selectedTask?"V3 调度请求 "+window.selectedTask.policy.scheduler+" / 实际 "+window.selectedTask.actual_scheduler+"；range策略 "+window.selectedTask.actual_range_policy:"" }
                                 Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#a56b20"; text:window.selectedTask && window.selectedTask.fallback_reason ? "回退原因："+window.selectedTask.fallback_reason.message : "回退原因：尚无 / 未协商" }
@@ -173,10 +176,10 @@ ApplicationWindow {
                                 Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#b34236"; text:window.selectedTask && window.selectedTask.error ? window.selectedTask.error.message : ""; visible:text.length>0 }
                                 Muted { text:window.selectedTask?"恢复资格："+({unknown:"未知",eligible:"可恢复（演示）",ineligible:"不可恢复"})[window.selectedTask.recovery.eligibility]+" · attempt "+window.selectedTask.attempt.attempt_number:"" }
                                 RowLayout {
-                                    Button { objectName:"startButton"; text:"开始演示"; highlighted:true; enabled:rpc.connected && window.selectedTask && window.selectedTask.state==="queued"; onClicked:rpc.action("transfer.start",window.selectedTask) }
-                                    Button { text:"取消演示"; enabled:rpc.connected && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.cancel",window.selectedTask) }
-                                    Button { text:"暂停 · 不支持"; enabled:rpc.connected && !!rpc.capabilities.pause_supported && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.pause",window.selectedTask) }
-                                    Button { text:"恢复演示"; enabled:rpc.connected && !!rpc.capabilities.resume_supported && window.selectedTask && window.selectedTask.recovery.eligibility==="eligible" && window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.resume",window.selectedTask) }
+                                    Button { objectName:"startButton"; text:"开始演示"; highlighted:true; enabled:rpc.apiCompatible && !rpc.stale && window.selectedTask && window.selectedTask.state==="queued"; onClicked:rpc.action("transfer.start",window.selectedTask) }
+                                    Button { text:"取消演示"; enabled:rpc.apiCompatible && !rpc.stale && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.cancel",window.selectedTask) }
+                                    Button { text:"暂停 · 不支持"; enabled:rpc.apiCompatible && !rpc.stale && !!rpc.capabilities.pause_supported && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.pause",window.selectedTask) }
+                                    Button { text:"恢复演示"; enabled:rpc.apiCompatible && !rpc.stale && rpc.demoAdapter && window.selectedTask && window.selectedTask.recovery.eligibility==="eligible" && window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.resume",window.selectedTask) }
                                 }
                             }
                         }
@@ -202,11 +205,11 @@ ApplicationWindow {
                                     Label { text:"凭据引用" } TextField { id:credentialRef; text:"secret-service:cpnetflux/lab-node"; placeholderText:"仅引用，禁止填写凭据值"; Layout.fillWidth:true }
                                 }
                                 RowLayout {
-                                    Button { text:"保存配置"; enabled:rpc.connected && port.acceptableInput; onClicked:{
+                                    Button { text:"保存配置"; enabled:rpc.apiCompatible && !rpc.stale && port.acceptableInput; onClicked:{
                                         var update=false; for(var i=0;i<rpc.profiles.length;i++) if(rpc.profiles[i].node_id===nodeId.text) update=true
                                         rpc.saveProfile({node_id:nodeId.text,name:nodeName.text,host:host.text,control_port:parseInt(port.text),server_name:serverName.text,ca_path:ca.text,auth_mode:["token","admin_credential","anonymous"][auth.currentIndex],credential_ref:auth.currentIndex===2?null:credentialRef.text,default_root_id:rootPath.text},update)
                                     } }
-                                    Button { text:"分步连接检查"; enabled:rpc.connected; onClicked:rpc.testNode(nodeId.text,rootPath.text) }
+                                    Button { text:"分步连接检查"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.testNode(nodeId.text,rootPath.text) }
                                 }
                                 Repeater { model:[{key:"dns_control_port",name:"① DNS / 控制端口"},{key:"tls_identity",name:"② TLS服务端身份"},{key:"login",name:"③ 登录"},{key:"capabilities",name:"④ 能力协商"},{key:"directory_permission",name:"⑤ 目录读写授权"},{key:"data_port",name:"协商数据端口"}]
                                     Label { required property var modelData; text:modelData.name+"："+(rpc.checks[modelData.key]?"未接入（unsupported）":"尚未检查 / 未接入"); color:"#657389" }
@@ -231,7 +234,7 @@ ApplicationWindow {
                             Card { required property var modelData; Layout.fillWidth:true; implicitHeight:95; visible:window.terminal(modelData.state)
                                 RowLayout { anchors.fill:parent; anchors.margins:18
                                     ColumnLayout { Layout.fillWidth:true
-                                        Label { text:window.stateName(modelData.state)+" · 演示数据"; font.bold:true }
+                                        Label { text:window.taskStateName(modelData)+" · 演示数据"; font.bold:true }
                                         Muted { text:modelData.source.path; elide:Text.ElideMiddle; Layout.fillWidth:true }
                                     }
                                     Label { text:modelData.recovery.eligibility==="eligible"?"可恢复":"不可恢复"; color:"#657389" }

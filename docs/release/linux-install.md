@@ -9,9 +9,11 @@
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DCPNETFLUX_ENABLE_TLS=ON -DCPNETFLUX_BUILD_DESKTOP=ON
 cmake --build build -j2
-ctest --test-dir build --output-on-failure
+CPNETFLUX_TEST_TOKEN="$(openssl rand -hex 32)" ctest --test-dir build --output-on-failure
 python3 tools/release/create_linux_packages.py --build-dir build --output-dir /absolute/output
 ```
+
+上述 token 是仅供 loopback CTest 的一次性测试值，不是部署凭据，不要复用。
 
 打包器要求干净的已提交输入，并核对 build-info.json 的 source_revision。产出 TGZ、DEB、linux-package-manifest.json、SHA256SUMS。客户端/服务命令安装在 bin；不安装 benchmark、测试、凭据、payload。未配置 maintainer scripts，不自动创建用户、启动服务或开放端口。
 

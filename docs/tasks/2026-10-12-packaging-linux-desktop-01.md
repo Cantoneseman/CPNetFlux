@@ -43,3 +43,23 @@ SHA256 ee356cd848812a9773b6c9f63bbf6ae32c4e918fe1e92c7b02592d168aefcef2；
 artifacts/cpnetflux_0.1.0+git.0ef9f35e1085_amd64.deb
 SHA256 c982ad9a228bcb3ed8b79ae43519a2821f612e1071ecfaecb216320d7b0f533b。
 限制：仅Ubuntu22.04/x86_64现场验证、动态系统库依赖；桌面真实adapter未接入；无LICENSE，不是公开发行。下一阶段DESKTOP-01修复UI行为，在独立worktree串行执行并更新最终安装包。
+
+## DESKTOP-01 实现与验收准备（2026-10-12）
+
+独立 worktree：/tmp/cpnetflux-runs/DESKTOP-01/src；分支 codex/DESKTOP-01；输入 7bfaeac91922fbc17f6e36886d78dbf7c36d1c68。
+本阶段是 Linux Qt/API2 壳与安装闭环，不是完整真实双机 GUI。剩余产品能力明确拆为 DESKTOP-SECRETSTORE-01、DESKTOP-ADAPTER-01、DESKTOP-LIVE-ACCEPT-01，均 pending；不向其他聊天派单。
+
+行为回归先红后绿：初始四项暴露 refresh/epoch reset不收敛、独立实体snapshot被丢弃、旧请求污染详情、gap reset不收敛；修复后通过。完成闭合增加 files_skipped。自审新增两项，在旧逻辑上分别失败于伪造completed被接受、transfer.snapshot忽略；修复后八项C++场景通过。
+新增完成证据校验拒绝error、负数/非整数/超出JSON安全整数、checksum或TLS降级；事件envelope身份须匹配payload，attempt编号不变不得更换ID。UI显示“完成（含跳过）”。
+独立Qt四项CTest 4/4通过（11.32秒）；API不兼容与离线smoke返回3，agent同步后才返回0。无物理图形会话，不宣称用户交互或真实传输验收。
+整合构建/安装已验收；最终包结果待下方补齐。
+
+离屏软件平台实际截图请求没有输出PNG；宿主机无Xvfb，不补装系统软件。修正smoke：截图保存失败显式exit4；七页面门只声称QML加载/同步、无binding错误，不声称像素或实际交互验收。
+
+## DESKTOP-01 代码门（2026-10-12）
+
+Release/TLS=ON/desktop=ON/io_uring=ON，整合构建路径 /tmp/cpnetflux-runs/DESKTOP-01/build-core。定向24项首轮23pass，token smoke因未设置CPNETFLUX_TEST_TOKEN失败；仅子进程注入随机一次性测试token后重跑通过，不是部署凭据。
+最后一次全量CTest：295/295 pass、0fail、0skip，86.01秒；桌面4/4 pass，包含八个C++RPC场景。既有PACKAGING的1项skip是当时io_uring编译OFF，不能当作本轮skip。
+最终DESTDIR安装门通过：CLI帮助/API2真实agent/真实create拒绝unsupported/socket0600与退出清理/安装后Qt兼容同步。systemd隔离路径verify exit0，仅宿主机已有snapd RestartMode警告，未安装或启动unit。
+strict sanitized hygiene已通过（471文件），无凭据/构建/payload；diff check使用历史CRLF兼容设置。头less截图无法验收，如上明确分报。
+证据：build-core.log、targeted-tests.log、targeted-token-retry.log、desktop-final-tests.log、full-ctest-final.log、installed-tests-final.log、unit-verify.log、hygiene-precommit.log，均位于 /tmp/cpnetflux-runs/DESKTOP-01。

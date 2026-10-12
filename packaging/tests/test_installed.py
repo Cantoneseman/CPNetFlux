@@ -40,6 +40,9 @@ with tempfile.TemporaryDirectory() as tmp:
                 create=next(x["message"]["params"] for x in fixture["valid"] if x["name"]=="transfer.create")
                 error=rpc("transfer.create",create)["error"]
                 assert error["data"]["code"]=="unsupported","real create must fail closed"
+        env=dict(os.environ,QT_QPA_PLATFORM="offscreen",QT_QUICK_BACKEND="software",QT_QUICK_CONTROLS_STYLE="Fusion")
+        ui=subprocess.run([str(prefix/"bin/cpnetflux-desktop"),"--socket",str(path),"--smoke-ms","400"],env=env,capture_output=True,text=True,timeout=8)
+        assert ui.returncode==0 and "compatible=1 stale=0" in ui.stderr,ui.stderr
         assert path.stat().st_mode & 0o777 == 0o600
     finally:
         agent.terminate(); agent.communicate(timeout=5)

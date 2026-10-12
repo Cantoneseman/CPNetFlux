@@ -1,6 +1,6 @@
 # CPNetFlux Linux Desktop Shell
 
-本目录是 CPNetFlux Linux 桌面端原型，包含中文 Qt 6/QML UI、独立 Python `cpnetflux-agent` 和明确标注的 demo adapter。00 已冻结 `desktop-agent API 2.0.0`；当前原型尚未实现全部 2.0.0 接口，也不执行真实传输。见 `desktop/docs/rpc-contract.md` 与 `desktop/docs/acceptance.md`。
+本目录是 CPNetFlux Linux 桌面端原型，包含中文 Qt 6/QML UI、独立 Python `cpnetflux-agent` 和明确标注的 demo adapter。00 已冻结 `desktop-agent API 2.0.0`；当前壳已接入 API2 握手、任务订阅重同步、配置和实体分页；真实传输、凭据存储与网络探测仍未实现。见 `desktop/docs/rpc-contract.md` 与 `desktop/docs/acceptance.md`。
 
 ## 构建
 
@@ -11,6 +11,12 @@ cmake -S desktop -B desktop/build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build desktop/build --parallel 2
 ctest --test-dir desktop/build --output-on-failure
 ```
+
+## 安装交付
+
+整合构建使用 `-DCPNETFLUX_BUILD_DESKTOP=ON`，安装后二进制为 `cpnetflux-desktop`、`cpnetflux-agent`。
+Linux TGZ/DEB、依赖、私有用户服务和回滚步骤见 [Linux 安装说明](../docs/release/linux-install.md)。
+安装包不会自动启用服务；普通 agent 不带 `--demo`，真实方法明确返回 unsupported。
 
 ## 演示运行
 
