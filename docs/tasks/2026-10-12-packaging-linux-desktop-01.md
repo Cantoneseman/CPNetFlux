@@ -29,3 +29,17 @@ cmake --install --prefix 到隔离目录及 DESTDIR；TGZ/DEB 解包安装后启
 ## 回滚
 包与服务未自动部署到系统；删除/保留本任务隔离安装目录由调用者决定。实际部署升级前停止本服务、保留配置/状态/数据，回装上一版本，默认卸载只移除二进制不删数据。
 源码回滚用明确提交 git revert，保留根目录与其他 worktree。
+
+## PACKAGING-LINUX-01 验收（2026-10-12）
+整合无冲突：SOURCE merge f3c0db5，桌面 cherry-pick 41a9fc9/5c17eb8/d7fba6a；未触碰 root dirty。AUTH 历史 CRLF 使用 core.whitespace=cr-at-eol 检查，未全量格式化。
+代码与 GitHub 远端 SHA：0ef9f35e1085387b4f64a891de66a90aea935a5b，codex/PACKAGING-LINUX-01，push成功回读一致。
+定向38/38；全量294项：293 pass、1 FileIoTest io_uring capability skip、0 fail（84.80秒）。核心 TLS=ON/Release、Qt6.2。6项部署配置行为测试通过，额外验证未提交输入拒绝。
+DESTDIR安装、TGZ及DEB解包后命令/API2真实agent拒绝create、socket0600与退出清理通过。CLI客户端现有help返回2并输出用法，未将其误写成成功传输。
+strict sanitized source hygiene通过，470文件，无凭据/构建/payload。两包不含源码/worktree路径，依赖由dpkg-shlibdeps生成，无maintainer scripts、无自动用户/服务操作。
+原unit在未安装宿主机校验因ExecStart不存在而失败；在隔离安装路径替换ExecStart后systemd-analyze verify exit0。仅宿主机已有snapd RestartMode警告；未启用任何unit。
+证据：/tmp/cpnetflux-runs/PACKAGING-LINUX-01/{build.log,targeted-tests.log,full-ctest.log,install.log,unit-verify.log,artifacts/linux-package-manifest.json}。
+包（内部候选，未公开发布）：artifacts/cpnetflux-0.1.0+git.0ef9f35e1085-x86_64.tar.gz
+SHA256 ee356cd848812a9773b6c9f63bbf6ae32c4e918fe1e92c7b02592d168aefcef2；
+artifacts/cpnetflux_0.1.0+git.0ef9f35e1085_amd64.deb
+SHA256 c982ad9a228bcb3ed8b79ae43519a2821f612e1071ecfaecb216320d7b0f533b。
+限制：仅Ubuntu22.04/x86_64现场验证、动态系统库依赖；桌面真实adapter未接入；无LICENSE，不是公开发行。下一阶段DESKTOP-01修复UI行为，在独立worktree串行执行并更新最终安装包。

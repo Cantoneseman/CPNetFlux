@@ -1,3 +1,7 @@
+# 当前交付（2026-10-12）
+
+PACKAGING-LINUX-01 done（内部Linux候选）；DESKTOP-01 in_progress（Qt/API2可靠性与安装闭环，真实adapter另立任务）。最新整合与证据见 [交付记录](../tasks/2026-10-12-packaging-linux-desktop-01.md)。旧分支/旧源码包不代表已整合V3。
+
 # 当前执行（2026-10-11）
 
 V3-UNIFIED-01 实施中 -> V1-RETIRE-01 待能力门 -> EXP-V3-GRIDFTP-01 待代码门。用户已批准迁移 V1 全能力后删除；同一写入者在深圳隔离 worktree 执行，不修改根目录 dirty 文件。任务与回滚见 docs/tasks/2026-10-11-v3-unified-01.md。
