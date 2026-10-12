@@ -63,4 +63,4 @@
 
 ## 交接
 
-已验证：Python contract/agent 15 项、Qt offscreen 7 页面与断线握手、CMake build、CTest 3/3、CPack DEB；真实 TLS/token 目录 loopback 完成 2 个小文件（bytes 8，checksum/manifest/finalize pass）。未执行 Ubuntu 22.04 图形 VM 安装，也未启动长时性能/跨域实验。提交前仍需记录 commit、push 状态、远端 SHA 回读和上述未完成能力。
+已验证：Python contract/agent 15 项、Qt offscreen 7 页面与断线握手、CMake build、CTest 3/3、CPack DEB；真实 TLS/token 目录 loopback 完成 2 个小文件（bytes 8，checksum/manifest/finalize pass）。实现提交 feafd04affed6a98ce3d2d34a473bc6111a6131b 已推送到 origin/codex/desktop-real-transfer-01，远端 SHA 回读一致；随后本文件的交接更新作为后续提交推送。未执行 Ubuntu 22.04 图形 VM 安装，也未启动长时性能/跨域实验。
