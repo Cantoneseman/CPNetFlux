@@ -215,6 +215,35 @@ class Agent:
             args += ["--source-dir", remote["path"], "--dest-dir", str(path)]
         return [exe] + args
 
+    def apply_real_policy(self, t, summary):
+        """Copy only backend-observed facts into the public transfer snapshot.
+
+        The tree client summary is authoritative for mode/scheduler/checksum and
+        resume. TLS remains unknown because the current client summary does not
+        expose a verified handshake fact.
+        """
+        observed_mode = {"persistent_tree": "v2", "per_file": "v1"}.get(
+            summary.get("actual_mode"), "unknown")
+        observed_scheduler = {"dynamic": "dynamic_ring", "static": "static",
+                              "per_file": "static"}.get(
+            summary.get("actual_file_scheduling"), "unknown")
+        observed_checksum = {"crc32c": "crc32c", "none": "none"}.get(
+            summary.get("checksum_algorithm"), "unknown")
+        successful = summary.get("result") == "pass"
+        t["actual_mode"] = observed_mode
+        t["actual_scheduler"] = observed_scheduler
+        t["actual_range_policy"] = "file" if observed_mode != "unknown" else "unknown"
+        connections = summary.get("connections")
+        if not isinstance(connections, int) or connections < 1:
+            connections = None
+        t["effective_policy"] = dict(
+            resolution="resolved" if successful and observed_mode != "unknown" else "pending",
+            mode=observed_mode, scheduler=observed_scheduler,
+            range_policy=t["actual_range_policy"], checksum=observed_checksum,
+            resume_enabled=summary.get("resume") if isinstance(summary.get("resume"), bool) else None,
+            control_tls="unknown", data_tls="unknown", channel_count=connections,
+            applied_at=now() if successful and observed_mode != "unknown" else None)
+
     def read_real_evidence(self, t, summary):
         local = Path(t["source"]["path"] if t["direction"] == "upload" else t["destination"]["path"])
         m = t["metrics"]
@@ -469,12 +498,10 @@ class Agent:
             proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE,
                                                         stderr=asyncio.subprocess.PIPE)
             self.processes[t["transfer_id"]] = proc
-            t["state"] = "transferring"; t["scan_complete"] = True
-            t["actual_mode"] = "v2"; t["actual_scheduler"] = "dynamic_ring"; t["actual_range_policy"] = "file"
-            t["effective_policy"] = dict(resolution="resolved", mode="v2", scheduler="dynamic_ring",
-                                          range_policy="file", checksum="crc32c", resume_enabled=True,
-                                          control_tls="verified", data_tls="verified", channel_count=1,
-                                          applied_at=now())
+            t["state"] = "transferring"
+            # Do not publish requested/default policy as actual backend state.
+            # The summary is read after the process exits and is the only source
+            # used to resolve mode, scheduler, checksum, and resume.
             self.emit(t)
             stdout, stderr = await proc.communicate()
             summary_path=t["backend_evidence"].get("summary")
@@ -483,6 +510,7 @@ class Agent:
                 try: summary=json.loads(Path(summary_path).read_text())
                 except (OSError,ValueError): summary={}
             self.read_real_evidence(t,summary)
+            self.apply_real_policy(t, summary)
             if t["attempt"]["cancel_requested"]:
                 t.update(state="cancelled", transfer_status="fail", evidence_status="incomplete")
                 t["attempt"].update(state="cancelled", ended_at=now(), quiescence="confirmed")

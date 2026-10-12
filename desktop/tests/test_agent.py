@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -163,6 +164,34 @@ class AgentTests(unittest.TestCase):
         attempts=self.p.call("attempt.list",{"transfer_id":t["transfer_id"],"cursor":None,"limit":20})["result"]
         self.assertIsNone(attempts["attempt_id"])
         self.assertEqual(attempts["items"][0]["attempt_id"],t["attempt"]["attempt_id"])
+    def test_real_policy_waits_for_backend_summary(self):
+        spec = importlib.util.spec_from_file_location("cpnetflux_agent_under_test", AGENT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        agent = object.__new__(module.Agent)
+        task = {
+            "actual_mode": "unknown", "actual_scheduler": "unknown",
+            "actual_range_policy": "unknown",
+            "effective_policy": agent.pending_policy(),
+        }
+        agent.apply_real_policy(task, {})
+        self.assertEqual(task["actual_mode"], "unknown")
+        self.assertEqual(task["effective_policy"]["resolution"], "pending")
+        self.assertEqual(task["effective_policy"]["control_tls"], "unknown")
+        agent.apply_real_policy(task, {
+            "result": "pass", "actual_mode": "persistent_tree",
+            "actual_file_scheduling": "dynamic", "checksum_algorithm": "crc32c",
+            "resume": True, "connections": 1,
+        })
+        self.assertEqual(task["actual_mode"], "v2")
+        self.assertEqual(task["actual_scheduler"], "dynamic_ring")
+        self.assertEqual(task["effective_policy"]["resolution"], "resolved")
+        self.assertEqual(task["effective_policy"]["checksum"], "crc32c")
+        self.assertEqual(task["effective_policy"]["control_tls"], "unknown")
+        agent.apply_real_policy(task, {"result": "failed"})
+        self.assertEqual(task["actual_mode"], "unknown")
+        self.assertEqual(task["effective_policy"]["resolution"], "pending")
+
     def test_profile_secrets_and_real_probe_unsupported(self):
         profile = next(v["message"]["params"] for v in FIXTURES["valid"] if v["name"] == "profile.create")
         p = json.loads(json.dumps(profile)); p["profile"]["token"] = "forbidden-secret"
