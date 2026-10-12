@@ -1,6 +1,6 @@
 # 当前交付（2026-10-12）
 
-PACKAGING-LINUX-01 done（内部Linux候选）；DESKTOP-01 done（Linux Qt/API2壳与安装闭环切片，真实传输桌面产品尚未完成）。最新整合与证据见 [交付记录](../tasks/2026-10-12-packaging-linux-desktop-01.md)。旧分支/旧源码包不代表已整合V3。
+PACKAGING-LINUX-01 done（内部Linux候选）；DESKTOP-01 done（Linux Qt/API2壳与安装闭环切片，真实传输桌面产品尚未完成）。最新整合与证据见 [交付记录](../tasks/2026-10-12-packaging-linux-desktop-01.md)。最新代码/包revision：2afebf49a4091bf7fc225454453c95ee6079c3e3（codex/DESKTOP-01，GitHub SHA回读一致）。最终全量295/295、TGZ/DEB解包安装门通过。旧分支/旧源码包不代表已整合V3。
 
 待办：DESKTOP-SECRETSTORE-01（安全凭据注入）、DESKTOP-ADAPTER-01（真实探测/浏览/传输）、DESKTOP-LIVE-ACCEPT-01（物理桌面与短双机验收）；无LICENSE，包仅内部候选。
 

@@ -63,3 +63,21 @@ Release/TLS=ON/desktop=ON/io_uring=ON，整合构建路径 /tmp/cpnetflux-runs/D
 最终DESTDIR安装门通过：CLI帮助/API2真实agent/真实create拒绝unsupported/socket0600与退出清理/安装后Qt兼容同步。systemd隔离路径verify exit0，仅宿主机已有snapd RestartMode警告，未安装或启动unit。
 strict sanitized hygiene已通过（471文件），无凭据/构建/payload；diff check使用历史CRLF兼容设置。头less截图无法验收，如上明确分报。
 证据：build-core.log、targeted-tests.log、targeted-token-retry.log、desktop-final-tests.log、full-ctest-final.log、installed-tests-final.log、unit-verify.log、hygiene-precommit.log，均位于 /tmp/cpnetflux-runs/DESKTOP-01。
+
+## 最终交付候选与 GitHub（2026-10-12）
+
+DESKTOP代码提交/远端回读：2afebf49a4091bf7fc225454453c95ee6079c3e3，codex/DESKTOP-01，push成功一致。此分支包含PACKAGING整合，后续验收记录提交不改变包代码。
+PACKAGING分支最终记录SHA：7bfaeac91922fbc17f6e36886d78dbf7c36d1c68；PACKAGING代码0ef9f35e仅代表早期包，最终使用下列2afebf49整合候选。
+
+包目录：/tmp/cpnetflux-runs/DESKTOP-01/artifacts。
+- cpnetflux-0.1.0+git.2afebf49a409-x86_64.tar.gz，3057435 bytes；
+  SHA256 e3ba70633d2fdc3ef321ff2983355dae94fd85f623411c038711eb1882a9f0de。
+- cpnetflux_0.1.0+git.2afebf49a409_amd64.deb，3058218 bytes；
+  SHA256 25589bfc761346bf304da3b65286441927492bbeadc9e83b63479e67ecd37880。
+- linux-package-manifest.json 与 SHA256SUMS 同目录；manifest固定source_revision=2afebf49a4091bf7fc225454453c95ee6079c3e3、TLS=1、desktop=ON、real_desktop_adapter=false、public_release_ready=false。
+
+TGZ和DEB均解包后安装门通过（含真实agent拒绝create、Qt API2同步）。build-info与manifest一致；包内所有文件无worktree/source路径；DEB无maintainer scripts；ELF依赖可解析；SHA256SUMS全部通过。打包后strict sanitized hygiene再次通过（471文件）。
+证据：package-build.log、package-verify.log、hygiene-final.log；隔离解包 package-unpack/，均在DESKTOP-01运行目录。
+现场平台Ubuntu22.04.5/x86_64，依赖系统动态库，不宣称跨发行版安装或生产readiness。无LICENSE、无真实adapter、无OS凭据注入、无物理桌面交互验收，不公开发行。
+下一步按DESKTOP-SECRETSTORE-01 -> DESKTOP-ADAPTER-01 -> DESKTOP-LIVE-ACCEPT-01推进；当前CLI可用于已认证传输，GUI只完成壳/演示/API安装切片。
+回滚源码使用明确git revert；部署按docs/release/linux-install.md保留状态/数据并切回上一包。未改宿主服务/防火墙，未连接上海，深圳根目录HEAD仍eaadeb24490e7e7246766efce94f01a6d41c5b68，既有dirty保留。
