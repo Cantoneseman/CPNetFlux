@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "host": "127.0.0.1",
+  "port": 2121,
+  "data_port_base": 20200,
+  "connections": 4,
+  "root": "/var/lib/cpnetflux/data",
+  "token_file": "/etc/cpnetflux/token",
+  "tls_key_file": "/etc/cpnetflux/server.key",
+  "tls_cert_file": "/etc/cpnetflux/server.crt",
+  "tls_ca_file": "/etc/cpnetflux/ca.crt",
+  "access_policy": "read-only"
+}

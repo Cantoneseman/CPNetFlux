@@ -1,0 +1,3 @@
+d /var/lib/cpnetflux 0700 cpnetflux cpnetflux -
+d /var/lib/cpnetflux/data 0700 cpnetflux cpnetflux -
+d /etc/cpnetflux 0750 root cpnetflux -

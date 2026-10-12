@@ -1,0 +1,27 @@
+[Unit]
+Description=CPNetFlux authenticated transfer service
+After=network.target
+ConditionPathExists=/etc/cpnetflux/server.json
+
+[Service]
+Type=simple
+User=cpnetflux
+Group=cpnetflux
+ExecStart=/usr/bin/cpnetflux-service --config /etc/cpnetflux/server.json
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cpnetflux
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

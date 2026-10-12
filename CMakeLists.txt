@@ -11,6 +11,8 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "CPNetFlux is Linux-only.")
 endif()
 
+option(CPNETFLUX_BUILD_DESKTOP "Build and package the Qt desktop and local agent" OFF)
+
 option(CPNETFLUX_BUILD_TESTS "Build CPNetFlux tests" ON)
 option(CPNETFLUX_ENABLE_IO_URING "Enable optional file-IO-only io_uring backend" OFF)
 option(CPNETFLUX_ENABLE_TLS "Enable optional OpenSSL control-plane TLS alpha support when available" ON)
@@ -490,4 +492,12 @@ if(CPNETFLUX_BUILD_TESTS)
         NAME cpnetflux_storage_bench_wrapper_behavior
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/benchmark/test_run_storage_bench.py --script ${PROJECT_SOURCE_DIR}/tools/benchmark/run_storage_bench.py
     )
+endif()
+
+if(CPNETFLUX_BUILD_DESKTOP)
+    add_subdirectory(desktop)
+endif()
+include(cmake/LinuxPackaging.cmake)
+if(CPNETFLUX_BUILD_TESTS)
+    add_test(NAME cpnetflux_service_config COMMAND python3 -B ${PROJECT_SOURCE_DIR}/packaging/tests/test_service.py)
 endif()

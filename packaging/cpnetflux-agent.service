@@ -1,0 +1,14 @@
+[Unit]
+Description=CPNetFlux desktop agent (real adapter unavailable)
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cpnetflux-agent
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
