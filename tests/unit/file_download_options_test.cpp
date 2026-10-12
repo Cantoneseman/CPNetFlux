@@ -50,11 +50,19 @@ TEST(FileDownloadOptionsTest, ParsesRequiredAndDefaults) {
 TEST(FileDownloadOptionsTest, ParsesExplicitOptions) {
     const std::filesystem::path ca =
         std::filesystem::temp_directory_path() / "cpnetflux-download-ca.pem";
-    {
-        std::ofstream output(ca);
-        output << "not-a-real-ca\n";
+    const std::filesystem::path cert =
+        std::filesystem::temp_directory_path() / "cpnetflux-download-cert.pem";
+    const std::filesystem::path key =
+        std::filesystem::temp_directory_path() / "cpnetflux-download-key.pem";
+    for (const auto& path : {ca, cert, key}) {
+        std::ofstream output(path);
+        output << "test fixture\n";
     }
+    std::filesystem::permissions(key, std::filesystem::perms::owner_read |
+                                       std::filesystem::perms::owner_write);
     const std::string caText = ca.string();
+    const std::string certText = cert.string();
+    const std::string keyText = key.string();
     const char* argv[] = {"cpnetflux-file-download-client",
                           "--host",
                           "<redacted>",
@@ -98,6 +106,10 @@ TEST(FileDownloadOptionsTest, ParsesExplicitOptions) {
                           "required",
                           "--tls-ca-file",
                           caText.c_str(),
+                          "--tls-cert-file",
+                          certText.c_str(),
+                          "--tls-key-file",
+                          keyText.c_str(),
                           "--transfer-id",
                           "download-token",
                           "--resume",
@@ -108,6 +120,8 @@ TEST(FileDownloadOptionsTest, ParsesExplicitOptions) {
     if (!cpnetflux::core::io::tlsSupportAvailable()) {
         EXPECT_FALSE(parsed.isOk());
         std::filesystem::remove(ca);
+        std::filesystem::remove(cert);
+        std::filesystem::remove(key);
         return;
     }
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
@@ -132,10 +146,14 @@ TEST(FileDownloadOptionsTest, ParsesExplicitOptions) {
     EXPECT_EQ(parsed.value().eventLogPath, "/tmp/cpnetflux-download-events.jsonl");
     EXPECT_EQ(parsed.value().dataTlsMode, cpnetflux::core::io::DataTlsMode::Required);
     EXPECT_EQ(parsed.value().dataTls.caFile, caText);
+    EXPECT_EQ(parsed.value().dataTls.certFile, certText);
+    EXPECT_EQ(parsed.value().dataTls.keyFile, keyText);
     EXPECT_TRUE(parsed.value().overwrite);
     EXPECT_TRUE(parsed.value().resume);
     EXPECT_EQ(parsed.value().maxChunks, 3U);
     std::filesystem::remove(ca);
+    std::filesystem::remove(cert);
+    std::filesystem::remove(key);
 }
 
 TEST(FileDownloadOptionsTest, RejectsInvalidOptions) {

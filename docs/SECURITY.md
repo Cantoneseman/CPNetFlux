@@ -2,7 +2,9 @@
 
 Phase 6A adds opt-in control-plane token authentication. Phase 6C adds
 opt-in control-plane TLS. Phase 6D adds opt-in TLS for the STOR/RETR framed
-file data channel. These are alpha operator features, not production security.
+file data channel. Phase 6E adds mutual TLS client-certificate checks and
+Phase 6F adds coarse service-wide read/write policy. These remain alpha
+operator features, not a production account or PKI system.
 LIST/NLST passive ASCII listing data remains plaintext in Phase 6D. GSI/DCAU/
 PROT, AUTH TLS, production CA management, and raw FTP TLS compatibility are not
 implemented.
@@ -20,7 +22,9 @@ Default mode remains anonymous:
 ```
 
 Anonymous mode preserves the existing `USER cpnetflux` / `PASS cpnetflux`
-placeholder behavior for demos and compatibility tests.
+placeholder behavior for demos and compatibility tests. The fixed credentials
+are public compatibility values; do not expose this mode to untrusted networks.
+For a real deployment, configure token authentication and required TLS.
 
 Token mode is explicit:
 
@@ -36,9 +40,9 @@ printf '%s\n' '<token-value>' > /tmp/cpnetflux-token.txt
   --auth-token-file /tmp/cpnetflux-token.txt
 ```
 
-The token is read once at startup. Token files must be regular files, non-empty,
-and must not be group/world accessible. Token values are not accepted directly
-on the command line.
+The token is read once at startup using a no-follow file open. Token files must
+be regular files, contain 1–4096 bytes, and must not be group/world accessible.
+Token values are not accepted directly on the command line.
 
 ## Client Login
 
@@ -107,6 +111,66 @@ Tree clients can connect to a TLS-required control server with:
 
 Token auth and TLS can be combined: TLS is established first, then the existing
 `USER token` / `PASS <token-value>` control login is performed.
+
+## Mutual TLS Client Certificates
+
+Mutual TLS is opt-in. The server requires a trusted client certificate when
+`--tls-client-auth required` is set; this also requires `--tls-mode required`
+and a CA file. The token remains the application login credential after TLS
+succeeds:
+
+```bash
+./build/cpnetflux-gridftp-server \
+  --root /srv/cpnetflux/data \
+  --tls-mode required \
+  --tls-cert-file /etc/cpnetflux/server.pem \
+  --tls-key-file /etc/cpnetflux/server-key.pem \
+  --tls-ca-file /etc/cpnetflux/client-ca.pem \
+  --tls-client-auth required \
+  --auth-mode token \
+  --auth-token-file /etc/cpnetflux/token
+```
+
+Tree clients can present their certificate and trust the server CA:
+
+```bash
+./build/cpnetflux-tree-upload-client \
+  --host transfer.example \
+  --source-dir /data/to-send \
+  --dest-dir incoming \
+  --tls-mode required \
+  --tls-ca-file /etc/cpnetflux/server-ca.pem \
+  --tls-cert-file /etc/cpnetflux/client.pem \
+  --tls-key-file /etc/cpnetflux/client-key.pem \
+  --auth-mode token \
+  --auth-token-file /etc/cpnetflux/token
+```
+
+When a client CA is configured, the client verifies that the server certificate
+matches the configured DNS name or IP address. A valid certificate only proves
+that it chains to the configured CA: this alpha does not map certificate
+subjects to CPNetFlux users, so token login is still required. Use
+`--data-tls-mode required` as well when framed STOR/RETR data sockets must
+require TLS and client certificates. The V2 persistent directory data channel
+does not yet support TLS.
+
+## Coarse Access Policy
+
+The server can apply one access policy to every authenticated session:
+
+```bash
+./build/cpnetflux-gridftp-server --root /srv/cpnetflux/data \
+  --auth-mode token --auth-token-file /etc/cpnetflux/token \
+  --access-policy read-only
+```
+
+Supported values are `read-write` (default), `read-only`, and `write-only`.
+The policy covers normal file/metadata/directory operations and the `XDIR` /
+`XDIRP` persistent directory commands. Read-only permits download resume;
+authorization is decided by the eventual `RETR` or `STOR`. Path resolution
+rejects existing symlink components below the configured root. This is a
+service-wide setting, not per-user or per-directory ACL. Keep the storage root
+owned and writable only by the service account.
 
 ## STOR/RETR Data-Channel TLS Alpha
 

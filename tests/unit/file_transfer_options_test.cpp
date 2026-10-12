@@ -89,11 +89,19 @@ TEST(FileTransferOptionsTest, ParsesClientDataFinalStatusTimeout) {
 TEST(FileTransferOptionsTest, ParsesClientOptions) {
     const std::filesystem::path ca =
         std::filesystem::temp_directory_path() / "cpnetflux-file-client-ca.pem";
-    {
-        std::ofstream output(ca);
-        output << "not-a-real-ca\n";
+    const std::filesystem::path cert =
+        std::filesystem::temp_directory_path() / "cpnetflux-file-client-cert.pem";
+    const std::filesystem::path key =
+        std::filesystem::temp_directory_path() / "cpnetflux-file-client-key.pem";
+    for (const auto& path : {ca, cert, key}) {
+        std::ofstream output(path);
+        output << "test fixture\n";
     }
+    std::filesystem::permissions(key, std::filesystem::perms::owner_read |
+                                       std::filesystem::perms::owner_write);
     const std::string caText = ca.string();
+    const std::string certText = cert.string();
+    const std::string keyText = key.string();
     const auto result = parse({"cpnetflux-file-client",
                                "--host",
                                "<redacted>",
@@ -131,6 +139,10 @@ TEST(FileTransferOptionsTest, ParsesClientOptions) {
                                "required",
                                "--tls-ca-file",
                                caText.c_str(),
+                               "--tls-cert-file",
+                               certText.c_str(),
+                               "--tls-key-file",
+                               keyText.c_str(),
                                "--corrupt-chunk",
                                "0",
                               "--duplicate-corrupt-chunk",
@@ -140,6 +152,8 @@ TEST(FileTransferOptionsTest, ParsesClientOptions) {
     if (!cpnetflux::core::io::tlsSupportAvailable()) {
         EXPECT_FALSE(result.isOk());
         std::filesystem::remove(ca);
+        std::filesystem::remove(cert);
+        std::filesystem::remove(key);
         return;
     }
     ASSERT_TRUE(result.isOk()) << result.status().message();
@@ -166,7 +180,11 @@ TEST(FileTransferOptionsTest, ParsesClientOptions) {
     EXPECT_EQ(result.value().eventLogPath, "/tmp/cpnetflux-file-client-events.jsonl");
     EXPECT_EQ(result.value().dataTlsMode, cpnetflux::core::io::DataTlsMode::Required);
     EXPECT_EQ(result.value().dataTls.caFile, caText);
+    EXPECT_EQ(result.value().dataTls.certFile, certText);
+    EXPECT_EQ(result.value().dataTls.keyFile, keyText);
     std::filesystem::remove(ca);
+    std::filesystem::remove(cert);
+    std::filesystem::remove(key);
 }
 
 TEST(FileTransferOptionsTest, ParsesServerFlags) {

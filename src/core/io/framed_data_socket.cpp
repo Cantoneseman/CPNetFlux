@@ -149,8 +149,7 @@ common::Result<FramedDataSocket> connectFramedDataSocket(const char* host, std::
     }
     TlsConfig clientConfig = tlsConfig;
     clientConfig.mode = TlsMode::Required;
-    clientConfig.certFile.clear();
-    clientConfig.keyFile.clear();
+    clientConfig.clientAuth = TlsClientAuth::None;
     const common::Status validation = validateTlsClientConfig(clientConfig);
     if (!validation.isOk()) {
         return validation;

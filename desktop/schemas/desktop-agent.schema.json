@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "CPNetFlux desktop-agent draft-1",
+  "title": "CPNetFlux desktop-agent API 2.0.0",
   "$defs": {
     "errorDetail": {
       "type": "object",
@@ -653,6 +653,13 @@
               "type": "null"
             }
           ]
+        },
+        "quiescence": {
+          "enum": [
+            "not_applicable",
+            "pending",
+            "confirmed"
+          ]
         }
       },
       "required": [
@@ -661,7 +668,8 @@
         "state",
         "cancel_requested",
         "started_at",
-        "ended_at"
+        "ended_at",
+        "quiescence"
       ],
       "additionalProperties": false
     },
@@ -846,6 +854,15 @@
               "type": "null"
             }
           ]
+        },
+        "adapter": {
+          "enum": [
+            "demo",
+            "real"
+          ]
+        },
+        "effective_policy": {
+          "$ref": "#/$defs/effectivePolicy"
         }
       },
       "required": [
@@ -868,7 +885,9 @@
         "transfer_status",
         "integrity_status",
         "evidence_status",
-        "error"
+        "error",
+        "adapter",
+        "effective_policy"
       ],
       "additionalProperties": false,
       "allOf": [
@@ -1066,6 +1085,9 @@
               "type": "null"
             }
           ]
+        },
+        "checksum": {
+          "$ref": "#/$defs/checksum"
         }
       },
       "required": [
@@ -1080,7 +1102,8 @@
         "bytes_transferred",
         "bytes_verified",
         "range_count",
-        "error"
+        "error",
+        "checksum"
       ],
       "additionalProperties": false
     },
@@ -1151,6 +1174,14 @@
               "type": "null"
             }
           ]
+        },
+        "checksum": {
+          "$ref": "#/$defs/checksum"
+        },
+        "attempt_number": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
         }
       },
       "required": [
@@ -1163,7 +1194,9 @@
         "length",
         "state",
         "bytes_transferred",
-        "error"
+        "error",
+        "checksum",
+        "attempt_number"
       ],
       "additionalProperties": false
     },
@@ -1325,6 +1358,12 @@
             "data_port"
           ],
           "additionalProperties": false
+        },
+        "adapter": {
+          "enum": [
+            "demo",
+            "real"
+          ]
         }
       },
       "required": [
@@ -1332,7 +1371,8 @@
         "node_id",
         "ready",
         "authentication",
-        "checks"
+        "checks",
+        "adapter"
       ],
       "additionalProperties": false,
       "allOf": [
@@ -1483,6 +1523,18 @@
         },
         "directory_permission_probe_supported": {
           "type": "boolean"
+        },
+        "adapter": {
+          "enum": [
+            "demo",
+            "real"
+          ]
+        },
+        "mode_capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/modeCapability"
+          }
         }
       },
       "required": [
@@ -1501,7 +1553,9 @@
         "pause_supported",
         "control_tls_verified",
         "data_tls_supported",
-        "directory_permission_probe_supported"
+        "directory_permission_probe_supported",
+        "adapter",
+        "mode_capabilities"
       ],
       "additionalProperties": false
     },
@@ -2364,6 +2418,214 @@
             "params"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "agent.getInfo"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "attempt.list"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cursor": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "transfer_id",
+                "cursor",
+                "limit"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "file.list"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cursor": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                },
+                "attempt_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "transfer_id",
+                "attempt_id",
+                "cursor",
+                "limit"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "range.list"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cursor": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                },
+                "attempt_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "file_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "generation": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "transfer_id",
+                "attempt_id",
+                "file_id",
+                "generation",
+                "cursor",
+                "limit"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -2570,6 +2832,18 @@
             },
             {
               "$ref": "#/$defs/deleted"
+            },
+            {
+              "$ref": "#/$defs/agentInfo"
+            },
+            {
+              "$ref": "#/$defs/attemptList"
+            },
+            {
+              "$ref": "#/$defs/fileList"
+            },
+            {
+              "$ref": "#/$defs/rangeList"
             }
           ]
         }
@@ -3069,6 +3343,534 @@
           "additionalProperties": false
         }
       ]
+    },
+    "effectivePolicy": {
+      "type": "object",
+      "properties": {
+        "resolution": {
+          "enum": [
+            "pending",
+            "resolved"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "unknown",
+            "v1",
+            "v2"
+          ]
+        },
+        "scheduler": {
+          "enum": [
+            "unknown",
+            "static",
+            "dynamic_ring"
+          ]
+        },
+        "range_policy": {
+          "enum": [
+            "unknown",
+            "file",
+            "range_stripe"
+          ]
+        },
+        "checksum": {
+          "enum": [
+            "unknown",
+            "none",
+            "crc32c"
+          ]
+        },
+        "resume_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "control_tls": {
+          "enum": [
+            "unknown",
+            "verified",
+            "failed"
+          ]
+        },
+        "data_tls": {
+          "enum": [
+            "unknown",
+            "off",
+            "verified",
+            "failed"
+          ]
+        },
+        "channel_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applied_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "resolution",
+        "mode",
+        "scheduler",
+        "range_policy",
+        "checksum",
+        "resume_enabled",
+        "control_tls",
+        "data_tls",
+        "channel_count",
+        "applied_at"
+      ],
+      "additionalProperties": false
+    },
+    "checksum": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "enum": [
+            "unknown",
+            "none",
+            "crc32c",
+            "sha256"
+          ]
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "actual": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "unknown",
+            "pending",
+            "pass",
+            "fail",
+            "not_requested"
+          ]
+        }
+      },
+      "required": [
+        "algorithm",
+        "expected",
+        "actual",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "modeCapability": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "v1",
+            "v2"
+          ]
+        },
+        "schedulers": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "static",
+              "dynamic_ring"
+            ]
+          }
+        },
+        "range_policies": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "file",
+              "range_stripe"
+            ]
+          }
+        },
+        "checksums": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "none",
+              "crc32c"
+            ]
+          }
+        },
+        "resume_supported": {
+          "type": "boolean"
+        },
+        "pause_supported": {
+          "type": "boolean"
+        },
+        "control_tls_verified": {
+          "type": "boolean"
+        },
+        "data_tls_supported": {
+          "type": "boolean"
+        },
+        "max_channel_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "max_pending_window": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_queue_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "mode",
+        "schedulers",
+        "range_policies",
+        "checksums",
+        "resume_supported",
+        "pause_supported",
+        "control_tls_verified",
+        "data_tls_supported",
+        "max_channel_count",
+        "max_pending_window",
+        "max_queue_depth"
+      ],
+      "additionalProperties": false
+    },
+    "agentInfo": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "agent_info"
+        },
+        "api_version": {
+          "const": "2.0.0"
+        },
+        "agent_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "agent_epoch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "adapter": {
+          "enum": [
+            "demo",
+            "real"
+          ]
+        },
+        "max_frame_bytes": {
+          "const": 1048576
+        },
+        "max_concurrent_requests": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "state_store": {
+          "enum": [
+            "volatile",
+            "persistent"
+          ]
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "profiles",
+              "node_probe",
+              "directory_browse",
+              "transfer_lifecycle",
+              "entity_pages",
+              "resume",
+              "pause",
+              "dynamic_ring",
+              "range_stripe",
+              "checksum_crc32c",
+              "control_tls",
+              "data_tls"
+            ]
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "api_version",
+        "agent_version",
+        "agent_epoch",
+        "adapter",
+        "max_frame_bytes",
+        "max_concurrent_requests",
+        "state_store",
+        "features"
+      ],
+      "additionalProperties": false
+    },
+    "attemptList": {
+      "type": "object",
+      "properties": {
+        "transfer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_epoch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "snapshot_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attempt"
+          }
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "const": "attempt_list"
+        }
+      },
+      "required": [
+        "kind",
+        "transfer_id",
+        "attempt_id",
+        "snapshot_id",
+        "agent_epoch",
+        "revision",
+        "snapshot_sequence",
+        "items",
+        "next_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "fileList": {
+      "type": "object",
+      "properties": {
+        "transfer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_epoch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "snapshot_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file"
+          }
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "const": "file_list"
+        }
+      },
+      "required": [
+        "kind",
+        "transfer_id",
+        "attempt_id",
+        "snapshot_id",
+        "agent_epoch",
+        "revision",
+        "snapshot_sequence",
+        "items",
+        "next_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "rangeList": {
+      "type": "object",
+      "properties": {
+        "transfer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_epoch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "snapshot_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/range"
+          }
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "const": "range_list"
+        },
+        "file_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "kind",
+        "transfer_id",
+        "attempt_id",
+        "file_id",
+        "generation",
+        "snapshot_id",
+        "agent_epoch",
+        "revision",
+        "snapshot_sequence",
+        "items",
+        "next_cursor"
+      ],
+      "additionalProperties": false
     }
   },
   "oneOf": [
@@ -3085,5 +3887,5 @@
       "$ref": "#/$defs/event"
     }
   ],
-  "description": "Design prototype, not backend implementation. Semantic invariants are in rpc-contract.md."
+  "description": "Frozen desktop-agent JSON-RPC contract. Shape is draft-07; cross-field semantics are enforced by offline tests."
 }

@@ -22,17 +22,25 @@ enum class DataTlsMode {
     Required,
 };
 
+enum class TlsClientAuth {
+    None,
+    Required,
+};
+
 struct TlsConfig {
     TlsMode mode = TlsMode::Off;
     std::string certFile;
     std::string keyFile;
     std::string caFile;
+    TlsClientAuth clientAuth = TlsClientAuth::None;
 };
 
 [[nodiscard]] common::Result<TlsMode> parseTlsMode(std::string_view value);
 [[nodiscard]] const char* tlsModeName(TlsMode mode) noexcept;
 [[nodiscard]] common::Result<DataTlsMode> parseDataTlsMode(std::string_view value);
 [[nodiscard]] const char* dataTlsModeName(DataTlsMode mode) noexcept;
+[[nodiscard]] common::Result<TlsClientAuth> parseTlsClientAuth(std::string_view value);
+[[nodiscard]] const char* tlsClientAuthName(TlsClientAuth mode) noexcept;
 [[nodiscard]] common::Status validateTlsServerConfig(const TlsConfig& config);
 [[nodiscard]] common::Status validateTlsClientConfig(const TlsConfig& config);
 [[nodiscard]] common::Status validateDataTlsServerConfig(TlsMode controlMode,

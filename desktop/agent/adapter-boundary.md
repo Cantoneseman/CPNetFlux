@@ -1,9 +1,13 @@
-# Agent 与底层串行接入边界
+# Desktop agent adapter boundary
 
-本轮无 agent 实现，仅契约与设计。推荐独立用户服务持有任务生命周期，UI 不持有传输进程。首版可包装 tree upload/download 客户端，但只消费经过版本核验的 JSONL/summary/checkpoint；人类 stdout 不是唯一事实源。
+Desktop IPC is frozen at `desktop-agent API 2.0.0` in `desktop/docs/rpc-contract.md`. The current Python agent remains a demo prototype and does not yet implement that full contract or a real transfer adapter. An implementation must call `agent.getInfo` before other UI operations and reject mismatched versions.
 
-需 00 提供：结构化 schema/version 与稳定文件/range/attempt identity；实际 mode/fallback 和协商安全策略；取消入口及完成竞态/manifest 收口；resume eligibility 与 checkpoint 身份；节点 capabilities、目录浏览和 root 授权探测；token 安全注入入口（不能 argv/env/日志）。缺字段置 unknown/null，不能以进程退出或发送完毕补成 completed。
+The agent owns transfer process lifetime, idempotency records, persistent status, cancellation barriers and entity snapshots; the Qt UI owns presentation and reconnect behavior. An adapter may wrap supported CPNetFlux CLI/client interfaces only after checking their structured output and security options. Human-readable stdout is never proof of completion. Unknown backend facts map to unknown/null.
 
-适配配置：requested v2→底层 persistent_tree；V3 动态队列及 range 由 scheduler/range policy 传入并记录实际值。UI/agent 不自行切文件、计算危险 range 或写核心 manifest。channel/queue/pending 必须经过双方能力和资源上限约束。profile 更新不改变运行 attempt 已冻结配置。token 仅通过 libsecret 获取，安全注入尚未收口前真实任务启动 blocked。
+Never pass token/password/private key through JSON-RPC, argv, environment, logs, or persisted profile data. Profiles carry only opaque `credential_ref`; the agent retrieves secret material from an approved OS secret store. If a selected core client cannot accept credentials through a protected channel, real transfer start stays explicitly unsupported until a reviewed secure injection path exists. Do not invent a plaintext temporary-file workaround.
 
-底层 fallback 在 payload 前决定；agent 记录原因与实际策略，不以自动降安全换 V2。取消 accepted→cancelling→backend quiescent+checkpoint evidence→终态；resume 新 attempt，以 verified checkpoint 事实补缺范围。agent 重启先检查进程归属和 checkpoint；UI 重连走原子订阅快照，禁止直接启动重复 attempt。
+Keep transfer `policy` separate from backend-read `effective_policy`. Do not claim a mode, checksum, resume, TLS, scheduler or channel count from requested values, global capabilities or version strings. Use per-mode capability records only for offer filtering; actual `effective_policy` is authoritative after negotiation. Fallback is allowed only before payload and only if every requested integrity, recovery and transport-security constraint remains satisfied.
+
+The agent does not implement scheduling or range slicing. It passes bounded queue/channel/range policy to the CPNetFlux core and reports stable transfer/attempt/file/range IDs, generation, checksum and state returned by the backend. File/range pages share an immutable snapshot and event watermark. Never let a delayed old attempt update the active attempt.
+
+A cancel response may be accepted while state is `cancelling`; do not show cancelled until all backend workers and writes stop and durable final state is recorded. Resume requires validated checkpoint/source identity and starts a new attempt. Agent restart must reconcile owned processes and checkpoints without duplicate execution. Unsupported pause must leave state unchanged.

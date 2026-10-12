@@ -123,6 +123,17 @@ bool isLoginRequired(ControlCommandType type) noexcept {
            type == ControlCommandType::Nlst;
 }
 
+bool isReadCommand(ControlCommandType type) noexcept {
+    return type == ControlCommandType::Pwd || type == ControlCommandType::Retr ||
+           type == ControlCommandType::Size || type == ControlCommandType::Mdtm ||
+           type == ControlCommandType::Cwd || type == ControlCommandType::Cdup ||
+           type == ControlCommandType::List || type == ControlCommandType::Nlst;
+}
+
+bool isWriteCommand(ControlCommandType type) noexcept {
+    return type == ControlCommandType::Stor;
+}
+
 }  // namespace
 
 common::Result<ControlCommand> parseControlCommand(const std::string& line) {
@@ -210,15 +221,17 @@ int replyCode(const ControlResponse& response) noexcept {
 }
 
 ControlSession::ControlSession(std::string user, std::string password,
-                               std::uint32_t defaultConnections)
+                               std::uint32_t defaultConnections, AccessPolicy accessPolicy)
     : ControlSession(
           ControlAuthConfig{AuthMode::Anonymous, std::move(user), std::move(password), "", ""},
-          defaultConnections) {}
+          defaultConnections, accessPolicy) {}
 
-ControlSession::ControlSession(ControlAuthConfig auth, std::uint32_t defaultConnections)
+ControlSession::ControlSession(ControlAuthConfig auth, std::uint32_t defaultConnections,
+                               AccessPolicy accessPolicy)
     : expectedUser_(auth.mode == AuthMode::Token ? "token" : auth.user),
       expectedPassword_(auth.mode == AuthMode::Token ? auth.token : auth.password),
       auth_(std::move(auth)),
+      accessPolicy_(accessPolicy),
       connections_(defaultConnections) {}
 
 ControlResponse ControlSession::handleCommand(const ControlCommand& command) {
@@ -231,6 +244,14 @@ ControlResponse ControlSession::handleCommand(const ControlCommand& command) {
     if (!authenticated_ && isLoginRequired(command.type)) {
         return singleLine(530, "Please login with USER and PASS");
     }
+    if (isReadCommand(command.type) && !accessPolicyAllowsRead(accessPolicy_)) {
+        passiveReady_ = false;
+        return singleLine(550, "read access denied");
+    }
+    if (isWriteCommand(command.type) && !accessPolicyAllowsWrite(accessPolicy_)) {
+        passiveReady_ = false;
+        return singleLine(550, "write access denied");
+    }
 
     switch (command.type) {
         case ControlCommandType::User:
@@ -240,7 +261,7 @@ ControlResponse ControlSession::handleCommand(const ControlCommand& command) {
             return userAccepted_ ? singleLine(331, "User name okay, need password")
                                  : singleLine(530, "Invalid user");
         case ControlCommandType::Pass:
-            if (userAccepted_ && command.argument == expectedPassword_) {
+            if (userAccepted_ && constantTimeEquals(command.argument, expectedPassword_)) {
                 authenticated_ = true;
                 return singleLine(230, "User logged in");
             }

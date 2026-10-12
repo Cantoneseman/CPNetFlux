@@ -78,6 +78,35 @@ bool isInsideRoot(const std::filesystem::path& root, const std::filesystem::path
     return true;
 }
 
+common::Status rejectSymlinkComponents(const std::filesystem::path& root,
+                                        const std::filesystem::path& candidate) {
+    std::error_code error;
+    const std::filesystem::path relative = std::filesystem::relative(candidate, root, error);
+    if (error || relative.is_absolute()) {
+        return common::Status::invalidArgument("path cannot be checked against root");
+    }
+    for (const auto& part : relative) {
+        if (part == "..") {
+            return common::Status::invalidArgument("path escapes root");
+        }
+    }
+    std::filesystem::path current = root;
+    for (const auto& part : relative) {
+        current /= part;
+        const auto status = std::filesystem::symlink_status(current, error);
+        if (error == std::errc::no_such_file_or_directory) {
+            break;
+        }
+        if (error) {
+            return common::Status::invalidArgument("path cannot be inspected");
+        }
+        if (std::filesystem::is_symlink(status)) {
+            return common::Status::invalidArgument("path must not contain symlinks");
+        }
+    }
+    return common::Status::ok();
+}
+
 std::string virtualPathFromRelative(const std::filesystem::path& relative) {
     if (relative.empty() || relative == ".") {
         return "/";
@@ -279,6 +308,12 @@ common::Result<ControlServerOptions> parseControlServerOptions(int argc, const c
                 return common::Status::invalidArgument("--auth-token-file must not be empty");
             }
             options.auth.tokenFile = std::string(value);
+        } else if (option == "--access-policy") {
+            auto parsed = parseAccessPolicy(value);
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.accessPolicy = parsed.value();
         } else if (option == "--event-log") {
             if (value.empty()) {
                 return common::Status::invalidArgument("--event-log must not be empty");
@@ -305,6 +340,12 @@ common::Result<ControlServerOptions> parseControlServerOptions(int argc, const c
                 return common::Status::invalidArgument("--tls-ca-file must not be empty");
             }
             options.tls.caFile = std::string(value);
+        } else if (option == "--tls-client-auth") {
+            auto parsed = core::io::parseTlsClientAuth(value);
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.tls.clientAuth = parsed.value();
         } else if (option == "--data-tls-mode") {
             auto parsed = core::io::parseDataTlsMode(value);
             if (!parsed.isOk()) {
@@ -386,10 +427,11 @@ std::string controlServerUsage(const char* programName) {
               "[--file-io-advice off|sequential|noreuse|dontneed|sequential_dontneed] "
               "[--posix-write-strategy auto|direct|coalesced] "
               "[--auth-mode anonymous|token] [--auth-token-file <path>] "
+              "[--access-policy read-write|read-only|write-only] "
               "[--user <name>] [--password <password>] [--event-log <path>] "
               "[--tls-mode off|explicit|required] [--tls-cert-file <path>] "
               "[--tls-key-file <path>] [--tls-ca-file <path>] "
-              "[--data-tls-mode off|required]";
+              "[--tls-client-auth none|required] [--data-tls-mode off|required]";
     return output.str();
 }
 
@@ -480,6 +522,10 @@ common::Result<ResolvedControlPath> resolveControlPath(const std::string& root,
         relative = std::filesystem::path(virtualPath.value().substr(1));
     }
     const std::filesystem::path candidate = rootPath.value() / relative;
+    const common::Status symlinkStatus = rejectSymlinkComponents(rootPath.value(), candidate);
+    if (!symlinkStatus.isOk()) {
+        return common::Status::invalidArgument(commandName + " " + symlinkStatus.message());
+    }
 
     std::error_code error;
     if (kind == ControlPathKind::StorTarget) {

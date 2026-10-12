@@ -346,6 +346,37 @@ common::Result<FileTransferOptions> parseFileTransferOptions(int argc, const cha
             continue;
         }
 
+        if (option == "--tls-cert-file") {
+            if (value.empty()) {
+                return common::Status::invalidArgument("--tls-cert-file must not be empty");
+            }
+            options.dataTls.certFile = std::string(value);
+            index += 2;
+            continue;
+        }
+
+        if (option == "--tls-key-file") {
+            if (value.empty()) {
+                return common::Status::invalidArgument("--tls-key-file must not be empty");
+            }
+            options.dataTls.keyFile = std::string(value);
+            index += 2;
+            continue;
+        }
+
+        if (option == "--tls-client-auth") {
+            if (role != FileTransferRole::Server) {
+                return common::Status::invalidArgument("--tls-client-auth is server-only");
+            }
+            auto parsed = core::io::parseTlsClientAuth(value);
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.dataTls.clientAuth = parsed.value();
+            index += 2;
+            continue;
+        }
+
         if (option == "--chunk-size") {
             if (role != FileTransferRole::Client) {
                 return common::Status::invalidArgument("--chunk-size is client-only");
@@ -497,6 +528,7 @@ std::string fileTransferUsage(const char* programName, FileTransferRole role) {
                "[--file-io-advice <off|sequential|noreuse|dontneed|sequential_dontneed>] "
                "[--posix-write-strategy <auto|direct|coalesced>] "
                "[--event-log <path>] [--data-tls-mode off|required] [--tls-ca-file <path>] "
+           "[--tls-cert-file <path>] [--tls-key-file <path>] [--tls-client-auth none|required] "
                "[--overwrite] "
                "[--keep-partial] [--resume]";
     }
@@ -510,6 +542,7 @@ std::string fileTransferUsage(const char* programName, FileTransferRole role) {
            "[--file-io-advice <off|sequential|noreuse|dontneed|sequential_dontneed>] "
            "[--posix-write-strategy <auto|direct|coalesced>] "
            "[--event-log <path>] [--data-tls-mode off|required] [--tls-ca-file <path>] "
+           "[--tls-cert-file <path>] [--tls-key-file <path>] "
            "[--transfer-id <id>] [--resume] [--max-chunks <N>] "
            "[--data-final-status-timeout-seconds <N>] "
            "[--corrupt-chunk <chunk-id>] [--duplicate-corrupt-chunk <chunk-id>]";

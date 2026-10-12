@@ -1107,7 +1107,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
         control = core::io::TlsConnection::plain(std::move(controlFd));
     }
 
-    ControlSession session(options.auth, options.connections);
+    ControlSession session(options.auth, options.connections, options.accessPolicy);
     PassiveListener passive;
     std::string inputBuffer;
     bool persistentNegotiated = false;
@@ -1141,6 +1141,20 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             if (!session.authenticated()) {
                 (void)sendLine(&control, formatReply(530, "Authenticate before persistent directory commands"));
                 continue;
+            }
+            if (persistentTreeCommand) {
+                const bool persistentUpload = line.value().starts_with("XDIR PUT ") ||
+                    line.value().starts_with("XDIRP PUT ");
+                const bool persistentDownload = line.value().starts_with("XDIR GET ") ||
+                    line.value().starts_with("XDIRP GET ");
+                if (persistentUpload && !accessPolicyAllowsWrite(options.accessPolicy)) {
+                    (void)sendLine(&control, formatReply(550, "write access denied"));
+                    continue;
+                }
+                if (persistentDownload && !accessPolicyAllowsRead(options.accessPolicy)) {
+                    (void)sendLine(&control, formatReply(550, "read access denied"));
+                    continue;
+                }
             }
             if (persistentNegotiation) {
                 std::uint32_t requestedWindow = 1;
@@ -1406,6 +1420,7 @@ common::Status runControlServer(const ControlServerOptions& options) {
               << "]"
               << " connections=" << options.connections
               << " auth_mode=" << authModeName(options.auth.mode)
+              << " access_policy=" << accessPolicyName(options.accessPolicy)
               << " tls_mode=" << core::io::tlsModeName(options.tls.mode)
               << " data_tls_mode=" << core::io::dataTlsModeName(options.dataTlsMode) << '\n'
               << std::flush;

@@ -4,9 +4,9 @@ V3-UNIFIED-01 实施中 -> V1-RETIRE-01 待能力门 -> EXP-V3-GRIDFTP-01 待代
 
 # 总指挥任务板
 
-更新：2026-10-09。路线版本：`R2026-10-09.2`（深圳根目录串行开发；目录持久数据连接→短跨域实测→有界并发调度）。
+更新：2026-10-11。路线版本：`R2026-10-11.1`（认证基础→桌面 agent API→干净源码交付；桌面端实现由既有桌面线程续接）。
 
-当前目的：先从历史实验数据寻找有证据支撑的性能问题，再针对 C++ 传输热路径和目录数据面做底层/架构级优化，最后通过深圳—上海 100 Mbps 跨域固定提交实验与真实 GridFTP 对照。历史汇总差距只是线索，不能预设 syscall 或 manifest 是主要瓶颈。广州—深圳 100G 暂不作为当前验收环境。
+当前目的：完成认证基础后冻结桌面 agent API，推进桌面端可靠本地生命周期，再形成可审查、可复现、干净源码交付链路。真实传输 adapter、Linux 安装器和跨主机性能实验仍需各自任务与验收，不由源码打包任务宣称完成。
 
 用户最新授权：深圳 `/root/projects/CPNetFlux` 是唯一权威工作区，根目录单人串行开发；上海只作对端，Windows 只作连接/查看/回收。迁移门与强制 worktree 已被最新 AGENTS/云端决策取代。每个阶段提交明确文件并推送 GitHub；当前由 00 单人执行，不并发修改。
 
@@ -17,6 +17,9 @@ V3-UNIFIED-01 实施中 -> V1-RETIRE-01 待能力门 -> EXP-V3-GRIDFTP-01 待代
 | DIR-V2-TRANSFER-ENGINE-01 | done（一期；完整架构未完成） | 显式 `--data-session-reuse tree`，单 worker/流；固定提交证据见 `docs/tasks/2026-10-09-data-session-reuse-result.md` |
 | DIR-V2-SHORT-COMPARE | 待实验指令 | 固定提交/二进制，两端空间与 GSI 重验，短目录 reuse 开关 + GridFTP；脚本执行，不持续轮询 |
 | DIR-V2-BOUNDED-SCHEDULING | 后续 | 固定通道预算、有界 pending 和异步读写，目前未实现 |
+| AUTH-FOUNDATION-01 / AUTH-POLICY-01 | done | 双向 TLS、token 文件安全、服务级读写策略；任务范围与当前证据见 [认证任务记录](../tasks/2026-10-11-auth-foundation-policy-01.md) |
+| AGENT-API-01 | done | API 2.0.0 合同与 demo agent 最小兼容通过 3/3 CTest；commit/push `344c326f`，远端 SHA 一致；prompt 已发送既有桌面线程 |
+| SOURCE-RELEASE-01 | done | 确定性源码候选包、strict hygiene、解包核心 258/258 和桌面 3/3 CTest 通过；无 LICENSE，不做公开 release/安装器；见 [任务记录](../tasks/2026-10-11-source-release-01.md) |
 
 以下为历史任务记录；时间、blocked 和旧门只描述当时事实，不是当前执行前置条件。
 
