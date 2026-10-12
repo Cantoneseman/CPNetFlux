@@ -732,6 +732,30 @@
         }
       ]
     },
+    "backendEvidence": {
+      "type": "object",
+      "properties": {
+        "phase_timing": {
+          "type": "object",
+          "properties": {
+            "control_prepare": {"type": ["number", "null"]},
+            "data_connect": {"type": ["number", "null"]},
+            "first_payload": {"type": ["number", "null"]},
+            "payload_io": {"type": ["number", "null"]},
+            "transfer_complete_wait": {"type": ["number", "null"]}
+          },
+          "required": ["control_prepare", "data_connect", "first_payload", "payload_io", "transfer_complete_wait"],
+          "additionalProperties": false
+        },
+        "manifest": {"type": ["object", "null"]},
+        "checksum": {"type": ["object", "null"]},
+        "finalize": {"type": ["object", "null"]},
+        "event_log": {"type": ["string", "null"]},
+        "summary": {"type": ["string", "null"]}
+      },
+      "required": ["phase_timing", "manifest", "checksum", "finalize", "event_log", "summary"],
+      "additionalProperties": false
+    },
     "transfer": {
       "type": "object",
       "properties": {
@@ -863,6 +887,9 @@
         },
         "effective_policy": {
           "$ref": "#/$defs/effectivePolicy"
+        },
+        "backend_evidence": {
+          "$ref": "#/$defs/backendEvidence"
         }
       },
       "required": [

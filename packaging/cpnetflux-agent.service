@@ -1,11 +1,13 @@
 [Unit]
-Description=CPNetFlux desktop agent (real adapter unavailable)
+Description=CPNetFlux real transfer agent
+After=graphical-session.target
 
 [Service]
 Type=simple
+Environment=CPNETFLUX_CORE_BIN_DIR=%h/.local/lib/cpnetflux
 ExecStart=/usr/bin/cpnetflux-agent
 Restart=on-failure
-RestartSec=5
+RestartSec=2
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true

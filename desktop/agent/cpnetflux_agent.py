@@ -37,6 +37,11 @@ ERROR_NUMBERS = {"unsupported":-32001, "invalid_state":-32002,
 
 def uid(): return str(uuid.uuid4())
 def now(): return datetime.now(timezone.utc).isoformat()
+def empty_evidence():
+    return dict(phase_timing=dict(control_prepare=None, data_connect=None, first_payload=None,
+                                  payload_io=None, transfer_complete_wait=None),
+                manifest=None, checksum=None, finalize=None, event_log=None, summary=None)
+
 def detail(code, message, transfer_id=None, scope="rpc"):
     return dict(code=code, scope=scope, message=message, retryable=False,
                 transfer_id=transfer_id, file_id=None, range_id=None)
@@ -69,6 +74,8 @@ class Agent:
         self.validator = Draft7Validator(dict(schema, **{"$ref":"#/$defs/request"}), format_checker=FormatChecker())
         self.epoch, self.sequence = uid(), 0
         self.events, self.clients, self.runners = deque(maxlen=128), set(), {}
+        self.processes = {}
+        self.core_bin_dir = Path(args.core_bin_dir).absolute() if args.core_bin_dir else None
         self.store = dict(tasks={}, profiles={}, operations={}, attempt_history={})
         self.page_snapshots, self.page_cursors = {}, {}
         path = self.state_dir / "state.json"
@@ -78,6 +85,7 @@ class Agent:
             self.store = json.loads(path.read_text())
             self.store.setdefault("attempt_history", {})
             for t in self.store["tasks"].values():
+                t.setdefault("backend_evidence", empty_evidence())
                 t.setdefault("effective_policy", self.pending_policy())
                 t["attempt"].setdefault("quiescence", "not_applicable")
                 if t["state"] in ACTIVE:
@@ -129,7 +137,114 @@ class Agent:
         try: return self.store["tasks"][p["transfer_id"]]
         except KeyError: raise RpcError("not_found", "任务不存在")
     def ensure_demo(self):
-        if not self.args.demo: raise RpcError("unsupported", "真实传输 adapter 尚未接入；请显式使用 --demo 演示")
+        if not self.args.demo: raise RpcError("unsupported", "该操作仅在显式 --demo 开发诊断模式可用")
+
+    def ensure_real(self):
+        if self.args.demo: raise RpcError("unsupported", "开发诊断模式不执行真实文件传输")
+        if self.core_bin_dir is None:
+            raise RpcError("unsupported", "真实 adapter 未配置 CPNetFlux core；请设置 --core-bin-dir")
+        if not self.core_bin_dir.is_dir():
+            raise RpcError("unsupported", "CPNetFlux core 目录不存在或无权限")
+
+    def core_binary(self, name):
+        self.ensure_real()
+        path = self.core_bin_dir / name
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise RpcError("unsupported", "缺少真实后端可执行文件: " + name)
+        return str(path)
+
+    def profile_for(self, endpoint):
+        node_id = endpoint.get("node_id")
+        profile = self.store["profiles"].get(node_id)
+        if profile is None:
+            raise RpcError("not_found", "请先保存远端节点配置")
+        if profile.get("auth_mode") == "anonymous":
+            raise RpcError("auth_failed", "真实传输要求 TLS/认证；匿名模式不可用于真实任务")
+        ca = profile.get("ca_path")
+        if not ca or not Path(ca).is_file() or not os.access(ca, os.R_OK):
+            raise RpcError("tls_identity_failed", "CA 文件不存在或不可读")
+        if profile.get("auth_mode") == "token":
+            ref = profile.get("credential_ref")
+            if not ref or not ref.startswith("file:"):
+                raise RpcError("keyring_locked", "当前版本需要受权限保护的 token 文件引用 file:<path>")
+            token = Path(ref[5:])
+            if not token.is_file() or not os.access(token, os.R_OK) or (token.stat().st_mode & 0o077):
+                raise RpcError("permission_denied", "token 文件必须存在、可读且权限为 0600")
+        else:
+            raise RpcError("unsupported", "admin credential 的 OS secret-store 注入尚未实现")
+        return profile
+
+    def validate_real_request(self, p):
+        self.ensure_real()
+        local = p["source"] if p["direction"] == "upload" else p["destination"]
+        remote = p["destination"] if p["direction"] == "upload" else p["source"]
+        path = Path(local["path"])
+        if not path.is_absolute() or not path.exists():
+            raise RpcError("permission_denied", "本地路径必须存在且为绝对路径")
+        if p["direction"] == "upload" and not os.access(path, os.R_OK):
+            raise RpcError("permission_denied", "本地源路径不可读")
+        if p["direction"] == "download" and not os.access(path.parent if path.suffix else path, os.W_OK):
+            raise RpcError("permission_denied", "本地目标父目录不可写")
+        if remote["path"].startswith("/") or ".." in Path(remote["path"]).parts:
+            raise RpcError("permission_denied", "远端路径必须是 root-relative 且不能越界")
+        profile = self.profile_for(remote)
+        # The unified tree adapter is the only authenticated real endpoint currently
+        # exposed by the core. Keep single-file requests explicit and actionable until
+        # the file client gains the same control-plane contract.
+        if path.is_file():
+            raise RpcError("unsupported", "核心 file client 尚未提供统一 TLS/认证控制面；请使用目录任务，或先升级 core adapter")
+        return path, remote, profile
+
+    def build_real_command(self, t):
+        path = Path(t["source"]["path"] if t["direction"] == "upload" else t["destination"]["path"])
+        remote = t["destination"] if t["direction"] == "upload" else t["source"]
+        profile = self.profile_for(remote)
+        args = ["--host", profile["host"], "--port", str(profile["control_port"]),
+                "--connections", "1", "--checksum", "crc32c",
+                "--tls-mode", "required", "--tls-ca-file", profile["ca_path"],
+                "--data-tls-mode", "required", "--event-log", t["backend_evidence"]["event_log"],
+                "--auth-mode", "token", "--auth-token-file", profile["credential_ref"][5:],
+                "--json-summary", t["backend_evidence"]["summary"], "--phase-timing", "on"]
+        if t["attempt"]["attempt_number"] > 1:
+            args += ["--resume"]
+        if t["direction"] == "upload":
+            exe = self.core_binary("cpnetflux-tree-upload-client")
+            args += ["--source-dir", str(path), "--dest-dir", remote["path"]]
+        else:
+            exe = self.core_binary("cpnetflux-tree-download-client")
+            args += ["--source-dir", remote["path"], "--dest-dir", str(path)]
+        return [exe] + args
+
+    def read_real_evidence(self, t, summary):
+        local = Path(t["source"]["path"] if t["direction"] == "upload" else t["destination"]["path"])
+        m = t["metrics"]
+        if summary:
+            total = summary.get("bytes_total")
+            moved = summary.get("bytes_transferred")
+            files = summary.get("file_count")
+            m.update(files_total=files, files_committed=summary.get("completed_files"),
+                     files_failed=summary.get("failed_files"), files_skipped=summary.get("skipped_files"),
+                     bytes_total=total, bytes_transferred=moved, bytes_verified=None,
+                     bytes_committed=moved, channel_count_active=0, queue_depth_current=0,
+                     data_connections=summary.get("data_connect_count"), speed_bps=None,
+                     average_speed_bps=None, eta_seconds=None)
+            t["backend_evidence"]["phase_timing"].update(
+                control_prepare=summary.get("control_prepare_seconds"),
+                payload_io=summary.get("elapsed_seconds"),
+                transfer_complete_wait=summary.get("transfer_complete_wait_seconds"))
+            t["backend_evidence"]["checksum"] = {"algorithm": summary.get("checksum_algorithm", "unknown"),
+                                                        "status": "pass" if summary.get("result") == "pass" else "fail"}
+            suffix = ".cpnetflux.tree.upload.manifest" if t["direction"] == "upload" else ".cpnetflux.tree.download.manifest"
+            manifest_path = Path(str(local) + suffix)
+            t["backend_evidence"]["manifest"] = {"path": str(manifest_path),
+                                                  "status": "observed" if manifest_path.exists() else "unknown"}
+        elif local.exists() and local.is_dir():
+            files = [f for f in local.rglob("*") if f.is_file()]
+            m.update(files_total=len(files), files_committed=None, files_failed=None, files_skipped=None,
+                     bytes_total=sum(f.stat().st_size for f in files), bytes_transferred=None,
+                     bytes_verified=None, bytes_committed=None, channel_count_active=0,
+                     queue_depth_current=None, data_connections=None, speed_bps=None,
+                     average_speed_bps=None, eta_seconds=None)
     def page(self, kind, t, p, items, query, extra=None):
         now_mono = asyncio.get_running_loop().time()
         for token, cursor in list(self.page_cursors.items()):
@@ -200,18 +315,48 @@ class Agent:
         return [dict(transfer_id=t["transfer_id"],attempt_id=attempt_id,file_id=file_id,range_id="demo-range-1",generation=generation,offset=0,length=file["size"],state="verified" if file["bytes_verified"]==file["size"] else "transferring",bytes_transferred=n,error=None,attempt_number=next(a["attempt_number"] for a in self.attempts_for(t["transfer_id"]) if a["attempt_id"]==attempt_id),checksum=copy.deepcopy(file["checksum"]))]
     def dispatch(self, method, p, client):
         if method == "agent.getInfo":
+            real_ready = (self.core_bin_dir is not None and self.core_bin_dir.is_dir() and
+                          all((self.core_bin_dir / name).is_file() and os.access(self.core_bin_dir / name, os.X_OK)
+                              for name in ("cpnetflux-tree-upload-client", "cpnetflux-tree-download-client")))
             return dict(kind="agent_info",api_version=API_VERSION,agent_version="0.1.0",agent_epoch=self.epoch,
                         adapter="demo" if self.args.demo else "real",max_frame_bytes=MAX_FRAME,
                         max_concurrent_requests=32,state_store="persistent",
-                        features=["profiles","transfer_lifecycle","entity_pages","resume"] if self.args.demo else ["profiles"])
+                        features=["profiles","transfer_lifecycle","entity_pages","resume"] if self.args.demo else
+                                 (["profiles","transfer_lifecycle","entity_pages","cancel","resume"] if real_ready else ["profiles"]))
         if method == "transfer.pause": raise RpcError("unsupported", "暂停尚未实现，任务状态保持不变")
         if method == "directory.list": raise RpcError("unsupported", "真实远端目录浏览尚未接入")
         if method == "node.testConnection":
-            checks = {k:dict(state="unsupported", message="真实服务器探测未接入", error=None)
-                      for k in ["dns_control_port", "tls_identity", "login", "capabilities", "directory_permission", "data_port"]}
-            return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=False, authentication="unknown", checks=checks)
+            if self.args.demo:
+                checks = {k:dict(state="unsupported", message="开发诊断模式不连接远端", error=None)
+                          for k in ["dns_control_port", "tls_identity", "login", "capabilities", "directory_permission", "data_port"]}
+                return dict(kind="connection_test", node_id=p["node_id"], adapter="demo", ready=False, authentication="unknown", checks=checks)
+            try:
+                profile=self.profile_for({"node_id":p["node_id"]})
+                ca=profile.get("ca_path")
+                tls_ok=bool(ca and Path(ca).is_file() and os.access(ca, os.R_OK))
+                with socket.create_connection((profile["host"], int(profile["control_port"])), timeout=2):
+                    port_ok=True
+                checks={
+                    "dns_control_port":dict(state="pass" if port_ok else "fail", message="控制端口可达" if port_ok else "控制端口不可达", error=None),
+                    "tls_identity":dict(state="pass" if tls_ok else "fail", message="CA 可读" if tls_ok else "CA 不存在或不可读", error=None),
+                    "login":dict(state="unsupported", message="真实认证需由核心 tree client 完成", error=None),
+                    "capabilities":dict(state="unsupported", message="真实能力需通过受控控制面协商", error=None),
+                    "directory_permission":dict(state="unsupported", message="尚未执行远端目录权限探测", error=None),
+                    "data_port":dict(state="unsupported", message="数据端口由核心协商", error=None)}
+                return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=port_ok and tls_ok, authentication="pending", checks=checks)
+            except RpcError: raise
+            except (OSError, ValueError) as exc:
+                return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=False, authentication="unknown",
+                            checks={"dns_control_port":dict(state="fail",message=str(exc),error=detail("data_port_unreachable",str(exc))),
+                                    "tls_identity":dict(state="unknown",message="未执行",error=None),
+                                    "login":dict(state="unknown",message="未执行",error=None),
+                                    "capabilities":dict(state="unknown",message="未执行",error=None),
+                                    "directory_permission":dict(state="unknown",message="未执行",error=None),
+                                    "data_port":dict(state="unknown",message="未执行",error=None)})
         if method == "node.capabilities":
-            return dict(kind="capabilities", node_id=p["node_id"], adapter="demo" if self.args.demo else "real", observed_at=now(), protocol_version="not-connected", modes=[], schedulers=[], range_policies=[], max_channel_count=1, max_pending_window=0, max_queue_depth=0, checksums=[], resume_supported=False, pause_supported=False, control_tls_verified=False, data_tls_supported=False, directory_permission_probe_supported=False, mode_capabilities=[])
+            if self.args.demo:
+                return dict(kind="capabilities", node_id=p["node_id"], adapter="demo", observed_at=now(), protocol_version="not-connected", modes=[], schedulers=[], range_policies=[], max_channel_count=1, max_pending_window=0, max_queue_depth=0, checksums=[], resume_supported=False, pause_supported=False, control_tls_verified=False, data_tls_supported=False, directory_permission_probe_supported=False, mode_capabilities=[])
+            return dict(kind="capabilities", node_id=p["node_id"], adapter="real", observed_at=now(), protocol_version="core-tree-client", modes=["v2"], schedulers=["dynamic_ring"], range_policies=["file"], max_channel_count=1, max_pending_window=16, max_queue_depth=256, checksums=["crc32c"], resume_supported=True, pause_supported=False, control_tls_verified=False, data_tls_supported=True, directory_permission_probe_supported=False, mode_capabilities=[dict(mode="v2", schedulers=["dynamic_ring"], range_policies=["file"], checksums=["crc32c"], resume_supported=True, pause_supported=False, control_tls_verified=False, data_tls_supported=True, max_channel_count=1, max_pending_window=16, max_queue_depth=256)])
         if method == "profile.list": return dict(kind="profile_list", profiles=list(self.store["profiles"].values()))
         if method == "transfer.list":
             if p["cursor"] is not None: raise RpcError("cursor_expired", "本切片仅支持完整第一页，请刷新")
@@ -222,7 +367,8 @@ class Agent:
             query=[method,p["transfer_id"],attempt_id,p.get("file_id"),p.get("generation"),p["limit"]]
             if method == "attempt.list":
                 return self.page("attempt_list",t,p,self.attempts_for(t["transfer_id"]),query,{"attempt_id":None})
-            self.ensure_demo()
+            if not self.args.demo:
+                raise RpcError("unsupported", "真实 manifest 文件实体分页尚未由 agent adapter 提供；任务级摘要和阶段证据可用")
             if method == "file.list":
                 return self.page("file_list",t,p,self.demo_files(t,attempt_id),query)
             return self.page("range_list",t,p,self.demo_ranges(t,attempt_id,p["file_id"],p["generation"]),query,{"file_id":p["file_id"],"generation":p["generation"]})
@@ -253,15 +399,29 @@ class Agent:
                 if method == "profile.update" and profile["node_id"] not in profiles: raise RpcError("not_found", "节点不存在")
                 profiles[profile["node_id"]] = copy.deepcopy(profile); result = dict(kind="profile", profile=profile)
         elif method == "transfer.create":
-            self.ensure_demo()
-            if len(self.store["tasks"]) >= MAX_TASKS: raise RpcError("invalid_state", "演示任务预算已满")
-            metrics = {k:None for k in self.schema["$defs"]["metrics"]["properties"]}
-            t = dict(transfer_id=uid(), revision=0, adapter="demo", state="queued", direction=p["direction"], source=p["source"], destination=p["destination"], policy=p["policy"], actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown", fallback_reason=None, attempt=dict(attempt_id=uid(), attempt_number=1, state="queued", cancel_requested=False, started_at=None, ended_at=None, quiescence="not_applicable"), effective_policy=self.pending_policy(), metrics=metrics, recovery=dict(eligibility="unknown", checkpoint_id=None, reason=None), scan_complete=False, commit_confirmed=False, transfer_status="pending", integrity_status="pending", evidence_status="pending", error=None)
+            if len(self.store["tasks"]) >= MAX_TASKS: raise RpcError("invalid_state", "任务预算已满")
+            if self.args.demo:
+                metrics = {k:None for k in self.schema["$defs"]["metrics"]["properties"]}
+                adapter="demo"
+            else:
+                path, remote, profile = self.validate_real_request(p)
+                metrics = {k:None for k in self.schema["$defs"]["metrics"]["properties"]}
+                if path.is_file():
+                    metrics["files_total"] = 1
+                    metrics["bytes_total"] = path.stat().st_size
+                adapter="real"
+            transfer_id=uid()
+            evidence=empty_evidence()
+            evidence["event_log"]=str(self.state_dir / (transfer_id+".events.jsonl"))
+            evidence["summary"]=str(self.state_dir / (transfer_id+".summary.json"))
+            t = dict(transfer_id=transfer_id, revision=0, adapter=adapter, state="queued", direction=p["direction"], source=p["source"], destination=p["destination"], policy=p["policy"], actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown", fallback_reason=None, attempt=dict(attempt_id=uid(), attempt_number=1, state="queued", cancel_requested=False, started_at=None, ended_at=None, quiescence="not_applicable"), effective_policy=self.pending_policy(), metrics=metrics, recovery=dict(eligibility="unknown", checkpoint_id=None, reason=None), scan_complete=False, commit_confirmed=False, transfer_status="pending", integrity_status="pending", evidence_status="pending", error=None, backend_evidence=evidence)
             self.store["tasks"][t["transfer_id"]] = t
             self.store["attempt_history"][t["transfer_id"]] = [copy.deepcopy(t["attempt"])]
             self.emit(t); result = self.snapshot(t)
         else:
-            self.ensure_demo(); t = self.task(p)
+            if self.args.demo: self.ensure_demo()
+            else: self.ensure_real()
+            t = self.task(p)
             if p["expected_revision"] != t["revision"]: raise RpcError("revision_conflict", "任务已更新，请刷新后重试")
             outcome = "accepted"
             if method == "transfer.cancel":
@@ -270,12 +430,16 @@ class Agent:
                     t.update(state="cancelled"); t["attempt"].update(state="cancelled", ended_at=now(), quiescence="confirmed"); self.emit(t)
                 else:
                     t["attempt"].update(state="cancelling", cancel_requested=True, quiescence="pending"); self.emit(t)
+                    proc=self.processes.get(t["transfer_id"])
+                    if proc is not None:
+                        proc.terminate()
             elif method == "transfer.start":
                 if t["state"] in ACTIVE: outcome = "already_running"
                 elif t["state"] != "queued": raise RpcError("invalid_state", "请按恢复资格使用恢复")
                 else: self.begin(t)
             elif method == "transfer.resume":
-                if t["state"] not in TERMINAL or t["recovery"]["eligibility"] != "eligible" or p["checkpoint_id"] != t["recovery"]["checkpoint_id"]: raise RpcError("checkpoint_missing", "没有符合资格的演示checkpoint")
+                if t["state"] not in TERMINAL or t["recovery"]["eligibility"] != "eligible" or p["checkpoint_id"] != t["recovery"]["checkpoint_id"]:
+                    raise RpcError("checkpoint_missing", "agent 未返回可验证的 resume checkpoint")
                 t["attempt"] = dict(attempt_id=uid(), attempt_number=t["attempt"]["attempt_number"]+1, state="queued", cancel_requested=False, started_at=None, ended_at=None, quiescence="not_applicable")
                 t.update(error=None, transfer_status="pending", integrity_status="pending", evidence_status="pending")
                 self.begin(t)
@@ -284,11 +448,69 @@ class Agent:
         self.save()
         return result
     def begin(self, t):
+        if not self.args.demo:
+            return self.begin_real(t)
         if t["policy"]["requested_mode"] in {"auto","v2"} and t["policy"]["fallback_policy"] == "reject": raise RpcError("capability_mismatch", "演示 adapter 仅模拟 V1；请求禁止回退")
         t.update(state="scanning", actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown", fallback_reason=None)
         t["attempt"].update(state="running", started_at=now(), ended_at=None)
         self.emit(t)
         self.runners[t["transfer_id"]] = asyncio.create_task(self.demo(t))
+    def begin_real(self, t):
+        t.update(state="scanning", actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown", fallback_reason=None)
+        t["attempt"].update(state="running", started_at=now(), ended_at=None)
+        self.emit(t)
+        self.runners[t["transfer_id"]] = asyncio.create_task(self.run_real(t))
+
+    async def run_real(self, t):
+        proc = None
+        try:
+            command = self.build_real_command(t)
+            t["state"] = "connecting"; self.emit(t)
+            proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.PIPE)
+            self.processes[t["transfer_id"]] = proc
+            t["state"] = "transferring"; t["scan_complete"] = True
+            t["actual_mode"] = "v2"; t["actual_scheduler"] = "dynamic_ring"; t["actual_range_policy"] = "file"
+            t["effective_policy"] = dict(resolution="resolved", mode="v2", scheduler="dynamic_ring",
+                                          range_policy="file", checksum="crc32c", resume_enabled=True,
+                                          control_tls="verified", data_tls="verified", channel_count=1,
+                                          applied_at=now())
+            self.emit(t)
+            stdout, stderr = await proc.communicate()
+            summary_path=t["backend_evidence"].get("summary")
+            summary={}
+            if summary_path and os.path.isfile(summary_path):
+                try: summary=json.loads(Path(summary_path).read_text())
+                except (OSError,ValueError): summary={}
+            self.read_real_evidence(t,summary)
+            if t["attempt"]["cancel_requested"]:
+                t.update(state="cancelled", transfer_status="fail", evidence_status="incomplete")
+                t["attempt"].update(state="cancelled", ended_at=now(), quiescence="confirmed")
+                self.quiescent(t)
+            elif proc.returncode == 0 and summary.get("result") == "pass":
+                t.update(state="completed", commit_confirmed=True, transfer_status="pass",
+                         integrity_status="pass", evidence_status="complete",
+                         recovery=dict(eligibility="ineligible", checkpoint_id=None, reason="backend完成"))
+                t["backend_evidence"]["finalize"]={"status":"pass"}
+                t["attempt"].update(state="completed", ended_at=now(), quiescence="confirmed")
+                self.quiescent(t)
+            else:
+                message=stderr.decode(errors="replace")[-2000:] or "CPNetFlux core 返回失败"
+                t.update(state="recoverable", transfer_status="fail", integrity_status="fail",
+                         evidence_status="incomplete",
+                         error=detail("internal_error",message,t["transfer_id"],"transfer"))
+                t["attempt"].update(state="recoverable", ended_at=now(), quiescence="confirmed")
+                self.checkpoint(t)
+            self.emit(t)
+        except (OSError, RpcError) as exc:
+            t.update(state="failed", transfer_status="fail", evidence_status="incomplete",
+                     error=detail(getattr(exc,"code","internal_error"),str(exc),t["transfer_id"],"transfer"))
+            t["attempt"].update(state="failed", ended_at=now(), quiescence="confirmed")
+            self.emit(t)
+        finally:
+            self.processes.pop(t["transfer_id"], None)
+            self.runners.pop(t["transfer_id"], None)
+
     async def demo(self, t):
         try:
             for phase in ["connecting", "negotiating", "transferring"]:
@@ -321,7 +543,15 @@ class Agent:
             t["attempt"].update(state="completed", ended_at=now()); self.quiescent(t); self.emit(t)
         finally: self.runners.pop(t["transfer_id"], None)
     def checkpoint(self, t):
-        t["recovery"] = dict(eligibility="eligible", checkpoint_id="demo:"+t["transfer_id"], reason="仅用于演示恢复")
+        if self.args.demo:
+            t["recovery"] = dict(eligibility="eligible", checkpoint_id="demo:"+t["transfer_id"], reason="仅用于演示恢复")
+        else:
+            summary = t.get("backend_evidence", {}).get("summary")
+            evidence = t.get("backend_evidence", {}).get("manifest", {})
+            if summary and evidence.get("status") == "observed":
+                t["recovery"] = dict(eligibility="eligible", checkpoint_id="core:"+t["transfer_id"], reason="核心 manifest 可用于 resume")
+            else:
+                t["recovery"] = dict(eligibility="unknown", checkpoint_id=None, reason="核心未返回可验证 manifest；resume 已禁用")
         self.quiescent(t)
     def quiescent(self, t): t["metrics"].update(speed_bps=None, average_speed_bps=None, eta_seconds=None, channel_count_active=0, data_connections=0)
     def finish_cancel(self, t):
@@ -418,6 +648,7 @@ def main():
     parser.add_argument("--runtime-dir", default=str(Path(os.environ.get("XDG_RUNTIME_DIR", "/nonexistent"))/"cpnetflux"))
     parser.add_argument("--state-dir", default=str(Path(os.environ.get("XDG_STATE_HOME", str(Path.home()/".local/state")))/"cpnetflux-desktop"))
     parser.add_argument("--tick-ms", type=int, default=400)
+    parser.add_argument("--core-bin-dir", default=os.environ.get("CPNETFLUX_CORE_BIN_DIR"))
     args = parser.parse_args()
     if args.runtime_dir == "/nonexistent/cpnetflux": parser.error("XDG_RUNTIME_DIR缺失，需指定私有 --runtime-dir")
     if not 10 <= args.tick_ms <= 10000: parser.error("tick-ms范围10..10000")

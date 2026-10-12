@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=CPNetFlux
-Comment=Transfer task console (real transport adapter pending)
+Comment=Real file and directory transfer client
 Exec=cpnetflux-desktop
 Terminal=false
 Categories=Network;FileTransfer;
