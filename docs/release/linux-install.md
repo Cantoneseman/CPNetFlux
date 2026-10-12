@@ -1,10 +1,10 @@
 # Linux 交付候选安装指南
 
-本包是内部安装候选，尚未选择项目 LICENSE，不公开发布或宣称生产就绪。包含已整合的 V3 单文件/目录引擎、mTLS/token 服务、Qt 桌面和本地 agent。桌面 API2 的真实传输 adapter 尚未接入；只有显式 --demo 才模拟任务，不能用于双机传输证明。真实传输现在通过 CLI 完成。
+本包是内部安装候选，尚未选择项目 LICENSE，不公开发布或宣称生产就绪。包含已整合的 V3 单文件/目录引擎、mTLS/token 服务、Qt 桌面和本地 agent。桌面 API2 的真实 adapter 当前支持通过 core tree client 执行 TLS/token 保护的真实目录上传/下载；单文件任务因 core file client 尚未提供统一 TLS/认证控制面，会明确返回 unsupported。只有显式 --demo 才模拟任务，demo 数据是合成状态，不能用于双机传输证明。
 
 ## 构建和打包
 
-支持现场验收平台 Ubuntu 22.04 x86_64；其他发行版应重新构建验证。需要 GCC/CMake、zlib/OpenSSL/spdlog 开发包；桌面需 Qt6.2 开发包、Python3/jsonschema 和 QtQuick/Controls/Layouts/Window/WorkerScript 的 QML 模块。DEB 自动计算 ELF 依赖并声明 Python/QML 运行依赖；TGZ 使用系统运行库，不是静态或跨发行版通用包。
+支持现场验收平台 Ubuntu 22.04 x86_64；其他发行版应重新构建验证。需要 GCC/CMake、zlib/OpenSSL/spdlog 开发包；桌面需 Qt6.2 开发包、Python3/jsonschema、qt6-qpa-plugins、qml6-module-qtquick-templates 和 QtQuick/Controls/Layouts/Window/WorkerScript 的 QML 模块。DEB 自动计算 ELF 依赖并声明 Python/QML 运行依赖；TGZ 使用系统运行库，不是静态或跨发行版通用包。
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DCPNETFLUX_ENABLE_TLS=ON -DCPNETFLUX_BUILD_DESKTOP=ON
@@ -37,7 +37,7 @@ TGZ 自定义 prefix 使用 unit 前必须把 ExecStart 改为实际绝对路径
 
 同一普通用户运行 `cpnetflux-agent` 和 `cpnetflux-desktop`。需要私有 XDG_RUNTIME_DIR；agent socket 0600、状态目录0700。可复制 user unit 到 ~/.config/systemd/user，再显式启动；不会启用 demo。UI 退出不停止 agent，不取消任务。
 
-演示可另用私有 runtime/state 目录运行 `cpnetflux-agent --demo`，再用 `cpnetflux-desktop --socket /absolute/runtime/agent.sock` 连接。演示数据是合成的；真实 adapter 缺口见 desktop/agent/adapter-boundary.md。无图形会话的 offscreen 检查不能代替真实桌面交互验收。
+演示可另用私有 runtime/state 目录运行 `cpnetflux-agent --demo`，再用 `cpnetflux-desktop --socket /absolute/runtime/agent.sock` 连接。演示数据是合成的；真实单文件任务会明确显示 unsupported；当前 core summary 未提供可供 UI 回读的 TLS 握手结构化字段，实际 TLS 字段可能显示 unknown。无图形会话的 offscreen 检查不能代替真实桌面交互验收。
 
 ## 升级、卸载与回滚
 
