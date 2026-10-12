@@ -38,7 +38,7 @@ def main():
     deb=next(out/a["name"] for a in artifacts if a["name"].endswith(".deb"))
     dependencies=run(["dpkg-deb","-f",str(deb),"Depends"])
     manifest=dict(format_version=1,build=info,platform=run(["lsb_release","-ds"]),
-                  dependencies=dependencies,service_auto_start=False,real_desktop_adapter=False,artifacts=artifacts)
+                  dependencies=dependencies,service_auto_start=False,real_desktop_adapter=True,artifacts=artifacts)
     (out/"linux-package-manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
     names=[a["name"] for a in artifacts]+["linux-package-manifest.json"]
     (out/"SHA256SUMS").write_text("".join(hashlib.sha256((out/n).read_bytes()).hexdigest()+"  "+n+"\n" for n in names))
