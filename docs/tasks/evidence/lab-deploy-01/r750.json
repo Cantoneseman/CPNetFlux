@@ -1,0 +1,156 @@
+{
+  "host": "PowerEdge-R750",
+  "source_commit": "1868bf41cc08af25a4ceb3dddd91556d16cf91a9",
+  "tests_archive_sha256": "84c28418f8664130a63d82441b0b3f5ade5664398dccce8b8d265b5a7238ed1f",
+  "checks": [
+    {
+      "label": "dpkg-audit",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/dpkg-audit.log"
+    },
+    {
+      "label": "agent-help",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/agent-help.log"
+    },
+    {
+      "label": "service-help",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/service-help.log"
+    },
+    {
+      "label": "cpnetflux-tree-upload-client-usage",
+      "rc": 2,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/cpnetflux-tree-upload-client-usage.log"
+    },
+    {
+      "label": "cpnetflux-tree-download-client-usage",
+      "rc": 2,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/cpnetflux-tree-download-client-usage.log"
+    },
+    {
+      "label": "ldd-cpnetflux-desktop",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/ldd-cpnetflux-desktop.log"
+    },
+    {
+      "label": "ldd-cpnetflux-tree-upload-client",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/ldd-cpnetflux-tree-upload-client.log"
+    },
+    {
+      "label": "ldd-cpnetflux-tree-download-client",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/ldd-cpnetflux-tree-download-client.log"
+    },
+    {
+      "label": "ldd-cpnetflux-gridftp-server",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/ldd-cpnetflux-gridftp-server.log"
+    },
+    {
+      "label": "contract-tests",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/contract-tests.log"
+    },
+    {
+      "label": "agent-tests",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/agent-tests.log"
+    },
+    {
+      "label": "qt-offscreen-tests",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/qt-offscreen-tests.log"
+    },
+    {
+      "label": "real-agent-qt-handshake",
+      "rc": 0,
+      "pass": true,
+      "log": "/tmp/cpnetflux-install-01-42hx5svn/real-agent-qt-handshake.log"
+    }
+  ],
+  "normal_service_info": {
+    "jsonrpc": "2.0",
+    "id": "service-check",
+    "result": {
+      "kind": "agent_info",
+      "api_version": "2.0.0",
+      "agent_version": "0.1.0",
+      "agent_epoch": "28331984-b651-46b0-9b5a-6577309c9d3f",
+      "adapter": "real",
+      "max_frame_bytes": 1048576,
+      "max_concurrent_requests": 32,
+      "state_store": "persistent",
+      "features": [
+        "profiles",
+        "transfer_lifecycle",
+        "entity_pages",
+        "cancel",
+        "resume"
+      ]
+    }
+  },
+  "normal_service_ui": "connected=1 snapshots=0; exit=0",
+  "os_release": {
+    "PRETTY_NAME": "\"Ubuntu 22.04.5 LTS\"",
+    "NAME": "\"Ubuntu\"",
+    "VERSION_ID": "\"22.04\"",
+    "VERSION": "\"22.04.5 LTS (Jammy Jellyfish)\"",
+    "VERSION_CODENAME": "jammy",
+    "ID": "ubuntu",
+    "ID_LIKE": "debian",
+    "HOME_URL": "\"https://www.ubuntu.com/\"",
+    "SUPPORT_URL": "\"https://help.ubuntu.com/\"",
+    "BUG_REPORT_URL": "\"https://bugs.launchpad.net/ubuntu/\"",
+    "PRIVACY_POLICY_URL": "\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"",
+    "UBUNTU_CODENAME": "jammy"
+  },
+  "packages": {
+    "cpnetflux": "0.1.0+git.1868bf41cc08 install ok installed",
+    "libfmt8": "8.1.1+ds1-2 install ok installed",
+    "libspdlog1": "1:1.9.2+ds-0.2 install ok installed",
+    "qt6-qpa-plugins": "6.2.4+dfsg-2ubuntu1.1 install ok installed",
+    "qml6-module-qtquick-templates": "6.2.4+dfsg-3ubuntu1 install ok installed",
+    "qml6-module-qtquick-dialogs": "6.2.4+dfsg-3ubuntu1 install ok installed"
+  },
+  "deb_sha256": "7d1ab9699faa0ae3b83e22487721f6ddd5ee14cdf1e172013ee7c42ad9fd8dde",
+  "installed_agent_sha256": "1a6630960b7e3ba3a2618eca19bf55aa4d5ec2d6fa2381b64463cee05916a840",
+  "peer_ssh": {
+    "rc": 0,
+    "hostname": "ubuntu-PowerEdge-R770"
+  },
+  "dpkg_audit": "empty; exit=0",
+  "qml_dialogs_plugins": [
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/qt6/qml/QtQuick/Dialogs/libqtquickdialogsplugin.so",
+      "ldd": "no missing dependency"
+    }
+  ],
+  "test_totals": {
+    "contract": 8,
+    "agent": 8,
+    "qt_pages": 7,
+    "qt_window_sizes": 3,
+    "qt_incompatible_api": "pass"
+  },
+  "not_verified": [
+    "interactive GNOME session",
+    "file/folder picker interaction",
+    "CPNetFlux peer TLS/token authentication",
+    "real CPNetFlux two-host transfer",
+    "performance"
+  ]
+}
