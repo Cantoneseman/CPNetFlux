@@ -22,6 +22,24 @@ TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
     EXPECT_TRUE(parsed.value().destDir.empty());
 }
 
+TEST(TreeTransferOptionsTest, ParsesTlsServerName) {
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / "cpnetflux-tree-options-tls-name";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--host", "192.0.2.10",
+                          "--port", "2121", "--source-dir", rootText.c_str(),
+                          "--dest-dir", "remote", "--tls-mode", "required",
+                          "--tls-server-name", "node.example"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().tlsServerName, "node.example");
+    std::filesystem::remove_all(root);
+}
+
 TEST(TreeTransferOptionsTest, ParsesUploadOptions) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-options-upload";

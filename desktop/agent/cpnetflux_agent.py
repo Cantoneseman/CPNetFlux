@@ -205,6 +205,7 @@ class Agent:
             "--auth-mode", "token",
             "--auth-token-file", profile["credential_ref"][5:],
             "--tls-mode", "required",
+            "--tls-server-name", profile.get("server_name") or profile["host"],
             "--tls-ca-file", profile["ca_path"],
             "--data-tls-mode", "required",
         ]
@@ -243,7 +244,8 @@ class Agent:
         profile = self.profile_for(remote)
         args = ["--host", profile["host"], "--port", str(profile["control_port"]),
                 "--connections", "1", "--checksum", "crc32c",
-                "--tls-mode", "required", "--tls-ca-file", profile["ca_path"],
+                "--tls-mode", "required", "--tls-server-name", profile.get("server_name") or profile["host"],
+                "--tls-ca-file", profile["ca_path"],
                 "--data-tls-mode", "required", "--event-log", t["backend_evidence"]["event_log"],
                 "--auth-mode", "token", "--auth-token-file", profile["credential_ref"][5:],
                 "--json-summary", t["backend_evidence"]["summary"], "--phase-timing", "on"]

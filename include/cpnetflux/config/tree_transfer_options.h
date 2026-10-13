@@ -57,6 +57,7 @@ struct TreeTransferOptions {
     std::uint64_t maxFiles = 0;
     std::string authMode = "anonymous";
     std::string authTokenFile;
+    std::string tlsServerName;
     std::string user = "cpnetflux";
     std::string password = "cpnetflux";
     std::string plannerPreset;

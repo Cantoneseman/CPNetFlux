@@ -31,6 +31,7 @@ ApplicationWindow {
     function terminal(s) { return ["completed","failed","cancelled","recoverable"].indexOf(s)>=0 }
     function selectTask(t) { selectedId=t.transfer_id; page=2 }
     function loadProfile(p) {
+        rpc.invalidateAuthentication()
         nodeId.text=p.node_id; nodeName.text=p.name; host.text=p.host; port.text=p.control_port
         rootPath.text=p.default_root_id || "home"; ca.text=p.ca_path; serverName.text=p.server_name
         credentialRef.text=p.credential_ref || ""; auth.currentIndex=p.auth_mode==="admin_credential"?1:0
@@ -223,15 +224,15 @@ ApplicationWindow {
                                 Muted { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"先在对端部署并启动受控 CPNetFlux 服务，再在这里保存节点配置。当前支持 TLS + 受保护 token 文件：只填写 file:/绝对路径引用，token 内容不会进入 UI、agent 请求或状态文件。" }
                                 ComboBox { Layout.fillWidth:true; model:rpc.profiles; textRole:"name"; displayText:currentIndex>=0 && currentIndex<rpc.profiles.length ? rpc.profiles[currentIndex].name : "已保存节点（选择以编辑）"; onActivated:window.loadProfile(rpc.profiles[currentIndex]) }
                                 GridLayout { columns:window.width<1120?2:4; Layout.fillWidth:true; columnSpacing:12; rowSpacing:8
-                                    Label { text:"节点ID" } TextField { id:nodeId; text:"lab-node"; Layout.fillWidth:true }
-                                    Label { text:"名称" } TextField { id:nodeName; text:"实验室节点"; Layout.fillWidth:true }
-                                    Label { text:"地址" } TextField { id:host; text:"node.example"; Layout.fillWidth:true }
-                                    Label { text:"控制端口" } TextField { id:port; text:"22310"; validator:IntValidator { bottom:1; top:65535 } Layout.fillWidth:true }
-                                    Label { text:"默认root" } TextField { id:rootPath; text:"home"; Layout.fillWidth:true }
-                                    Label { text:"TLS主机名" } TextField { id:serverName; text:host.text; Layout.fillWidth:true }
-                                    Label { text:"CA文件" } TextField { id:ca; text:"/home/student/.config/cpnetflux/ca.pem"; Layout.fillWidth:true; Layout.columnSpan:3 }
-                                    Label { text:"身份方式" } ComboBox { id:auth; model:["短期 token 文件（支持）","管理员凭据（未接入）"]; Layout.fillWidth:true; onCurrentIndexChanged: if(currentIndex===1) credentialRef.text="" }
-                                    Label { text:"凭据引用" } TextField { id:credentialRef; text:"file:/home/student/.config/cpnetflux/token"; placeholderText:"file:/绝对路径（权限 0600）"; Layout.fillWidth:true }
+                                    Label { text:"节点ID" } TextField { id:nodeId; text:"lab-node"; Layout.fillWidth:true; onTextEdited: rpc.invalidateAuthentication() }
+                                    Label { text:"名称" } TextField { id:nodeName; text:"实验室节点"; Layout.fillWidth:true; onTextEdited: rpc.invalidateAuthentication() }
+                                    Label { text:"地址" } TextField { id:host; text:"node.example"; Layout.fillWidth:true; onTextEdited: rpc.invalidateAuthentication() }
+                                    Label { text:"控制端口" } TextField { id:port; text:"22310"; validator:IntValidator { bottom:1; top:65535 } Layout.fillWidth:true; onTextEdited: rpc.invalidateAuthentication() }
+                                    Label { text:"默认root" } TextField { id:rootPath; text:"home"; Layout.fillWidth:true; onTextEdited: rpc.invalidateAuthentication() }
+                                    Label { text:"TLS主机名" } TextField { id:serverName; text:host.text; Layout.fillWidth:true; onTextEdited: rpc.invalidateAuthentication() }
+                                    Label { text:"CA文件" } TextField { id:ca; text:"/home/student/.config/cpnetflux/ca.pem"; Layout.fillWidth:true; Layout.columnSpan:3; onTextEdited: rpc.invalidateAuthentication() }
+                                    Label { text:"身份方式" } ComboBox { id:auth; model:["短期 token 文件（支持）","管理员凭据（未接入）"]; Layout.fillWidth:true; onCurrentIndexChanged: { rpc.invalidateAuthentication(); if(currentIndex===1) credentialRef.text="" } }
+                                    Label { text:"凭据引用" } TextField { id:credentialRef; text:"file:/home/student/.config/cpnetflux/token"; placeholderText:"file:/绝对路径（权限 0600）"; Layout.fillWidth:true; onTextEdited: rpc.invalidateAuthentication() }
                                     Label { Layout.columnSpan:4; Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"认证检查只进行 DNS/TCP、TLS、token 登录和 V2 能力协商，不创建远端目录或数据文件。管理员凭据和 secret-service 引用当前不可用。"; color:"#657389" }
                                 }
                                 RowLayout {

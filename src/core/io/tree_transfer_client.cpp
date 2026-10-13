@@ -67,7 +67,8 @@ constexpr auto kPipelineControlResponseTimeout = std::chrono::seconds(30);
 class ControlClient {
    public:
     [[nodiscard]] common::Status connectTo(const std::string& host, std::uint16_t port,
-                                           const TlsConfig& tls) {
+                                           const TlsConfig& tls,
+                                           const std::string& tlsServerName = {}) {
         if (cancelled_.load(std::memory_order_acquire)) {
             return common::Status::runtimeError("tree pipeline candidate cancelled");
         }
@@ -108,7 +109,8 @@ class ControlClient {
             if (!context.isOk()) {
                 return context.status();
             }
-            auto connection = context.value().connect(std::move(fd_), host_);
+            const std::string& identityName = tlsServerName.empty() ? host_ : tlsServerName;
+            auto connection = context.value().connect(std::move(fd_), identityName);
             if (!connection.isOk()) {
                 return connection.status();
             }
@@ -729,7 +731,8 @@ common::Status saveManifest(core::tree::TreeManifest* manifest, const std::strin
 }
 
 common::Status ensureControlReady(ControlClient* client, const config::TreeTransferOptions& options) {
-    const common::Status connectStatus = client->connectTo(options.host, options.port, options.tls);
+    const common::Status connectStatus =
+        client->connectTo(options.host, options.port, options.tls, options.tlsServerName);
     if (!connectStatus.isOk()) {
         return connectStatus;
     }
@@ -747,7 +750,7 @@ TreeAuthProbeResult runTreeAuthProbeInternal(const config::TreeTransferOptions& 
     TreeAuthProbeResult result;
     ControlClient control;
     const common::Status connectStatus =
-        control.connectTo(options.host, options.port, options.tls);
+        control.connectTo(options.host, options.port, options.tls, options.tlsServerName);
     if (!connectStatus.isOk()) {
         const std::string message = connectStatus.message();
         result.error = message;
