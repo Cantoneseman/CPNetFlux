@@ -12,6 +12,7 @@ from pathlib import Path
 import signal
 import socket
 import stat
+import subprocess
 import struct
 import tempfile
 import uuid
@@ -195,6 +196,47 @@ class Agent:
             raise RpcError("unsupported", "核心 file client 尚未提供统一 TLS/认证控制面；请使用目录任务，或先升级 core adapter")
         return path, remote, profile
 
+    def auth_probe_command(self, profile):
+        return [
+            self.core_binary("cpnetflux-auth-probe"),
+            "--auth-probe",
+            "--host", str(profile["host"]),
+            "--port", str(profile["control_port"]),
+            "--auth-mode", "token",
+            "--auth-token-file", profile["credential_ref"][5:],
+            "--tls-mode", "required",
+            "--tls-ca-file", profile["ca_path"],
+            "--data-tls-mode", "required",
+        ]
+
+    def run_auth_probe(self, profile):
+        try:
+            completed = subprocess.run(
+                self.auth_probe_command(profile),
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return None, "认证检查超时（15秒），请检查服务端和防火墙"
+        except OSError as exc:
+            return None, "无法启动认证检查: " + str(exc)
+        payload = None
+        for line in reversed(completed.stdout.splitlines()):
+            try:
+                candidate = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict) and "authentication" in candidate:
+                payload = candidate
+                break
+        if payload is None:
+            return None, completed.stderr.strip() or "认证检查未返回结构化结果"
+        if completed.returncode != 0 and payload.get("authentication") == "authenticated":
+            return None, "认证检查退出状态与结果不一致"
+        return payload, payload.get("error") or ""
+
     def build_real_command(self, t):
         path = Path(t["source"]["path"] if t["direction"] == "upload" else t["destination"]["path"])
         remote = t["destination"] if t["direction"] == "upload" else t["source"]
@@ -346,7 +388,7 @@ class Agent:
         if method == "agent.getInfo":
             real_ready = (self.core_bin_dir is not None and self.core_bin_dir.is_dir() and
                           all((self.core_bin_dir / name).is_file() and os.access(self.core_bin_dir / name, os.X_OK)
-                              for name in ("cpnetflux-tree-upload-client", "cpnetflux-tree-download-client")))
+                              for name in ("cpnetflux-tree-upload-client", "cpnetflux-tree-download-client", "cpnetflux-auth-probe")))
             return dict(kind="agent_info",api_version=API_VERSION,agent_version="0.1.0",agent_epoch=self.epoch,
                         adapter="demo" if self.args.demo else "real",max_frame_bytes=MAX_FRAME,
                         max_concurrent_requests=32,state_store="persistent",
@@ -358,30 +400,68 @@ class Agent:
             if self.args.demo:
                 checks = {k:dict(state="unsupported", message="开发诊断模式不连接远端", error=None)
                           for k in ["dns_control_port", "tls_identity", "login", "capabilities", "directory_permission", "data_port"]}
-                return dict(kind="connection_test", node_id=p["node_id"], adapter="demo", ready=False, authentication="unknown", checks=checks)
+                return dict(kind="connection_test", node_id=p["node_id"], adapter="demo", ready=False,
+                            authentication="unknown", checks=checks)
             try:
-                profile=self.profile_for({"node_id":p["node_id"]})
-                ca=profile.get("ca_path")
-                tls_ok=bool(ca and Path(ca).is_file() and os.access(ca, os.R_OK))
-                with socket.create_connection((profile["host"], int(profile["control_port"])), timeout=2):
-                    port_ok=True
-                checks={
-                    "dns_control_port":dict(state="pass" if port_ok else "fail", message="控制端口可达" if port_ok else "控制端口不可达", error=None),
-                    "tls_identity":dict(state="pass" if tls_ok else "fail", message="CA 可读" if tls_ok else "CA 不存在或不可读", error=None),
-                    "login":dict(state="unsupported", message="真实认证需由核心 tree client 完成", error=None),
-                    "capabilities":dict(state="unsupported", message="真实能力需通过受控控制面协商", error=None),
-                    "directory_permission":dict(state="unsupported", message="尚未执行远端目录权限探测", error=None),
-                    "data_port":dict(state="unsupported", message="数据端口由核心协商", error=None)}
-                return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=port_ok and tls_ok, authentication="pending", checks=checks)
-            except RpcError: raise
-            except (OSError, ValueError) as exc:
-                return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=False, authentication="unknown",
-                            checks={"dns_control_port":dict(state="fail",message=str(exc),error=detail("data_port_unreachable",str(exc))),
-                                    "tls_identity":dict(state="unknown",message="未执行",error=None),
-                                    "login":dict(state="unknown",message="未执行",error=None),
-                                    "capabilities":dict(state="unknown",message="未执行",error=None),
-                                    "directory_permission":dict(state="unknown",message="未执行",error=None),
-                                    "data_port":dict(state="unknown",message="未执行",error=None)})
+                profile = self.profile_for({"node_id": p["node_id"]})
+            except RpcError as exc:
+                failed = dict(state="failed", message=exc.message, error=detail(exc.code, exc.message))
+                state = "keyring_locked" if exc.code == "keyring_locked" else "failed"
+                checks = {
+                    "dns_control_port": dict(state="pending", message="未执行", error=None),
+                    "tls_identity": failed if exc.code == "tls_identity_failed" else dict(state="pending", message="未执行", error=None),
+                    "login": failed if exc.code in {"keyring_locked", "permission_denied", "unsupported"} else dict(state="pending", message="未执行", error=None),
+                    "capabilities": dict(state="pending", message="未执行", error=None),
+                    "directory_permission": dict(state="unsupported", message="认证检查不写入远端目录", error=None),
+                    "data_port": dict(state="unsupported", message="认证检查不打开数据端口", error=None),
+                }
+                return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=False,
+                            authentication=state, checks=checks)
+            try:
+                payload, probe_error = self.run_auth_probe(profile)
+            except RpcError as exc:
+                failed = dict(state="unsupported", message=exc.message, error=detail(exc.code, exc.message))
+                checks = {
+                    "dns_control_port": dict(state="pending", message="未执行", error=None),
+                    "tls_identity": dict(state="pending", message="未执行", error=None),
+                    "login": failed,
+                    "capabilities": dict(state="pending", message="未执行", error=None),
+                    "directory_permission": dict(state="unsupported", message="认证检查不写入远端目录", error=None),
+                    "data_port": dict(state="unsupported", message="认证检查不打开数据端口", error=None),
+                }
+                return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=False,
+                            authentication="unknown", checks=checks)
+            if payload is None:
+                checks = {
+                    "dns_control_port": dict(state="failed", message=probe_error, error=detail("protocol_error", probe_error)),
+                    "tls_identity": dict(state="pending", message="未执行", error=None),
+                    "login": dict(state="pending", message="未执行", error=None),
+                    "capabilities": dict(state="pending", message="未执行", error=None),
+                    "directory_permission": dict(state="unsupported", message="认证检查不写入远端目录", error=None),
+                    "data_port": dict(state="unsupported", message="认证检查不打开数据端口", error=None),
+                }
+                return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=False,
+                            authentication="failed", checks=checks)
+            def check(key, default_message):
+                state = payload.get(key, "pending")
+                if state not in {"pending", "running", "passed", "failed", "unsupported", "skipped"}:
+                    state = "failed"
+                message = default_message if not probe_error else probe_error
+                return dict(state=state, message=message, error=(
+                    detail("auth_failed", probe_error) if state == "failed" and probe_error else None))
+            checks = {
+                "dns_control_port": check("dns_control_port", "控制端口已连接"),
+                "tls_identity": check("tls_identity", "TLS 服务端身份已验证"),
+                "login": check("login", "token 登录已验证"),
+                "capabilities": check("capabilities", "V2 控制面能力已协商"),
+                "directory_permission": dict(state="unsupported", message="认证检查不写入远端目录", error=None),
+                "data_port": dict(state="unsupported", message="认证检查不打开数据端口", error=None),
+            }
+            authentication = payload.get("authentication", "failed")
+            if authentication not in {"unknown", "not_required", "required", "authenticating", "authenticated", "expired", "failed", "keyring_locked"}:
+                authentication = "failed"
+            return dict(kind="connection_test", node_id=p["node_id"], adapter="real", ready=False,
+                        authentication=authentication, checks=checks)
         if method == "node.capabilities":
             if self.args.demo:
                 return dict(kind="capabilities", node_id=p["node_id"], adapter="demo", observed_at=now(), protocol_version="not-connected", modes=[], schedulers=[], range_policies=[], max_channel_count=1, max_pending_window=0, max_queue_depth=0, checksums=[], resume_supported=False, pause_supported=False, control_tls_verified=False, data_tls_supported=False, directory_permission_probe_supported=False, mode_capabilities=[])

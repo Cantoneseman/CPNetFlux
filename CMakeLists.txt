@@ -259,6 +259,15 @@ target_link_libraries(cpnetflux-tree-download-client
         CPNetFlux::core
 )
 
+add_executable(cpnetflux-auth-probe
+    src/apps/cpnetflux_auth_probe.cpp
+)
+
+target_link_libraries(cpnetflux-auth-probe
+    PRIVATE
+        CPNetFlux::core
+)
+
 add_executable(cpnetflux-checksum-bench
     src/apps/cpnetflux_checksum_bench.cpp
 )

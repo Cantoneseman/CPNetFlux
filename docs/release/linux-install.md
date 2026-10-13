@@ -35,9 +35,11 @@ TGZ 自定义 prefix 使用 unit 前必须把 ExecStart 改为实际绝对路径
 
 ## 桌面与 agent
 
-同一普通用户运行 `cpnetflux-agent` 和 `cpnetflux-desktop`。需要私有 XDG_RUNTIME_DIR；agent socket 0600、状态目录0700。可复制 user unit 到 ~/.config/systemd/user，再显式启动；不会启用 demo。UI 退出不停止 agent，不取消任务。
+同一普通用户运行 cpnetflux-agent 和 cpnetflux-desktop。需要私有 XDG_RUNTIME_DIR；agent socket 0600、状态目录0700。可复制 user unit 到 ~/.config/systemd/user，再显式启动；不会启用 demo。UI 退出不停止 agent，不取消任务。
 
-演示可另用私有 runtime/state 目录运行 `cpnetflux-agent --demo`，再用 `cpnetflux-desktop --socket /absolute/runtime/agent.sock` 连接。演示数据是合成的；真实单文件任务会明确显示 unsupported；当前 core summary 未提供可供 UI 回读的 TLS 握手结构化字段，实际 TLS 字段可能显示 unknown。无图形会话的 offscreen 检查不能代替真实桌面交互验收。
+首次连接其他节点时，在 UI 的“节点连接配置”中填写节点地址、控制端口、TLS 主机名和 CA 文件；认证方式选择“短期 token 文件（支持）”，凭据引用填写 file:/绝对路径/token。这个文件必须已存在、当前用户可读且权限为 0600，内容只留在本机文件中，绝不填入 token 原文。保存后点击“认证检查（不传输文件）”。检查会真实执行 DNS/TCP、TLS 握手、token 登录和 V2 能力协商；成功时显示“已认证”，失败时按步骤给出修复原因。认证检查不会创建远端目录、文件或数据连接，因此可在正式传输前重复执行。管理员凭据、secret-service 引用和匿名/off-TLS 目前会明确显示为不可用或失败。
+
+认证通过后再到“新建任务”选择该节点的目录上传/下载。真实单文件任务仍会明确显示 unsupported；只有显式 --demo 才模拟任务，演示数据不能证明双机传输。无图形会话的 offscreen 检查不能代替真实桌面交互验收。
 
 ## 升级、卸载与回滚
 

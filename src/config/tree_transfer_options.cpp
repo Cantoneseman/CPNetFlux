@@ -174,6 +174,11 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             index += 1;
             continue;
         }
+        if (option == "--auth-probe") {
+            options.authProbe = true;
+            index += 1;
+            continue;
+        }
 
         const common::Status valueStatus = requireValue(argc, index, option);
         if (!valueStatus.isOk()) {
@@ -442,10 +447,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         index += 2;
     }
 
-    if (!hasSourceDir) {
+    if (!options.authProbe && !hasSourceDir) {
         return common::Status::invalidArgument("--source-dir is required");
     }
-    if (!hasDestDir) {
+    if (!options.authProbe && !hasDestDir) {
         return common::Status::invalidArgument("--dest-dir is required");
     }
     if (options.authMode == "token") {
@@ -486,7 +491,7 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 "--control-pipeline-depth does not support --max-files");
         }
     }
-    if (role == TreeTransferRole::Upload) {
+    if (!options.authProbe && role == TreeTransferRole::Upload) {
         const common::Status sourceStatus = validateLocalDirectory(options.sourceDir, "--source-dir");
         if (!sourceStatus.isOk()) {
             return sourceStatus;
@@ -495,7 +500,7 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         if (!destStatus.isOk()) {
             return destStatus;
         }
-    } else {
+    } else if (!options.authProbe) {
         const common::Status sourceStatus = validateRemoteDirArgument(options.sourceDir, "--source-dir");
         if (!sourceStatus.isOk()) {
             return sourceStatus;
@@ -540,6 +545,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            " [--connections <N>] [--file-parallelism <N>] [--chunk-size <bytes>] "
            "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
            "[--checksum-backend <auto|software|hardware>] [--resume] [--max-files <N>] "
+           "[--auth-probe] "
            "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window 1..16] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "

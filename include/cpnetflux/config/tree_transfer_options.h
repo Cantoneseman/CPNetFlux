@@ -40,6 +40,7 @@ enum class CompressionMode {
 struct TreeTransferOptions {
     std::string host = "127.0.0.1";
     std::uint16_t port = 2121;
+    bool authProbe = false;
     std::string sourceDir;
     std::string destDir;
     std::uint32_t connections = 1;

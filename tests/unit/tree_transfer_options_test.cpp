@@ -8,6 +8,20 @@
 
 #include "cpnetflux/core/io/tls_socket.h"
 
+TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
+    const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe",
+                          "--host", "127.0.0.1", "--port", "2121",
+                          "--auth-mode", "anonymous", "--tls-mode", "off",
+                          "--data-tls-mode", "off"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_TRUE(parsed.value().authProbe);
+    EXPECT_TRUE(parsed.value().sourceDir.empty());
+    EXPECT_TRUE(parsed.value().destDir.empty());
+}
+
 TEST(TreeTransferOptionsTest, ParsesUploadOptions) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-options-upload";

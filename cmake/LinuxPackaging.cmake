@@ -4,7 +4,7 @@ if(IS_ABSOLUTE "${CMAKE_INSTALL_BINDIR}" OR IS_ABSOLUTE "${CMAKE_INSTALL_LIBEXEC
 endif()
 install(TARGETS cpnetflux cpnetflux-server cpnetflux-client cpnetflux-file-server
     cpnetflux-file-client cpnetflux-file-download-client cpnetflux-tree-upload-client
-    cpnetflux-tree-download-client cpnetflux-gridftp-server RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    cpnetflux-tree-download-client cpnetflux-auth-probe cpnetflux-gridftp-server RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 configure_file(packaging/cpnetflux-service.in "${CMAKE_CURRENT_BINARY_DIR}/cpnetflux-service" @ONLY)
 install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/cpnetflux-service" DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES packaging/cpnetflux_service.py DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/cpnetflux)

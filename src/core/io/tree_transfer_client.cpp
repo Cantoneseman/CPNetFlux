@@ -743,6 +743,63 @@ common::Status ensureControlReady(ControlClient* client, const config::TreeTrans
     return client->login(options.user, options.password, options.connections);
 }
 
+TreeAuthProbeResult runTreeAuthProbeInternal(const config::TreeTransferOptions& options) {
+    TreeAuthProbeResult result;
+    ControlClient control;
+    const common::Status connectStatus =
+        control.connectTo(options.host, options.port, options.tls);
+    if (!connectStatus.isOk()) {
+        const std::string message = connectStatus.message();
+        result.error = message;
+        if (message.find("getaddrinfo") != std::string::npos ||
+            message.find("connect") != std::string::npos) {
+            result.dnsControlPort = "failed";
+        } else {
+            result.dnsControlPort = "passed";
+            result.tlsIdentity = "failed";
+        }
+        result.authentication = "failed";
+        return result;
+    }
+    result.dnsControlPort = "passed";
+    result.tlsIdentity = "passed";
+
+    common::Status loginStatus = common::Status::ok();
+    if (options.authMode == "token") {
+        auto token = cpnetflux::protocol::control::loadTokenFile(options.authTokenFile);
+        if (!token.isOk()) {
+            loginStatus = token.status();
+        } else {
+            loginStatus = control.login("token", token.value(), options.connections);
+        }
+    } else {
+        loginStatus = control.login(options.user, options.password, options.connections);
+    }
+    if (!loginStatus.isOk()) {
+        result.login = "failed";
+        result.authentication = "failed";
+        result.error = loginStatus.message();
+        return result;
+    }
+    result.login = "passed";
+    result.authentication = "authenticated";
+
+    std::uint32_t actualWindow = 0;
+    std::uint32_t actualChannels = 0;
+    auto negotiated = control.negotiatePersistent(
+        1, 1, options.checksumAlgorithm, false, options.dataTlsMode,
+        &actualWindow, &actualChannels, false);
+    if (!negotiated.isOk()) {
+        result.capabilities = "failed";
+        result.error = negotiated.status().message();
+    } else if (negotiated.value()) {
+        result.capabilities = "passed";
+    } else {
+        result.capabilities = "unsupported";
+    }
+    return result;
+}
+
 common::Status validateCompletedUploadFile(ControlClient* client, const std::string& remotePath,
                                            const core::tree::TreeFileRecord& record) {
     auto size = client->size(remotePath);
@@ -3975,6 +4032,10 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
                    : runTreeScheduler(&manifest, manifestPath, options, processDownloadFile, &stats));
     return emitTreeSummary("tree_download_complete", "download", status, summaryOptions, manifest, stats,
                            startedAt);
+}
+
+TreeAuthProbeResult runTreeAuthProbe(const config::TreeTransferOptions& options) {
+    return runTreeAuthProbeInternal(options);
 }
 
 }  // namespace cpnetflux::core::io

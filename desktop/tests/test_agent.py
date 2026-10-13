@@ -192,6 +192,51 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(task["actual_mode"], "unknown")
         self.assertEqual(task["effective_policy"]["resolution"], "pending")
 
+    def test_real_profile_rejects_placeholder_and_auth_probe_command(self):
+        spec = importlib.util.spec_from_file_location("cpnetflux_agent_probe", AGENT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        agent = object.__new__(module.Agent)
+        agent.args = type("Args", (), {"demo": False})()
+        agent.core_bin_dir = Path("/opt/cpnetflux/bin")
+        agent.core_binary = lambda name: str(agent.core_bin_dir / name)
+        profile = {
+            "node_id": "n1",
+            "host": "node.example",
+            "control_port": 22310,
+            "ca_path": "/etc/cpnetflux/ca.pem",
+            "auth_mode": "token",
+            "credential_ref": "file:/home/user/.config/cpnetflux/token",
+        }
+        command = agent.auth_probe_command(profile)
+        self.assertIn("cpnetflux-auth-probe", command[0])
+        self.assertIn("--auth-probe", command)
+        self.assertNotIn("token-value", command)
+        self.assertEqual(command[command.index("--auth-token-file") + 1], "/home/user/.config/cpnetflux/token")
+
+    def test_real_connection_test_reports_authenticated_without_claiming_ready(self):
+        spec = importlib.util.spec_from_file_location("cpnetflux_agent_connection", AGENT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        agent = object.__new__(module.Agent)
+        agent.args = type("Args", (), {"demo": False})()
+        profile = {"node_id": "n1"}
+        agent.profile_for = lambda endpoint: profile
+        agent.run_auth_probe = lambda current: ({
+            "dns_control_port": "passed",
+            "tls_identity": "passed",
+            "login": "passed",
+            "capabilities": "passed",
+            "authentication": "authenticated",
+            "error": "",
+        }, "")
+        reply = agent.dispatch("node.testConnection", {"node_id": "n1"}, None)
+        self.assertFalse(reply["ready"])
+        self.assertEqual(reply["authentication"], "authenticated")
+        self.assertEqual(reply["checks"]["login"]["state"], "passed")
+        self.assertEqual(reply["checks"]["directory_permission"]["state"], "unsupported")
+        self.assertEqual(reply["checks"]["data_port"]["state"], "unsupported")
+
     def test_profile_secrets_and_real_probe_unsupported(self):
         profile = next(v["message"]["params"] for v in FIXTURES["valid"] if v["name"] == "profile.create")
         p = json.loads(json.dumps(profile)); p["profile"]["token"] = "forbidden-secret"

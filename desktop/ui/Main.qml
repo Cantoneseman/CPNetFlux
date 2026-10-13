@@ -220,7 +220,7 @@ ApplicationWindow {
                         Card { Layout.fillWidth:true; implicitHeight:580
                             ColumnLayout { anchors.fill:parent; anchors.margins:22; spacing:10
                                 Heading { text:"节点连接配置" }
-                                Muted { Layout.fillWidth:true; text:"接收节点必须先运行受控CPNetFlux服务端。安装两个GUI不等于能互传。当前只保存配置和凭据引用，不接收密码或token值。" }
+                                Muted { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"先在对端部署并启动受控 CPNetFlux 服务，再在这里保存节点配置。当前支持 TLS + 受保护 token 文件：只填写 file:/绝对路径引用，token 内容不会进入 UI、agent 请求或状态文件。" }
                                 ComboBox { Layout.fillWidth:true; model:rpc.profiles; textRole:"name"; displayText:currentIndex>=0 && currentIndex<rpc.profiles.length ? rpc.profiles[currentIndex].name : "已保存节点（选择以编辑）"; onActivated:window.loadProfile(rpc.profiles[currentIndex]) }
                                 GridLayout { columns:window.width<1120?2:4; Layout.fillWidth:true; columnSpacing:12; rowSpacing:8
                                     Label { text:"节点ID" } TextField { id:nodeId; text:"lab-node"; Layout.fillWidth:true }
@@ -230,18 +230,20 @@ ApplicationWindow {
                                     Label { text:"默认root" } TextField { id:rootPath; text:"home"; Layout.fillWidth:true }
                                     Label { text:"TLS主机名" } TextField { id:serverName; text:host.text; Layout.fillWidth:true }
                                     Label { text:"CA文件" } TextField { id:ca; text:"/home/student/.config/cpnetflux/ca.pem"; Layout.fillWidth:true; Layout.columnSpan:3 }
-                                    Label { text:"身份方式" } ComboBox { id:auth; model:["短期token引用","管理员凭据引用"]; Layout.fillWidth:true }
-                                    Label { text:"凭据引用" } TextField { id:credentialRef; text:"secret-service:cpnetflux/lab-node"; placeholderText:"仅引用，禁止填写凭据值"; Layout.fillWidth:true }
+                                    Label { text:"身份方式" } ComboBox { id:auth; model:["短期 token 文件（支持）","管理员凭据（未接入）"]; Layout.fillWidth:true; onCurrentIndexChanged: if(currentIndex===1) credentialRef.text="" }
+                                    Label { text:"凭据引用" } TextField { id:credentialRef; text:"file:/home/student/.config/cpnetflux/token"; placeholderText:"file:/绝对路径（权限 0600）"; Layout.fillWidth:true }
+                                    Label { Layout.columnSpan:4; Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"认证检查只进行 DNS/TCP、TLS、token 登录和 V2 能力协商，不创建远端目录或数据文件。管理员凭据和 secret-service 引用当前不可用。"; color:"#657389" }
                                 }
                                 RowLayout {
                                     Button { text:"保存配置"; enabled:rpc.connected && port.acceptableInput; onClicked:{
                                         var update=false; for(var i=0;i<rpc.profiles.length;i++) if(rpc.profiles[i].node_id===nodeId.text) update=true
                                         rpc.saveProfile({node_id:nodeId.text,name:nodeName.text,host:host.text,control_port:parseInt(port.text),server_name:serverName.text,ca_path:ca.text,auth_mode:["token","admin_credential"][auth.currentIndex],credential_ref:credentialRef.text,default_root_id:rootPath.text},update)
                                     } }
-                                    Button { text:"分步连接检查"; enabled:rpc.connected; onClicked:rpc.testNode(nodeId.text,rootPath.text) }
+                                    Button { text:"认证检查（不传输文件）"; enabled:rpc.connected && auth.currentIndex===0 && credentialRef.text.startsWith("file:"); onClicked:rpc.testNode(nodeId.text,rootPath.text) }
                                 }
-                                Repeater { model:[{key:"dns_control_port",name:"① DNS / 控制端口"},{key:"tls_identity",name:"② TLS服务端身份"},{key:"login",name:"③ 登录"},{key:"capabilities",name:"④ 能力协商"},{key:"directory_permission",name:"⑤ 目录读写授权"},{key:"data_port",name:"协商数据端口"}]
-                                    Label { required property var modelData; text:modelData.name+"："+(rpc.checks[modelData.key] ? rpc.checks[modelData.key].state+" · "+rpc.checks[modelData.key].message : "尚未检查 / 未提供"); color:"#657389" }
+                                Label { Layout.fillWidth:true; text:"认证状态："+({"unknown":"未检查","required":"需要认证","authenticating":"认证中","authenticated":"已认证","failed":"认证失败","keyring_locked":"凭据不可用"}[rpc.authenticationState] || rpc.authenticationState); color:rpc.authenticationState==="authenticated"?"#237a57":(rpc.authenticationState==="failed"||rpc.authenticationState==="keyring_locked"?"#b34236":"#a46a1b"); font.bold:true }
+                                Repeater { model:[{key:"dns_control_port",name:"① DNS / 控制端口"},{key:"tls_identity",name:"② TLS服务端身份"},{key:"login",name:"③ token 登录"},{key:"capabilities",name:"④ V2 能力协商"},{key:"directory_permission",name:"⑤ 目录读写授权（不探测）"},{key:"data_port",name:"⑥ 数据端口（不打开）"}]
+                                    Label { required property var modelData; text:modelData.name+"："+(rpc.checks[modelData.key] ? ({"passed":"通过","failed":"失败","unsupported":"未提供","pending":"未执行","running":"检查中","skipped":"跳过"}[rpc.checks[modelData.key].state] || rpc.checks[modelData.key].state)+" · "+(rpc.checks[modelData.key].message || "") : "尚未检查 / 未提供"); color:"#657389" }
                                 }
                             }
                         }
