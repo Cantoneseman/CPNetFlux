@@ -9,6 +9,7 @@ import shlex
 import shutil
 import socket
 import subprocess
+import ssl
 import sys
 import threading
 import time
@@ -733,8 +734,28 @@ def parse_transfer_id(lines: list[str]) -> str:
 
 
 class ControlConnection:
-    def __init__(self, host: str, port: int) -> None:
-        self.sock = socket.create_connection((host, port), timeout=10.0)
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        *,
+        tls_mode: str = "off",
+        tls_server_name: str = "",
+        tls_ca_file: str = "",
+    ) -> None:
+        raw = socket.create_connection((host, port), timeout=10.0)
+        if tls_mode == "required":
+            if not tls_ca_file:
+                raw.close()
+                raise RuntimeError("TLS control mode requires --tls-ca-file")
+            context = ssl.create_default_context(cafile=tls_ca_file)
+            context.check_hostname = True
+            self.sock = context.wrap_socket(
+                raw,
+                server_hostname=tls_server_name or host,
+            )
+        else:
+            self.sock = raw
         self.buffer = bytearray()
         greeting = self.read_reply()
         if reply_code(greeting) != 220:
@@ -1630,7 +1651,13 @@ def build_file_client_command(
 
 
 def open_data_port(args: argparse.Namespace, case_index: int) -> tuple[ControlConnection, int]:
-    control = ControlConnection(args.control_host, control_port(args, case_index))
+    control = ControlConnection(
+        args.control_host,
+        control_port(args, case_index),
+        tls_mode=getattr(args, "tls_mode", "off"),
+        tls_server_name=getattr(args, "tls_server_name", ""),
+        tls_ca_file=getattr(args, "tls_ca_file", ""),
+    )
     control.login_type_i()
     epsv = control.send("EPSV")
     if reply_code(epsv) != 229:
