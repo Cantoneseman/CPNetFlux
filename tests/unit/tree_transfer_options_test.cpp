@@ -160,12 +160,11 @@ TEST(TreeTransferOptionsTest, AllowsConcurrentWorkersForDepthOnePipeline) {
     EXPECT_EQ(parsed.value().fileParallelism, 8U);
     EXPECT_EQ(parsed.value().controlPipelineDepth, 1U);
     EXPECT_TRUE(parsed.value().requestedReuseDataSession);
-    EXPECT_FALSE(parsed.value().reuseDataSession);
-    EXPECT_EQ(parsed.value().modeFallbackReason,
-              "control_pipeline_requires_per_file_until_persistent_worker_integration");
+    EXPECT_TRUE(parsed.value().reuseDataSession);
+    EXPECT_TRUE(parsed.value().modeFallbackReason.empty());
 }
 
-TEST(TreeTransferOptionsTest, ExplicitPersistentTreePipelineCombinationIsRejected) {
+TEST(TreeTransferOptionsTest, ExplicitPersistentTreePipelineUsesSharedDispatchWindow) {
     const auto root = std::filesystem::temp_directory_path() / "cpnetflux-tree-options-explicit-pipeline";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
@@ -175,8 +174,25 @@ TEST(TreeTransferOptionsTest, ExplicitPersistentTreePipelineCombinationIsRejecte
                           "--control-pipeline-depth", "1", "--data-session-reuse", "tree"};
     auto parsed = cpnetflux::config::parseTreeTransferOptions(
         static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_TRUE(parsed.value().reuseDataSession);
+    EXPECT_TRUE(parsed.value().requestedReuseDataSession);
+    EXPECT_EQ(parsed.value().controlPipelineDepth, 1U);
+    EXPECT_TRUE(parsed.value().modeFallbackReason.empty());
+    std::filesystem::remove_all(root);
+}
+TEST(TreeTransferOptionsTest, PersistentPipelineRequiresDynamicQueueScheduling) {
+    const auto root = std::filesystem::temp_directory_path() / "cpnetflux-tree-options-pipeline-static";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const auto rootText = root.string();
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                          "--dest-dir", "remote", "--data-session-reuse", "tree",
+                          "--file-scheduling", "static", "--control-pipeline-depth", "1"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
     EXPECT_FALSE(parsed.isOk());
-    EXPECT_NE(parsed.status().message().find("cannot combine"), std::string::npos);
+    EXPECT_NE(parsed.status().message().find("requires dynamic scheduling"), std::string::npos);
     std::filesystem::remove_all(root);
 }
 TEST(TreeTransferOptionsTest, DefaultsControlReuseOff) {
@@ -291,13 +307,15 @@ TEST(TreeTransferOptionsTest, ParsesControlPipelineDepthAndRejectsInvalidCombina
     EXPECT_EQ(parsed.value().controlPipelineDepth, 1U);
 
     const char* tooDeep[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
-                             "--dest-dir", "remote", "--control-pipeline-depth", "2"};
+                             "--dest-dir", "remote", "--data-session-reuse", "off",
+                             "--control-pipeline-depth", "2"};
     EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
                      static_cast<int>(std::size(tooDeep)), tooDeep,
                      cpnetflux::config::TreeTransferRole::Upload)
                      .isOk());
     const char* wrongMode[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
-                               "--dest-dir", "remote", "--control-pipeline-depth", "1"};
+                               "--dest-dir", "remote", "--data-session-reuse", "off",
+                               "--control-pipeline-depth", "1"};
     EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
                      static_cast<int>(std::size(wrongMode)), wrongMode,
                      cpnetflux::config::TreeTransferRole::Upload)
@@ -555,17 +573,41 @@ TEST(TreeTransferOptionsTest, RejectsSchedulerMetricsInsideLocalRoot) {
     std::filesystem::remove_all(root);
 }
 
-TEST(TreeTransferOptionsTest, RejectsPersistentDataCombinedWithControlPipeline) {
+TEST(TreeTransferOptionsTest, AllowsPersistentDataWithSharedPipelineDispatch) {
     const char* argv[] = {"cpnetflux-tree-upload-client", "--host", "127.0.0.1",
         "--port", "2121", "--source-dir", "/tmp", "--dest-dir", "remote",
-        "--control-reuse", "worker", "--control-pipeline-depth", "1",
-        "--data-session-reuse", "tree"};
+        "--control-reuse", "worker", "--control-pipeline-depth", "2",
+        "--data-session-reuse", "tree", "--file-scheduling", "dynamic"};
     auto result = cpnetflux::config::parseTreeTransferOptions(
         static_cast<int>(sizeof(argv) / sizeof(argv[0])), argv,
         cpnetflux::config::TreeTransferRole::Upload);
-    ASSERT_FALSE(result.isOk());
-    EXPECT_NE(result.status().message().find("cannot combine"), std::string::npos);
+    ASSERT_TRUE(result.isOk()) << result.status().message();
+    EXPECT_TRUE(result.value().reuseDataSession);
+    EXPECT_TRUE(result.value().requestedReuseDataSession);
+    EXPECT_EQ(result.value().controlPipelineDepth, 2U);
+    EXPECT_TRUE(result.value().dynamicFileScheduling);
+    EXPECT_TRUE(result.value().modeFallbackReason.empty());
 }
+TEST(TreeTransferOptionsTest, DefaultsToV3PersistentDynamicDispatch) {
+    const auto root = std::filesystem::temp_directory_path() / "cpnetflux-tree-options-v3-defaults";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    const char* args[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                          "--dest-dir", "remote"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(args)), args, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_TRUE(parsed.value().reuseDataSession);
+    EXPECT_TRUE(parsed.value().requestedReuseDataSession);
+    EXPECT_TRUE(parsed.value().dynamicFileScheduling);
+    EXPECT_EQ(parsed.value().dataPendingWindow, 2U);
+    EXPECT_EQ(parsed.value().checksumAlgorithm, cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
+    EXPECT_EQ(parsed.value().controlPipelineDepth, 0U);
+    EXPECT_EQ(parsed.value().schedulerMode, cpnetflux::config::TreeSchedulerMode::Off);
+    std::filesystem::remove_all(root);
+}
+
 TEST(TreeTransferOptionsTest, DefaultsPersistentDataPendingWindowToTwo) {
     const auto root = std::filesystem::temp_directory_path() / "cpnetflux-tree-options-default-window-root";
     std::filesystem::remove_all(root);

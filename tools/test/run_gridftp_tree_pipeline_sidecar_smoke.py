@@ -57,31 +57,30 @@ def assert_counts(
     depth = int(summary.get("control_pipeline_depth", 0))
     if depth > 0:
         if (summary.get("requested_mode") != "persistent_tree" or
-                summary.get("actual_mode") != "per_file" or
-                not summary.get("fallback_reason")):
+                summary.get("actual_mode") != "persistent_tree" or
+                summary.get("fallback_reason") != "" or
+                summary.get("control_pipeline_actual_mode") != "shared_persistent_dispatch"):
             raise RuntimeError(
-                f"{direction} pipeline fallback was not reported truthfully: "
+                f"{direction} unified pipeline/persistent mode is incorrect: "
                 f"{summary.get('requested_mode')}/{summary.get('actual_mode')}/"
+                f"{summary.get('control_pipeline_actual_mode')}/"
                 f"{summary.get('fallback_reason')}"
             )
-        expected_slots = depth + 1
-        actual_slots = int(summary.get("control_pipeline_slot_count", -1))
-        if actual_slots != expected_slots:
+        if int(summary.get("dispatch_window", -1)) != depth:
             raise RuntimeError(
-                f"{direction} control_pipeline_slot_count expected {expected_slots}, "
-                f"got {summary.get('control_pipeline_slot_count')}"
+                f"{direction} dispatch_window expected {depth}, got {summary.get('dispatch_window')}"
             )
-        pending = int(summary.get("control_pipeline_pending_high_watermark", -1))
-        if pending < 1 or pending > depth:
+        expected_capacity = int(summary["file_parallelism"]) * depth * 2
+        if int(summary.get("queue_capacity", -1)) != expected_capacity:
             raise RuntimeError(
-                f"{direction} control_pipeline_pending_high_watermark expected 1..{depth}, "
-                f"got {pending}"
+                f"{direction} queue_capacity expected {expected_capacity}, "
+                f"got {summary.get('queue_capacity')}"
             )
-        for field in ("control_prepare_count", "transfer_complete_wait_count"):
-            if int(summary.get(field, -1)) != expected_count:
-                raise RuntimeError(
-                    f"{direction} {field} expected {expected_count}, got {summary.get(field)}"
-                )
+        high = int(summary.get("queue_high_watermark", -1))
+        if high < 0 or high > expected_capacity:
+            raise RuntimeError(
+                f"{direction} persistent queue high watermark is out of bounds: {high}"
+            )
     if int(summary.get("failed_files", 0)) != 0:
         raise RuntimeError(f"{direction} reported failed files: {summary}")
 
@@ -108,12 +107,10 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
             "--connections", "1", "--file-parallelism", str(parallelism),
             "--control-reuse", "worker", "--control-pipeline-depth", str(depth),
             "--scheduler", "off", "--compression", "off", "--checksum", "crc32c",
-            "--data-session-reuse", "off",
             "--phase-timing", "on",
         ]
-        if depth > 0:
-            index = common.index("--data-session-reuse")
-            del common[index:index + 2]
+        if depth == 0:
+            common.extend(["--data-session-reuse", "off"])
         run_checked([
             str(build_dir / "cpnetflux-tree-upload-client"), *common,
             "--source-dir", str(source), "--dest-dir", remote_tree_name,
@@ -127,7 +124,7 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
                 f"depth={depth}, file_parallelism={parallelism} uploaded raw file set mismatch: "
                 f"{sorted(actual_upload_paths)}"
             )
-        upload_connections = parallelism if depth == 0 else depth + parallelism
+        upload_connections = parallelism
         assert_counts(upload_summary, len(expected), "upload", upload_connections)
 
         run_checked([
@@ -151,7 +148,7 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
             )
         # Download tree discovery uses one control session before the file
         # worker pool starts; the pipeline pool then adds depth+1 slots.
-        download_connections = parallelism + 1 if depth == 0 else depth + parallelism + 1
+        download_connections = parallelism + (1 if depth == 0 else 0)
         assert_counts(download_summary, len(expected), "download", download_connections)
     finally:
         stop_server(server, server_log)

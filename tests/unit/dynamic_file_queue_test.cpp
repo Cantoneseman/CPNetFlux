@@ -66,6 +66,24 @@ TEST(DynamicFileQueueTest, CompletionChecksAllIdentityFieldsAndChannelCredit) {
     EXPECT_FALSE(q.complete(0,id).isOk());
     EXPECT_TRUE(q.claim(0).isOk());
 }
+TEST(DynamicFileQueueTest, SharedDispatchWindowBoundsOutstandingLeasesAndReleasesOnResult) {
+    DynamicFileQueue q(tasks(4),1,2,4);
+    auto first=q.claim(0); ASSERT_TRUE(first.isOk()); ASSERT_TRUE(first.value());
+    auto second=q.claim(0); ASSERT_TRUE(second.isOk()); ASSERT_TRUE(second.value());
+    EXPECT_FALSE(q.claim(0).isOk());
+    ASSERT_TRUE(q.markInFlight(0,first.value()->file).isOk());
+    ASSERT_TRUE(q.markCommitPending(0,first.value()->file).isOk());
+    EXPECT_TRUE(q.complete(0,first.value()->file).isOk());
+    auto third=q.claim(0); ASSERT_TRUE(third.isOk()); ASSERT_TRUE(third.value());
+    EXPECT_TRUE(q.markInFlight(0,second.value()->file).isOk());
+    EXPECT_TRUE(q.markCommitPending(0,second.value()->file).isOk());
+    EXPECT_TRUE(q.complete(0,second.value()->file).isOk());
+    EXPECT_TRUE(q.markInFlight(0,third.value()->file).isOk());
+    EXPECT_TRUE(q.markCommitPending(0,third.value()->file).isOk());
+    EXPECT_TRUE(q.complete(0,third.value()->file).isOk());
+    EXPECT_EQ(q.outstanding(),0U);
+}
+
 TEST(DynamicFileQueueTest, CancellationInvalidatesOutstandingLease) {
     DynamicFileQueue q(tasks(1),1,1,1);
     auto next=q.claim(0); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());

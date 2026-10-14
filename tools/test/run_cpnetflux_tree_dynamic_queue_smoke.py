@@ -14,6 +14,10 @@ from run_cpnetflux_tree_data_reuse_smoke import unique_json_object
 
 def check_timings(summary, count, sender, scheduling, ranged=False):
     assert summary['actual_mode'] == 'persistent_tree', summary
+    assert summary['control_pipeline_actual_mode'] == 'shared_persistent_dispatch', summary
+    if scheduling == 'dynamic':
+        assert summary['control_pipeline_depth'] == 2, summary
+        assert summary['dispatch_window'] == 2, summary
     assert summary['actual_file_scheduling'] == scheduling, summary
     assert summary['fallback_reason'] == ''
     for key in ('control_prepare_seconds', 'data_connect_seconds', 'queue_wait_seconds'):
@@ -107,11 +111,13 @@ def main():
         def run(direction, src, dst, name, mode='dynamic', extra=(), success=True):
             summary = root / (name + '.json')
             reuse = 'off' if args.case == 'compatibility' else 'tree'
+            shared_dispatch = ([] if args.case == 'compatibility' or mode != 'dynamic'
+                               else ['--control-pipeline-depth', '2'])
             command = [str(args.build_dir / f'cpnetflux-tree-{direction}-client'),
                 '--host', '127.0.0.1', '--port', str(port), '--source-dir', str(src), '--dest-dir', str(dst),
                 '--connections', '1', '--file-parallelism', '4', '--checksum', checksum,
                 '--data-session-reuse', reuse, '--file-scheduling', mode, '--phase-timing', 'on',
-                '--json-summary', str(summary), *extra]
+                *shared_dispatch, '--json-summary', str(summary), *extra]
             p = subprocess.run(command, capture_output=True, text=True, timeout=60)
             (root / (name + '.log')).write_text(p.stdout + p.stderr)
             assert (p.returncode == 0) == success, (p.returncode, p.stdout, p.stderr)

@@ -1361,7 +1361,10 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "  \"queue_wait_seconds\": " << stats.queueWaitSeconds << ",\n";
         output << "  \"queue_wait_scope\": \"" << (std::string(direction) == "upload" ? "sum_local_sender_ring_admission_to_claim" : "sum_remote_sender_ring_admission_to_claim") << "\",\n";
         output << "  \"queue_high_watermark\": " << stats.queueHighWatermark << ",\n";
-        output << "  \"queue_capacity\": " << (stats.dynamicScheduling ? options.fileParallelism*options.dataPendingWindow*2 : 0) << ",\n";
+        const auto dispatchWindow = options.controlPipelineDepth != 0
+            ? options.controlPipelineDepth : options.dataPendingWindow;
+        output << "  \"queue_capacity\": " << (stats.dynamicScheduling ? options.fileParallelism*dispatchWindow*2 : 0) << ",\n";
+        output << "  \"dispatch_window\": " << (stats.persistentData ? stats.pendingWindow : 0) << ",\n";
         output << "  \"scan_seconds\": ";
         if (stats.scanSeconds) output << *stats.scanSeconds; else output << "null";
         output << ",\n";
@@ -1387,8 +1390,11 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"resume\": " << (options.resume ? "true" : "false") << ",\n";
     output << "  \"elapsed_seconds\": " << elapsed << ",\n";
     output << "  \"throughput_gbps\": " << throughputGbps << ",\n";
-    if (options.controlPipelineDepth != 0) {
+    if (stats.persistentData || options.controlPipelineDepth != 0) {
         output << "  \"control_pipeline_depth\": " << options.controlPipelineDepth << ",\n";
+        output << "  \"control_pipeline_actual_mode\": \""
+               << (stats.persistentData ? "shared_persistent_dispatch" : "per_file")
+               << "\",\n";
         output << "  \"control_pipeline_slot_count\": " << stats.pipelineSlotCount.load() << ",\n";
         output << "  \"control_pipeline_pending_high_watermark\": "
                << stats.pipelinePendingHighWatermark.load() << ",\n";
@@ -3164,7 +3170,8 @@ bool persistentEligible(const config::TreeTransferOptions& options) {
     return options.reuseDataSession && options.maxFiles == 0 &&
         options.fileParallelism >= 1 && options.fileParallelism <= kPersistentTreeMaxChannels &&
         options.schedulerMode == config::TreeSchedulerMode::Off &&
-        options.controlPipelineDepth == 0;
+        (options.controlPipelineDepth == 0 || options.controlPipelineDepth == 1 ||
+         options.controlPipelineDepth == 2 || options.controlPipelineDepth == 4);
 }
 
 common::Status tryPersistentDirectory(const config::TreeTransferOptions& options,
@@ -3194,9 +3201,14 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     const std::uint32_t channelCount = options.fileParallelism;
     config::TreeTransferOptions persistentOptions = options;
     // A persistent directory channel carries one file stream at a time. The
-    // user-facing connection count remains a per-file control setting; V2 uses
-    // fileParallelism for its bounded data channels.
+    // user-facing connection count remains a per-file control setting; V3 uses
+    // fileParallelism for its bounded data channels. When the caller asks for
+    // control pipeline depth, it is the shared persistent dispatch window:
+    // no second pipeline state machine is allowed to prepare work independently.
     persistentOptions.connections = 1;
+    const std::uint32_t dispatchWindow = options.controlPipelineDepth != 0
+        ? options.controlPipelineDepth : options.dataPendingWindow;
+    persistentOptions.dataPendingWindow = dispatchWindow;
     const std::string batchId = options.dynamicFileScheduling ? generateTransferId() : "";
     std::unique_ptr<DynamicFileQueue> ready;
     std::vector<PersistentFileIdentity> files;
@@ -3222,7 +3234,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         std::any_of(files.begin(), files.end(), [](const auto& file) { return file.rangeId != 0; }))
         return common::Status::invalidArgument("persistent large-file ranges require dynamic scheduling");
     if (upload && options.dynamicFileScheduling)
-        ready = std::make_unique<DynamicFileQueue>(files,channelCount,options.dataPendingWindow,channelCount*options.dataPendingWindow*2);
+        ready = std::make_unique<DynamicFileQueue>(
+            files, channelCount, dispatchWindow, channelCount * dispatchWindow * 2);
 
     struct Channel {
         std::unique_ptr<ControlClient> ownedControl;
@@ -3289,7 +3302,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
             std::uint32_t actualWindow = 1, actualChannels = 1;
             auto capability = channel.control->negotiatePersistent(
-                options.dataPendingWindow, channelCount, options.checksumAlgorithm, options.resume,
+                dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
                 options.dataTlsMode, &actualWindow, &actualChannels, options.dynamicFileScheduling);
             if (!capability.isOk()) {
                 channel.status = capability.status();
@@ -3298,7 +3311,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
             channel.prepareSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now()-preparing).count();
             channel.capable = capability.value();
-            if (channel.capable && (actualWindow != options.dataPendingWindow ||
+            if (channel.capable && (actualWindow != dispatchWindow ||
                 actualChannels != channelCount)) {
                 channel.status = common::Status::runtimeError(
                     "persistent channel negotiation returned mismatched limits");
@@ -3318,7 +3331,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     *used = true;
     stats->persistentData = true;
     stats->dynamicScheduling = options.dynamicFileScheduling;
-    stats->pendingWindow = options.dataPendingWindow;
+    stats->pendingWindow = dispatchWindow;
     if (!upload) {
         std::error_code error;
         if (std::filesystem::is_symlink(std::filesystem::symlink_status(options.destDir, error)))
@@ -3516,9 +3529,9 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             channel.observed.phaseTiming = options.phaseTiming;
             auto transferStatus = upload
                 ? sendPersistentTree(&channel.data, options.sourceDir, channel.files,
-                    &channel.observed, callback, options.dataPendingWindow, index, channelCount, ready.get(), &transferOptions)
+                    &channel.observed, callback, dispatchWindow, index, channelCount, ready.get(), &transferOptions)
                 : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
-                    &channel.observed, callback, options.dataPendingWindow, index, channelCount,
+                    &channel.observed, callback, dispatchWindow, index, channelCount,
                     channel.expectedFileCount, options.dynamicFileScheduling, options.resume, transactions);
             {
                 std::lock_guard<std::mutex> lock(channel.dataMutex);

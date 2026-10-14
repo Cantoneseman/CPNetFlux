@@ -165,7 +165,6 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     TreeTransferOptions options;
     bool hasSourceDir = false;
     bool hasDestDir = false;
-    bool reuseDataSessionExplicit = false;
     int index = 1;
     while (index < argc) {
         const std::string_view option(argv[index]);
@@ -234,7 +233,6 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         } else if (option == "--data-session-reuse") {
             if (value != "off" && value != "tree")
                 return common::Status::invalidArgument("--data-session-reuse must be off or tree");
-            reuseDataSessionExplicit = true;
             options.reuseDataSession = value == "tree";
         } else if (option == "--file-scheduling") {
             if (value != "static" && value != "dynamic")
@@ -478,26 +476,34 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     }
     options.requestedReuseDataSession = options.reuseDataSession;
     if (options.controlPipelineDepth != 0) {
-        if (options.reuseDataSession && reuseDataSessionExplicit) {
+        if (options.controlPipelineDepth != 1 && options.controlPipelineDepth != 2 &&
+            options.controlPipelineDepth != 4) {
             return common::Status::invalidArgument(
-                "cannot combine --data-session-reuse tree with --control-pipeline-depth; "
-                "select one directory transfer mode");
+                "--control-pipeline-depth must be one of 0, 1, 2, or 4");
         }
-        // The pipeline is a separately selected legacy control path. Preserve its
-        // historical defaults while requiring an explicit `tree` choice to opt into V2.
         if (options.reuseDataSession) {
-            options.reuseDataSession = false;
-            options.modeFallbackReason = "control_pipeline_requires_per_file_until_persistent_worker_integration";
-        }
-        if (options.controlReuseMode != ControlReuseMode::Worker ||
-            options.schedulerMode != TreeSchedulerMode::Off || options.resume) {
-            return common::Status::invalidArgument(
-                "--control-pipeline-depth requires worker control reuse, scheduler off, "
-                "and no resume");
-        }
-        if (options.maxFiles != 0) {
-            return common::Status::invalidArgument(
-                "--control-pipeline-depth does not support --max-files");
+            // Persistent V3 owns the data worker and its bounded dispatch queue.
+            // The requested depth becomes a shared prefetch window; no second
+            // control-pipeline state machine is created.
+            if (options.schedulerMode != TreeSchedulerMode::Off || options.maxFiles != 0 ||
+                !options.dynamicFileScheduling) {
+                return common::Status::invalidArgument(
+                    "persistent control pipeline requires dynamic scheduling, scheduler off, "
+                    "and no --max-files");
+            }
+        } else {
+            // Keep the legacy per-file pipeline available when persistent sessions
+            // are explicitly disabled.
+            if (options.controlReuseMode != ControlReuseMode::Worker ||
+                options.schedulerMode != TreeSchedulerMode::Off || options.resume) {
+                return common::Status::invalidArgument(
+                    "--control-pipeline-depth with --data-session-reuse off requires "
+                    "worker control reuse, scheduler off, and no resume");
+            }
+            if (options.maxFiles != 0) {
+                return common::Status::invalidArgument(
+                    "--control-pipeline-depth does not support --max-files");
+            }
         }
     }
     if (!options.authProbe && role == TreeTransferRole::Upload) {

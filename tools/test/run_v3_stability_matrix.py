@@ -291,6 +291,7 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
             "--connections", "4", "--file-parallelism", "4",
             "--checksum", "crc32c", "--data-session-reuse", "tree",
             "--file-scheduling", "dynamic", "--data-pending-window", "2",
+            "--control-pipeline-depth", "2",
             "--tls-mode", "required", "--tls-ca-file", str(cert),
             "--tls-server-name", "localhost", "--data-tls-mode", "required",
             "--phase-timing", "on",
@@ -302,7 +303,11 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
             "--json-summary", str(uploaded_summary),
         ])
         summary = json.loads(uploaded_summary.read_text())
-        if summary.get("actual_mode") != "persistent_tree" or summary.get("resume") is not False:
+        if (summary.get("actual_mode") != "persistent_tree" or
+                summary.get("resume") is not False or
+                summary.get("fallback_reason") != "" or
+                summary.get("control_pipeline_actual_mode") != "shared_persistent_dispatch" or
+                summary.get("dispatch_window") != 2):
             raise AssertionError(f"unexpected persistent TLS upload summary: {summary}")
         if summary.get("checksum_algorithm") != "crc32c" or summary.get("failed_files") != 0:
             raise AssertionError(f"persistent TLS upload integrity state is invalid: {summary}")
@@ -419,6 +424,7 @@ def directory_matrix(build_dir: Path, temp: Path) -> None:
                 "--chunk-size", "1048576", "--buffer-size", "65536",
                 "--checksum", "crc32c", "--data-session-reuse", "tree",
                 "--file-scheduling", "dynamic", "--data-pending-window", "4",
+                "--control-pipeline-depth", "2",
             ]
             run_checked([
                 str(build_dir / "cpnetflux-tree-upload-client"), *common,
