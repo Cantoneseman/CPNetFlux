@@ -175,6 +175,31 @@ class MatrixTest(unittest.TestCase):
         flag = command.index("--control-pipeline-depth")
         self.assertEqual(command[flag + 1], "1")
 
+    def test_tree_client_command_carries_token_and_tls_options(self) -> None:
+        case = make_case(
+            stage="core", system="cpnetflux", direction="local_to_remote",
+            dataset="tree_dense_128MiB", file_parallelism=1, connections=1,
+            repeat_index=0,
+        )
+        args = argparse.Namespace(
+            local_build_dir="/build", control_host="peer", active_control_port=21210,
+            chunk_size=1048576, buffer_size=65536, checksum_backend="auto",
+            auth_mode="token", auth_token_file="/run/cpnetflux/token",
+            tls_mode="required", tls_server_name="nodeb.grid",
+            tls_ca_file="/etc/grid-security/ca.pem", data_tls_mode="required",
+        )
+        command = build_tree_client_command(
+            args=args, case=case, case_dir=Path("/tmp/case"),
+            source_dir="/tmp/source", dest_dir="/tmp/dest",
+        )
+        for option, value in (
+            ("--auth-mode", "token"), ("--auth-token-file", "/run/cpnetflux/token"),
+            ("--tls-mode", "required"), ("--tls-server-name", "nodeb.grid"),
+            ("--tls-ca-file", "/etc/grid-security/ca.pem"),
+            ("--data-tls-mode", "required"),
+        ):
+            self.assertEqual(command[command.index(option) + 1], value)
+
     def test_scheduler_matrix_is_cpnetflux_only(self) -> None:
         cases = build_cases(
             stage="scheduler",

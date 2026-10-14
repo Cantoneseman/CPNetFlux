@@ -1344,9 +1344,16 @@ def start_remote_cpnetflux_server(
         args.posix_write_strategy,
         "--auth-mode",
         args.auth_mode,
-        "--event-log",
-        server_event_log,
     ]
+    if args.auth_mode == "token":
+        command.extend(["--auth-token-file", getattr(args, "auth_token_file", "")])
+    if getattr(args, "tls_mode", "off") != "off":
+        command.extend(["--tls-mode", getattr(args, "tls_mode", ""),
+                        "--tls-cert-file", getattr(args, "tls_cert_file", ""), "--tls-key-file", getattr(args, "tls_key_file", ""),
+                        "--tls-ca-file", getattr(args, "tls_ca_file", "")])
+    if getattr(args, "data_tls_mode", "off") != "off":
+        command.extend(["--data-tls-mode", getattr(args, "data_tls_mode", "")])
+    command.extend(["--event-log", server_event_log])
     setup = (
         f"mkdir -p {shlex.quote(remote_root + '/server-root')} && "
         f"(nohup {command_text(command)} > {shlex.quote(server_log)} 2>&1 < /dev/null & printf '%s\\n' \"$!\")"
@@ -1482,13 +1489,22 @@ def build_tree_client_command(
         str(case.control_pipeline_depth),
         "--auth-mode",
         args.auth_mode,
+    ]
+    if args.auth_mode == "token":
+        command.extend(["--auth-token-file", getattr(args, "auth_token_file", "")])
+    if getattr(args, "tls_mode", "off") != "off":
+        command.extend(["--tls-mode", getattr(args, "tls_mode", ""), "--tls-server-name", getattr(args, "tls_server_name", ""),
+                        "--tls-ca-file", getattr(args, "tls_ca_file", "")])
+    if getattr(args, "data_tls_mode", "off") != "off":
+        command.extend(["--data-tls-mode", getattr(args, "data_tls_mode", "")])
+    command.extend([
         "--json-summary",
         str(case_dir / "client_summary.json"),
         "--event-log",
         str(case_dir / "client_events.jsonl"),
         "--phase-timing",
         getattr(args, "phase_timing", "off"),
-    ]
+    ])
     if case.resume:
         command.append("--resume")
     if case.scheduler == "global":
@@ -1596,10 +1612,14 @@ def build_file_client_command(
             args.file_io_advice,
             "--posix-write-strategy",
             args.posix_write_strategy,
-            "--event-log",
-            str(case_dir / "client_events.jsonl"),
         ]
     )
+    if getattr(args, "data_tls_mode", "off") != "off":
+        command.extend(["--data-tls-mode", getattr(args, "data_tls_mode", ""), "--tls-ca-file", getattr(args, "tls_ca_file", "")])
+    command.extend([
+            "--event-log",
+            str(case_dir / "client_events.jsonl"),
+        ])
     if resume:
         command.append("--resume")
     if max_chunks > 0:
@@ -3000,6 +3020,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--control-pipeline-depth", choices=[0, 1, 2, 4], type=int, default=0, help="directory control lookahead depth (async-control stage)")
     parser.add_argument("--phase-timing", choices=["off", "on"], default="off", help="emit client phase timing; short async-control preset only")
     parser.add_argument("--auth-mode", choices=["anonymous", "token"], default="anonymous")
+    parser.add_argument("--auth-token-file", default="", help="remote/local token file for CPNetFlux token mode")
+    parser.add_argument("--tls-mode", choices=["off", "required"], default="off")
+    parser.add_argument("--tls-server-name", default="")
+    parser.add_argument("--tls-ca-file", default="")
+    parser.add_argument("--tls-cert-file", default="")
+    parser.add_argument("--tls-key-file", default="")
+    parser.add_argument("--data-tls-mode", choices=["off", "required"], default="off")
     parser.add_argument(
         "--gridftp-auth-mode",
         choices=["anonymous", "gsi"],
@@ -3053,6 +3080,12 @@ def main(argv: list[str] | None = None) -> int:
     for direction in parse_csv_list(args.directions):
         if direction not in {"local_to_remote", "remote_to_local"}:
             parser.error("--directions must contain only local_to_remote and/or remote_to_local")
+    if args.auth_mode == "token" and not getattr(args, "auth_token_file", ""):
+        parser.error("--auth-token-file is required in token mode")
+    if getattr(args, "tls_mode", "off") != "off" and not (getattr(args, "tls_server_name", "") and getattr(args, "tls_ca_file", "")):
+        parser.error("--tls-server-name and --tls-ca-file are required when --tls-mode is enabled")
+    if getattr(args, "tls_mode", "off") != "off" and not (getattr(args, "tls_cert_file", "") and getattr(args, "tls_key_file", "")):
+        parser.error("--tls-cert-file and --tls-key-file are required when --tls-mode is enabled")
     if args.data_port_base < 1 or args.data_port_base > MAX_PASSIVE_DATA_PORT_BASE:
         parser.error(f"--data-port-base must be in range 1..{MAX_PASSIVE_DATA_PORT_BASE}")
     if args.cpnetflux_data_port_base < 1 or args.cpnetflux_data_port_base > MAX_PASSIVE_DATA_PORT_BASE:
