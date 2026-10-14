@@ -3333,7 +3333,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
             channel.prepareSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now()-preparing).count();
             const auto connecting = std::chrono::steady_clock::now();
-            auto data = connectFramedDataSocket(options.host.c_str(), port.value(), options.dataTlsMode, options.tls);
+            auto data = connectFramedDataSocket(options.host.c_str(), port.value(), options.dataTlsMode, options.tls,
+                                                  options.tlsServerName.empty() ? nullptr : options.tlsServerName.c_str());
             channel.connectSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now()-connecting).count();
             if (!data.isOk()) {
                 channel.status = data.status();

@@ -1,39 +1,26 @@
-# 当前执行（2026-10-11）
+# 当前执行（2026-10-14）
 
-V3-UNIFIED-01 实施中 -> V1-RETIRE-01 待能力门 -> EXP-V3-GRIDFTP-01 待代码门。用户已批准迁移 V1 全能力后删除；同一写入者在深圳隔离 worktree 执行，不修改根目录 dirty 文件。任务与回滚见 docs/tasks/2026-10-11-v3-unified-01.md。
+当前主线：V3-COMPOSITION-01 组合稳定性回归 -> V3-WORKER-STATE-01 统一 scheduler/pipeline/持久连接 worker 生命周期 -> V3-RELEASE-STABILITY-01 稳定候选验收。V1 已退役，V3 事务引擎、Linux 服务器初始化和桌面节点包导入已在深圳 main 推送；不据此宣称所有策略组合或生产 readiness 已验证。
 
 # 总指挥任务板
 
-更新：2026-10-11。路线版本：`R2026-10-11.1`（认证基础→桌面 agent API→干净源码交付；桌面端实现由既有桌面线程续接）。
+更新：2026-10-14。路线版本：R2026-10-14.1（服务器一键初始化->安全节点包->桌面真实认证->V3 统一事务与连接生命周期->稳定候选）。
 
-当前目的：完成认证基础后冻结桌面 agent API，推进桌面端可靠本地生命周期，再形成可审查、可复现、干净源码交付链路。真实传输 adapter、Linux 安装器和跨主机性能实验仍需各自任务与验收，不由源码打包任务宣称完成。
+当前目的：安装后服务器可用短命令配置认证并生成可安全导入的节点包；桌面端真实检查节点并传输文件/目录。核心层统一事务身份、工作分配与连接生命周期；只对经组合回归验证的能力承诺稳定支持。
 
-用户最新授权：深圳 `/root/projects/CPNetFlux` 是唯一权威工作区，根目录单人串行开发；上海只作对端，Windows 只作连接/查看/回收。迁移门与强制 worktree 已被最新 AGENTS/云端决策取代。每个阶段提交明确文件并推送 GitHub；当前由 00 单人执行，不并发修改。
+用户最新授权：深圳 /root/projects/CPNetFlux 是唯一权威工作区，根目录单人串行开发；上海只作对端，Windows 只作连接/查看/回收。按深圳仓库当前 AGENTS 串行在根目录开发；每阶段只提交明确文件并推送已核实的 GitHub remote。
 
-当前状态：一期代码 `53a6dfbf46792e26a613059b9da5df615873f641` 已 push 到 GitHub 并回读一致。固定提交源码归档 Release 再验：222 项 CTest，221 pass/1 io_uring skip/0 fail。128×1MiB 双向 loopback 各为 1 条实际 data TCP 连接，独立 hash/manifest 通过。本版本尚未跑跨域对比，不宣称达到 GridFTP 80–90%。
+当前输入：5d676dccc98e9ae608c63e47a2e41181e7439e83，main clean，origin 为 git@github.com:Cantoneseman/CPNetFlux.git 且远端 SHA 一致。最近完整 CTest 为 296 项通过，1 项 io_uring 环境 skip；依赖 CPNETFLUX_TEST_TOKEN 的两项曾在未注入时失败，注入临时 token 后通过。阶段证据应以本任务运行结果为准。
+
+路线依据：docs/DECISIONS/2026-10-14-v3-stable-composition.md。V3-UNIFIED-01 的 V1 退役和事务引擎交付继续有效，但不再作为 scheduler、pipeline 和持久 worker 已组合的证明。
 
 | 当前任务 | 状态 | 验收/下一步 |
 |---|---|---|
-| DIR-V2-TRANSFER-ENGINE-01 | done（一期；完整架构未完成） | 显式 `--data-session-reuse tree`，单 worker/流；固定提交证据见 `docs/tasks/2026-10-09-data-session-reuse-result.md` |
-| DIR-V2-SHORT-COMPARE | 待实验指令 | 固定提交/二进制，两端空间与 GSI 重验，短目录 reuse 开关 + GridFTP；脚本执行，不持续轮询 |
-| DIR-V2-BOUNDED-SCHEDULING | 后续 | 固定通道预算、有界 pending 和异步读写，目前未实现 |
-| AUTH-FOUNDATION-01 / AUTH-POLICY-01 | done | 双向 TLS、token 文件安全、服务级读写策略；任务范围与当前证据见 [认证任务记录](../tasks/2026-10-11-auth-foundation-policy-01.md) |
-| AGENT-API-01 | done | API 2.0.0 合同与 demo agent 最小兼容通过 3/3 CTest；commit/push `344c326f`，远端 SHA 一致；prompt 已发送既有桌面线程 |
-| SOURCE-RELEASE-01 | done | 确定性源码候选包、strict hygiene、解包核心 258/258 和桌面 3/3 CTest 通过；无 LICENSE，不做公开 release/安装器；见 [任务记录](../tasks/2026-10-11-source-release-01.md) |
+| V3-COMPOSITION-01 | in_progress | 双向 TLS + persistent data session + CRC32C + dynamic queue/range + committed resume 回归；先运行新增定向矩阵 |
+| V3-WORKER-STATE-01 | planned | 将 scheduler/pipeline 与控制/数据连接生命周期分离；明确 lease、取消、超时、断线回收和能力协商 |
+| V3-RELEASE-STABILITY-01 | planned | 支持能力组合的多点故障矩阵、完整 CTest、候选安装包；无真实跨机实验不宣称跨域稳定 |
+| DIR-V2-TRANSFER-ENGINE-01 | done（一期；完整架构未完成） | 显式 --data-session-reuse tree，单 worker/流；固定提交证据见 docs/tasks/2026-10-09-data-session-reuse-result.md |
 
-以下为历史任务记录；时间、blocked 和旧门只描述当时事实，不是当前执行前置条件。
-
-| ID | 工作 | 责任角色 | 状态 | 前置条件/验收 |
-|---|---|---|---|---|
-| SETUP-01 | 新 Codex 项目与六个聊天 | 当前设置任务 | blocked，自动派单验证未完成 | 项目、六个持久聊天、prompt 与回执已核验；00 缺少终端工具，SETUP-CHECK 未派出 |
-| ENV-01 | 上海磁盘只读盘点和清理方案 | 05 运维 | ready，待总指挥派发 | 排除受保护项目；列目录归属、证据备份、可释放空间；本任务本身不删除 |
-| SPEC-01 | 校正 profiling 时间边界、schema、矩阵 | 01 架构 + 04 质量审查 | ready，待派发 | 区间定义可验证；消除 first_payload 不等式和旧带宽歧义；区分 off 基线与 scheduler 专项 |
-| VERIFY-01 | 固定构建与阶段 0 验收复核 | 04 质量 + 05 运维 | blocked | 实验资源恢复、记录明确 commit/hash、解决测试 token 注入；不以 skip 当 pass |
-| IMPL-01 | 目录阶段 instrumentation | 03 实现 | blocked | SPEC-01 确认，任务单明确文件与验收；不得顺带优化协议 |
-| EXP-01 | 代表性小矩阵 | 02 实验 + 05 运维 | blocked | 环境、schema、固定构建与 QA 通过；两端空间充足 |
-| DECIDE-01 | 根据证据选择下一项性能优化 | 00 总指挥 + 01 架构 | blocked | EXP-01 完整报告；用户确认有实质取舍的新方向 |
-
-状态含义：`ready` 可被派发但未启动；`in_progress` 需真实执行证据；`review` 待验收；`done` 有验收链接；`blocked` 有依赖；`superseded` 规格已失效。不得仅因 prompt 写好就把角色或任务标记完成。
 
 ## 历史阻塞快照（不代替上方当前状态）
 

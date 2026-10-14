@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import signal
@@ -256,6 +257,87 @@ def run_checked(command: list[str]) -> None:
         )
 
 
+def persistent_tls_composition(binary: Path, temp: Path) -> None:
+    """Exercise V3 persistent channels with TLS, checksum, dynamic range, and resume."""
+    temp.mkdir(parents=True, exist_ok=True)
+    control = free_port()
+    data = clamp_passive_data_port_base(free_port())
+    root = temp / "persistent-tls-root"
+    root.mkdir()
+    source = temp / "persistent-tls-source"
+    source.mkdir()
+    materialize_dataset(source, profile="single_256MiB", seed=20261014)
+    # Put the large file in a directory so tree scheduling must choose ranges.
+    (source / "single.bin").rename(source / "large.bin")
+    (source / "small.txt").write_bytes(b"stable-small-file\n")
+    expected = tree_hash(source)
+    cert, key = make_cert(temp)
+    server_log = temp / "persistent-tls-server.log"
+    log = server_log.open("wb")
+    process = subprocess.Popen([
+        str(binary), "--host", "127.0.0.1", "--port", str(control),
+        "--root", str(root), "--data-port-base", str(data),
+        "--connections", "4", "--checksum", "crc32c",
+        "--tls-mode", "required", "--tls-cert-file", str(cert),
+        "--tls-key-file", str(key), "--data-tls-mode", "required",
+    ], stdout=log, stderr=subprocess.STDOUT)
+    try:
+        wait_tcp(control)
+        common = [
+            "--host", "127.0.0.1", "--port", str(control),
+            "--connections", "4", "--file-parallelism", "4",
+            "--checksum", "crc32c", "--data-session-reuse", "tree",
+            "--file-scheduling", "dynamic", "--data-pending-window", "2",
+            "--tls-mode", "required", "--tls-ca-file", str(cert),
+            "--tls-server-name", "localhost", "--data-tls-mode", "required",
+            "--phase-timing", "on",
+        ]
+        uploaded_summary = temp / "persistent-tls-upload.json"
+        run_checked([
+            str(binary.parent / "cpnetflux-tree-upload-client"), *common,
+            "--source-dir", str(source), "--dest-dir", "persistent-tls",
+            "--json-summary", str(uploaded_summary),
+        ])
+        summary = json.loads(uploaded_summary.read_text())
+        if summary.get("actual_mode") != "persistent_tree" or not summary.get("resume") is False:
+            raise AssertionError(f"unexpected persistent TLS upload summary: {summary}")
+        if tree_hash(root / "persistent-tls") != expected:
+            raise AssertionError("persistent TLS upload tree hash mismatch")
+        if not list((root / "persistent-tls").rglob("*.cpnetflux.manifest")):
+            raise AssertionError("persistent TLS upload did not commit manifests")
+        resumed_upload_summary = temp / "persistent-tls-upload-resume.json"
+        run_checked([
+            str(binary.parent / "cpnetflux-tree-upload-client"), *common,
+            "--source-dir", str(source), "--dest-dir", "persistent-tls",
+            "--resume", "--json-summary", str(resumed_upload_summary),
+        ])
+        resumed = json.loads(resumed_upload_summary.read_text())
+        if resumed.get("actual_mode") != "persistent_tree" or resumed.get("failed_files", 0) != 0:
+            raise AssertionError(f"persistent TLS upload resume failed: {resumed}")
+        destination = temp / "persistent-tls-download"
+        downloaded_summary = temp / "persistent-tls-download.json"
+        run_checked([
+            str(binary.parent / "cpnetflux-tree-download-client"), *common,
+            "--source-dir", "persistent-tls", "--dest-dir", str(destination),
+            "--json-summary", str(downloaded_summary),
+        ])
+        if tree_hash(destination) != expected:
+            raise AssertionError("persistent TLS download tree hash mismatch")
+        resumed_download_summary = temp / "persistent-tls-download-resume.json"
+        run_checked([
+            str(binary.parent / "cpnetflux-tree-download-client"), *common,
+            "--source-dir", "persistent-tls", "--dest-dir", str(destination),
+            "--resume", "--json-summary", str(resumed_download_summary),
+        ])
+        resumed_download = json.loads(resumed_download_summary.read_text())
+        if resumed_download.get("actual_mode") != "persistent_tree" or resumed_download.get("failed_files", 0) != 0:
+            raise AssertionError(f"persistent TLS download resume failed: {resumed_download}")
+        print("persistent TLS composition passed: checksum=crc32c data_tls=required dynamic_range=on resume=on")
+    finally:
+        stop_server(process)
+        log.close()
+
+
 def directory_matrix(build_dir: Path, temp: Path) -> None:
     control_port = free_port()
     data_port = clamp_passive_data_port_base(free_port())
@@ -329,6 +411,7 @@ def main() -> int:
         (temp / "control-case").mkdir()
         (temp / "handshake-case").mkdir()
         (temp / "data-case").mkdir()
+        persistent_tls_composition(binary, temp / "persistent-tls-case")
         directory_matrix(Path(args.build_dir), temp)
         control_abrupt_rst(binary, temp / "control-case", args.rounds)
         handshake_abrupt_rst(binary, temp / "handshake-case", args.rounds)

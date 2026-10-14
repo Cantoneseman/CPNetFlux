@@ -139,7 +139,8 @@ common::Status FramedDataSocket::readAll(std::uint8_t* data, std::size_t length)
 
 common::Result<FramedDataSocket> connectFramedDataSocket(const char* host, std::uint16_t port,
                                                          DataTlsMode dataTlsMode,
-                                                         const TlsConfig& tlsConfig) {
+                                                         const TlsConfig& tlsConfig,
+                                                         const char* tlsServerName) {
     auto connection = createBlockingConnection(host, port);
     if (!connection.isOk()) {
         return connection.status();
@@ -158,7 +159,10 @@ common::Result<FramedDataSocket> connectFramedDataSocket(const char* host, std::
     if (!context.isOk()) {
         return context.status();
     }
-    auto tlsConnection = context.value().connect(std::move(connection.value()), host);
+    const char* peerName = (tlsServerName != nullptr && *tlsServerName != '\0')
+                                ? tlsServerName
+                                : host;
+    auto tlsConnection = context.value().connect(std::move(connection.value()), peerName);
     if (!tlsConnection.isOk()) {
         return common::Status::runtimeError("data TLS handshake failed: " +
                                             tlsConnection.status().message());
