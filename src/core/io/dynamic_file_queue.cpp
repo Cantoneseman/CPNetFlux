@@ -10,12 +10,17 @@ bool samePersistentIdentity(const PersistentFileIdentity& a, const PersistentFil
     return a.fileId == b.fileId && a.generation == b.generation && a.totalSize == b.totalSize &&
         a.relativePath == b.relativePath && a.transferId == b.transferId &&
         a.chunkSize == b.chunkSize && a.mtimeUnixSeconds == b.mtimeUnixSeconds &&
-        a.checksumAlgorithm == b.checksumAlgorithm && a.rangeId == b.rangeId &&
+        a.checksumAlgorithm == b.checksumAlgorithm &&
+        a.rangeId == b.rangeId &&
         a.rangeOffset == b.rangeOffset && a.rangeLength == b.rangeLength &&
         a.rangeCount == b.rangeCount && a.attempt == b.attempt;
 }
 bool samePersistentRangeIdentity(const PersistentFileIdentity& a, const PersistentFileIdentity& b) noexcept {
     return samePersistentIdentity(a, b);
+}
+static bool samePersistentLeaseIdentity(const PersistentFileIdentity& a, const PersistentFileIdentity& b) noexcept {
+    return samePersistentIdentity(a,b) && a.checksum.algorithm == b.checksum.algorithm &&
+        a.checksum.value == b.checksum.value;
 }
 static std::string activeKey(const PersistentFileIdentity& file) {
     return std::to_string(file.fileId) + ":" + std::to_string(file.generation) + ":" +
@@ -63,7 +68,7 @@ DynamicFileQueue::DynamicFileQueue(std::vector<PersistentFileIdentity> files,
             auto candidate = file;
             candidate.rangeId = candidate.rangeOffset = candidate.rangeLength =
                 candidate.rangeCount = candidate.attempt = 0;
-            if (!samePersistentIdentity(base,candidate) || !file.rangeId ||
+            if (!samePersistentLeaseIdentity(base,candidate) || !file.rangeId ||
                 file.rangeCount != ranges.size() || file.rangeId > file.rangeCount ||
                 !ids.insert(file.rangeId).second || !file.rangeLength ||
                 file.rangeOffset != nextOffset || file.rangeOffset > file.totalSize ||
@@ -106,13 +111,32 @@ common::Result<std::optional<DynamicFileLease>> DynamicFileQueue::claim(std::uin
     fill();
     return std::optional<DynamicFileLease>{DynamicFileLease{std::move(ready.file), wait}};
 }
+common::Status DynamicFileQueue::markInFlight(std::uint32_t channel, const PersistentFileIdentity& file) {
+    return transition(channel, file, DynamicFileLeaseState::Claimed, DynamicFileLeaseState::InFlight);
+}
+common::Status DynamicFileQueue::markCommitPending(std::uint32_t channel, const PersistentFileIdentity& file) {
+    return transition(channel, file, DynamicFileLeaseState::InFlight, DynamicFileLeaseState::CommitPending);
+}
+common::Status DynamicFileQueue::transition(std::uint32_t channel, const PersistentFileIdentity& file,
+    DynamicFileLeaseState expected, DynamicFileLeaseState next) {
+    std::lock_guard lock(mutex_);
+    if (!status_.isOk()) return status_;
+    auto found = active_.find(activeKey(file));
+    if (found == active_.end() || found->second.channel != channel ||
+        found->second.state != expected || !samePersistentLeaseIdentity(found->second.file, file))
+        return common::Status::invalidArgument("dynamic lease transition identity/state/owner mismatch");
+    found->second.state = next;
+    return common::Status::ok();
+}
 common::Status DynamicFileQueue::complete(std::uint32_t channel, const PersistentFileIdentity& file) {
     std::lock_guard lock(mutex_);
     if (!status_.isOk()) return status_;
     auto found = active_.find(activeKey(file));
     if (found == active_.end() || found->second.channel != channel ||
-        !samePersistentIdentity(found->second.file, file))
-        return common::Status::invalidArgument("dynamic completion identity/owner mismatch");
+        found->second.state != DynamicFileLeaseState::CommitPending ||
+        !samePersistentLeaseIdentity(found->second.file, file))
+        return common::Status::invalidArgument("dynamic completion identity/state/owner mismatch");
+    found->second.state = DynamicFileLeaseState::Completed;
     --credits_[channel];
     active_.erase(found);
     return common::Status::ok();

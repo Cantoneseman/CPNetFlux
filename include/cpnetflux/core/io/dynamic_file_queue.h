@@ -14,19 +14,34 @@ struct DynamicFileLease {
     PersistentFileIdentity file;
     double queueWaitSeconds = 0;
 };
+enum class DynamicFileLeaseState {
+    Claimed,
+    InFlight,
+    CommitPending,
+    Completed,
+};
 // Owns scan metadata only. The ready ring and active credits have separate hard bounds.
 class DynamicFileQueue {
  public:
     DynamicFileQueue(std::vector<PersistentFileIdentity> files, std::uint32_t channels,
                      std::uint32_t window, std::size_t capacity);
     [[nodiscard]] common::Result<std::optional<DynamicFileLease>> claim(std::uint32_t channel);
+    [[nodiscard]] common::Status markInFlight(std::uint32_t channel, const PersistentFileIdentity& file);
+    [[nodiscard]] common::Status markCommitPending(std::uint32_t channel, const PersistentFileIdentity& file);
     [[nodiscard]] common::Status complete(std::uint32_t channel, const PersistentFileIdentity& file);
     void cancel(const common::Status& reason);
     [[nodiscard]] std::size_t highWatermark() const;
     [[nodiscard]] std::size_t outstanding() const;
  private:
     struct Ready { PersistentFileIdentity file; std::chrono::steady_clock::time_point admitted; };
-    struct Active { PersistentFileIdentity file; std::uint32_t channel; };
+    struct Active {
+        PersistentFileIdentity file;
+        std::uint32_t channel;
+        DynamicFileLeaseState state = DynamicFileLeaseState::Claimed;
+    };
+    [[nodiscard]] common::Status transition(std::uint32_t channel,
+        const PersistentFileIdentity& file, DynamicFileLeaseState expected,
+        DynamicFileLeaseState next);
     void fill();
     mutable std::mutex mutex_;
     std::vector<PersistentFileIdentity> files_;

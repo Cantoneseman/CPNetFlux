@@ -706,6 +706,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         }
         status = PersistentDataSession::writeBegin(socket, id,transferOptions && transferOptions->resume);
         if (!status.isOk()) { failWriter(status); break; }
+        if (ready) {
+            status = ready->markInFlight(channelIndex, id);
+            if (!status.isOk()) { failWriter(status); break; }
+        }
         bool skipRange = false;
         std::vector<chunk::CompletedRange> missing{{id.rangeId ? id.rangeOffset : 0,
             id.rangeId ? id.rangeOffset+id.rangeLength : id.totalSize}};
@@ -827,6 +831,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             before.st_ctim.tv_nsec != after.st_ctim.tv_nsec)) {
             status = Status::runtimeError("persistent source changed during transfer");
             writeFailed = true;
+        }
+        if (!writeFailed && ready) {
+            status = ready->markCommitPending(channelIndex, id);
+            if (!status.isOk()) { failWriter(status); break; }
         }
         if (!writeFailed) status = PersistentDataSession::writeEnd(socket, id,
             skipRange ? checksum::ChecksumValue{} : checksumComputer.finalize(), skipRange);

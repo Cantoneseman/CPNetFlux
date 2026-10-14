@@ -21,6 +21,8 @@ TEST(DynamicFileQueueTest, RingWrapsAndIdleChannelClaimsBeyondOldShard) {
         auto next=q.claim(0); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
         EXPECT_EQ(next.value()->file.fileId,i);
         EXPECT_GE(next.value()->queueWaitSeconds,0);
+        ASSERT_TRUE(q.markInFlight(0,next.value()->file).isOk());
+        ASSERT_TRUE(q.markCommitPending(0,next.value()->file).isOk());
         EXPECT_TRUE(q.complete(0,next.value()->file).isOk());
     }
     EXPECT_FALSE(q.claim(1).value());
@@ -31,8 +33,9 @@ TEST(DynamicFileQueueTest, CompletionChecksAllIdentityFieldsAndChannelCredit) {
     DynamicFileQueue q(tasks(3),2,1,1);
     auto next=q.claim(0); ASSERT_TRUE(next.isOk()); auto id=next.value()->file;
     EXPECT_FALSE(q.claim(0).isOk());
-    EXPECT_FALSE(q.complete(1,id).isOk());
-    for (int field=0;field<7;++field) {
+    EXPECT_FALSE(q.complete(0,id).isOk());
+    EXPECT_FALSE(q.markInFlight(1,id).isOk());
+    for (int field=0;field<15;++field) {
         auto stale=id;
         if(field==0)++stale.generation;
         if(field==1)++stale.totalSize;
@@ -41,24 +44,53 @@ TEST(DynamicFileQueueTest, CompletionChecksAllIdentityFieldsAndChannelCredit) {
         if(field==4)++stale.chunkSize;
         if(field==5)++stale.mtimeUnixSeconds;
         if(field==6)++stale.fileId;
-        EXPECT_FALSE(q.complete(0,stale).isOk());
+        if(field==7)stale.checksumAlgorithm=cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
+        if(field==8)stale.checksum.algorithm=cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
+        if(field==9)++stale.checksum.value;
+        if(field==10)++stale.rangeId;
+        if(field==11)++stale.rangeOffset;
+        if(field==12)++stale.rangeLength;
+        if(field==13)++stale.rangeCount;
+        if(field==14)++stale.attempt;
+        EXPECT_FALSE(q.markInFlight(0,stale).isOk()) << field;
     }
+    ASSERT_TRUE(q.markInFlight(0,id).isOk());
+    EXPECT_FALSE(q.markInFlight(0,id).isOk());
+    EXPECT_FALSE(q.complete(0,id).isOk());
+    EXPECT_FALSE(q.markCommitPending(1,id).isOk());
+    auto stale=id; ++stale.attempt;
+    EXPECT_FALSE(q.markCommitPending(0,stale).isOk());
+    ASSERT_TRUE(q.markCommitPending(0,id).isOk());
+    EXPECT_FALSE(q.markCommitPending(0,id).isOk());
     EXPECT_TRUE(q.complete(0,id).isOk());
     EXPECT_FALSE(q.complete(0,id).isOk());
     EXPECT_TRUE(q.claim(0).isOk());
 }
+TEST(DynamicFileQueueTest, CancellationInvalidatesOutstandingLease) {
+    DynamicFileQueue q(tasks(1),1,1,1);
+    auto next=q.claim(0); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    const auto id=next.value()->file;
+    ASSERT_TRUE(q.markInFlight(0,id).isOk());
+    q.cancel(Status::runtimeError("cancel"));
+    EXPECT_FALSE(q.markCommitPending(0,id).isOk());
+    EXPECT_FALSE(q.complete(0,id).isOk());
+    EXPECT_EQ(q.outstanding(),0U);
+}
 TEST(DynamicFileQueueTest, ConcurrentClaimsAreUniqueAndCancellationStopsAllClaims) {
     DynamicFileQueue q(tasks(1000),8,2,16);
-    std::atomic<unsigned> count{0};std::vector<std::thread> workers;
+    std::atomic<unsigned> count{0};std::atomic<unsigned> failures{0};std::vector<std::thread> workers;
     for(unsigned c=0;c<8;++c)workers.emplace_back([&,c] {
         for(;;) {
             auto next=q.claim(c);
             if(!next.isOk() || !next.value())break;
-            EXPECT_TRUE(q.complete(c,next.value()->file).isOk());++count;
+            if(!q.markInFlight(c,next.value()->file).isOk() ||
+                !q.markCommitPending(c,next.value()->file).isOk() ||
+                !q.complete(c,next.value()->file).isOk()) ++failures;
+            ++count;
         }
     });
     for(auto& t:workers)t.join();
-    EXPECT_EQ(count,1000U); EXPECT_LE(q.highWatermark(),16U);
+    EXPECT_EQ(count,1000U); EXPECT_EQ(failures,0U); EXPECT_LE(q.highWatermark(),16U);
     q.cancel(Status::runtimeError("cancel"));
     EXPECT_FALSE(q.claim(0).isOk());EXPECT_EQ(q.outstanding(),0U);
 }
