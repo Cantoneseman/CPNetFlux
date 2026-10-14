@@ -1263,6 +1263,16 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     const double throughputGbps =
         elapsed > 0.0 ? static_cast<double>(logicalBytes) * 8.0 / elapsed / 1'000'000'000.0 : 0.0;
     const TreeSummary summary = summarizeManifest(manifest);
+    const auto compressionAttempts = stats.compressionAttempts.load();
+    const auto compressedFrames = stats.compressedFrames.load();
+    const auto rawFallbackFrames = stats.rawFallbackFrames.load();
+    std::string compressionDecision = "disabled";
+    if (options.compressionMode == config::CompressionMode::Auto) {
+        if (compressionAttempts == 0) compressionDecision = "not_observed";
+        else if (compressedFrames != 0 && rawFallbackFrames != 0) compressionDecision = "mixed";
+        else if (compressedFrames != 0) compressionDecision = "compressed";
+        else compressionDecision = "raw_fallback";
+    }
     std::string treeHash;
     const std::string hashRoot = std::string(direction) == "upload" ? options.sourceDir : options.destDir;
     auto hash = computeTreeVerificationHash(hashRoot);
@@ -1295,6 +1305,15 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"changed_files\": " << summary.changedFiles << ",\n";
     output << "  \"bytes_total\": " << logicalBytes << ",\n";
     output << "  \"bytes_transferred\": " << stats.transferredBytes.load() << ",\n";
+    output << "  \"compression_policy\": \""
+           << (options.compressionMode == config::CompressionMode::Auto ? "auto" : "off") << "\",\n";
+    output << "  \"compression_decision\": \"" << compressionDecision << "\",\n";
+    output << "  \"compression_attempts\": " << compressionAttempts << ",\n";
+    output << "  \"compressed_frames\": " << compressedFrames << ",\n";
+    output << "  \"raw_fallback_frames\": " << rawFallbackFrames << ",\n";
+    output << "  \"compression_failures\": " << stats.compressionFailures.load() << ",\n";
+    output << "  \"compressed_logical_bytes\": " << stats.compressedLogicalBytes.load() << ",\n";
+    output << "  \"compressed_wire_bytes\": " << stats.compressedWireBytes.load() << ",\n";
     output << "  \"wire_bytes\": " << stats.wireBytes.load() << ",\n";
     output << "  \"file_parallelism\": " << options.fileParallelism << ",\n";
     output << "  \"connections\": " << options.connections << ",\n";
@@ -3145,7 +3164,6 @@ bool persistentEligible(const config::TreeTransferOptions& options) {
     return options.reuseDataSession && options.maxFiles == 0 &&
         options.fileParallelism >= 1 && options.fileParallelism <= kPersistentTreeMaxChannels &&
         options.schedulerMode == config::TreeSchedulerMode::Off &&
-        options.compressionMode == config::CompressionMode::Off &&
         options.controlPipelineDepth == 0;
 }
 
@@ -3484,6 +3502,12 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     transferOptions.resume=options.resume;transferOptions.bufferSize=options.bufferSize;
     transferOptions.checksumBackend=options.checksumBackend;
     transferOptions.hotPathCompression=options.hotPathCompression;
+    if (upload && options.compressionMode == config::CompressionMode::Auto) {
+        transferOptions.hotPathCompression.enabled = true;
+        transferOptions.hotPathCompression.candidate = true;
+        if (transferOptions.hotPathCompression.maxPayloadBytes == 0)
+            transferOptions.hotPathCompression.maxPayloadBytes = options.bufferSize;
+    }
     auto transactions = makePersistentTransferContext();
     workers.clear();
     for (std::uint32_t index = 0; index < channelCount; ++index) {
@@ -3554,6 +3578,13 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         stats->fileTimings.insert(stats->fileTimings.end(),channel->observed.fileTimings.begin(),channel->observed.fileTimings.end());
         transferredBytes += channel->observed.payloadBytes;
         wireBytes += channel->observed.wireBytes;
+        stats->compressionAttempts.fetch_add(channel->observed.runtime.compressionAttempts);
+        stats->compressedFrames.fetch_add(channel->observed.runtime.compressedFrames);
+        stats->rawFallbackFrames.fetch_add(channel->observed.runtime.rawFallbackFrames);
+        stats->compressionFailures.fetch_add(channel->observed.runtime.compressionFailures);
+        stats->decompressionFailures.fetch_add(channel->observed.runtime.decompressionFailures);
+        stats->compressedLogicalBytes.fetch_add(channel->observed.runtime.compressedLogicalBytes);
+        stats->compressedWireBytes.fetch_add(channel->observed.runtime.compressedWireBytes);
         completeWaitSeconds += channel->observed.completeWaitSeconds + channel->controlWaitSeconds;
         pendingHighWatermark = std::max(pendingHighWatermark,
             channel->observed.pendingHighWatermark);

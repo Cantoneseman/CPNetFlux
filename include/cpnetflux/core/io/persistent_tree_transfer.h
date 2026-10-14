@@ -37,6 +37,8 @@ struct PersistentFileTiming {
     double readSeconds = 0, writeSeconds = 0, payloadIoSeconds = 0;
     double fileResultSeconds = 0, manifestSeconds = 0, checksumSeconds = 0,
         finalizeSeconds = 0, wallSeconds = 0;
+    std::uint64_t compressionAttempts = 0, compressedFrames = 0;
+    std::uint64_t rawFallbackFrames = 0, compressionFailures = 0;
 };
 void appendPersistentFileTimings(std::ostream& out, const std::vector<PersistentFileTiming>& files);
 struct PersistentTreeStats {

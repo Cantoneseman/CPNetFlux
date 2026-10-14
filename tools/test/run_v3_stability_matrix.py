@@ -11,6 +11,7 @@ import signal
 import socket
 import ssl
 import struct
+import random
 import subprocess
 import sys
 import tempfile
@@ -270,6 +271,8 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
     # Put the large file in a directory so tree scheduling must choose ranges.
     (source / "single.bin").rename(source / "large.bin")
     (source / "small.txt").write_bytes(b"stable-small-file\n")
+    (source / "compressible.bin").write_bytes(b"A" * (2 * 1024 * 1024))
+    (source / "incompressible.bin").write_bytes(random.Random(20261014).randbytes(2 * 1024 * 1024))
     expected = tree_hash(source)
     cert, key = make_cert(temp)
     server_log = temp / "persistent-tls-server.log"
@@ -295,7 +298,7 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
         uploaded_summary = temp / "persistent-tls-upload.json"
         run_checked([
             str(binary.parent / "cpnetflux-tree-upload-client"), *common,
-            "--source-dir", str(source), "--dest-dir", "persistent-tls",
+            "--source-dir", str(source), "--dest-dir", "persistent-tls", "--compression", "auto",
             "--json-summary", str(uploaded_summary),
         ])
         summary = json.loads(uploaded_summary.read_text())
@@ -303,6 +306,20 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
             raise AssertionError(f"unexpected persistent TLS upload summary: {summary}")
         if summary.get("checksum_algorithm") != "crc32c" or summary.get("failed_files") != 0:
             raise AssertionError(f"persistent TLS upload integrity state is invalid: {summary}")
+        if (summary.get("compression_policy") != "auto" or
+                summary.get("compression_decision") != "mixed" or
+                summary.get("compression_attempts", 0) <= 0 or
+                summary.get("compressed_frames", 0) <= 0 or
+                summary.get("raw_fallback_frames", 0) <= 0):
+            raise AssertionError(f"persistent compression decisions were not observed: {summary}")
+        timings = summary.get("file_timings", [])
+        if (
+                not any(item.get("relative_path") == "compressible.bin" and item.get("compressed_frames", 0) > 0
+                        for item in timings) or
+                not any(item.get("relative_path") == "incompressible.bin" and item.get("raw_fallback_frames", 0) > 0
+                        for item in timings)
+        ):
+            raise AssertionError(f"persistent per-file compression decisions are missing: {timings}")
         if tree_hash(root / "persistent-tls") != expected:
             raise AssertionError("persistent TLS upload tree hash mismatch")
         upload_manifests = list((root / "persistent-tls").rglob("*.cpnetflux.manifest"))
@@ -314,11 +331,12 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
         run_checked([
             str(binary.parent / "cpnetflux-tree-upload-client"), *common,
             "--source-dir", str(source), "--dest-dir", "persistent-tls",
-            "--resume", "--json-summary", str(resumed_upload_summary),
+            "--resume", "--compression", "auto", "--json-summary", str(resumed_upload_summary),
         ])
         resumed = json.loads(resumed_upload_summary.read_text())
         if (resumed.get("actual_mode") != "persistent_tree" or
-                resumed.get("failed_files", 0) != 0 or resumed.get("bytes_transferred") != 0):
+                resumed.get("failed_files", 0) != 0 or resumed.get("bytes_transferred") != 0 or
+                resumed.get("compression_policy") != "auto"):
             raise AssertionError(f"persistent TLS upload resume was not idempotent: {resumed}")
         destination = temp / "persistent-tls-download"
         downloaded_summary = temp / "persistent-tls-download.json"
