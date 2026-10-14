@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
-base=
-exec python3 \ /@CMAKE_INSTALL_LIBEXECDIR@/cpnetflux/cpnetflux_server_setup.py\ \$@\n
+base=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec python3 "$base/@CMAKE_INSTALL_LIBEXECDIR@/cpnetflux/cpnetflux_server_setup.py" "$@"
