@@ -58,8 +58,11 @@ Logs are under /tmp/cpnetflux-runs/EXP-V3-GRIDFTP-FULL-01/.
 
 Integrate the global scheduler with persistent V3 workers and their queue/range
 leases, then add compatibility and loopback regressions for the full profile.
-The separate in-progress V3-WORKER-STATE-01B work explicitly excludes global
-scheduler integration and is uncommitted; it was not used here. After that work
-is committed and tested, rerun the requested matched GridFTP GSI comparison
-under the same 10 GiB hard cap. The prior raw baseline is not a substitute for
-this full-profile comparison.
+Shenzhen origin/main advanced to 41eb6e74e32cf13590776bba28560bece85db41b.
+That commit adds explicit persistent queue lease state checks, but the
+V3-WORKER-STATE-01B scope explicitly excludes global scheduler and control
+pipeline integration. The updated persistent eligibility still requires
+scheduler=off; this commit was not part of the experiment. Integration,
+compatibility checks, and loopback regressions remain prerequisites before
+rerunning the requested matched GridFTP GSI comparison under the same 10 GiB
+hard cap. The prior raw baseline is not a substitute for this full-profile
