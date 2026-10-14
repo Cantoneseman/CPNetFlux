@@ -10,7 +10,7 @@
 
 用户最新授权：深圳 /root/projects/CPNetFlux 是唯一权威工作区，根目录单人串行开发；上海只作对端，Windows 只作连接/查看/回收。按深圳仓库当前 AGENTS 串行在根目录开发；每阶段只提交明确文件并推送已核实的 GitHub remote。
 
-当前代码提交：688ce60c7bedea84b727bd358615d00503cfbd9f，origin/main SHA 一致。V3-COMPOSITION-01 完整 CTest 298/298 通过，1 项 io_uring 环境 skip；临时注入 CPNETFLUX_TEST_TOKEN。任务记录待提交。
+当前提交：66277c736d52448903b710b3218934c48620909a，origin/main SHA 一致。V3-COMPOSITION-02 的 persistent V3 上传压缩组合、完整 CTest 和内部 DEB 元数据检查通过；该 DEB 标记 public_release_ready=false。
 
 路线依据：docs/DECISIONS/2026-10-14-v3-stable-composition.md。V3-UNIFIED-01 的 V1 退役和事务引擎交付继续有效，但不再作为 scheduler、pipeline 和持久 worker 已组合的证明。
 
@@ -18,6 +18,7 @@
 |---|---|---|
 | V3-COMPOSITION-01 | done | 持久 data TLS 身份、下载恢复源元数据预检、manifest 身份复用和真实 payload 统计修复；CRC32C + dynamic range + TLS + committed resume/source-change rejection 通过；298/298 CTest，1 io_uring skip；代码提交 688ce60，结果见 docs/tasks/2026-10-14-v3-composition-01-result.md |
 | V3-WORKER-STATE-01 | planned | 将 scheduler/pipeline 与控制/数据连接生命周期分离；明确 lease、取消、超时、断线回收和能力协商 |
+| V3-COMPOSITION-02 | done | 持久 V3 上传自动压缩与逐帧/逐文件决策观测；TLS/CRC32C/range/resume 混合数据回归，298/298 CTest，内部 DEB；代码提交 66277c7，结果见 docs/tasks/2026-10-14-v3-composition-02-result.md |
 | V3-RELEASE-STABILITY-01 | planned | 支持能力组合的多点故障矩阵、完整 CTest、候选安装包；无真实跨机实验不宣称跨域稳定 |
 | DIR-V2-TRANSFER-ENGINE-01 | done（一期；完整架构未完成） | 显式 --data-session-reuse tree，单 worker/流；固定提交证据见 docs/tasks/2026-10-09-data-session-reuse-result.md |
 
