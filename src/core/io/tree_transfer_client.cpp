@@ -1776,25 +1776,27 @@ common::Status preflightUploadResume(const config::TreeTransferOptions& options,
 common::Status preflightDownloadResume(const config::TreeTransferOptions& options,
                                        core::tree::TreeManifest* manifest,
                                        const std::string& manifestPath,
-                                       TreeRunStats* stats) {
+                                       TreeRunStats* stats,
+                                       ControlClient* connected = nullptr) {
     if (!options.resume) {
         return common::Status::ok();
     }
-    ControlClient control;
-    const common::Status readyStatus = ensureControlReadyWithStats(&control, options, stats);
-    if (!readyStatus.isOk()) {
-        return readyStatus;
+    ControlClient ownedControl;
+    ControlClient* control = connected != nullptr ? connected : &ownedControl;
+    if (connected == nullptr) {
+        const common::Status readyStatus = ensureControlReadyWithStats(control, options, stats);
+        if (!readyStatus.isOk()) return readyStatus;
     }
     for (std::size_t index = 0; index < manifest->files.size(); ++index) {
         const auto& record = manifest->files[index];
         const std::string remotePath = joinRemotePath(options.sourceDir, record.relativePath);
-        auto remoteSize = control.size(remotePath);
+        auto remoteSize = control->size(remotePath);
         if (!remoteSize.isOk()) {
             const std::string message =
                 changedMissingMessage("remote file changed", record, remoteSize.status().message());
             return markManifestChanged(manifest, manifestPath, index, message);
         }
-        auto remoteMtime = control.mdtm(remotePath);
+        auto remoteMtime = control->mdtm(remotePath);
         if (!remoteMtime.isOk()) {
             const std::string message =
                 changedMissingMessage("remote file changed", record, remoteMtime.status().message());
@@ -3162,6 +3164,15 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             "V2 resume requires dynamic file scheduling");
     }
 
+    std::unordered_map<std::string, std::size_t> priorDownloadRecords;
+    if (!upload && options.resume) {
+        for (std::size_t index = 0; index < manifest->files.size(); ++index) {
+            if (!priorDownloadRecords.emplace(manifest->files[index].relativePath, index).second) {
+                return common::Status::invalidArgument(
+                    "tree download manifest contains duplicate paths");
+            }
+        }
+    }
     const std::uint32_t channelCount = options.fileParallelism;
     config::TreeTransferOptions persistentOptions = options;
     // A persistent directory channel carries one file stream at a time. The
@@ -3214,7 +3225,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     channels.reserve(channelCount);
     for (std::uint32_t index = 0; index < channelCount; ++index) {
         auto channel = std::make_unique<Channel>();
-        if (index == 0 && connected != nullptr && options.connections == 1) {
+        if (index == 0 && connected != nullptr) {
             channel->control = connected;
         } else {
             channel->ownedControl = std::make_unique<ControlClient>();
@@ -3435,10 +3446,21 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 (expectedTotalFiles != kUnknownPersistentFileCount && id.fileId > expectedTotalFiles) ||
                 downloadRecords.contains(id.fileId) || !downloadPaths.insert(id.relativePath).second)
                 return common::Status::invalidArgument("duplicate or out-of-range persistent file ID");
-            downloadRecords.emplace(id.fileId, manifest->files.size());
-            manifest->files.push_back({id.relativePath, id.totalSize, id.mtimeUnixSeconds,
-                id.transferId, core::tree::TreeFileStatus::Pending, ""});
-            record = &manifest->files.back();
+            const auto prior = priorDownloadRecords.find(id.relativePath);
+            if (prior != priorDownloadRecords.end()) {
+                if (prior->second >= manifest->files.size())
+                    return common::Status::invalidArgument("tree download manifest index is invalid");
+                record = &manifest->files[prior->second];
+                if (record->size != id.totalSize || record->mtimeUnixSeconds != id.mtimeUnixSeconds)
+                    return common::Status::invalidArgument("persistent download source identity changed");
+                record->transferId = id.transferId;
+                downloadRecords.emplace(id.fileId, prior->second);
+            } else {
+                downloadRecords.emplace(id.fileId, manifest->files.size());
+                manifest->files.push_back({id.relativePath, id.totalSize, id.mtimeUnixSeconds,
+                    id.transferId, core::tree::TreeFileStatus::Pending, ""});
+                record = &manifest->files.back();
+            }
         } else {
             const auto found = downloadRecords.find(id.fileId);
             if (found == downloadRecords.end() || found->second >= manifest->files.size())
@@ -3530,7 +3552,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             stats->scanSeconds = std::max(stats->scanSeconds.value_or(0),channel->remoteScan);
         stats->queueHighWatermark = std::max(stats->queueHighWatermark,channel->remoteQueueHigh);
         stats->fileTimings.insert(stats->fileTimings.end(),channel->observed.fileTimings.begin(),channel->observed.fileTimings.end());
-        transferredBytes += channel->observed.bytes;
+        transferredBytes += channel->observed.payloadBytes;
         wireBytes += channel->observed.wireBytes;
         completeWaitSeconds += channel->observed.completeWaitSeconds + channel->controlWaitSeconds;
         pendingHighWatermark = std::max(pendingHighWatermark,
@@ -3943,10 +3965,28 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
     core::tree::TreeManifest manifest;
     TreeRunStats stats;
     ControlClient control;
-    const bool needInitialControl = !options.reuseDataSession || !persistentEligible(options);
+    config::TreeTransferOptions controlOptions = options;
+    if (options.resume && persistentEligible(options)) controlOptions.connections = 1;
+    const bool needInitialControl = !options.reuseDataSession || !persistentEligible(options) || options.resume;
     if (needInitialControl) {
-        const common::Status readyStatus = ensureControlReadyWithStats(&control, options, &stats);
+        const common::Status readyStatus = ensureControlReadyWithStats(&control, controlOptions, &stats);
         if (!readyStatus.isOk()) return readyStatus;
+    }
+    if (options.resume && persistentEligible(options)) {
+        auto loaded = core::tree::loadTreeManifest(manifestPath);
+        if (!loaded.isOk()) return loaded.status();
+        manifest = loaded.value();
+        if (manifest.mode != core::tree::TreeTransferMode::Download ||
+            manifest.rootLogicalPath != options.sourceDir ||
+            manifest.checksumAlgorithm != options.checksumAlgorithm) {
+            return common::Status::invalidArgument("tree download manifest does not match request");
+        }
+        const common::Status preflight =
+            preflightDownloadResume(controlOptions, &manifest, manifestPath, &stats, &control);
+        if (!preflight.isOk()) {
+            return emitTreeSummary("tree_download_complete", "download", preflight, options,
+                                   manifest, stats, startedAt);
+        }
     }
 
     bool usedPersistent = false;

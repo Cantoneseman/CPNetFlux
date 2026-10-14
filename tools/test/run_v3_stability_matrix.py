@@ -299,12 +299,17 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
             "--json-summary", str(uploaded_summary),
         ])
         summary = json.loads(uploaded_summary.read_text())
-        if summary.get("actual_mode") != "persistent_tree" or not summary.get("resume") is False:
+        if summary.get("actual_mode") != "persistent_tree" or summary.get("resume") is not False:
             raise AssertionError(f"unexpected persistent TLS upload summary: {summary}")
+        if summary.get("checksum_algorithm") != "crc32c" or summary.get("failed_files") != 0:
+            raise AssertionError(f"persistent TLS upload integrity state is invalid: {summary}")
         if tree_hash(root / "persistent-tls") != expected:
             raise AssertionError("persistent TLS upload tree hash mismatch")
-        if not list((root / "persistent-tls").rglob("*.cpnetflux.manifest")):
-            raise AssertionError("persistent TLS upload did not commit manifests")
+        upload_manifests = list((root / "persistent-tls").rglob("*.cpnetflux.manifest"))
+        if len(upload_manifests) != expected[1] or any(
+            "state=committed" not in path.read_text() for path in upload_manifests
+        ):
+            raise AssertionError("persistent TLS upload did not commit every manifest")
         resumed_upload_summary = temp / "persistent-tls-upload-resume.json"
         run_checked([
             str(binary.parent / "cpnetflux-tree-upload-client"), *common,
@@ -312,8 +317,9 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
             "--resume", "--json-summary", str(resumed_upload_summary),
         ])
         resumed = json.loads(resumed_upload_summary.read_text())
-        if resumed.get("actual_mode") != "persistent_tree" or resumed.get("failed_files", 0) != 0:
-            raise AssertionError(f"persistent TLS upload resume failed: {resumed}")
+        if (resumed.get("actual_mode") != "persistent_tree" or
+                resumed.get("failed_files", 0) != 0 or resumed.get("bytes_transferred") != 0):
+            raise AssertionError(f"persistent TLS upload resume was not idempotent: {resumed}")
         destination = temp / "persistent-tls-download"
         downloaded_summary = temp / "persistent-tls-download.json"
         run_checked([
@@ -323,6 +329,11 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
         ])
         if tree_hash(destination) != expected:
             raise AssertionError("persistent TLS download tree hash mismatch")
+        download_manifests = list(destination.rglob("*.cpnetflux.download.manifest"))
+        if len(download_manifests) != expected[1] or any(
+            "state=committed" not in path.read_text() for path in download_manifests
+        ):
+            raise AssertionError("persistent TLS download did not commit every manifest")
         resumed_download_summary = temp / "persistent-tls-download-resume.json"
         run_checked([
             str(binary.parent / "cpnetflux-tree-download-client"), *common,
@@ -330,8 +341,28 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
             "--resume", "--json-summary", str(resumed_download_summary),
         ])
         resumed_download = json.loads(resumed_download_summary.read_text())
-        if resumed_download.get("actual_mode") != "persistent_tree" or resumed_download.get("failed_files", 0) != 0:
-            raise AssertionError(f"persistent TLS download resume failed: {resumed_download}")
+        if (resumed_download.get("actual_mode") != "persistent_tree" or
+                resumed_download.get("failed_files", 0) != 0 or
+                resumed_download.get("bytes_transferred") != 0):
+            raise AssertionError(f"persistent TLS download resume was not idempotent: {resumed_download}")
+        remote_small = root / "persistent-tls" / "small.txt"
+        remote_small.write_bytes(b"changed-source-version\n")
+        changed_summary = temp / "persistent-tls-download-changed.json"
+        changed_result = subprocess.run(
+            [
+                str(binary.parent / "cpnetflux-tree-download-client"), *common,
+                "--source-dir", "persistent-tls", "--dest-dir", str(destination),
+                "--resume", "--json-summary", str(changed_summary),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if changed_result.returncode == 0 or "remote file changed" not in changed_result.stdout:
+            raise AssertionError(f"persistent TLS resume accepted a changed source: {changed_result.stdout}")
+        changed = json.loads(changed_summary.read_text())
+        if (changed.get("result") != "fail" or changed.get("bytes_transferred") != 0):
+            raise AssertionError(f"changed source was not rejected before transfer: {changed}")
         print("persistent TLS composition passed: checksum=crc32c data_tls=required dynamic_range=on resume=on")
     finally:
         stop_server(process)
