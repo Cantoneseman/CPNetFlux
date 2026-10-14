@@ -1,6 +1,6 @@
 # V3-COMPOSITION-01：安全持久会话组合回归
 
-- 状态：in_progress
+- 状态：done；结果见 docs/tasks/2026-10-14-v3-composition-01-result.md
 - 输入提交：5d676dccc98e9ae608c63e47a2e41181e7439e83
 - 权威源码：深圳 /root/projects/CPNetFlux
 - 路线决策：docs/DECISIONS/2026-10-14-v3-stable-composition.md
@@ -36,6 +36,7 @@
 
 - tools/test/run_v3_stability_matrix.py
 - CMakeLists.txt
+- src/core/io/framed_data_socket.cpp
 - src/core/io/persistent_data_session.cpp
 - src/core/io/persistent_tree_transfer.cpp
 - src/core/io/tree_transfer_client.cpp

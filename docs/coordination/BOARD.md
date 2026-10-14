@@ -10,13 +10,13 @@
 
 用户最新授权：深圳 /root/projects/CPNetFlux 是唯一权威工作区，根目录单人串行开发；上海只作对端，Windows 只作连接/查看/回收。按深圳仓库当前 AGENTS 串行在根目录开发；每阶段只提交明确文件并推送已核实的 GitHub remote。
 
-当前输入：5d676dccc98e9ae608c63e47a2e41181e7439e83，main clean，origin 为 git@github.com:Cantoneseman/CPNetFlux.git 且远端 SHA 一致。最近完整 CTest 为 296 项通过，1 项 io_uring 环境 skip；依赖 CPNETFLUX_TEST_TOKEN 的两项曾在未注入时失败，注入临时 token 后通过。阶段证据应以本任务运行结果为准。
+当前代码提交：688ce60c7bedea84b727bd358615d00503cfbd9f，origin/main SHA 一致。V3-COMPOSITION-01 完整 CTest 298/298 通过，1 项 io_uring 环境 skip；临时注入 CPNETFLUX_TEST_TOKEN。任务记录待提交。
 
 路线依据：docs/DECISIONS/2026-10-14-v3-stable-composition.md。V3-UNIFIED-01 的 V1 退役和事务引擎交付继续有效，但不再作为 scheduler、pipeline 和持久 worker 已组合的证明。
 
 | 当前任务 | 状态 | 验收/下一步 |
 |---|---|---|
-| V3-COMPOSITION-01 | in_progress | 双向 TLS + persistent data session + CRC32C + dynamic queue/range + committed resume 回归；先运行新增定向矩阵 |
+| V3-COMPOSITION-01 | done | 持久 data TLS 身份、下载恢复源元数据预检、manifest 身份复用和真实 payload 统计修复；CRC32C + dynamic range + TLS + committed resume/source-change rejection 通过；298/298 CTest，1 io_uring skip；代码提交 688ce60，结果见 docs/tasks/2026-10-14-v3-composition-01-result.md |
 | V3-WORKER-STATE-01 | planned | 将 scheduler/pipeline 与控制/数据连接生命周期分离；明确 lease、取消、超时、断线回收和能力协商 |
 | V3-RELEASE-STABILITY-01 | planned | 支持能力组合的多点故障矩阵、完整 CTest、候选安装包；无真实跨机实验不宣称跨域稳定 |
 | DIR-V2-TRANSFER-ENGINE-01 | done（一期；完整架构未完成） | 显式 --data-session-reuse tree，单 worker/流；固定提交证据见 docs/tasks/2026-10-09-data-session-reuse-result.md |
