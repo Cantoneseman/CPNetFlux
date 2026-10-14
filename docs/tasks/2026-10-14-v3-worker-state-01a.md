@@ -1,7 +1,8 @@
 # V3-WORKER-STATE-01A：目录连接模式状态真实可观测
 
-- 状态：in_progress
+- 状态：completed
 - 输入提交：b13b574886ed9e1930eaca36f9ce703a696c4cb0
+- 实现提交：1817d8385211df55c1457bedb181fe5f85a6250c
 - 权威源码：深圳 /root/projects/CPNetFlux
 - 父阶段：V3-WORKER-STATE-01
 
@@ -39,4 +40,8 @@
 - docs/coordination/BOARD.md
 - docs/tasks/2026-10-14-v3-worker-state-01a.md
 - docs/tasks/2026-10-14-v3-worker-state-01a-result.md
+
+## 结果
+
+验收通过，证据见 [V3-WORKER-STATE-01A 结果](2026-10-14-v3-worker-state-01a-result.md)。父阶段 V3-WORKER-STATE-01 尚未完成，本阶段不表示 scheduler/pipeline 已与持久 worker 组合。
 
