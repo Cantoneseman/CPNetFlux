@@ -780,11 +780,11 @@ class ControlConnection:
         self.sock.sendall((command + "\r\n").encode("utf-8"))
         return self.read_reply()
 
-    def login_type_i(self) -> None:
-        user = self.send("USER cpnetflux")
+    def login_type_i(self, username: str = "cpnetflux", password_value: str = "cpnetflux") -> None:
+        user = self.send(f"USER {username}")
         if reply_code(user) != 331:
             raise RuntimeError(f"USER failed: {user!r}")
-        password = self.send("PASS cpnetflux")
+        password = self.send(f"PASS {password_value}")
         if reply_code(password) != 230:
             raise RuntimeError(f"PASS failed: {password!r}")
         type_i = self.send("TYPE I")
@@ -1658,7 +1658,18 @@ def open_data_port(args: argparse.Namespace, case_index: int) -> tuple[ControlCo
         tls_server_name=getattr(args, "tls_server_name", ""),
         tls_ca_file=getattr(args, "tls_ca_file", ""),
     )
-    control.login_type_i()
+    if getattr(args, "auth_mode", "anonymous") == "token":
+        token_file = getattr(args, "auth_token_file", "")
+        if not token_file:
+            control.close()
+            raise RuntimeError("token auth mode requires --auth-token-file")
+        token = Path(token_file).read_text(encoding="utf-8").strip()
+        if not token or any(char in token for char in "\r\n"):
+            control.close()
+            raise RuntimeError("token file must contain one non-empty token line")
+        control.login_type_i("token", token)
+    else:
+        control.login_type_i()
     epsv = control.send("EPSV")
     if reply_code(epsv) != 229:
         control.close()
