@@ -476,6 +476,7 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         return common::Status::invalidArgument(
             "persistent tree channels are limited to 8");
     }
+    options.requestedReuseDataSession = options.reuseDataSession;
     if (options.controlPipelineDepth != 0) {
         if (options.reuseDataSession && reuseDataSessionExplicit) {
             return common::Status::invalidArgument(
@@ -484,7 +485,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         }
         // The pipeline is a separately selected legacy control path. Preserve its
         // historical defaults while requiring an explicit `tree` choice to opt into V2.
-        options.reuseDataSession = false;
+        if (options.reuseDataSession) {
+            options.reuseDataSession = false;
+            options.modeFallbackReason = "control_pipeline_requires_per_file_until_persistent_worker_integration";
+        }
         if (options.controlReuseMode != ControlReuseMode::Worker ||
             options.schedulerMode != TreeSchedulerMode::Off || options.resume) {
             return common::Status::invalidArgument(

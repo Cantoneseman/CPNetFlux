@@ -56,6 +56,14 @@ def assert_counts(
             )
     depth = int(summary.get("control_pipeline_depth", 0))
     if depth > 0:
+        if (summary.get("requested_mode") != "persistent_tree" or
+                summary.get("actual_mode") != "per_file" or
+                not summary.get("fallback_reason")):
+            raise RuntimeError(
+                f"{direction} pipeline fallback was not reported truthfully: "
+                f"{summary.get('requested_mode')}/{summary.get('actual_mode')}/"
+                f"{summary.get('fallback_reason')}"
+            )
         expected_slots = depth + 1
         actual_slots = int(summary.get("control_pipeline_slot_count", -1))
         if actual_slots != expected_slots:
@@ -103,6 +111,9 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
             "--data-session-reuse", "off",
             "--phase-timing", "on",
         ]
+        if depth > 0:
+            index = common.index("--data-session-reuse")
+            del common[index:index + 2]
         run_checked([
             str(build_dir / "cpnetflux-tree-upload-client"), *common,
             "--source-dir", str(source), "--dest-dir", remote_tree_name,

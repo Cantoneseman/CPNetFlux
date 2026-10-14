@@ -1346,11 +1346,11 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"control_reconnect_count\": " << stats.controlReconnectCount.load() << ",\n";
     output << "  \"data_transfer_count\": " << stats.dataTransferCount.load() << ",\n";
     output << "  \"actual_transport\": \"v3\",\n";
-    output << "  \"requested_mode\": \"" << (options.reuseDataSession ? "persistent_tree" : "per_file") << "\",\n";
+    output << "  \"requested_mode\": \"" << (options.requestedReuseDataSession ? "persistent_tree" : "per_file") << "\",\n";
     output << "  \"actual_mode\": \"" << (stats.persistentData ? "persistent_tree" : (stats.perFileStarted ? "per_file" : "unknown")) << "\",\n";
     output << "  \"requested_file_scheduling\": \"" << (options.dynamicFileScheduling ? "dynamic" : "static") << "\",\n";
     output << "  \"actual_file_scheduling\": \"" << (stats.persistentData ? (stats.dynamicScheduling ? "dynamic" : "static") : (stats.perFileStarted ? "per_file" : "unknown")) << "\",\n";
-    output << "  \"fallback_reason\": \"\",\n";
+    output << "  \"fallback_reason\": \"" << jsonEscape(options.modeFallbackReason) << "\",\n";
     output << "  \"data_session_reuse_mode\": \"" << (stats.persistentData ? "tree" : "off") << "\",\n";
     output << "  \"data_connect_count\": " << (stats.persistentData ? stats.persistentDataConnectCount : stats.dataTransferCount.load() * options.connections) << ",\n";
     output << "  \"data_connect_count_source\": \"" << (stats.persistentData ? "observed" : "estimated") << "\",\n";

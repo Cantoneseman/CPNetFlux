@@ -159,8 +159,26 @@ TEST(TreeTransferOptionsTest, AllowsConcurrentWorkersForDepthOnePipeline) {
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
     EXPECT_EQ(parsed.value().fileParallelism, 8U);
     EXPECT_EQ(parsed.value().controlPipelineDepth, 1U);
+    EXPECT_TRUE(parsed.value().requestedReuseDataSession);
+    EXPECT_FALSE(parsed.value().reuseDataSession);
+    EXPECT_EQ(parsed.value().modeFallbackReason,
+              "control_pipeline_requires_per_file_until_persistent_worker_integration");
 }
 
+TEST(TreeTransferOptionsTest, ExplicitPersistentTreePipelineCombinationIsRejected) {
+    const auto root = std::filesystem::temp_directory_path() / "cpnetflux-tree-options-explicit-pipeline";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const auto rootText = root.string();
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
+                          "--dest-dir", "remote", "--control-reuse", "worker",
+                          "--control-pipeline-depth", "1", "--data-session-reuse", "tree"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    EXPECT_FALSE(parsed.isOk());
+    EXPECT_NE(parsed.status().message().find("cannot combine"), std::string::npos);
+    std::filesystem::remove_all(root);
+}
 TEST(TreeTransferOptionsTest, DefaultsControlReuseOff) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-options-default-reuse";
