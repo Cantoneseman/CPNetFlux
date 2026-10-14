@@ -28,7 +28,7 @@
 
 - `agent.getInfo` 返回 `adapter=real`、`api_version=2.0.0`，features 只列已实现能力；demo 仅在显式 `--demo` 下返回 `adapter=demo`。
 - `transfer.create` 接收现有 API 2 `direction/source/destination/policy`，本地端点必须是绝对路径；agent 识别 file/dir 并调用相应现有 CPNetFlux CLI，不复制协议状态机。
-- profile 只保存 `credential_ref`/CA 路径等引用；本阶段 token/password/private key 若没有受控 secret-store helper 则明确返回 `keyring_locked`/`unsupported`，禁止通过 RPC、argv、环境、日志或 state 注入。
+- profile 只保存 `credential_ref`/CA 路径等引用；本阶段 token/password/private key 仍禁止通过 RPC、argv、环境、日志或 state 注入；服务器节点包导入器只把 token 写入当前用户 0600 文件，profile 继续保存 `file:` 引用。
 - 真实任务快照的 `state/metrics/attempt/error/effective_policy/recovery` 只能由进程退出码、event-log、manifest/checksum 和可核验文件统计填充，缺失字段为 null/unknown。
 - 取消使用真实进程终止与最终状态屏障；resume 只在核心 CLI 明确支持且 checkpoint/source identity 可验证时启用，否则禁用并返回原因。
 

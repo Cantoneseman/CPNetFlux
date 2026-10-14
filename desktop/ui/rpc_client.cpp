@@ -3,6 +3,13 @@
 #include <QJsonArray>
 #include <QUuid>
 #include <QFileInfo>
+#include <QFile>
+#include <QSaveFile>
+#include <QDir>
+#include <QUrl>
+#include <QCryptographicHash>
+#include <QRegularExpression>
+#include <QtGlobal>
 #include <sys/socket.h>
 #include <unistd.h>
 static QString operation(){return QUuid::createUuid().toString(QUuid::WithoutBraces);}
@@ -23,5 +30,61 @@ void RpcClient::create(QString dir,QString local,QString remote,bool failure,QSt
 void RpcClient::action(QString m,QVariantMap t){if(!apiCompatible_){message_="agent API 未兼容，已阻止操作";emit changed();return;}QJsonObject p{{"transfer_id",t.value("transfer_id").toString()},{"operation_id",operation()},{"expected_revision",t.value("revision").toLongLong()}};if(m=="transfer.resume")p["checkpoint_id"]=t.value("recovery").toMap().value("checkpoint_id").toString();sendPostHandshake(m,p);}
 void RpcClient::invalidateAuthentication(){checks_.clear();authenticationState_="unknown";emit changed();}
 void RpcClient::saveProfile(QVariantMap p,bool update){invalidateAuthentication();sendPostHandshake(update?"profile.update":"profile.create",{{"operation_id",operation()},{"profile",QJsonObject::fromVariantMap(p)}});}
+static bool writePrivateFile(const QString& path, const QByteArray& data, QString& error) {
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) { error = "无法写入私有凭据文件"; return false; }
+    if (file.write(data) != data.size() || !file.commit()) { error = "无法提交私有凭据文件"; return false; }
+    if (!QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        error = "无法设置私有凭据文件权限"; return false;
+    }
+    return true;
+}
+
+void RpcClient::importProvisioningBundle(QString inputPath) {
+    QString path = QUrl::fromUserInput(inputPath).isLocalFile() ? QUrl::fromUserInput(inputPath).toLocalFile() : inputPath;
+    QFileInfo source(path);
+    if (!source.isFile() || source.size() <= 0 || source.size() > 1024 * 1024 ||
+        (source.permissions() & (QFileDevice::WriteGroup | QFileDevice::WriteOther))) {
+        message_ = "节点包不存在、过大或权限过宽（需要普通文件且不可组/其他用户写入）"; emit changed(); return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) { message_ = "节点包不可读"; emit changed(); return; }
+    QJsonParseError parseError{}; QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) { message_ = "节点包 JSON 无效"; emit changed(); return; }
+    QJsonObject bundle = doc.object();
+    if (bundle.value("format").toString() != "cpnetflux-node-provisioning" || bundle.value("version").toInt() != 1) {
+        message_ = "节点包版本不受支持"; emit changed(); return;
+    }
+    QJsonObject node = bundle.value("node").toObject(), tls = bundle.value("tls").toObject(), credential = bundle.value("credential").toObject();
+    QString nodeId = node.value("node_id").toString(), name = node.value("name").toString(), host = node.value("host").toString();
+    QString serverName = node.value("server_name").toString(), rootId = node.value("default_root_id").toString();
+    QJsonValue portValue = node.value("control_port"); bool portOk = portValue.isDouble() && portValue.toDouble() >= 0 && portValue.toDouble() == qFloor(portValue.toDouble()); int controlPort = portValue.toInt();
+    static const QRegularExpression safeId("^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$");
+    if (!safeId.match(nodeId).hasMatch() || name.isEmpty() || name.size() > 128 || host.isEmpty() || host.contains(QRegularExpression("\\s")) ||
+        serverName.isEmpty() || serverName.contains(QRegularExpression("[\\s/\\\\,]")) || !safeId.match(rootId).hasMatch() || !portOk || controlPort < 1024 || controlPort > 65535 ||
+        tls.value("mode").toString() != "required" || tls.value("server_name").toString() != serverName ||
+        !tls.value("ca_pem").toString().contains("BEGIN CERTIFICATE" ) || credential.value("type").toString() != "token") {
+        message_ = "节点包字段或安全策略无效"; emit changed(); return;
+    }
+    QString token = credential.value("token").toString();
+    if (token.isEmpty() || token.contains(QRegularExpression("[\\r\\n]"))) { message_ = "节点包 token 无效"; emit changed(); return; }
+    QString configHome = qEnvironmentVariable("XDG_CONFIG_HOME");
+    if (configHome.isEmpty()) configHome = QDir::homePath() + "/.config";
+    QString nodeDir = QDir(configHome).filePath("cpnetflux/nodes/" +
+        QString::fromLatin1(QCryptographicHash::hash(nodeId.toUtf8(), QCryptographicHash::Sha256).toHex()));
+    if (!QDir().mkpath(nodeDir) || !QFile::setPermissions(nodeDir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner)) {
+        message_ = "无法创建当前用户的私有节点目录"; emit changed(); return;
+    }
+    QString caPath = QDir(nodeDir).filePath("ca.pem"), tokenPath = QDir(nodeDir).filePath("token"); QString error;
+    if (!writePrivateFile(caPath, tls.value("ca_pem").toString().toUtf8(), error) || !writePrivateFile(tokenPath, token.toUtf8(), error)) {
+        message_ = error; emit changed(); return;
+    }
+    QVariantMap profile{{"node_id",nodeId},{"name",name},{"host",host},{"control_port",controlPort},
+                        {"server_name",serverName},{"ca_path",caPath},{"auth_mode","token"},
+                        {"credential_ref","file:" + tokenPath},{"default_root_id",rootId}};
+    bool update = false; for (const auto& item : profiles_) if (item.toMap().value("node_id").toString() == nodeId) { update = true; break; }
+    saveProfile(profile, update); message_ = "节点包已导入；CA 与 token 已保存到当前用户私有目录，正在同步节点配置"; emit changed();
+}
+
 void RpcClient::testNode(QString id,QString root){checks_={{"dns_control_port",QVariantMap{{"state","pending"}}},{"tls_identity",QVariantMap{{"state","pending"}}},{"login",QVariantMap{{"state","pending"}}},{"capabilities",QVariantMap{{"state","pending"}}},{"directory_permission",QVariantMap{{"state","unsupported"}}},{"data_port",QVariantMap{{"state","unsupported"}}}};authenticationState_="authenticating";emit changed();sendPostHandshake("node.testConnection",{{"node_id",id},{"root_id",root},{"path",""},{"access","read"}});}
 void RpcClient::demo(){create("upload","/home/student/demo","演示数据",false,"auto","");}

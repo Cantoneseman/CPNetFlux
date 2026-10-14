@@ -6,7 +6,7 @@
 
 Unix stream socket 路径 `$XDG_RUNTIME_DIR/cpnetflux/agent.sock`。父目录 0700、socket 0600；agent 检查 `SO_PEERCRED` 并只接受相同 UID。runtime dir 缺失或 UID 不符时拒绝连接。agent 由用户服务管理，UI 退出只断开订阅，不取消传输。
 
-帧为 UTF-8 JSON + LF，单帧最多 1 MiB；不支持 batch 或请求 notification。agent 限制并发请求和事件队列；慢消费者断开后重同步，不得阻塞 payload。时间为带时区 UTC RFC3339，速度为 bytes/second；JSON 安全整数最大 2^53-1，禁止截断。未知值使用 `null` 或对应 `unknown`。profile/RPC/event/log 只允许 `credential_ref`，禁止传 token、密码和私钥。
+帧为 UTF-8 JSON + LF，单帧最多 1 MiB；不支持 batch 或请求 notification。agent 限制并发请求和事件队列；慢消费者断开后重同步，不得阻塞 payload。时间为带时区 UTC RFC3339，速度为 bytes/second；JSON 安全整数最大 2^53-1，禁止截断。未知值使用 `null` 或对应 `unknown`。profile/RPC/event/log 只允许 `credential_ref`，禁止传 token、密码和私钥；节点包导入器在本地生成受限文件后仍只传引用。
 
 UI 在任何 profile 读取或有副作用请求前调用 `agent.getInfo`，要求 `api_version` 精确等于 `2.0.0`；不匹配时只显示兼容错误，不尝试猜测兼容。响应给出 agent epoch、adapter 类型、帧/并发上限和实际支持 feature 列表。feature 列表是 agent 已实现能力，不可由 UI 推导。
 

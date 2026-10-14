@@ -17,6 +17,7 @@ int main(int argc,char** argv) {
     parser.addOption({"window-width","启动窗口宽度","pixels","1180"});
     parser.addOption({"window-height","启动窗口高度","pixels","780"});
     parser.addOption({"layout-report","输出详情页滚动视口诊断"});
+    parser.addOption({"import-bundle","启动后导入 CPNetFlux 节点包","path"});
     parser.process(app);
     RpcClient rpc(parser.value("socket"));
     QQmlApplicationEngine engine; engine.rootContext()->setContextProperty("rpc",&rpc);
@@ -26,6 +27,7 @@ int main(int argc,char** argv) {
     if(auto window=qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
         window->resize(parser.value("window-width").toInt(),parser.value("window-height").toInt());
     }
+    if(parser.isSet("import-bundle")) QTimer::singleShot(200, &app, [&] { rpc.importProvisioningBundle(parser.value("import-bundle")); });
     if(parser.isSet("smoke-ms")) QTimer::singleShot(parser.value("smoke-ms").toInt(), &app, [&] {
         auto window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());
         bool ok=window && rpc.snapshotCount() >= 0;

@@ -100,6 +100,9 @@ ApplicationWindow {
             Loader { id:pathPicker; active:false; source:"qrc:/ui/PathPicker.qml"
                 onLoaded: { item.directoryMode=window.pickerDirectory; item.selected.connect(function(path){ localPath.text=path; pathPicker.active=false }) ; item.open() }
             }
+            Loader { id:provisioningPicker; active:false; source:"qrc:/ui/ProvisioningPicker.qml"
+                onLoaded: { item.selected.connect(function(path){ rpc.importProvisioningBundle(path); provisioningPicker.active=false }); item.open() }
+            }
             StackLayout {
                 currentIndex: window.page; Layout.fillWidth:true; Layout.fillHeight:true
                 // 0: tasks
@@ -222,6 +225,10 @@ ApplicationWindow {
                             ColumnLayout { anchors.fill:parent; anchors.margins:22; spacing:10
                                 Heading { text:"节点连接配置" }
                                 Muted { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"先在对端部署并启动受控 CPNetFlux 服务，再在这里保存节点配置。当前支持 TLS + 受保护 token 文件：只填写 file:/绝对路径引用，token 内容不会进入 UI、agent 请求或状态文件。" }
+                                RowLayout { Layout.fillWidth:true
+                                    Button { objectName:"importNodeBundleButton"; text:"导入服务器节点包…"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible; onClicked:{ provisioningPicker.active=true; if(provisioningPicker.status===Loader.Ready) provisioningPicker.item.open() } }
+                                    Muted { Layout.fillWidth:true; text:"服务器管理员生成的 .cpnetflux 文件包含 CA 与 token；导入后只保存受限本地引用，不在界面显示 token。" }
+                                }
                                 ComboBox { Layout.fillWidth:true; model:rpc.profiles; textRole:"name"; displayText:currentIndex>=0 && currentIndex<rpc.profiles.length ? rpc.profiles[currentIndex].name : "已保存节点（选择以编辑）"; onActivated:window.loadProfile(rpc.profiles[currentIndex]) }
                                 GridLayout { columns:window.width<1120?2:4; Layout.fillWidth:true; columnSpacing:12; rowSpacing:8
                                     Label { text:"节点ID" } TextField { id:nodeId; text:"lab-node"; Layout.fillWidth:true; onTextEdited: rpc.invalidateAuthentication() }
