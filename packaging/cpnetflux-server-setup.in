@@ -1,3 +1,4 @@
 #!/bin/sh
 set -eu
-exec python3 "@CMAKE_INSTALL_LIBEXECDIR@/cpnetflux/cpnetflux_server_setup.py" "$@"
+base=
+exec python3 \ /@CMAKE_INSTALL_LIBEXECDIR@/cpnetflux/cpnetflux_server_setup.py\ \$@\n
