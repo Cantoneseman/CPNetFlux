@@ -1487,6 +1487,8 @@ def build_tree_client_command(
         case.control_reuse,
         "--control-pipeline-depth",
         str(case.control_pipeline_depth),
+        "--data-session-reuse",
+        "off",
         "--auth-mode",
         args.auth_mode,
     ]

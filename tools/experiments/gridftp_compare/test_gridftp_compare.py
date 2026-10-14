@@ -197,6 +197,7 @@ class MatrixTest(unittest.TestCase):
             ("--tls-mode", "required"), ("--tls-server-name", "nodeb.grid"),
             ("--tls-ca-file", "/etc/grid-security/ca.pem"),
             ("--data-tls-mode", "required"),
+            ("--data-session-reuse", "off"),
         ):
             self.assertEqual(command[command.index(option) + 1], value)
 
