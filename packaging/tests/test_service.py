@@ -27,6 +27,11 @@ class ServiceSafety(unittest.TestCase):
     def argv(self):
         self.path.write_text(json.dumps(self.config)); self.path.chmod(0o600)
         return service.load_options(self.path)
+    def test_generated_token_tls_policy_allows_desktop_without_client_certificate(self):
+        self.config["tls_client_auth"] = "none"
+        argv = self.argv()
+        self.assertEqual(argv[argv.index("--tls-client-auth") + 1], "none")
+
     def test_secure_policy_is_explicit(self):
         argv = self.argv()
         for flag, value in [("--tls-mode","required"),("--tls-client-auth","required"),

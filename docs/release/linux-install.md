@@ -1,6 +1,6 @@
 # Linux 交付候选安装指南
 
-本包是内部安装候选，尚未选择项目 LICENSE，不公开发布或宣称生产就绪。包含已整合的 V3 单文件/目录引擎、mTLS/token 服务、Qt 桌面和本地 agent。桌面 API2 的真实 adapter 当前支持通过 core tree client 执行 TLS/token 保护的真实目录上传/下载；单文件任务因 core file client 尚未提供统一 TLS/认证控制面，会明确返回 unsupported。只有显式 --demo 才模拟任务，demo 数据是合成状态，不能用于双机传输证明。
+本包是内部安装候选，尚未选择项目 LICENSE，不公开发布或宣称生产就绪。包含已整合的 V3 单文件/目录引擎、TLS/token 服务、Qt 桌面和本地 agent。桌面 API2 的真实 adapter 当前支持通过 core tree client 执行 TLS/token 保护的真实目录上传/下载；单文件任务因 core file client 尚未提供统一 TLS/认证控制面，会明确返回 unsupported。只有显式 --demo 才模拟任务，demo 数据是合成状态，不能用于双机传输证明。
 
 ## 构建和打包
 
@@ -23,15 +23,22 @@ python3 tools/release/create_linux_packages.py --build-dir build --output-dir /a
 
 ## 服务准备（管理员显式操作）
 
-示例均在 /usr/share/cpnetflux/deployment；不会自动覆盖 /etc。
+安装包不会自动创建服务、生成凭据、启动服务或开放端口。安装完成后，管理员在服务器上显式运行初始化向导；先用 dry-run 查看计划：
 
-1. 使用 `systemd-sysusers /usr/share/cpnetflux/deployment/cpnetflux.sysusers` 创建专用无登录用户；使用 `systemd-tmpfiles --create /usr/share/cpnetflux/deployment/cpnetflux.tmpfiles` 创建受控目录。
-2. 首次安装才复制 server.example.json 到 /etc/cpnetflux/server.json，root:cpnetflux、0640。保持 enabled=false，先配置实际 CA、服务器证书/私钥、token。token 和私钥必须 cpnetflux:cpnetflux、0600；配置和证书不可被组/其他用户写入。token 只通过路径交给核心，不写在 argv/env/RPC。
-3. 数据仅放 /var/lib/cpnetflux/data（或显式调整 unit 的 ReadWritePaths）；服务不以 root 运行。选择 read-only/write-only/read-write 权限，核对已有数据备份。将 enabled 改为 true；按 cpnetflux 用户运行 `cpnetflux-service --check-config`。该检查不代表 TLS 证书链/有效期或 token 登录已通过。
-4. 复制 server unit 到 /etc/systemd/system，`systemd-analyze verify /etc/systemd/system/cpnetflux-server.service`，daemon-reload 后显式 start。先在 127.0.0.1 验证，再选择监听地址和防火墙。控制端口默认 2121；被动端口窗口为 data_port_base 起 512 个端口，须只向授权对端开放。
-5. 客户端用 --help 核对 --tls-mode required、--tls-ca-file、--tls-cert-file、--tls-key-file、--auth-token-file、--data-tls-mode required；先做小文件双向 hash/manifest 验证。不能用匿名/off TLS 作为交付默认。服务级访问策略并非多用户 ACL 或账号管理。
+```sh
+sudo cpnetflux-server-setup --dry-run \
+  --listen 0.0.0.0:2121 --advertise-host transfer.example \
+  --tls-server-name transfer.example --data-port-base 20200 \
+  --data-root /var/lib/cpnetflux/data --node-id lab-node
+```
 
-TGZ 自定义 prefix 使用 unit 前必须把 ExecStart 改为实际绝对路径。包内样例路径按 DEB 的 /usr 布局生成。没有自动执行这些管理员操作。
+确认地址、数据根目录和端口后，执行同一组参数去掉 `--dry-run`。向导会生成专用服务用户、TLS CA/服务器证书、token、`/etc/cpnetflux/server.json`、受限 systemd unit（仅在加 `--install-service` 时）以及 `0600` 的 `.cpnetflux` 节点导入包。默认不会 enable/start 服务；需要时分别显式添加 `--install-service --enable --start`。防火墙也必须显式添加 `--configure-firewall`。导入包包含 token 和 CA 公钥，只能通过管理员认可的安全通道交给对端，导入后删除。
+
+服务端的新初始化配置使用 TLS 服务端身份校验 + token，不要求客户端证书，以匹配当前桌面认证闭环。已有配置若没有 `tls_client_auth` 字段，启动器继续按 `required` 处理；已有 mTLS 节点不会被静默降级。服务配置中的 token、私钥由专用服务用户读取，配置由 root 管理。
+
+当前控制服务的数据端口分配窗口固定为 `data_port_base` 到 `data_port_base+511`，例如 `20200-20711`；`connections` 不会把防火墙窗口缩小。初始化向导显示并按这个实际窗口生成 UFW/firewalld 规则。先在受控网段验证，再按网络策略放行控制端口与整段数据端口。
+
+也可以手工维护 `server.json`，但必须保持 `enabled=true`、绝对路径、受信文件所有者与权限，并由专用非 root 用户运行 `cpnetflux-service --check-config`。该检查不替代 TLS 证书链、token 登录和双机传输验证。
 
 ## 桌面与 agent
 

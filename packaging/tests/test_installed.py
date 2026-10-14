@@ -15,10 +15,10 @@ parser.add_argument("--fixtures",type=Path,required=True)
 args=parser.parse_args()
 prefix=args.prefix.resolve()
 for name in ["cpnetflux-gridftp-server","cpnetflux-file-client","cpnetflux-file-download-client",
-             "cpnetflux-tree-upload-client","cpnetflux-tree-download-client","cpnetflux-agent","cpnetflux-desktop"]:
+             "cpnetflux-tree-upload-client","cpnetflux-tree-download-client","cpnetflux-agent","cpnetflux-desktop","cpnetflux-server-setup"]:
     env=dict(os.environ,QT_QPA_PLATFORM="offscreen")
     r=subprocess.run([str(prefix/"bin"/name),"--help"],env=env,capture_output=True,timeout=10)
-    assert r.returncode in {0,2} and b"Usage:" in r.stdout+r.stderr or name in {"cpnetflux-agent","cpnetflux-desktop"} and r.returncode==0,(name,r.stderr)
+    assert r.returncode in {0,2} and b"usage:" in (r.stdout+r.stderr).lower() or name in {"cpnetflux-agent","cpnetflux-desktop"} and r.returncode==0,(name,r.stderr)
 service=subprocess.run([str(prefix/"bin/cpnetflux-service"),"--config",str(prefix/"share/cpnetflux/deployment/server.example.json")],capture_output=True,timeout=5)
 assert service.returncode!=0 and b"refused" in service.stderr
 with tempfile.TemporaryDirectory() as tmp:

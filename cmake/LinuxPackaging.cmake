@@ -6,8 +6,11 @@ install(TARGETS cpnetflux cpnetflux-server cpnetflux-client cpnetflux-file-serve
     cpnetflux-file-client cpnetflux-file-download-client cpnetflux-tree-upload-client
     cpnetflux-tree-download-client cpnetflux-auth-probe cpnetflux-gridftp-server RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 configure_file(packaging/cpnetflux-service.in "${CMAKE_CURRENT_BINARY_DIR}/cpnetflux-service" @ONLY)
+configure_file(packaging/cpnetflux-server-setup.in "${CMAKE_CURRENT_BINARY_DIR}/cpnetflux-server-setup" @ONLY)
 install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/cpnetflux-service" DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(FILES packaging/cpnetflux_service.py DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/cpnetflux)
+install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/cpnetflux-server-setup" DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES packaging/cpnetflux_service.py packaging/cpnetflux_server_setup.py
+    DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/cpnetflux)
 install(FILES packaging/server.example.json packaging/cpnetflux-server.service
     packaging/cpnetflux-agent.service packaging/cpnetflux.sysusers packaging/cpnetflux.tmpfiles
     DESTINATION ${CMAKE_INSTALL_DATADIR}/cpnetflux/deployment)

@@ -9,6 +9,7 @@ import stat
 
 FIELDS = {"enabled", "host", "port", "data_port_base", "connections", "root",
           "token_file", "tls_key_file", "tls_cert_file", "tls_ca_file", "access_policy"}
+OPTIONAL_FIELDS = {"tls_client_auth"}
 
 def check_file(path, private=False):
     if not isinstance(path, str) or not Path(path).is_absolute():
@@ -32,7 +33,7 @@ def load_options(path):
         if os.fstat(stream.fileno()).st_size > 65536:
             raise ValueError("config exceeds budget")
         c = json.load(stream)
-    if not isinstance(c, dict) or set(c) != FIELDS or c["enabled"] is not True:
+    if not isinstance(c, dict) or not FIELDS.issubset(c) or set(c) - FIELDS - OPTIONAL_FIELDS or c["enabled"] is not True:
         raise ValueError("incomplete, disabled or unknown config")
     if not isinstance(c["host"], str):
         raise ValueError("IP address string required")
@@ -40,6 +41,9 @@ def load_options(path):
     for key, low, high in [("port",1024,65535),("data_port_base",1024,65024),("connections",1,8)]:
         if type(c[key]) is not int or not low <= c[key] <= high:
             raise ValueError("invalid numeric setting")
+    tls_client_auth = c.get("tls_client_auth", "required")
+    if tls_client_auth not in {"none", "required"}:
+        raise ValueError("invalid tls client auth policy")
     if c["access_policy"] not in {"read-only","write-only","read-write"}:
         raise ValueError("invalid access policy")
     if not isinstance(c["root"],str) or not Path(c["root"]).is_absolute():
@@ -49,7 +53,7 @@ def load_options(path):
         raise ValueError("data root must be an existing directory")
     for key in ["token_file","tls_key_file","tls_cert_file","tls_ca_file"]:
         check_file(c[key], private=key in {"token_file","tls_key_file"})
-    options = ["--tls-mode","required","--tls-client-auth","required","--data-tls-mode","required",
+    options = ["--tls-mode","required","--tls-client-auth",tls_client_auth,"--data-tls-mode","required",
                "--auth-mode","token","--checksum","crc32c","--final-verify-policy","full",
                "--commit-sync-policy","fsync_file_and_dir"]
     for key in ["host","port","data_port_base","connections","root","access_policy",
