@@ -30,6 +30,10 @@ class RpcClient : public QObject {
     Q_PROPERTY(bool removeInFlight READ removeInFlight NOTIFY changed)
     Q_PROPERTY(QString removeStatus READ removeStatus NOTIFY changed)
     Q_PROPERTY(QString removeError READ removeError NOTIFY changed)
+    Q_PROPERTY(bool actionInFlight READ actionInFlight NOTIFY changed)
+    Q_PROPERTY(QString actionTransferId READ actionTransferId NOTIFY changed)
+    Q_PROPERTY(QString actionStatus READ actionStatus NOTIFY changed)
+    Q_PROPERTY(QString actionError READ actionError NOTIFY changed)
 public:
     explicit RpcClient(QString, QObject* parent=nullptr);
     ~RpcClient() override;
@@ -54,6 +58,10 @@ public:
     bool removeInFlight() const { return removeInFlight_; }
     QString removeStatus() const { return removeStatus_; }
     QString removeError() const { return removeError_; }
+    bool actionInFlight() const { return actionInFlight_; }
+    QString actionTransferId() const { return actionTransferId_; }
+    QString actionStatus() const { return actionStatus_; }
+    QString actionError() const { return actionError_; }
     Q_INVOKABLE void create(QString,QString,QString,bool,QString,QString);
     Q_INVOKABLE void action(QString,QVariantMap);
     Q_INVOKABLE void saveProfile(QVariantMap,bool);
@@ -64,15 +72,16 @@ public:
     Q_INVOKABLE void loadNextFiles();
     Q_INVOKABLE void loadNextRanges();
     Q_INVOKABLE void removeTask(QString,QString);
+    Q_INVOKABLE void requestCapabilities(QString);
     Q_INVOKABLE void setPage(int p) { emit pageRequested(p); }
     int snapshotCount() const { return tasks().size(); }
 signals:
     void changed();
     void pageRequested(int);
-    void createSucceeded(QString transferId, QString attemptId);
+    void createSucceeded(QString transferId, QString attemptId, qint64 revision);
     void taskRemoved(QString transferId);
 private:
-    QString sendRequest(QString, QJsonObject);
+    QString sendRequest(QString, QJsonObject, QString transferId = {});
     void send(QString,QJsonObject);
     void sendPostHandshake(QString,QJsonObject);
     void read();
@@ -85,6 +94,8 @@ private:
     void persistHidden() const;
     bool taskHidden(const QString&, const QString&) const;
     void failCreate(const QString&, bool retryable=true);
+    void finishActionFailure(const QString&, const QString&);
+    QString friendlyActionError(const QString&, const QString&) const;
 
     QLocalSocket socket_;
     QTimer retry_;
@@ -94,6 +105,7 @@ private:
     QByteArray buffer_;
     QHash<QString,QString> pending_;
     QHash<QString,qint64> pendingDeadlines_;
+    QHash<QString,QString> pendingTransferIds_;
     QVariantList tasks_,profiles_,attempts_,files_,ranges_;
     QVariantMap capabilities_,agentInfo_,checks_;
     QString detailTransfer_,detailAttempt_,detailFile_,detailCursorFiles_,detailCursorRanges_;
@@ -108,4 +120,6 @@ private:
     QString lastCreateOperationId_, lastCreateKey_;
     bool removeInFlight_=false;
     QString removeStatus_, removeError_;
+    bool actionInFlight_=false;
+    QString actionTransferId_, actionMethod_, actionStatus_, actionError_, lastCreatedTransferId_;
 };

@@ -39,7 +39,7 @@ ApplicationWindow {
     Connections {
         target: rpc
         function onPageRequested(p) { window.page=p }
-        function onCreateSucceeded(transferId, attemptId) {
+        function onCreateSucceeded(transferId, attemptId, revision) {
             window.selectedId = transferId
             window.page = 2
             rpc.loadDetails(transferId, attemptId)
@@ -192,7 +192,12 @@ ApplicationWindow {
                                     ComboBox { id:direction; objectName:"direction"; model:["本机 → 远端（上传）","远端 → 本机（下载）"]; Layout.fillWidth:true }
                                     Label { text:"远端节点" }
                                     ComboBox { id:profileChoice; model:rpc.profiles.length ? rpc.profiles.map(function(p){return p.name+" · "+p.host+":"+p.control_port}) : ["请先在“节点连接”保存真实节点"]; enabled:!rpc.demoAdapter; Layout.fillWidth:true
-                                        onActivated: { if (index >= 0 && index < rpc.profiles.length) window.selectedProfileId = rpc.profiles[index].node_id }
+                                        onActivated: {
+                                            if (index >= 0 && index < rpc.profiles.length) {
+                                                window.selectedProfileId = rpc.profiles[index].node_id
+                                                rpc.requestCapabilities(window.selectedProfileId)
+                                            }
+                                        }
                                     }
                                     Label { text:"本地文件或目录" }
                                     RowLayout { Layout.fillWidth:true
@@ -209,6 +214,7 @@ ApplicationWindow {
                                 }
                                 Muted { Layout.fillWidth:true; text:rpc.demoAdapter ? "开发诊断入口；不会读取本地路径。" : "默认要求 CA/TLS 与凭据引用。agent 会在创建前检查路径、权限、认证和后端能力；缺失字段显示未知。" }
                                 Label { visible:rpc.createInFlight || rpc.createStatus.length>0; Layout.fillWidth:true; text:rpc.createStatus; color:rpc.createInFlight?"#8a5a18":"#36734f"; wrapMode:Text.WordWrap }
+                                Label { visible:rpc.createError.length>0; Layout.fillWidth:true; text:rpc.createError; color:"#a64b31"; wrapMode:Text.WordWrap }
                                 Button { objectName:"createButton"; text:rpc.createInFlight ? "正在创建…" : "创建传输任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.createInFlight && (rpc.demoAdapter || rpc.profiles.length>0)
                                     onClicked: rpc.create(direction.currentIndex===0?"upload":"download",localPath.text,remotePath.text,false,rpc.demoAdapter?["auto","v1","v2"][mode.currentIndex]:"v2",window.selectedProfileId)
                                 }
@@ -226,6 +232,7 @@ ApplicationWindow {
                                 Muted { Layout.fillWidth:true; text:window.selectedTask ? (window.selectedTask.direction==="upload"?"上传":"下载")+" · "+window.selectedTask.source.path+" → "+window.selectedTask.destination.path : "" }
                                 Label { text:window.selectedTask?"请求引擎 "+window.selectedTask.policy.requested_mode+" / 实际引擎 "+window.selectedTask.actual_mode:""; color:"#274970" }
                                 Label { visible:!!window.selectedTask; text:"详情状态："+rpc.detailStatus+" · "+(rpc.stale?"stale / 待重连":"当前 agent epoch")+" · "+rpc.detailWatermark; color:rpc.stale?"#a64b31":"#657389"; elide:Text.ElideRight }
+                                Label { visible:!!window.selectedTask && rpc.actionTransferId===window.selectedTask.transfer_id && (rpc.actionStatus.length>0 || rpc.actionError.length>0); Layout.fillWidth:true; wrapMode:Text.WordWrap; text:rpc.actionError.length>0 ? rpc.actionError : rpc.actionStatus; color:rpc.actionError.length>0?"#a64b31":"#8a5a18" }
                                 RowLayout { visible:!!window.selectedTask
                                     Button { text:"加载 attempt / file 分页"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) }
                                     Button { text:"继续加载 file"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() }
@@ -246,10 +253,10 @@ ApplicationWindow {
                                 Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#b34236"; text:window.selectedTask && window.selectedTask.error ? window.selectedTask.error.message : ""; visible:text.length>0 }
                                 Muted { text:window.selectedTask?"恢复资格："+({unknown:"未知",eligible:"可恢复（当前服务）",ineligible:"不可恢复"})[window.selectedTask.recovery.eligibility]+" · attempt "+window.selectedTask.attempt.attempt_number:"" }
                                 RowLayout {
-                                    Button { objectName:"startButton"; text:"开始任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && window.selectedTask && window.selectedTask.state==="queued"; onClicked:rpc.action("transfer.start",window.selectedTask) }
-                                    Button { text:"取消任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.cancel",window.selectedTask) }
+                                    Button { objectName:"startButton"; text:rpc.actionInFlight && rpc.actionTransferId===(window.selectedTask ? window.selectedTask.transfer_id : "") ? "启动中…" : "开始任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.actionInFlight && window.selectedTask && window.selectedTask.state==="queued"; onClicked:rpc.action("transfer.start",window.selectedTask) }
+                                    Button { text:"取消任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.actionInFlight && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.cancel",window.selectedTask) }
                                     Button { text:"暂停 · 后端未提供"; enabled:false && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.pause",window.selectedTask) }
-                                    Button { text:"恢复任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !!rpc.capabilities.resume_supported && window.selectedTask && window.selectedTask.recovery.eligibility==="eligible" && window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.resume",window.selectedTask) }
+                                    Button { text:"恢复任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.actionInFlight && !!rpc.capabilities.resume_supported && window.selectedTask && window.selectedTask.recovery.eligibility==="eligible" && window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.resume",window.selectedTask) }
                                 }
                             }
                         }

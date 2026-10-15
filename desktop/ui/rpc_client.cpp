@@ -38,6 +38,9 @@ RpcClient::RpcClient(QString path, QObject* parent)
         buffer_.clear();
         pending_.clear();
         pendingDeadlines_.clear();
+        pendingTransferIds_.clear();
+        if (actionInFlight_)
+            finishActionFailure("agent unavailable", "agent 连接已断开；启动/控制结果未确认，任务保持 agent 返回的状态");
         apiCompatible_ = false;
         stale_ = true;
         detailStatus_ = "agent unavailable / 待重连";
@@ -106,6 +109,7 @@ void RpcClient::startSession() {
     apiCompatible_ = false;
     pending_.clear();
     pendingDeadlines_.clear();
+    pendingTransferIds_.clear();
     message_ = "正在校验 desktop-agent API 2.0.0";
     send("agent.getInfo", {});
     emit changed();
@@ -125,7 +129,7 @@ void RpcClient::sendPostHandshake(QString method, QJsonObject params) {
     send(method, params);
 }
 
-QString RpcClient::sendRequest(QString method, QJsonObject params) {
+QString RpcClient::sendRequest(QString method, QJsonObject params, QString transferId) {
     if (!connected()) {
         message_ = "agent unavailable；请启动 agent 或检查 Unix socket";
         emit changed();
@@ -139,10 +143,12 @@ QString RpcClient::sendRequest(QString method, QJsonObject params) {
     const QString id = QString::number(++request_);
     pending_[id] = method;
     pendingDeadlines_[id] = nowMs() + 10000;
+    if (!transferId.isEmpty()) pendingTransferIds_[id] = transferId;
     const QJsonObject request{{"jsonrpc", "2.0"}, {"id", id}, {"method", method}, {"params", params}};
     if (socket_.write(QJsonDocument(request).toJson(QJsonDocument::Compact) + "\n") < 0) {
         pending_.remove(id);
         pendingDeadlines_.remove(id);
+        pendingTransferIds_.remove(id);
         message_ = "agent 请求写入失败；请重连后重试";
         emit changed();
         return {};
@@ -159,8 +165,15 @@ void RpcClient::checkPending() {
         if (pendingDeadlines_.value(id, now + 1) > now) continue;
         const QString method = pending_.take(id);
         pendingDeadlines_.remove(id);
+        const QString transferId = pendingTransferIds_.take(id);
         if (method == "transfer.create") {
             failCreate("agent 创建请求超时；未确认 transfer_id，未显示为成功任务；可以用相同表单重试", true);
+        } else if (method.startsWith("transfer.") && method != "transfer.get" && !transferId.isEmpty()) {
+            actionTransferId_ = transferId;
+            finishActionFailure("timeout", method + " 超时；agent 未确认结果，任务状态请刷新后核验");
+            stale_ = true;
+            detailStatus_ = "agent unavailable / 控制请求超时，请刷新或重连";
+            emit changed();
         } else {
             if (method == "transfer.subscribe" || method == "transfer.get" || method.endsWith(".list")) {
                 stale_ = true;
@@ -183,6 +196,26 @@ void RpcClient::failCreate(const QString& error, bool retryable) {
     }
     message_ = error;
     emit changed();
+}
+
+QString RpcClient::friendlyActionError(const QString& code, const QString& message) const {
+    const QString detail = message.isEmpty() ? code : message;
+    if (code == "unsupported" || code == "capability_mismatch")
+        return "agent 未提供或不支持该能力：" + detail + "；任务仍为 queued，请检查节点能力或重试";
+    if (code == "revision_conflict")
+        return "任务版本已变化：" + detail + "；请刷新后再启动";
+    if (code == "permission_denied" || code == "auth_failed" || code == "tls_identity_failed")
+        return "启动被认证/权限拒绝：" + detail + "；请检查节点配置和 TLS 凭据引用";
+    return detail;
+}
+
+void RpcClient::finishActionFailure(const QString& code, const QString& message) {
+    actionInFlight_ = false;
+    actionStatus_ = "操作失败";
+    actionError_ = friendlyActionError(code, message);
+    message_ = actionError_;
+    if (actionMethod_ == "transfer.start" && actionTransferId_ == lastCreatedTransferId_)
+        createStatus_ = "已创建，但启动失败";
 }
 
 void RpcClient::upsert(QJsonObject task) {
@@ -303,6 +336,7 @@ void RpcClient::read() {
         }
         const QString id = message.value("id").toString();
         const QString method = pending_.take(id);
+        const QString requestTransferId = pendingTransferIds_.take(id);
         pendingDeadlines_.remove(id);
         if (method.isEmpty()) continue;
         if (message.contains("error")) {
@@ -311,6 +345,14 @@ void RpcClient::read() {
             const QString code = data.value("code").toString();
             if (method == "transfer.create") {
                 failCreate("创建失败：" + (rpcError.value("message").toString().isEmpty() ? code : rpcError.value("message").toString()), true);
+            } else if (method.startsWith("transfer.") && method != "transfer.get" && !requestTransferId.isEmpty()) {
+                actionTransferId_ = requestTransferId;
+                finishActionFailure(code, rpcError.value("message").toString());
+                if (code == "revision_conflict") {
+                    stale_ = true;
+                    detailStatus_ = "任务已更新；当前详情已标记 stale，请刷新";
+                }
+                emit changed();
             } else {
                 if (method == "transfer.subscribe" || method == "transfer.get" || code == "revision_conflict") {
                     stale_ = true;
@@ -368,14 +410,32 @@ void RpcClient::read() {
             upsert(snapshot);
             sendPostHandshake("transfer.get", QJsonObject{{"transfer_id", transferId}});
             createInFlight_ = false;
-            createStatus_ = "已创建，正在读取任务快照";
+            createStatus_ = "已创建，正在启动";
             createError_.clear();
             currentCreateRequestId_.clear();
             lastCreateOperationId_.clear();
             lastCreateKey_.clear();
-            emit createSucceeded(transferId, snapshot.value("attempt").toObject().value("attempt_id").toString());
+            lastCreatedTransferId_ = transferId;
+            actionTransferId_ = transferId;
+            actionMethod_ = "transfer.start";
+            actionInFlight_ = true;
+            actionStatus_ = "正在启动任务";
+            actionError_.clear();
+            const QString startRequestId = sendRequest("transfer.start", QJsonObject{{"transfer_id", transferId}, {"operation_id", operation()}, {"expected_revision", revision}}, transferId);
+            if (startRequestId.isEmpty()) finishActionFailure("unavailable", "agent 启动请求未发出；请刷新后重试");
+            emit createSucceeded(transferId, snapshot.value("attempt").toObject().value("attempt_id").toString(), revision);
         } else if (kind == "transfer" || kind == "operation") {
-            upsert(result.value("snapshot").toObject());
+            const QJsonObject snapshot = result.value("snapshot").toObject();
+            upsert(snapshot);
+            if (method.startsWith("transfer.") && method != "transfer.get" && !requestTransferId.isEmpty()) {
+                actionTransferId_ = requestTransferId;
+                actionInFlight_ = false;
+                actionError_.clear();
+                const QString state = snapshot.value("state").toString();
+                actionStatus_ = method == "transfer.start" ? (state == "queued" ? "启动已接受，但仍在 agent 队列中" : "agent 已启动：" + state) : "agent 已接受操作：" + state;
+                if (method == "transfer.start" && requestTransferId == lastCreatedTransferId_)
+                    createStatus_ = state == "queued" ? "已创建，但 agent 仍排队" : "已创建，agent 已启动";
+            }
         } else if (kind == "profile_list") {
             profiles_ = result.value("profiles").toArray().toVariantList();
             if (!demoAdapter() && !profiles_.isEmpty())
@@ -464,10 +524,17 @@ void RpcClient::create(QString direction, QString local, QString remote, bool fa
         failCreate("agent unavailable 或 API 尚未协商完成；未提交任务", true);
         return;
     }
-    const QFileInfo info(local);
-    if (!info.isAbsolute() || !info.exists()) {
-        failCreate("本地文件/目录必须存在且使用绝对路径；未提交任务", false);
-        return;
+    if (!demoAdapter()) {
+        const QFileInfo info(local);
+        if (!info.isAbsolute() || !info.exists()) {
+            failCreate("本地文件/目录必须存在且使用绝对路径；未提交任务", false);
+            return;
+        }
+        const QVariantList modes = capabilities_.value("modes").toList();
+        if (modes.isEmpty() || !modes.contains("v2")) {
+            failCreate("所选节点未提供 V2 真实传输能力；未提交 queued 任务。请先完成能力协商或检查 agent/core 安装", false);
+            return;
+        }
     }
     QString node;
     QString root;
@@ -505,9 +572,22 @@ void RpcClient::action(QString method, QVariantMap task) {
         emit changed();
         return;
     }
-    QJsonObject params{{"transfer_id", task.value("transfer_id").toString()}, {"operation_id", operation()}, {"expected_revision", task.value("revision").toLongLong()}};
+    const QString transferId = task.value("transfer_id").toString();
+    QJsonObject params{{"transfer_id", transferId}, {"operation_id", operation()}, {"expected_revision", task.value("revision").toLongLong()}};
     if (method == "transfer.resume") params["checkpoint_id"] = task.value("recovery").toMap().value("checkpoint_id").toString();
-    sendPostHandshake(method, params);
+    actionTransferId_ = transferId;
+    actionMethod_ = method;
+    actionInFlight_ = true;
+    actionStatus_ = method == "transfer.start" ? "正在启动任务" : "正在提交操作";
+    actionError_.clear();
+    const QString requestId = sendRequest(method, params, transferId);
+    if (requestId.isEmpty()) finishActionFailure("unavailable", "agent 操作请求未发出；请刷新后重试");
+    emit changed();
+}
+
+void RpcClient::requestCapabilities(QString nodeId) {
+    if (nodeId.isEmpty()) return;
+    sendPostHandshake("node.capabilities", QJsonObject{{"node_id", nodeId}});
 }
 
 void RpcClient::removeTask(QString transferId, QString adapter) {

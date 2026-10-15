@@ -19,6 +19,7 @@ public:
     QLocalServer server;
     QLocalSocket* peer = nullptr;
     int createRequests = 0;
+    int startRequests = 0;
     bool delayCreate = true;
     QJsonObject task;
     QString delayedCreateId;
@@ -54,6 +55,11 @@ public:
                     task = QJsonObject{{"transfer_id", "transfer-test-1"}, {"revision", 0}, {"adapter", "demo"}, {"state", "queued"}, {"attempt", QJsonObject{{"attempt_id", "attempt-test-1"}}}};
                     if (!delayCreate) send(QJsonObject{{"kind", "transfer"}, {"snapshot", task}}, id);
                     else delayedCreateId = id;
+                } else if (method == "transfer.start") {
+                    ++startRequests;
+                    task["state"] = "scanning";
+                    task["revision"] = 1;
+                    send(QJsonObject{{"kind", "operation"}, {"outcome", "accepted"}, {"snapshot", task}}, id);
                 } else if (method == "transfer.get") {
                     send(QJsonObject{{"kind", "transfer"}, {"snapshot", task}}, id);
                 }
@@ -94,6 +100,9 @@ void RpcClientIntegrationTest::create_is_idempotent_and_local_hide_survives_refr
     QVERIFY(client.createInFlight());
     agent.finishCreate();
     QTRY_VERIFY_WITH_TIMEOUT(!client.createInFlight(), 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(agent.startRequests, 1, 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(!client.actionInFlight(), 3000);
+    QCOMPARE(client.actionStatus(), QString("agent 已启动：scanning"));
     QCOMPARE(client.tasks().size(), 1);
     QCOMPARE(client.tasks().first().toMap().value("transfer_id").toString(), QString("transfer-test-1"));
 
