@@ -342,12 +342,14 @@ void RpcClient::read() {
             send("profile.list", {});
             if (demoAdapter()) send("node.capabilities", QJsonObject{{"node_id", "demo"}});
         } else if (kind == "subscription") {
-            if (result.value("agent_epoch").toString() != epoch_) {
+            const QString subscriptionEpoch = result.value("agent_epoch").toString();
+            if (!epoch_.isEmpty() && subscriptionEpoch != epoch_) {
                 stale_ = true;
                 message_ = "agent epoch 已变化，请重新同步";
                 refresh();
                 continue;
             }
+            if (epoch_.isEmpty()) epoch_ = subscriptionEpoch;
             sequence_ = result.value("sequence").toInteger();
             if (result.value("reset").toBool()) {
                 tasks_.clear();
