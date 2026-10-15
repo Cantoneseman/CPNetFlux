@@ -76,6 +76,16 @@ class AgentTests(unittest.TestCase):
             if s["state"] in ["completed", "failed", "cancelled", "recoverable"]: return s
             time.sleep(.02)
         self.fail("demo did not reach terminal state")
+    def test_create_operation_id_is_idempotent(self):
+        params = json.loads(json.dumps(CREATE))
+        params["operation_id"] = "same-create-operation"
+        first = self.p.call("transfer.create", params)["result"]["snapshot"]
+        second = self.p.call("transfer.create", params)["result"]["snapshot"]
+        self.assertEqual(second["transfer_id"], first["transfer_id"])
+        mismatch = json.loads(json.dumps(params))
+        mismatch["destination"]["path"] = "different"
+        self.assertEqual(self.p.call("transfer.create", mismatch)["error"]["data"]["code"], "invalid_state")
+
     def test_schema_permissions_and_bad_frames(self):
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.runtime.stat().st_mode & 0o777, 0o700)

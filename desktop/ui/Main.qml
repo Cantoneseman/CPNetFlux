@@ -15,6 +15,7 @@ ApplicationWindow {
     property string selectedId: ""
     property string selectedProfileId: ""
     property bool pickerDirectory: false
+    property var pendingRemoveTask: null
     function pickPath(directory) { pickerDirectory=directory; pathPicker.active=true; if(pathPicker.status===Loader.Ready){ pathPicker.item.directoryMode=directory; pathPicker.item.open() } }
     property var selectedTask: {
         for (var i=0;i<rpc.tasks.length;i++) if(rpc.tasks[i].transfer_id === selectedId) return rpc.tasks[i]
@@ -35,7 +36,38 @@ ApplicationWindow {
         rootPath.text=p.default_root_id || "home"; ca.text=p.ca_path; serverName.text=p.server_name
         credentialRef.text=p.credential_ref || ""; auth.currentIndex=p.auth_mode==="admin_credential"?1:0
     }
-    Connections { target: rpc; function onPageRequested(p) { window.page=p } }
+    Connections {
+        target: rpc
+        function onPageRequested(p) { window.page=p }
+        function onCreateSucceeded(transferId, attemptId) {
+            window.selectedId = transferId
+            window.page = 2
+            rpc.loadDetails(transferId, attemptId)
+        }
+    }
+
+    Dialog {
+        id: removeDialog
+        modal: true
+        title: "从本机任务列表隐藏"
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        property var task: null
+        width: 460
+        contentItem: ColumnLayout {
+            spacing: 10
+            Label { Layout.fillWidth: true; wrapMode: Text.WordWrap
+                text: removeDialog.task ? "将隐藏任务 “" + removeDialog.task.transfer_id + "”。这不会删除远端文件、目录或 agent 任务。" : ""
+            }
+            Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; color: "#657389"
+                text: "隐藏后会在本机重启和 agent 刷新后继续保持；demo 与真实任务分别保存。"
+            }
+        }
+        onAccepted: {
+            if (task) rpc.removeTask(task.transfer_id, task.adapter || (rpc.demoAdapter ? "demo" : "real"))
+            task = null
+        }
+        onRejected: task = null
+    }
 
     component Card: Rectangle {
         color: "white"; radius: 12; border.color: "#e2e7f0"
@@ -87,13 +119,15 @@ ApplicationWindow {
                 Heading { text: window.pageTitles[window.page] }
                 Item { Layout.fillWidth:true }
                 Label { text: rpc.connected ? "● 本地 agent 已连接" : "● agent 离线 / 重连中"; color:rpc.connected?"#267a5a":"#a64b31" }
-                Button { text:"刷新"; enabled:rpc.connected; onClicked:rpc.refresh() }
+                Button { text:"刷新"; enabled:true; onClicked:rpc.refresh() }
+                Label { visible:rpc.removeStatus.length>0; text:rpc.removeStatus; color:rpc.removeInFlight?"#8a5a18":"#36734f"; elide:Text.ElideRight }
             }
             Rectangle {
                 Layout.fillWidth:true; implicitHeight:54; radius:8; color:rpc.demoAdapter?"#fff1d7":"#e4f3eb"
                 Label { anchors.fill:parent; anchors.margins:12; text:rpc.demoAdapter ? "开发诊断/合成数据：不会读取或传输用户文件。" : (rpc.connected && rpc.apiCompatible ? "真实传输模式：任务状态、进度、校验和错误均来自 agent。" : "真实传输模式不可用：等待 agent 连接和 API 协商。"); color:rpc.demoAdapter?"#76501e":"#245d42"; wrapMode:Text.WordWrap; verticalAlignment:Text.AlignVCenter }
             }
             Muted { Layout.fillWidth:true; text:rpc.message; maximumLineCount:2; elide:Text.ElideRight; visible:rpc.message.length>0 }
+            Muted { Layout.fillWidth:true; text:rpc.createError.length>0 ? rpc.createError : rpc.removeError; maximumLineCount:2; elide:Text.ElideRight; color:"#a64b31"; visible:text.length>0 }
             // The picker is loaded lazily so the client still starts with a clear
             // diagnostic when the distro has not installed qt6-qpa-plugins/dialogs.
             Loader { id:pathPicker; active:false; source:"qrc:/ui/PathPicker.qml"
@@ -109,7 +143,7 @@ ApplicationWindow {
                     ColumnLayout {
                         width:homeScroll.availableWidth; spacing:14
                         RowLayout {
-                            Button { text:"＋ 新建传输任务"; highlighted:true; enabled:rpc.apiCompatible; onClicked:window.page=1 }
+                            Button { text:"＋ 新建传输任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.createInFlight; onClicked:window.page=1 }
                             Label { text:rpc.tasks.length+" 项任务"; color:"#657389" }
                         }
                         Card {
@@ -117,7 +151,7 @@ ApplicationWindow {
                             ColumnLayout { anchors.fill:parent; anchors.margins:20; spacing:12
                                 Heading { text:"还没有传输任务" }
                                 Muted { Layout.fillWidth:true; text:rpc.demoAdapter ? "开发诊断/合成数据不会访问本地目录或远端节点。" : "选择新建任务并填写两端路径。提交后可在此查看服务端返回的进度、结果和错误。" }
-                                Button { text:rpc.demoAdapter ? "创建本地示例任务" : "新建传输任务"; enabled:rpc.connected && rpc.apiCompatible; highlighted:true; onClicked:rpc.demoAdapter ? rpc.demo() : window.page=1 }
+                                Button { text:rpc.demoAdapter ? "创建本地示例任务" : "新建传输任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.createInFlight; highlighted:true; onClicked:rpc.demoAdapter ? rpc.demo() : window.page=1 }
                             }
                         }
                         Repeater {
@@ -131,6 +165,7 @@ ApplicationWindow {
                                         Item { Layout.fillWidth:true }
                                         Label { text:rpc.demoAdapter?"开发诊断":"真实 agent 任务"; color:rpc.demoAdapter?"#8a5a18":"#36734f" }
                                         Button { text:"查看详情"; onClicked:window.selectTask(modelData) }
+                                        Button { text:"从列表隐藏"; enabled:!rpc.removeInFlight; onClicked:{ removeDialog.task=modelData; removeDialog.open() } }
                                     }
                                     Muted { Layout.fillWidth:true; text:modelData.source.path+" → "+modelData.destination.path; elide:Text.ElideMiddle; maximumLineCount:1 }
                                     ProgressBar { Layout.fillWidth:true; value:window.fraction(modelData.metrics.bytes_committed,modelData.metrics.bytes_total); indeterminate:modelData.metrics.bytes_total===null && !window.terminal(modelData.state) }
@@ -173,8 +208,9 @@ ApplicationWindow {
                                     Label { text:rpc.demoAdapter ? "开发诊断/合成数据" : (rpc.capabilities.modes ? "已从 agent 读取" : "未知/未提供"); color:"#657389"; Layout.fillWidth:true }
                                 }
                                 Muted { Layout.fillWidth:true; text:rpc.demoAdapter ? "开发诊断入口；不会读取本地路径。" : "默认要求 CA/TLS 与凭据引用。agent 会在创建前检查路径、权限、认证和后端能力；缺失字段显示未知。" }
-                                Button { objectName:"createButton"; text:"创建传输任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && (rpc.demoAdapter || rpc.profiles.length>0)
-                                    onClicked:{ rpc.create(direction.currentIndex===0?"upload":"download",localPath.text,remotePath.text,false,rpc.demoAdapter?["auto","v1","v2"][mode.currentIndex]:"v2",window.selectedProfileId); window.page=0 }
+                                Label { visible:rpc.createInFlight || rpc.createStatus.length>0; Layout.fillWidth:true; text:rpc.createStatus; color:rpc.createInFlight?"#8a5a18":"#36734f"; wrapMode:Text.WordWrap }
+                                Button { objectName:"createButton"; text:rpc.createInFlight ? "正在创建…" : "创建传输任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.createInFlight && (rpc.demoAdapter || rpc.profiles.length>0)
+                                    onClicked: rpc.create(direction.currentIndex===0?"upload":"download",localPath.text,remotePath.text,false,rpc.demoAdapter?["auto","v1","v2"][mode.currentIndex]:"v2",window.selectedProfileId)
                                 }
                             }
                         }
@@ -190,7 +226,12 @@ ApplicationWindow {
                                 Muted { Layout.fillWidth:true; text:window.selectedTask ? (window.selectedTask.direction==="upload"?"上传":"下载")+" · "+window.selectedTask.source.path+" → "+window.selectedTask.destination.path : "" }
                                 Label { text:window.selectedTask?"请求引擎 "+window.selectedTask.policy.requested_mode+" / 实际引擎 "+window.selectedTask.actual_mode:""; color:"#274970" }
                                 Label { visible:!!window.selectedTask; text:"详情状态："+rpc.detailStatus+" · "+(rpc.stale?"stale / 待重连":"当前 agent epoch")+" · "+rpc.detailWatermark; color:rpc.stale?"#a64b31":"#657389"; elide:Text.ElideRight }
-                                RowLayout { visible:!!window.selectedTask; Button { text:"加载 attempt / file 分页"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) } Button { text:"继续加载 file"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() } Button { text:"加载 range"; enabled:rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() } }
+                                RowLayout { visible:!!window.selectedTask
+                                    Button { text:"加载 attempt / file 分页"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) }
+                                    Button { text:"继续加载 file"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() }
+                                    Button { text:"加载 range"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() }
+                                    Button { text:"从列表隐藏"; enabled:!rpc.removeInFlight; onClicked:{ removeDialog.task=window.selectedTask; removeDialog.open() } }
+                                }
                                 Label { visible:!!window.selectedTask; text:"attempt "+rpc.attempts.length+" · file "+rpc.files.length+" · range "+rpc.ranges.length+"（未知字段保持未知）"; color:"#657389" }
                                 Muted { Layout.fillWidth:true; text:window.selectedTask?"调度请求 "+window.selectedTask.policy.scheduler+" / 实际 "+window.selectedTask.actual_scheduler+"；range策略 "+window.selectedTask.actual_range_policy:"" }
                                 Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#a56b20"; text:window.selectedTask && window.selectedTask.fallback_reason ? "回退原因："+window.selectedTask.fallback_reason.message : "回退原因：尚无 / 未协商" }
@@ -205,10 +246,10 @@ ApplicationWindow {
                                 Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#b34236"; text:window.selectedTask && window.selectedTask.error ? window.selectedTask.error.message : ""; visible:text.length>0 }
                                 Muted { text:window.selectedTask?"恢复资格："+({unknown:"未知",eligible:"可恢复（当前服务）",ineligible:"不可恢复"})[window.selectedTask.recovery.eligibility]+" · attempt "+window.selectedTask.attempt.attempt_number:"" }
                                 RowLayout {
-                                    Button { objectName:"startButton"; text:"开始任务"; highlighted:true; enabled:rpc.connected && window.selectedTask && window.selectedTask.state==="queued"; onClicked:rpc.action("transfer.start",window.selectedTask) }
-                                    Button { text:"取消任务"; enabled:rpc.connected && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.cancel",window.selectedTask) }
+                                    Button { objectName:"startButton"; text:"开始任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && window.selectedTask && window.selectedTask.state==="queued"; onClicked:rpc.action("transfer.start",window.selectedTask) }
+                                    Button { text:"取消任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.cancel",window.selectedTask) }
                                     Button { text:"暂停 · 后端未提供"; enabled:false && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.pause",window.selectedTask) }
-                                    Button { text:"恢复任务"; enabled:rpc.connected && !!rpc.capabilities.resume_supported && window.selectedTask && window.selectedTask.recovery.eligibility==="eligible" && window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.resume",window.selectedTask) }
+                                    Button { text:"恢复任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !!rpc.capabilities.resume_supported && window.selectedTask && window.selectedTask.recovery.eligibility==="eligible" && window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.resume",window.selectedTask) }
                                 }
                             }
                         }
@@ -268,6 +309,7 @@ ApplicationWindow {
                                     }
                                     Label { text:modelData.recovery.eligibility==="eligible"?"可恢复":"不可恢复"; color:"#657389" }
                                     Button { text:"查看"; onClicked:window.selectTask(modelData) }
+                                    Button { text:"从列表隐藏"; enabled:!rpc.removeInFlight; onClicked:{ removeDialog.task=modelData; removeDialog.open() } }
                                 }
                             }
                         }
