@@ -53,6 +53,16 @@ print(sum(p.stat().st_size for p in Path(sys.argv[1]).rglob("*") if p.is_file())
 PY
 }
 
+assert_same_size() {
+  local expected="$1" actual="$2" expected_bytes actual_bytes
+  expected_bytes=$(bytes_in "$expected")
+  actual_bytes=$(bytes_in "$actual")
+  if [[ "$expected_bytes" != "$actual_bytes" ]]; then
+    echo "size validation failed expected=$expected_bytes actual=$actual_bytes" >&2
+    exit 1
+  fi
+}
+
 run_cp() {
   local direction="$1" profile="$2" source="$3" destination="$4" case="$5"
   local summary="$WORK_DIR/${case}.json" start end bytes
@@ -132,6 +142,8 @@ for profile in single_256MiB tree_dense_128MiB tree_mixed_256MiB; do
     rm -rf "$WORK_DIR/download-${cp_case}-download" "$WORK_DIR/download-${grid_case}-download"
     run_cp download "$profile" "$WORK_DIR/download-${cp_case}-download" "demo/${cp_case}" "$cp_case-download"
     run_gridftp download "$profile" "$source" "demo/${grid_case}" "$grid_case-download"
+    assert_same_size "$source" "$WORK_DIR/download-${cp_case}-download"
+    assert_same_size "$source" "$WORK_DIR/download-${grid_case}-download"
     rm -rf "$source" "$WORK_DIR/download-${cp_case}-download" "$WORK_DIR/download-${grid_case}-download"
   done
 done
