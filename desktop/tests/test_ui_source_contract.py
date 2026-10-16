@@ -36,6 +36,8 @@ for marker in ["正在扫描目录", "等待远端准备", "阶段进度", "扫�
 assert "indeterminate:" not in QML
 assert "CPNetFlux V3（动态目录/大文件分段）" in QML
 assert "engineLabel" in QML and "engineDetail" in QML
+assert "目录浏览暂不可用" in QML
+assert "尚未检查" in QML
 assert "files_discovered" in QML
 assert "backend_evidence" in QML and "integrityText" in QML
 assert "phaseStatus" in QML and "stateSummary" in QML

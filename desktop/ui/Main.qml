@@ -398,7 +398,7 @@ ApplicationWindow {
                                     Button { text:"分步连接检查"; enabled:rpc.connected; onClicked:rpc.testNode(nodeId.text,rootPath.text) }
                                 }
                                 Repeater { model:[{key:"dns_control_port",name:"① DNS / 控制端口"},{key:"tls_identity",name:"② TLS服务端身份"},{key:"login",name:"③ 登录"},{key:"capabilities",name:"④ 能力协商"},{key:"directory_permission",name:"⑤ 目录读写授权"},{key:"data_port",name:"协商数据端口"}]
-                                    Label { required property var modelData; text:modelData.name+"："+(rpc.checks[modelData.key] ? rpc.checks[modelData.key].state+" · "+rpc.checks[modelData.key].message : "尚未检查 / 未提供"); color:"#657389" }
+                                    Label { required property var modelData; text:modelData.name+"："+(rpc.checks[modelData.key] ? rpc.checks[modelData.key].state+" · "+rpc.checks[modelData.key].message : "尚未检查"); color:"#657389" }
                                 }
                             }
                         }
@@ -409,13 +409,13 @@ ApplicationWindow {
                     Heading { text:"远端目录浏览" }
                     Muted { Layout.fillWidth:true; text:"远端目录浏览当前关闭；请直接填写远端相对目录，避免在未完成权限校验时误操作。" }
                     TextField { placeholderText:"root-relative 路径"; Layout.fillWidth:true; enabled:false }
-                    Button { text:"浏览 · 未接入"; enabled:false }
+                    Button { text:"目录浏览暂不可用"; enabled:false }
                     Item { Layout.fillHeight:true }
                 } }
                 // 5: history
                 ScrollView { id:historyScroll; clip:true; contentWidth:availableWidth
                     ColumnLayout { width:historyScroll.availableWidth; spacing:12
-                        Muted { Layout.fillWidth:true; text:"历史由 agent 持久保存。恢复按钮只在 agent 返回真实 checkpoint 时启用；未知字段保持未知。" }
+                        Muted { Layout.fillWidth:true; text:"历史由 agent 持久保存。恢复按钮只在 agent 返回真实 checkpoint 时启用；暂时无法确认的字段会标记为“暂无”，不会影响已完成任务查看。" }
                         Repeater { model:rpc.tasks
                             Card { required property var modelData; Layout.fillWidth:true; implicitHeight:95; visible:window.terminal(modelData.state)
                                 RowLayout { anchors.fill:parent; anchors.margins:18
@@ -437,7 +437,7 @@ ApplicationWindow {
                     Muted { Layout.fillWidth:true; text:"引擎和阶段以节点返回的实际证据为准；不支持的操作会隐藏并说明原因。" }
                     Label { text:"当前能力："+(rpc.demoAdapter?"开发诊断/合成数据":"真实 agent 返回的能力事实") }
                     Label { text:"checksum / resume / data TLS：以 agent capability 与任务 effective_policy 为准"; color:"#a46a1b" }
-                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"当前节点未返回可用的大文件分段证据；界面不会猜测或伪造进度。"; color:"#a46a1b" }
+                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"当前任务按文件调度；大文件分段会在节点协商成功后自动启用。"; color:"#a46a1b" }
                     ComboBox { model:["通道自动选择（请求）"]; enabled:false }
                     ComboBox { model:["range policy：当前任务按文件调度"]; enabled:false; Layout.fillWidth:true }
                     Muted { Layout.fillWidth:true; text:"速度、ETA和阶段耗时在产生观测后显示；暂停当前不支持，恢复按钮只在有真实恢复资格时启用。" }
