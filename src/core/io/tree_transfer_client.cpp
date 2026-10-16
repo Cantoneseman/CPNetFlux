@@ -3443,14 +3443,14 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     transferOptions.resume=options.resume;transferOptions.bufferSize=options.bufferSize;
     transferOptions.checksumBackend=options.checksumBackend;
     transferOptions.hotPathCompression=options.hotPathCompression;
-    std::unique_ptr<TreeProgressEmitter> progress;
-    if (upload) {
-        transferOptions.progressCallback = [stats](std::uint64_t bytes) {
-            stats->transferredBytes.fetch_add(bytes, std::memory_order_relaxed);
-        };
-        progress = std::make_unique<TreeProgressEmitter>(options, "upload", stats);
-    }
-    auto transactions = makePersistentTransferContext();
+    transferOptions.progressCallback = [stats](std::uint64_t bytes) {
+        stats->transferredBytes.fetch_add(bytes, std::memory_order_relaxed);
+    };
+    std::unique_ptr<TreeProgressEmitter> progress = std::make_unique<TreeProgressEmitter>(
+        options, upload ? "upload" : "download", stats);
+    core::io::PersistentTransferPolicy transferPolicy;
+    transferPolicy.options.progressCallback = transferOptions.progressCallback;
+    auto transactions = makePersistentTransferContext(transferPolicy);
     workers.clear();
     for (std::uint32_t index = 0; index < channelCount; ++index) {
         workers.emplace_back([&, index]() {

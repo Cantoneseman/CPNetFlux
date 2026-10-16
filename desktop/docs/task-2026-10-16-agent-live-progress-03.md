@@ -36,7 +36,7 @@
 
 ## 追加修复：核心进度与产品引擎显示
 
-- 持久目录上传核心通过可选 progress callback 将成功写入的逻辑字节增量汇总到 TreeRunStats；TreeProgressEmitter 每 250ms 写入 tree_progress 事件，agent 读取并计算速度/ETA。
+- 持久目录上传/下载核心通过可选 progress callback 将成功写入的逻辑字节增量汇总到 TreeRunStats；TreeProgressEmitter 每 250ms 写入 tree_progress 事件，agent 读取并计算速度/ETA。
 - 桌面端将实际 dynamic_ring/range_stripe 调度显示为“CPNetFlux V3”，V2 仅作为协议兼容数据面说明；技术字段移入可展开区域，逐文件分页未接入时不再显示“agent 未提供”作为用户主状态。
 - 新增允许路径：include/cpnetflux/config/file_transfer_options.h、src/core/io/persistent_tree_transfer.cpp、desktop/ui/Main.qml、desktop/agent/cpnetflux_agent.py、desktop/tests/test_ui_source_contract.py。
 
