@@ -28,6 +28,24 @@ ApplicationWindow {
     function bytes(v) { return known(v) ? (Number(v)/1048576).toFixed(2)+" MiB" : "暂无" }
     function rate(v) { return known(v) ? (Number(v)/1048576).toFixed(2)+" MiB/s" : "等待首个进度事件" }
     function eta(v) { return known(v) ? (Number(v) < 60 ? Number(v).toFixed(1)+" 秒" : (Number(v)/60).toFixed(1)+" 分钟") : "计算中" }
+    function engineLabel(t) {
+        if (!t) return "等待引擎协商"
+        if (t.adapter === "demo") return "演示流程（不传输真实文件）"
+        if (t.actual_scheduler === "dynamic_ring" || t.actual_range_policy === "range_stripe")
+            return "CPNetFlux V3（动态目录 / 大文件分段）"
+        if (t.actual_mode === "v2") return "CPNetFlux V2 兼容传输"
+        if (t.actual_mode === "v1") return "兼容回退路径"
+        return "等待后端确认"
+    }
+    function engineDetail(t) {
+        if (!t) return "尚未创建任务"
+        if (t.adapter === "demo") return "演示数据只用于展示流程，不代表真实传输"
+        if (t.actual_scheduler === "dynamic_ring")
+            return "V3 动态队列已启用；文件按空闲通道领取，避免固定通道绑定"
+        if (t.actual_mode === "v2") return "V2 兼容数据面已启用；当前节点未返回 V3 调度证据"
+        if (t.actual_mode === "v1") return "兼容回退路径；请检查节点能力和安全策略"
+        return "等待后端返回实际协商结果"
+    }
     function metric(t, key) { return t && t.metrics ? t.metrics[key] : null }
     function stateName(s) {
         return ({queued:"已创建，等待启动", scanning:"正在扫描目录", connecting:"正在连接远端", negotiating:"正在协商传输", transferring:"正在传输", committing:"正在校验并提交", completed:"传输已完成", failed:"传输失败", cancelled:"已取消", recoverable:"可恢复", paused:"已暂停"})[s] || "等待状态"
@@ -266,8 +284,8 @@ ApplicationWindow {
                                     }
                                     Label { text:"远端相对目录" }
                                     TextField { id:remotePath; text:"dataset"; Layout.fillWidth:true }
-                                    Label { text:"请求引擎" }
-                                    ComboBox { id:mode; model:rpc.demoAdapter ? ["自动选择","V1（合成）","V2（合成回退）"] : ["V2 目录传输"]; enabled:rpc.demoAdapter; Layout.fillWidth:true }
+                                    Label { text:"传输引擎" }
+                                    ComboBox { id:mode; model:rpc.demoAdapter ? ["自动选择","V1（合成）","V2（合成回退）"] : ["CPNetFlux V3（动态目录/大文件分段）"]; enabled:rpc.demoAdapter; Layout.fillWidth:true }
                                     Label { text:"后端能力" }
                                     Label { text:rpc.demoAdapter ? "开发诊断/合成数据" : (rpc.capabilities.modes ? "已从 agent 读取" : "等待读取"); color:"#657389"; Layout.fillWidth:true }
                                 }
@@ -335,19 +353,19 @@ ApplicationWindow {
                                 Button { visible:!!window.selectedTask; text:detailCard.technicalExpanded?"收起技术详情":"展开技术详情"; onClicked:detailCard.technicalExpanded=!detailCard.technicalExpanded }
                                 ColumnLayout { visible:detailCard.technicalExpanded; Layout.fillWidth:true; spacing:7
                                     Rectangle { Layout.fillWidth:true; height:1; color:"#e2e7f0" }
-                                    Label { text:"技术详情（原样保留 agent 返回值）"; font.bold:true; color:"#274970" }
+                                    Label { text:"技术详情（用于排查，不影响正常使用）"; font.bold:true; color:"#274970" }
                                     RowLayout { Layout.fillWidth:true
-                                        Button { text:"加载 attempt / file 分页"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) }
-                                        Button { text:"继续加载 file"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() }
-                                        Button { text:"加载 range"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() }
+                                        Button { text:"加载任务尝试记录"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) }
+                                        Button { visible:rpc.demoAdapter; text:"加载演示文件"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() }
+                                        Button { visible:rpc.demoAdapter; text:"加载演示分段"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() }
                                     }
                                     Label { Layout.fillWidth:true; text:"attempt："+(rpc.attempts.length>0?rpc.attempts.length:"暂无")+" · file："+(rpc.files.length>0?rpc.files.length:"暂无")+" · range："+(rpc.ranges.length>0?rpc.ranges.length:"暂无"); color:"#657389" }
-                                    Muted { Layout.fillWidth:true; text:window.selectedTask ? "请求引擎："+window.value(window.selectedTask.policy ? window.selectedTask.policy.requested_mode : null)+" · 实际引擎："+window.value(window.selectedTask.actual_mode)+" · 调度请求："+window.value(window.selectedTask.policy ? window.selectedTask.policy.scheduler : null)+" · 实际调度："+window.value(window.selectedTask.actual_scheduler)+" · range 策略："+window.value(window.selectedTask.actual_range_policy) : "" }
+                                    Muted { Layout.fillWidth:true; text:window.selectedTask ? "传输引擎："+window.engineLabel(window.selectedTask)+" · "+window.engineDetail(window.selectedTask) : "" }
                                     Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#a56b20"; text:window.selectedTask && window.selectedTask.fallback_reason ? "回退原因："+window.selectedTask.fallback_reason.message : "回退原因：暂无（尚未发生回退）" }
                                     Muted { Layout.fillWidth:true; text:window.selectedTask ? "通道："+window.value(window.metric(window.selectedTask,"channel_count_active"))+" · 数据连接："+window.value(window.metric(window.selectedTask,"data_connections"))+" · 队列："+window.value(window.metric(window.selectedTask,"queue_depth_current")) : "" }
                                     Muted { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:window.selectedTask && window.selectedTask.backend_evidence && window.selectedTask.backend_evidence.phase_timing ? "阶段耗时：control_prepare "+window.seconds(window.selectedTask.backend_evidence.phase_timing.control_prepare)+" · data_connect "+window.seconds(window.selectedTask.backend_evidence.phase_timing.data_connect)+" · first_payload "+window.seconds(window.selectedTask.backend_evidence.phase_timing.first_payload)+" · payload_io "+window.seconds(window.selectedTask.backend_evidence.phase_timing.payload_io)+" · transfer_complete_wait "+window.seconds(window.selectedTask.backend_evidence.phase_timing.transfer_complete_wait) : "阶段耗时：任务完成后显示" }
                                     Muted { Layout.fillWidth:true; text:"恢复资格："+(window.selectedTask && window.selectedTask.recovery ? window.value(window.selectedTask.recovery.eligibility) : "暂无")+" · attempt："+(window.selectedTask && window.selectedTask.attempt ? window.value(window.selectedTask.attempt.attempt_number) : "暂无") }
-                                    Muted { Layout.fillWidth:true; text:"详情状态："+rpc.detailStatus+" · "+(rpc.stale?"连接已断开，等待重连":"当前 agent epoch")+" · watermark："+window.value(rpc.detailWatermark) }
+                                    Muted { Layout.fillWidth:true; text:"详情状态："+rpc.detailStatus+" · "+(rpc.stale?"连接已断开，等待重连":"实时连接正常")+" · watermark："+window.value(rpc.detailWatermark) }
                                 }
                             }
                         }
@@ -389,7 +407,7 @@ ApplicationWindow {
                 // 4: directory
                 Card { ColumnLayout { anchors.fill:parent; anchors.margins:24
                     Heading { text:"远端目录浏览" }
-                    Muted { Layout.fillWidth:true; text:"目录浏览仅在 agent 提供真实 directory.list 能力后启用；当前未提供时保持禁用。" }
+                    Muted { Layout.fillWidth:true; text:"远端目录浏览当前关闭；请直接填写远端相对目录，避免在未完成权限校验时误操作。" }
                     TextField { placeholderText:"root-relative 路径"; Layout.fillWidth:true; enabled:false }
                     Button { text:"浏览 · 未接入"; enabled:false }
                     Item { Layout.fillHeight:true }
@@ -416,10 +434,10 @@ ApplicationWindow {
                 // 6: advanced
                 Card { ColumnLayout { anchors.fill:parent; anchors.margins:24; spacing:16
                     Heading { text:"引擎与调度能力" }
-                    Muted { Layout.fillWidth:true; text:"能力和阶段均来自 agent/backend evidence；尚未启用的 V3/range 操作保持禁用。" }
+                    Muted { Layout.fillWidth:true; text:"引擎和阶段以节点返回的实际证据为准；不支持的操作会隐藏并说明原因。" }
                     Label { text:"当前能力："+(rpc.demoAdapter?"开发诊断/合成数据":"真实 agent 返回的能力事实") }
                     Label { text:"checksum / resume / data TLS：以 agent capability 与任务 effective_policy 为准"; color:"#a46a1b" }
-                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"未提供的 V3/range 能力保持禁用，不在 UI 内推算进度。"; color:"#a46a1b" }
+                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"当前节点未返回可用的大文件分段证据；界面不会猜测或伪造进度。"; color:"#a46a1b" }
                     ComboBox { model:["通道自动选择（请求）"]; enabled:false }
                     ComboBox { model:["range policy：当前任务按文件调度"]; enabled:false; Layout.fillWidth:true }
                     Muted { Layout.fillWidth:true; text:"速度、ETA和阶段耗时在产生观测后显示；暂停当前不支持，恢复按钮只在有真实恢复资格时启用。" }

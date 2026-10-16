@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 #include "cpnetflux/checksum/checksum.h"
@@ -46,6 +47,9 @@ struct FileTransferOptions {
     core::io::TlsConfig dataTls;
     core::io::DataTlsMode dataTlsMode = core::io::DataTlsMode::Off;
     core::io::TransferRuntimeMetrics* runtimeMetrics = nullptr;
+    // Called with logical bytes successfully written by a persistent upload.
+    // The callback is optional and must be safe for concurrent channel workers.
+    std::function<void(std::uint64_t)> progressCallback;
     core::io::HotPathCompressionOptions hotPathCompression;
     std::string eventLogPath;
     bool overwrite = false;

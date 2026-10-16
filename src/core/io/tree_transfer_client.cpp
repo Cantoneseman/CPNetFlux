@@ -1188,6 +1188,48 @@ void emitTreeEvent(const config::TreeTransferOptions& options, const char* event
                                    bytes});
 }
 
+class TreeProgressEmitter {
+public:
+    TreeProgressEmitter(const config::TreeTransferOptions& options, const char* direction,
+                        const TreeRunStats* stats)
+        : options_(options), direction_(direction), stats_(stats), path_(
+              std::string(direction) == "upload" ? options.sourceDir : options.destDir) {
+        worker_ = std::thread([this] {
+            std::uint64_t last = 0;
+            while (!stop_.load(std::memory_order_acquire)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                if (stop_.load(std::memory_order_acquire)) {
+                    break;
+                }
+                const std::uint64_t current = stats_->transferredBytes.load(std::memory_order_relaxed);
+                if (current == last) {
+                    continue;
+                }
+                emitTreeEvent(options_, "tree_progress", direction_, path_, common::Status::ok(), current);
+                last = current;
+            }
+        });
+    }
+
+    ~TreeProgressEmitter() {
+        stop_.store(true, std::memory_order_release);
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+    }
+
+    TreeProgressEmitter(const TreeProgressEmitter&) = delete;
+    TreeProgressEmitter& operator=(const TreeProgressEmitter&) = delete;
+
+private:
+    const config::TreeTransferOptions& options_;
+    const char* direction_;
+    const TreeRunStats* stats_;
+    std::string path_;
+    std::atomic<bool> stop_{false};
+    std::thread worker_;
+};
+
 common::Status writeTreeJsonSummary(const char* direction, const char* result,
                                     const config::TreeTransferOptions& options,
                                     const core::tree::TreeManifest& manifest,
@@ -3401,6 +3443,13 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     transferOptions.resume=options.resume;transferOptions.bufferSize=options.bufferSize;
     transferOptions.checksumBackend=options.checksumBackend;
     transferOptions.hotPathCompression=options.hotPathCompression;
+    std::unique_ptr<TreeProgressEmitter> progress;
+    if (upload) {
+        transferOptions.progressCallback = [stats](std::uint64_t bytes) {
+            stats->transferredBytes.fetch_add(bytes, std::memory_order_relaxed);
+        };
+        progress = std::make_unique<TreeProgressEmitter>(options, "upload", stats);
+    }
     auto transactions = makePersistentTransferContext();
     workers.clear();
     for (std::uint32_t index = 0; index < channelCount; ++index) {
@@ -3865,6 +3914,7 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
 
     TreeRunStats stats;
     stats.perFileStarted = true;
+    TreeProgressEmitter progress(options, "upload", &stats);
     const common::Status status =
         useControlPipeline
             ? runPipelinedTreeScheduler(&manifest, manifestPath, options, true, &stats)
@@ -3966,6 +4016,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
                                manifest, stats, startedAt);
     }
 
+    TreeProgressEmitter progress(options, "download", &stats);
     const common::Status status =
         useControlPipeline
             ? runPipelinedTreeScheduler(&manifest, manifestPath, options, false, &stats)

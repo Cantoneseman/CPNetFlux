@@ -371,7 +371,7 @@ class Agent:
             if method == "attempt.list":
                 return self.page("attempt_list",t,p,self.attempts_for(t["transfer_id"]),query,{"attempt_id":None})
             if not self.args.demo:
-                raise RpcError("unsupported", "真实 manifest 文件实体分页尚未由 agent adapter 提供；任务级摘要和阶段证据可用")
+                raise RpcError("unsupported", "逐文件明细当前未接入；任务级摘要、阶段进度和完整性结果可用")
             if method == "file.list":
                 return self.page("file_list",t,p,self.demo_files(t,attempt_id),query)
             return self.page("range_list",t,p,self.demo_ranges(t,attempt_id,p["file_id"],p["generation"]),query,{"file_id":p["file_id"],"generation":p["generation"]})

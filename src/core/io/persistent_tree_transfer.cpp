@@ -809,6 +809,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 if (status.isOk() && !timing.firstPayloadSeconds) timing.firstPayloadSeconds=secondsSince(fileStarted);
                 if (!status.isOk()) {writeFailed=true;break;}
                 offset+=length;payloadSent+=length;stats->payloadBytes+=length;
+                if (transferOptions && transferOptions->progressCallback) transferOptions->progressCallback(length);
                 addWire(protocol::kFrameHeaderSize+wireLength);
             }
             if (writeFailed) break;
@@ -1037,6 +1038,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                                                                        logical)
                                          : transaction->write(data.value().header.offset, logical);
                 stats->payloadBytes += logical.size();
+                if (context->policy.options.progressCallback) context->policy.options.progressCallback(logical.size());
                 if (context->policy.options.maxChunks &&
                     stats->payloadBytes >= context->policy.options.maxChunks*id.chunkSize)
                     return Status::runtimeError("transfer interrupted by max-chunks");
