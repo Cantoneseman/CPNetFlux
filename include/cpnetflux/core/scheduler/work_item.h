@@ -28,6 +28,7 @@ struct CompressionDecision {
     std::uint64_t sampleCompressedBytes = 0;
 };
 
+// Scheduling projection only. Bind a full V3 identity before acquiring an execution lease.
 struct WorkItem {
     std::string taskId;
     std::string fileId;

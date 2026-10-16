@@ -349,7 +349,7 @@ common::Result<std::vector<std::uint8_t>> encodeFileBeginMetadata(
     }
 
     const bool hasRange = payload.rangeId != 0 || payload.rangeOffset != 0 ||
-        payload.rangeLength != 0 || payload.rangeCount != 0 || payload.attempt != 0;
+        payload.rangeLength != 0 || payload.rangeCount != 0;
     if (!hasRange && (payload.rangeOffset != 0 || payload.rangeLength != 0 || payload.rangeCount != 0)) {
         return common::Status::invalidArgument("range metadata is incomplete");
     }
@@ -358,10 +358,12 @@ common::Result<std::vector<std::uint8_t>> encodeFileBeginMetadata(
                      payload.rangeLength > payload.totalSize - payload.rangeOffset)) {
         return common::Status::invalidArgument("invalid range metadata");
     }
+    // The existing extension carries attempt for both whole-file and range leases.
+    const bool hasIdentityExtension = hasRange || payload.attempt != 0;
     std::vector<std::uint8_t> encoded;
     encoded.reserve(24 + payload.transferId.size() +
-                    ((payload.sourcePath.empty() && !hasRange) ? 0 :
-                     4 + payload.sourcePath.size() + (hasRange ? 40 : 0)));
+                    ((payload.sourcePath.empty() && !hasIdentityExtension) ? 0 :
+                     4 + payload.sourcePath.size() + (hasIdentityExtension ? 40 : 0)));
     appendU16(encoded, static_cast<std::uint16_t>(payload.mode));
     appendU16(encoded, static_cast<std::uint16_t>(payload.transferId.size()));
     appendU16(encoded, static_cast<std::uint16_t>(payload.checksumAlgorithm));
@@ -369,11 +371,11 @@ common::Result<std::vector<std::uint8_t>> encodeFileBeginMetadata(
     appendU64(encoded, payload.totalSize);
     appendU64(encoded, payload.chunkSize);
     encoded.insert(encoded.end(), payload.transferId.begin(), payload.transferId.end());
-    if (!payload.sourcePath.empty() || hasRange) {
+    if (!payload.sourcePath.empty() || hasIdentityExtension) {
         appendU16(encoded, static_cast<std::uint16_t>(payload.sourcePath.size()));
-        appendU16(encoded, hasRange ? 1U : 0U);
+        appendU16(encoded, hasIdentityExtension ? 1U : 0U);
         encoded.insert(encoded.end(), payload.sourcePath.begin(), payload.sourcePath.end());
-        if (hasRange) {
+        if (hasIdentityExtension) {
             appendU64(encoded, payload.rangeId);
             appendU64(encoded, payload.rangeOffset);
             appendU64(encoded, payload.rangeLength);
@@ -442,7 +444,7 @@ common::Result<FileBeginMetadata> decodeFileBeginMetadata(const std::uint8_t* da
         return common::Status::invalidArgument("chunk_size must be greater than zero");
     }
     const bool hasRange = payload.rangeId != 0 || payload.rangeOffset != 0 ||
-        payload.rangeLength != 0 || payload.rangeCount != 0 || payload.attempt != 0;
+        payload.rangeLength != 0 || payload.rangeCount != 0;
     if (hasRange && (payload.rangeId == 0 || payload.rangeLength == 0 || payload.rangeCount == 0 ||
                      payload.rangeId > payload.rangeCount || payload.rangeOffset > payload.totalSize ||
                      payload.rangeLength > payload.totalSize - payload.rangeOffset)) {

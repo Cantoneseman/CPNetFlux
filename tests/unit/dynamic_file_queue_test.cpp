@@ -6,6 +6,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <poll.h>
+#include <netinet/in.h>
+#include <cerrno>
+#include "cpnetflux/core/scheduler/work_item.h"
 using namespace cpnetflux::core::io;
 using cpnetflux::common::Status;
 namespace {
@@ -202,4 +205,297 @@ TEST(PersistentDirectoryBatchTest, OneFileRangesHaveIndependentChannelLeases) {
     std::jthread worker([&] {left=batch.finish(0,std::chrono::seconds(1));});
     EXPECT_TRUE(batch.finish(1,std::chrono::seconds(1)).isOk()); worker.join();
     EXPECT_TRUE(left.isOk());
+}
+
+
+// The same executor contract applies to all three input shapes.
+namespace {
+enum class WorkShape { SingleFile, DirectoryFile, DirectoryRange };
+class WorkLeaseContractTest : public ::testing::TestWithParam<WorkShape> {
+ protected:
+    std::vector<PersistentFileIdentity> input() const {
+        auto file = tasks(1).front();
+        file.totalSize = 8;
+        if (GetParam() != WorkShape::SingleFile) file.relativePath = "nested/file.bin";
+        if (GetParam() != WorkShape::DirectoryRange) return {file};
+        file.rangeId = 1; file.rangeLength = 4; file.rangeCount = 2;
+        auto second = file; second.rangeId = 2; second.rangeOffset = 4;
+        return {file, second};
+    }
+    const WorkClock::time_point now = WorkClock::time_point(std::chrono::seconds(100));
+    const std::chrono::milliseconds ttl{100};
+};
+}
+TEST_P(WorkLeaseContractTest, LeaseBindsWorkOwnerEpochAndDeadline) {
+    DynamicFileQueue queue(input(), 2, 1, 2);
+    auto owner = queue.worker(0); ASSERT_TRUE(owner.isOk());
+    auto next = queue.claim(owner.value(), now, ttl);
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    const auto& lease = *next.value();
+    EXPECT_GT(lease.leaseId, 0U);
+    EXPECT_EQ(lease.taskId, lease.file.transferId);
+    EXPECT_EQ(lease.owner.workerId, 0U);
+    EXPECT_EQ(lease.owner.linkId, "link0");
+    EXPECT_EQ(lease.owner.epoch.value, 1U);
+    EXPECT_EQ(lease.deadline, now + ttl);
+    EXPECT_EQ(lease.state, WorkLeaseState::Claimed);
+}
+TEST_P(WorkLeaseContractTest, PayloadAndResultMustDrainBeforeCreditOrConnectionCut) {
+    DynamicFileQueue queue(input(), 1, 1, 2);
+    auto owner = queue.worker(0); ASSERT_TRUE(owner.isOk());
+    auto next = queue.claim(owner.value(), now, ttl);
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value()); auto lease = *next.value();
+    EXPECT_FALSE(queue.commit(lease, now).isOk());
+    ASSERT_TRUE(queue.begin(lease, now).isOk());
+    ASSERT_TRUE(queue.startIo(lease, 8, now).isOk());
+    ASSERT_TRUE(queue.requestDrain(owner.value()).isOk());
+    EXPECT_FALSE(queue.claim(owner.value(), now, ttl).isOk());
+    EXPECT_FALSE(queue.awaitResult(lease, now).isOk());
+    EXPECT_FALSE(queue.cutReady(owner.value()).value());
+    EXPECT_FALSE(queue.reopen(owner.value()).isOk());
+    ASSERT_TRUE(queue.finishIo(lease, 8, now).isOk());
+    ASSERT_TRUE(queue.awaitResult(lease, now).isOk());
+    EXPECT_EQ(queue.outstanding(), 1U);
+    EXPECT_FALSE(queue.cutReady(owner.value()).value());
+    ASSERT_TRUE(queue.commit(lease, now).isOk());
+    EXPECT_EQ(queue.outstanding(), 0U);
+    EXPECT_FALSE(queue.commit(lease, now).isOk());
+    ASSERT_TRUE(queue.cutReady(owner.value()).value());
+    auto reopened = queue.reopen(owner.value()); ASSERT_TRUE(reopened.isOk());
+    EXPECT_EQ(reopened.value().epoch.value, 2U);
+    EXPECT_FALSE(queue.claim(owner.value(), now, ttl).isOk());
+}
+TEST_P(WorkLeaseContractTest, RejectsForgedIdentityLeaseWorkerLinkAndEpochAtEveryBoundary) {
+    DynamicFileQueue queue(input(), 2, 1, 2);
+    auto next = queue.claim(queue.worker(0).value(), now, ttl);
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value()); const auto lease = *next.value();
+    for (int field = 0; field < 10; ++field) {
+        auto wrong = lease;
+        if (field == 0) ++wrong.leaseId;
+        if (field == 1) ++wrong.owner.workerId;
+        if (field == 2) wrong.owner.linkId = "foreign";
+        if (field == 3) ++wrong.owner.epoch.value;
+        if (field == 4) ++wrong.file.generation;
+        if (field == 5) ++wrong.file.attempt;
+        if (field == 6) ++wrong.file.rangeOffset;
+        if (field == 7) ++wrong.file.checksum.value;
+        if (field == 8) wrong.taskId = "foreign";
+        if (field == 9) ++wrong.file.rangeId;
+        EXPECT_FALSE(queue.begin(wrong, now).isOk()) << field;
+        EXPECT_FALSE(queue.startIo(wrong, 8, now).isOk()) << field;
+        EXPECT_FALSE(queue.finishIo(wrong, 8, now).isOk()) << field;
+        EXPECT_FALSE(queue.awaitResult(wrong, now).isOk()) << field;
+        EXPECT_FALSE(queue.commit(wrong, now).isOk()) << field;
+        EXPECT_FALSE(queue.reject(wrong).isOk()) << field;
+        EXPECT_FALSE(queue.requeue(wrong, now).isOk()) << field;
+    }
+    ASSERT_TRUE(queue.begin(lease, now).isOk());
+    EXPECT_FALSE(queue.begin(lease, now).isOk());
+    ASSERT_TRUE(queue.awaitResult(lease, now).isOk());
+    ASSERT_TRUE(queue.commit(lease, now).isOk());
+}
+TEST_P(WorkLeaseContractTest, ExpiryStopsClaimsAndRetainsIoUntilExplicitDrain) {
+    DynamicFileQueue queue(input(), 2, 1, 2);
+    auto owner = queue.worker(0).value();
+    auto next = queue.claim(owner, now, ttl);
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value()); auto lease = *next.value();
+    ASSERT_TRUE(queue.begin(lease, now).isOk());
+    ASSERT_TRUE(queue.startIo(lease, 8, now).isOk());
+    EXPECT_EQ(queue.expire(now + ttl - std::chrono::milliseconds(1)), 0U);
+    EXPECT_EQ(queue.expire(now + ttl), 1U);
+    EXPECT_EQ(queue.expire(now + ttl), 0U);
+    auto state = queue.snapshot(lease); ASSERT_TRUE(state.isOk());
+    EXPECT_EQ(state.value().state, WorkLeaseState::Reclaimable);
+    EXPECT_EQ(state.value().inflightFrames, 1U);
+    EXPECT_EQ(state.value().inflightBytes, 8U);
+    EXPECT_FALSE(queue.commit(lease, now + ttl).isOk());
+    EXPECT_FALSE(queue.claim(owner, now + ttl, ttl).isOk());
+    EXPECT_FALSE(queue.requeue(lease, now + ttl).isOk());
+    ASSERT_TRUE(queue.finishIo(lease, 8, now + ttl).isOk());
+    EXPECT_FALSE(queue.requeue(lease, now + ttl).isOk()) << "old transport must be closed before retry";
+    ASSERT_TRUE(queue.disconnect(owner).isOk());
+    ASSERT_TRUE(queue.requeue(lease, now + ttl).isOk());
+    EXPECT_FALSE(queue.snapshot(lease).isOk());
+    auto retry = queue.claim(queue.worker(1).value(), now + ttl, ttl);
+    ASSERT_TRUE(retry.isOk()); ASSERT_TRUE(retry.value());
+    EXPECT_NE(retry.value()->leaseId, lease.leaseId);
+    EXPECT_EQ(retry.value()->file.attempt, lease.file.attempt + 1);
+    EXPECT_EQ(retry.value()->file.rangeId, lease.file.rangeId);
+    EXPECT_FALSE(queue.commit(lease, now).isOk());
+}
+TEST_P(WorkLeaseContractTest, DeadlineRejectsLateResultEvenWithoutWatchdogTick) {
+    DynamicFileQueue queue(input(), 1, 1, 2);
+    auto next = queue.claim(queue.worker(0).value(), now, ttl);
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value()); auto lease = *next.value();
+    ASSERT_TRUE(queue.begin(lease, now).isOk());
+    ASSERT_TRUE(queue.awaitResult(lease, now).isOk());
+    EXPECT_FALSE(queue.commit(lease, now + ttl).isOk());
+    EXPECT_EQ(queue.outstanding(), 1U);
+    EXPECT_EQ(queue.expire(now + ttl), 1U);
+    EXPECT_EQ(queue.snapshot(lease).value().state, WorkLeaseState::Reclaimable);
+}
+TEST_P(WorkLeaseContractTest, DisconnectInvalidatesOldEpochAndRequeuesOnlyUncommittedWork) {
+    DynamicFileQueue queue(input(), 1, 1, 2);
+    auto owner = queue.worker(0).value();
+    auto next = queue.claim(owner, now, ttl);
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value()); auto lease = *next.value();
+    ASSERT_TRUE(queue.begin(lease, now).isOk());
+    ASSERT_TRUE(queue.startIo(lease, 8, now).isOk());
+    ASSERT_TRUE(queue.disconnect(owner).isOk());
+    EXPECT_FALSE(queue.commit(lease, now).isOk());
+    EXPECT_FALSE(queue.reopen(owner).isOk());
+    ASSERT_TRUE(queue.requeue(lease, now).isOk());
+    auto reopened = queue.reopen(owner); ASSERT_TRUE(reopened.isOk());
+    auto retry = queue.claim(reopened.value(), now, ttl);
+    ASSERT_TRUE(retry.isOk()); ASSERT_TRUE(retry.value());
+    EXPECT_EQ(retry.value()->owner.epoch.value, 2U);
+    EXPECT_FALSE(queue.begin(lease, now).isOk());
+    ASSERT_TRUE(queue.begin(*retry.value(), now).isOk());
+    ASSERT_TRUE(queue.awaitResult(*retry.value(), now).isOk());
+    ASSERT_TRUE(queue.commit(*retry.value(), now).isOk());
+    EXPECT_FALSE(queue.requeue(*retry.value(), now).isOk());
+}
+TEST_P(WorkLeaseContractTest, CancellationInvalidatesAllHandlesAndStopsRequeue) {
+    DynamicFileQueue queue(input(), 1, 1, 2);
+    auto owner = queue.worker(0).value();
+    auto next = queue.claim(owner, now, ttl);
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value()); auto lease = *next.value();
+    ASSERT_TRUE(queue.begin(lease, now).isOk());
+    queue.cancel(Status::runtimeError("cancel"));
+    EXPECT_FALSE(queue.commit(lease, now).isOk());
+    EXPECT_FALSE(queue.requeue(lease, now).isOk());
+    EXPECT_FALSE(queue.reopen(owner).isOk());
+    EXPECT_FALSE(queue.claim(owner, now, ttl).isOk());
+    EXPECT_EQ(queue.outstanding(), 0U);
+}
+INSTANTIATE_TEST_SUITE_P(AllInputShapes, WorkLeaseContractTest,
+    ::testing::Values(WorkShape::SingleFile, WorkShape::DirectoryFile, WorkShape::DirectoryRange));
+
+
+TEST(WorkExecutionAdapterTest, BindsPlannerProjectionToFullV3Identity) {
+    auto file = tasks(1).front(); file.totalSize = 8;
+    cpnetflux::core::scheduler::WorkItem plan;
+    plan.taskId = "batch"; plan.fileId = file.transferId; plan.relativePath = file.relativePath;
+    plan.length = 8; plan.checksumAlgorithm = file.checksumAlgorithm;
+    auto bound = bindScheduledWork(plan, file); ASSERT_TRUE(bound.isOk());
+    EXPECT_EQ(bound.value().taskId, "batch");
+    DynamicFileQueue boundQueue(std::vector<cpnetflux::core::io::WorkItem>{bound.value()}, 1, 1, 1);
+    auto boundLease = boundQueue.claim(boundQueue.worker(0).value());
+    ASSERT_TRUE(boundLease.isOk()); ASSERT_TRUE(boundLease.value());
+    EXPECT_EQ(boundLease.value()->taskId, "batch");
+    EXPECT_TRUE(samePersistentIdentity(bound.value().file, file));
+    for (int field = 0; field < 9; ++field) {
+        auto wrong = plan;
+        if (field == 0) wrong.taskId.clear();
+        if (field == 1) wrong.fileId = "foreign";
+        if (field == 2) wrong.relativePath = "foreign";
+        if (field == 3) wrong.offset = 1;
+        if (field == 4) wrong.length = 7;
+        if (field == 5) wrong.resumeGeneration = 9;
+        if (field == 6) wrong.retryCount = 1;
+        if (field == 7) wrong.checksumAlgorithm = cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
+        if (field == 8) wrong.dispatchable = false;
+        EXPECT_FALSE(bindScheduledWork(wrong, file).isOk()) << field;
+    }
+}
+TEST(WorkLeaseEdgeTest, RejectsInvalidWorkerTimeoutAndDeadlineOverflow) {
+    DynamicFileQueue queue(tasks(2), 1, 1, 2);
+    auto owner = queue.worker(0).value();
+    EXPECT_FALSE(queue.worker(1).isOk());
+    auto wrong = owner; wrong.linkId = "foreign";
+    EXPECT_FALSE(queue.claim(wrong).isOk());
+    EXPECT_FALSE(queue.claim(owner, WorkClock::now(), std::chrono::milliseconds(0)).isOk());
+    EXPECT_FALSE(queue.claim(owner, WorkClock::time_point::max(), std::chrono::milliseconds(1)).isOk());
+}
+TEST(WorkLeaseEdgeTest, IoUnderflowOverflowAndResultRejectionPreserveLease) {
+    DynamicFileQueue queue(tasks(2), 1, 1, 2);
+    auto next = queue.claim(queue.worker(0).value());
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value()); auto lease = *next.value();
+    EXPECT_FALSE(queue.startIo(lease, 1).isOk());
+    ASSERT_TRUE(queue.begin(lease).isOk());
+    EXPECT_FALSE(queue.startIo(lease, 0).isOk());
+    EXPECT_FALSE(queue.finishIo(lease, 1).isOk());
+    ASSERT_TRUE(queue.startIo(lease, UINT64_MAX).isOk());
+    EXPECT_FALSE(queue.startIo(lease, 1).isOk());
+    EXPECT_FALSE(queue.finishIo(lease, 1).isOk());
+    EXPECT_EQ(queue.snapshot(lease).value().inflightBytes, UINT64_MAX);
+    ASSERT_TRUE(queue.finishIo(lease, UINT64_MAX).isOk());
+    ASSERT_TRUE(queue.awaitResult(lease).isOk());
+    ASSERT_TRUE(queue.reject(lease).isOk());
+    EXPECT_FALSE(queue.commit(lease).isOk());
+    EXPECT_FALSE(queue.claim(queue.worker(0).value()).isOk());
+    EXPECT_FALSE(queue.requeue(lease).isOk());
+    ASSERT_TRUE(queue.disconnect(lease.owner).isOk());
+    ASSERT_TRUE(queue.requeue(lease).isOk());
+    auto reopened = queue.reopen(lease.owner); ASSERT_TRUE(reopened.isOk());
+    auto retry = queue.claim(reopened.value()); ASSERT_TRUE(retry.isOk()); ASSERT_TRUE(retry.value());
+    EXPECT_EQ(retry.value()->file.attempt, 1U);
+}
+TEST(WorkLeaseEdgeTest, SuccessfulIoRenewsIdleDeadlineWithoutRevivingExpiredWork) {
+    const auto now = WorkClock::time_point(std::chrono::seconds(100));
+    DynamicFileQueue queue(tasks(1), 1, 1, 1);
+    auto next = queue.claim(queue.worker(0).value(), now, std::chrono::milliseconds(100));
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value()); auto lease = *next.value();
+    ASSERT_TRUE(queue.begin(lease, now).isOk());
+    ASSERT_TRUE(queue.startIo(lease, 1, now).isOk());
+    ASSERT_TRUE(queue.finishIo(lease, 1, now + std::chrono::milliseconds(99)).isOk());
+    EXPECT_EQ(queue.expire(now + std::chrono::milliseconds(100)), 0U);
+    ASSERT_TRUE(queue.startIo(lease, 1, now + std::chrono::milliseconds(100)).isOk());
+    ASSERT_TRUE(queue.finishIo(lease, 1, now + std::chrono::milliseconds(199)).isOk());
+    EXPECT_FALSE(queue.awaitResult(lease, now + std::chrono::milliseconds(199)).isOk());
+    EXPECT_EQ(queue.expire(now + std::chrono::milliseconds(199)), 1U);
+}
+TEST(WorkLeaseEdgeTest, TcpResetMakesOnlyUncommittedLeaseReclaimable) {
+    const int listener = ::socket(AF_INET, SOCK_STREAM, 0); ASSERT_GE(listener, 0);
+    sockaddr_in address{}; address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ASSERT_EQ(::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
+    ASSERT_EQ(::listen(listener, 1), 0); socklen_t size = sizeof(address);
+    ASSERT_EQ(::getsockname(listener, reinterpret_cast<sockaddr*>(&address), &size), 0);
+    const int client = ::socket(AF_INET, SOCK_STREAM, 0); ASSERT_GE(client, 0);
+    ASSERT_EQ(::connect(client, reinterpret_cast<sockaddr*>(&address), size), 0);
+    const int peer = ::accept(listener, nullptr, nullptr); ASSERT_GE(peer, 0); ::close(listener);
+    DynamicFileQueue queue(tasks(2), 1, 1, 2); auto owner = queue.worker(0).value();
+    auto first = queue.claim(owner); ASSERT_TRUE(first.isOk()); ASSERT_TRUE(first.value());
+    ASSERT_TRUE(queue.begin(*first.value()).isOk());
+    ASSERT_TRUE(queue.awaitResult(*first.value()).isOk());
+    ASSERT_TRUE(queue.commit(*first.value()).isOk());
+    auto pending = queue.claim(owner); ASSERT_TRUE(pending.isOk()); ASSERT_TRUE(pending.value());
+    ASSERT_TRUE(queue.begin(*pending.value()).isOk());
+    ASSERT_TRUE(queue.startIo(*pending.value(), 8).isOk());
+    linger reset{1, 0}; ASSERT_EQ(::setsockopt(peer, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)), 0);
+    ::close(peer); pollfd descriptor{client, POLLIN, 0}; ASSERT_GT(::poll(&descriptor, 1, 1000), 0);
+    char byte; EXPECT_EQ(::recv(client, &byte, 1, 0), -1); EXPECT_EQ(errno, ECONNRESET); ::close(client);
+    ASSERT_TRUE(queue.disconnect(owner).isOk());
+    EXPECT_FALSE(queue.requeue(*first.value()).isOk());
+    ASSERT_TRUE(queue.requeue(*pending.value()).isOk());
+    auto reopened = queue.reopen(owner); ASSERT_TRUE(reopened.isOk());
+    auto retry = queue.claim(reopened.value()); ASSERT_TRUE(retry.isOk()); ASSERT_TRUE(retry.value());
+    EXPECT_EQ(retry.value()->file.fileId, pending.value()->file.fileId);
+    EXPECT_FALSE(queue.commit(*pending.value()).isOk());
+}
+
+TEST(WorkLeaseEdgeTest, ForeignQueueCannotReuseHandleForIdenticalWork) {
+    DynamicFileQueue left(tasks(1), 1, 1, 1), right(tasks(1), 1, 1, 1);
+    auto a = left.claim(left.worker(0).value()), b = right.claim(right.worker(0).value());
+    ASSERT_TRUE(a.isOk()); ASSERT_TRUE(a.value()); ASSERT_TRUE(b.isOk()); ASSERT_TRUE(b.value());
+    EXPECT_NE(a.value()->leaseId, b.value()->leaseId);
+    EXPECT_FALSE(right.begin(*a.value()).isOk());
+    EXPECT_TRUE(right.begin(*b.value()).isOk());
+}
+TEST(WorkExecutionAdapterTest, RejectsMalformedFullIdentityAndIncompleteRangePartition) {
+    auto file = tasks(1).front();
+    cpnetflux::core::scheduler::WorkItem plan;
+    plan.taskId = "batch"; plan.fileId = file.transferId; plan.relativePath = file.relativePath;
+    plan.length = file.totalSize; plan.checksumAlgorithm = file.checksumAlgorithm;
+    for (int field = 0; field < 5; ++field) {
+        auto wrong = file;
+        if (field == 0) wrong.fileId = 0;
+        if (field == 1) wrong.generation = 0;
+        if (field == 2) wrong.chunkSize = 0;
+        if (field == 3) wrong.rangeLength = 1;
+        if (field == 4) wrong.rangeCount = 1;
+        EXPECT_FALSE(bindScheduledWork(plan, wrong).isOk()) << field;
+        DynamicFileQueue queue(std::vector<PersistentFileIdentity>{wrong}, 1, 1, 1);
+        EXPECT_FALSE(queue.claim(0).isOk()) << field;
+    }
 }

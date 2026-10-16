@@ -593,3 +593,42 @@ TEST(PersistentTreeRangeTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
     ASSERT_TRUE(checkpoint.isOk());EXPECT_TRUE(checkpoint.value().verifiedChunks.empty());
     EXPECT_FALSE(std::filesystem::exists(destination.path/"bad.bin"));
 }
+
+
+TEST(PersistentTreeLeaseTest, ReopenedWorkerUsesCurrentEpochThroughActualSender) {
+    TempRoot source, destination;
+    std::ofstream(source.path / "retry.bin") << "ABCDEFGH";
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "retry.bin").c_str(), &st), 0);
+    PersistentFileIdentity id{1, 7, 8, "retry.bin", "lease-retry", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    DynamicFileQueue queue(std::vector<PersistentFileIdentity>{id}, 1, 1, 1);
+    auto owner = queue.worker(0).value();
+    auto first = queue.claim(owner); ASSERT_TRUE(first.isOk()); ASSERT_TRUE(first.value());
+    ASSERT_TRUE(queue.begin(*first.value()).isOk());
+    ASSERT_TRUE(queue.disconnect(owner).isOk());
+    ASSERT_TRUE(queue.requeue(*first.value()).isOk());
+    auto reopened = queue.reopen(owner); ASSERT_TRUE(reopened.isOk());
+    ASSERT_EQ(reopened.value().epoch.value, 2U);
+    SocketPair pair; PersistentTreeStats sent, received;
+    cpnetflux::common::Status receiverStatus;
+    std::jthread receiver([&] {
+        receiverStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false,
+            "", &received, {}, 1, 0, 1, 1, true);
+    });
+    std::uint64_t completedAttempt = 0;
+    auto senderStatus = sendPersistentTree(&pair.sender, source.path.string(), {}, &sent,
+        [&](const PersistentFileIdentity& file, const cpnetflux::common::Status& status, bool complete) {
+            if (complete && status.isOk()) completedAttempt = file.attempt;
+            return cpnetflux::common::Status::ok();
+        }, 1, 0, 1, &queue);
+    ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(senderStatus.isOk()) << senderStatus.message();
+    ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+    EXPECT_EQ(completedAttempt, 1U);
+    EXPECT_EQ(queue.outstanding(), 0U);
+    EXPECT_FALSE(queue.commit(*first.value()).isOk());
+    std::ifstream output(destination.path / "retry.bin");
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), "ABCDEFGH");
+}

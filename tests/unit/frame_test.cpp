@@ -358,3 +358,34 @@ TEST(FrameTest, RetiredV1WireTypesCannotDecodeOrValidate) {
         EXPECT_FALSE(decodeFrameHeader(encodeFrameHeader(header)).isOk());
     }
 }
+
+TEST(SessionControlTest, WholeFileRetryUsesExistingAttemptExtension) {
+    using namespace cpnetflux::core::protocol;
+    FileBeginMetadata file;
+    file.transferId = "retry"; file.sourcePath = "retry.bin";
+    file.totalSize = 8; file.chunkSize = 4;
+    const auto original = encodeFileBeginMetadata(file);
+    ASSERT_TRUE(original.isOk());
+    EXPECT_EQ(original.value().size(), 24U + 5U + 4U + 9U);
+    EXPECT_EQ(original.value()[24U + 5U + 2U], 0U);
+    EXPECT_EQ(original.value()[24U + 5U + 3U], 0U);
+    file.attempt = 1;
+    const auto encoded = encodeFileBeginMetadata(file);
+    ASSERT_TRUE(encoded.isOk()) << encoded.status().message();
+    EXPECT_EQ(encoded.value().size(), original.value().size() + 40U);
+    auto decoded = decodeFileBeginMetadata(encoded.value().data(), encoded.value().size());
+    ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
+    EXPECT_EQ(decoded.value().attempt, 1U);
+    EXPECT_EQ(decoded.value().rangeId, 0U);
+    EXPECT_EQ(decoded.value().rangeOffset, 0U);
+    EXPECT_EQ(decoded.value().rangeLength, 0U);
+    EXPECT_EQ(decoded.value().rangeCount, 0U);
+    auto malformed = encoded.value();
+    const auto extension = original.value().size();
+    malformed[extension + 15U] = 1;  // Nonzero offset without a range id.
+    EXPECT_FALSE(decodeFileBeginMetadata(malformed.data(), malformed.size()).isOk());
+    file.rangeOffset = 1;
+    EXPECT_FALSE(encodeFileBeginMetadata(file).isOk());
+    file.rangeOffset = 0; file.attempt = 0;
+    EXPECT_EQ(encodeFileBeginMetadata(file).value(), original.value());
+}
