@@ -45,4 +45,4 @@
 
 - Desktop contract/agent/UI source tests：全部通过；Qt CTest 5/5 通过；DEB 已重新生成。
 - Core 定向持久目录、动态队列、range、事件日志测试：46/46 通过；全量 CTest 291 项中 289 通过、1 项因 io_uring 环境跳过、2 项 token smoke 因未设置 CPNETFLUX_TEST_TOKEN 未运行通过，非本次代码失败。
-- 深圳演示机真实上传：512 MiB、65 文件，事件日志 179 行，其中 177 条 tree_progress；最终文件 65/65、CRC32C pass、finalize pass。
+- 深圳演示机真实上传：512 MiB、65 文件，事件日志 179 行，其中 177 条 tree_progress；最终文件 65/65、CRC32C pass、finalize pass。真实下载回环同样持续报告字节/速度，最终 65/65、CRC32C pass、finalize pass。
