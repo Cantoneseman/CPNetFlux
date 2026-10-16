@@ -2,7 +2,8 @@
 
 - 任务 ID：V3-ROUTE-RESET-20261016
 - 输入提交：922401b49450b47366a026a8285bc72fb52067dd
-- 完成提交：5dd613f28cb489b7d2e1eb000ceedfbfdbbfd16f
+- 路线文档提交：5dd613f28cb489b7d2e1eb000ceedfbfdbbfd16f
+- 结果记录提交：d9cf9e59d7eb9e25370b7e6ab5defab7f287e929（本次修订后主线将继续前进）
 - 权威工作区：深圳 `/root/projects/CPNetFlux`
 - 分支：`main`
 
@@ -17,7 +18,7 @@
 
 - `git diff --check`：通过。
 - `git show --check HEAD`：通过。
-- `origin/main` 回读 SHA 与深圳 `main` 同为 `5dd613f28cb489b7d2e1eb000ceedfbfdbbfd16f`。
+- 路线文档提交时，`origin/main` 回读 SHA 与深圳 `main` 同为 `5dd613f28cb489b7d2e1eb000ceedfbfdbbfd16f`；结果记录提交为 `d9cf9e59d7eb9e25370b7e6ab5defab7f287e929`，推送后再次回读。
 - 路线决策文档 SHA-256：`66bcf85a927e715b40bdba18d6ac276828e3995279e066278312a23a123db016`。
 - 路线任务单 SHA-256：`67ce3752ae9cb4a5b031ba6b2c1fee1154660ecc048ff2d30f1624fa5515ef3f`。
 - 两个本地副本逐一回读，SHA-256 与深圳文件一致。
