@@ -1,4 +1,3 @@
-"""Regression contract for the desktop run-start state machine and UI affordances."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,4 +28,13 @@ assert "rpc.create(" in create_click and "window.page=0" not in create_click
 assert "!rpc.createInFlight" in create_click
 assert "onCreateSucceeded" in QML
 assert "启动中…" in QML and 'rpc.action("transfer.start"' in QML
-print("desktop run-start UI contract passed")
+
+# Presentation contract: the user-facing view must explain real agent stages,
+# keep unknown evidence explicit, and hide protocol-level fields by default.
+for marker in ["正在扫描目录", "等待远端准备", "阶段进度", "扫描目录", "远端准备", "传输数据", "校验清单", "提交完成", "agent 未提供", "不推算百分比", "完整性核验", "展开技术详情", "收起技术详情", "技术详情（原样保留 agent 返回值）"]:
+    assert marker in QML, marker
+assert "indeterminate:" not in QML
+assert "files_discovered" in QML
+assert "backend_evidence" in QML and "integrityText" in QML
+assert "phaseStatus" in QML and "stateSummary" in QML
+print("desktop run-start and state-presentation UI contract passed")

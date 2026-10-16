@@ -22,13 +22,70 @@ ApplicationWindow {
         return rpc.tasks.length ? rpc.tasks[0] : null
     }
     property var pageTitles: ["传输任务", "新建任务", "任务详情", "节点连接", "远端目录", "历史与恢复", "高级设置"]
+    function known(v) { return v !== null && v !== undefined && v !== "" }
+    function value(v, unit) { return known(v) ? String(v) + (unit || "") : "agent 未提供" }
+    function seconds(v) { return known(v) ? Number(v).toFixed(3) + " 秒" : "agent 未提供" }
+    function bytes(v) { return known(v) ? (Number(v)/1048576).toFixed(2)+" MiB" : "agent 未提供" }
+    function metric(t, key) { return t && t.metrics ? t.metrics[key] : null }
     function stateName(s) {
-        return ({queued:"排队中", scanning:"扫描中", connecting:"连接中", negotiating:"协商中", transferring:"传输中", committing:"提交中", completed:"已完成", failed:"失败", cancelled:"已取消", recoverable:"可恢复", paused:"已暂停"})[s] || "未知"
+        return ({queued:"已创建，等待启动", scanning:"正在扫描目录", connecting:"正在连接远端", negotiating:"正在协商传输", transferring:"正在传输", committing:"正在校验并提交", completed:"传输已完成", failed:"传输失败", cancelled:"已取消", recoverable:"可恢复", paused:"已暂停"})[s] || "等待 agent 提供状态"
     }
-    function value(v, unit) { return v === null || v === undefined ? "未知" : v + (unit || "") }
-    function seconds(v) { return v === null || v === undefined ? "未知" : Number(v).toFixed(3) + " 秒" }
-    function bytes(v) { return v === null || v === undefined ? "未知" : (v/1048576).toFixed(2)+" MiB" }
-    function fraction(done,total) { return done === null || total === null || !total ? 0 : done/total }
+    function stateSummary(t) {
+        if (!t) return "请选择一项任务。"
+        return ({
+            queued:"任务已在 agent 中建立，等待启动。",
+            scanning:"正在扫描目录，文件数量可能仍在变化；请等待扫描和远端准备完成。",
+            connecting:"正在连接远端并等待控制通道准备。",
+            negotiating:"正在与远端协商传输能力和数据通道。",
+            transferring:"agent 正在传输已发现的文件；速度和进度只在 agent 返回时显示。",
+            committing:"正在校验 manifest、checksum 并提交传输结果。",
+            completed:"agent 已返回完成状态，传输结果可以核验。",
+            failed:"agent 返回失败状态，请查看错误详情并按恢复资格重试。",
+            cancelled:"任务已取消；是否可恢复由 agent 返回的恢复资格决定。",
+            recoverable:"agent 已保留恢复点，可以尝试恢复或查看失败原因。",
+            paused:"任务已暂停；继续操作取决于 agent 的实际能力。"
+        })[t.state] || "agent 尚未提供可理解的阶段状态。"
+    }
+    function phaseKey(t) {
+        if (!t) return "scan"
+        if (t.state === "queued") return "queued"
+        if (t.state === "scanning") return "scan"
+        if (t.state === "connecting" || t.state === "negotiating") return "prepare"
+        if (t.state === "transferring") return "transfer"
+        if (t.state === "committing") return "verify"
+        if (t.state === "completed") return "done"
+        if (t.integrity_status === "fail" || t.state === "failed") return "error"
+        return "error"
+    }
+    function phaseStatus(t, key) {
+        if (!t) return "pending"
+        if (t.state === "completed") return "done"
+        var current = phaseKey(t)
+        if (current === "error") return key === "verify" && t.integrity_status === "fail" ? "error" : "pending"
+        if (key === current) return "current"
+        if (key === "scan" && t.scan_complete === true) return "done"
+        return "pending"
+    }
+    function nextStep(t) {
+        if (!t) return ""
+        if (t.state === "queued") return "下一步：确认路径和节点后开始任务。"
+        if (t.state === "scanning") return "下一步：等待目录扫描完成；agent 未提供总数时不显示百分比。"
+        if (t.state === "connecting" || t.state === "negotiating") return "下一步：等待远端准备和数据连接。"
+        if (t.state === "transferring") return "下一步：等待 agent 返回传输完成或错误。"
+        if (t.state === "committing") return "下一步：等待 manifest、checksum 和 finalize 结果。"
+        if (t.state === "completed") return "下一步：查看完整性结果或从列表隐藏。"
+        if (t.state === "recoverable") return "下一步：使用 agent 提供的恢复能力继续任务。"
+        if (t.state === "cancelled") return "下一步：如有恢复资格，可请求 agent 恢复。"
+        return "下一步：查看错误详情并按 agent 返回的恢复资格处理。"
+    }
+    function integrityText(t, key) {
+        var e = t && t.backend_evidence ? t.backend_evidence[key] : null
+        if (!known(e)) return "agent 未提供此项证据"
+        if (typeof e === "object" && known(e.status)) return String(e.status)
+        return "agent 已返回"
+    }
+    function fraction(done,total) { return known(done) && known(total) && Number(total) > 0 ? Number(done)/Number(total) : 0 }
+    function progressKnown(done,total) { return known(done) && known(total) && Number(total) > 0 }
     function terminal(s) { return ["completed","failed","cancelled","recoverable"].indexOf(s)>=0 }
     function selectTask(t) { selectedId=t.transfer_id; page=2 }
     function loadProfile(p) {
@@ -168,12 +225,12 @@ ApplicationWindow {
                                         Button { text:"从列表隐藏"; enabled:!rpc.removeInFlight; onClicked:{ removeDialog.task=modelData; removeDialog.open() } }
                                     }
                                     Muted { Layout.fillWidth:true; text:modelData.source.path+" → "+modelData.destination.path; elide:Text.ElideMiddle; maximumLineCount:1 }
-                                    ProgressBar { Layout.fillWidth:true; value:window.fraction(modelData.metrics.bytes_committed,modelData.metrics.bytes_total); indeterminate:modelData.metrics.bytes_total===null && !window.terminal(modelData.state) }
+                                    ProgressBar { visible:window.progressKnown(modelData.metrics.bytes_committed,modelData.metrics.bytes_total); Layout.fillWidth:true; value:window.fraction(modelData.metrics.bytes_committed,modelData.metrics.bytes_total) }
                                     RowLayout { Layout.fillWidth:true
                                         Label { text:window.bytes(modelData.metrics.bytes_committed)+" / "+window.bytes(modelData.metrics.bytes_total); color:"#44556e" }
                                         Item { Layout.fillWidth:true }
                                         Label { text:"文件 "+window.value(modelData.metrics.files_committed)+" / "+window.value(modelData.metrics.files_total); color:"#44556e" }
-                                        Label { text:"实际模式 "+(modelData.actual_mode==="unknown"?"未知":modelData.actual_mode.toUpperCase()); color:"#44556e" }
+                                        Label { text:"实际模式 "+(window.known(modelData.actual_mode)?modelData.actual_mode.toUpperCase():"agent 未提供"); color:"#44556e" }
                                     }
                                 }
                             }
@@ -226,37 +283,68 @@ ApplicationWindow {
                 ScrollView { id:detailScroll; objectName:"detailScroll"; clip:true; contentWidth:availableWidth
                     ColumnLayout { width:detailScroll.availableWidth; spacing:14
                         Muted { visible:!window.selectedTask; text:"尚无任务，请先创建一项传输任务。" }
-                        Card { visible:!!window.selectedTask; Layout.fillWidth:true; implicitHeight:720
+                        Card { id:detailCard; property bool technicalExpanded: false; visible:!!window.selectedTask; Layout.fillWidth:true; implicitHeight:980
                             ColumnLayout { anchors.fill:parent; anchors.margins:22; spacing:12
                                 Heading { text:window.selectedTask?window.stateName(window.selectedTask.state):"无任务" }
-                                Muted { Layout.fillWidth:true; text:window.selectedTask ? (window.selectedTask.direction==="upload"?"上传":"下载")+" · "+window.selectedTask.source.path+" → "+window.selectedTask.destination.path : "" }
-                                Label { text:window.selectedTask?"请求引擎 "+window.selectedTask.policy.requested_mode+" / 实际引擎 "+window.selectedTask.actual_mode:""; color:"#274970" }
-                                Label { visible:!!window.selectedTask; text:"详情状态："+rpc.detailStatus+" · "+(rpc.stale?"stale / 待重连":"当前 agent epoch")+" · "+rpc.detailWatermark; color:rpc.stale?"#a64b31":"#657389"; elide:Text.ElideRight }
-                                Label { visible:!!window.selectedTask && rpc.actionTransferId===window.selectedTask.transfer_id && (rpc.actionStatus.length>0 || rpc.actionError.length>0); Layout.fillWidth:true; wrapMode:Text.WordWrap; text:rpc.actionError.length>0 ? rpc.actionError : rpc.actionStatus; color:rpc.actionError.length>0?"#a64b31":"#8a5a18" }
-                                RowLayout { visible:!!window.selectedTask
-                                    Button { text:"加载 attempt / file 分页"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) }
-                                    Button { text:"继续加载 file"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() }
-                                    Button { text:"加载 range"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() }
-                                    Button { text:"从列表隐藏"; enabled:!rpc.removeInFlight; onClicked:{ removeDialog.task=window.selectedTask; removeDialog.open() } }
+                                Muted { Layout.fillWidth:true; text:window.selectedTask ? (window.selectedTask.direction==="upload"?"上传":"下载")+" · "+window.selectedTask.source.path+" → "+window.selectedTask.destination.path : ""; elide:Text.ElideMiddle; maximumLineCount:2 }
+                                Rectangle { Layout.fillWidth:true; implicitHeight:112; radius:10; color:window.selectedTask && ["failed","cancelled"].indexOf(window.selectedTask.state)>=0 ? "#fff0ee" : "#eef5ff"; border.color:window.selectedTask && ["failed","cancelled"].indexOf(window.selectedTask.state)>=0 ? "#edb8b0" : "#c5d9f5"
+                                    ColumnLayout { anchors.fill:parent; anchors.margins:14; spacing:4
+                                        Label { text:window.selectedTask?window.stateName(window.selectedTask.state):""; font.pixelSize:18; font.bold:true; color:"#17375f" }
+                                        Muted { Layout.fillWidth:true; text:window.stateSummary(window.selectedTask) }
+                                        Muted { Layout.fillWidth:true; text:window.nextStep(window.selectedTask) }
+                                        Label { visible:window.selectedTask && window.selectedTask.state==="scanning"; text:"已发现文件数："+window.value(window.metric(window.selectedTask,"files_discovered"))+" · 等待远端准备"; color:"#8a5a18" }
+                                    }
                                 }
-                                Label { visible:!!window.selectedTask; text:"attempt "+rpc.attempts.length+" · file "+rpc.files.length+" · range "+rpc.ranges.length+"（未知字段保持未知）"; color:"#657389" }
-                                Muted { Layout.fillWidth:true; text:window.selectedTask?"调度请求 "+window.selectedTask.policy.scheduler+" / 实际 "+window.selectedTask.actual_scheduler+"；range策略 "+window.selectedTask.actual_range_policy:"" }
-                                Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#a56b20"; text:window.selectedTask && window.selectedTask.fallback_reason ? "回退原因："+window.selectedTask.fallback_reason.message : "回退原因：尚无 / 未协商" }
-                                Label { text:window.selectedTask?"文件已提交 "+window.value(window.selectedTask.metrics.files_committed)+" / "+window.value(window.selectedTask.metrics.files_total):"" }
-                                ProgressBar { Layout.fillWidth:true; value:window.selectedTask?window.fraction(window.selectedTask.metrics.files_committed,window.selectedTask.metrics.files_total):0 }
-                                Label { text:window.selectedTask?"字节已传输 "+window.bytes(window.selectedTask.metrics.bytes_transferred)+" · 已提交 "+window.bytes(window.selectedTask.metrics.bytes_committed)+" / "+window.bytes(window.selectedTask.metrics.bytes_total):"" }
-                                ProgressBar { Layout.fillWidth:true; value:window.selectedTask?window.fraction(window.selectedTask.metrics.bytes_committed,window.selectedTask.metrics.bytes_total):0 }
-                                Muted { text:window.selectedTask?"实时速度 "+window.value(window.selectedTask.metrics.speed_bps," B/s")+" · 平均 "+window.value(window.selectedTask.metrics.average_speed_bps," B/s")+" · ETA "+window.value(window.selectedTask.metrics.eta_seconds," 秒"):"" }
-                                Label { visible:!!window.selectedTask; Layout.fillWidth:true; wrapMode:Text.WordWrap; text:window.selectedTask && window.selectedTask.backend_evidence ? "后端证据：manifest "+(window.selectedTask.backend_evidence.manifest ? "已返回" : "未知")+" · checksum "+(window.selectedTask.backend_evidence.checksum ? window.selectedTask.backend_evidence.checksum.status : "未知")+" · finalize "+(window.selectedTask.backend_evidence.finalize ? window.selectedTask.backend_evidence.finalize.status : "未知") : "后端证据：未知/未提供"; color:"#657389" }
-                                Muted { text:window.selectedTask?"活动通道 "+window.value(window.selectedTask.metrics.channel_count_active)+" · 数据连接 "+window.value(window.selectedTask.metrics.data_connections)+" · 队列 "+window.value(window.selectedTask.metrics.queue_depth_current):"" }
-                                Muted { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:window.selectedTask && window.selectedTask.backend_evidence && window.selectedTask.backend_evidence.phase_timing ? "阶段耗时：control_prepare "+window.seconds(window.selectedTask.backend_evidence.phase_timing.control_prepare)+" · data_connect "+window.seconds(window.selectedTask.backend_evidence.phase_timing.data_connect)+" · first_payload "+window.seconds(window.selectedTask.backend_evidence.phase_timing.first_payload)+" · payload_io "+window.seconds(window.selectedTask.backend_evidence.phase_timing.payload_io)+" · transfer_complete_wait "+window.seconds(window.selectedTask.backend_evidence.phase_timing.transfer_complete_wait) : "阶段耗时：未知/未提供" }
-                                Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#b34236"; text:window.selectedTask && window.selectedTask.error ? window.selectedTask.error.message : ""; visible:text.length>0 }
-                                Muted { text:window.selectedTask?"恢复资格："+({unknown:"未知",eligible:"可恢复（当前服务）",ineligible:"不可恢复"})[window.selectedTask.recovery.eligibility]+" · attempt "+window.selectedTask.attempt.attempt_number:"" }
-                                RowLayout {
+                                Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:"阶段进度"; font.bold:true; color:"#274970" }
+                                RowLayout { visible:!!window.selectedTask; Layout.fillWidth:true; spacing:8
+                                    Repeater { model:[{key:"scan",name:"扫描目录"},{key:"prepare",name:"远端准备"},{key:"transfer",name:"传输数据"},{key:"verify",name:"校验清单"},{key:"done",name:"提交完成"}]
+                                        Rectangle { required property var modelData; Layout.fillWidth:true; Layout.preferredHeight:58; radius:8
+                                            property string phaseState:window.phaseStatus(window.selectedTask,modelData.key)
+                                            color:phaseState==="current"?"#dceaff":(phaseState==="done"?"#e4f3eb":(phaseState==="error"?"#fff0ee":"#f4f6fa"))
+                                            border.color:phaseState==="current"?"#80a9df":(phaseState==="done"?"#9bcfb3":(phaseState==="error"?"#edb8b0":"#e2e7f0"))
+                                            ColumnLayout { anchors.fill:parent; anchors.margins:7; spacing:2
+                                                Label { Layout.fillWidth:true; text:modelData.name; horizontalAlignment:Text.AlignHCenter; font.bold:true; color:"#274970"; elide:Text.ElideRight }
+                                                Label { Layout.fillWidth:true; text:phaseState==="current"?"进行中":(phaseState==="done"?"已完成":(phaseState==="error"?"失败":"待 agent 提供")); horizontalAlignment:Text.AlignHCenter; color:"#657389"; font.pixelSize:11 }
+                                            }
+                                        }
+                                    }
+                                }
+                                Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:"文件进度"; font.bold:true; color:"#274970" }
+                                Label { visible:!!window.selectedTask; text:window.progressKnown(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")) ? "已提交 "+window.value(window.metric(window.selectedTask,"files_committed"))+" / "+window.value(window.metric(window.selectedTask,"files_total")) : "文件进度：agent 未提供（不推算百分比）"; color:"#44556e" }
+                                ProgressBar { visible:window.selectedTask && window.progressKnown(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")); Layout.fillWidth:true; value:window.fraction(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")) }
+                                Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:"字节进度"; font.bold:true; color:"#274970" }
+                                Label { visible:!!window.selectedTask; text:window.progressKnown(window.metric(window.selectedTask,"bytes_committed"),window.metric(window.selectedTask,"bytes_total")) ? "已传输 "+window.bytes(window.metric(window.selectedTask,"bytes_transferred"))+" · 已提交 "+window.bytes(window.metric(window.selectedTask,"bytes_committed"))+" / "+window.bytes(window.metric(window.selectedTask,"bytes_total")) : "字节进度：agent 未提供（不推算百分比、速度或 ETA）"; color:"#44556e" }
+                                ProgressBar { visible:window.selectedTask && window.progressKnown(window.metric(window.selectedTask,"bytes_committed"),window.metric(window.selectedTask,"bytes_total")); Layout.fillWidth:true; value:window.fraction(window.metric(window.selectedTask,"bytes_committed"),window.metric(window.selectedTask,"bytes_total")) }
+                                Rectangle { visible:!!window.selectedTask; Layout.fillWidth:true; implicitHeight:72; radius:8; color:"#f7f9fc"; border.color:"#e2e7f0"
+                                    ColumnLayout { anchors.fill:parent; anchors.margins:12; spacing:3
+                                        Label { text:"完整性核验"; font.bold:true; color:"#274970" }
+                                        Muted { Layout.fillWidth:true; text:"manifest："+window.integrityText(window.selectedTask,"manifest")+" · checksum："+window.integrityText(window.selectedTask,"checksum")+" · finalize："+window.integrityText(window.selectedTask,"finalize") }
+                                    }
+                                }
+                                Label { visible:!!window.selectedTask && !!window.selectedTask.error; Layout.fillWidth:true; wrapMode:Text.WordWrap; text:window.selectedTask && window.selectedTask.error ? "错误："+window.selectedTask.error.message : ""; color:"#b34236" }
+                                Label { visible:!!window.selectedTask && rpc.actionTransferId===window.selectedTask.transfer_id && (rpc.actionStatus.length>0 || rpc.actionError.length>0); Layout.fillWidth:true; wrapMode:Text.WordWrap; text:rpc.actionError.length>0 ? rpc.actionError : rpc.actionStatus; color:rpc.actionError.length>0?"#a64b31":"#8a5a18" }
+                                RowLayout { visible:!!window.selectedTask; Layout.fillWidth:true
                                     Button { objectName:"startButton"; text:rpc.actionInFlight && rpc.actionTransferId===(window.selectedTask ? window.selectedTask.transfer_id : "") ? "启动中…" : "开始任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.actionInFlight && window.selectedTask && window.selectedTask.state==="queued"; onClicked:rpc.action("transfer.start",window.selectedTask) }
                                     Button { text:"取消任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.actionInFlight && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.cancel",window.selectedTask) }
-                                    Button { text:"暂停 · 后端未提供"; enabled:false && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.pause",window.selectedTask) }
                                     Button { text:"恢复任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.actionInFlight && !!rpc.capabilities.resume_supported && window.selectedTask && window.selectedTask.recovery.eligibility==="eligible" && window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.resume",window.selectedTask) }
+                                    Button { text:"从列表隐藏"; enabled:!rpc.removeInFlight; onClicked:{ removeDialog.task=window.selectedTask; removeDialog.open() } }
+                                }
+                                Button { visible:!!window.selectedTask; text:detailCard.technicalExpanded?"收起技术详情":"展开技术详情"; onClicked:detailCard.technicalExpanded=!detailCard.technicalExpanded }
+                                ColumnLayout { visible:detailCard.technicalExpanded; Layout.fillWidth:true; spacing:7
+                                    Rectangle { Layout.fillWidth:true; height:1; color:"#e2e7f0" }
+                                    Label { text:"技术详情（原样保留 agent 返回值）"; font.bold:true; color:"#274970" }
+                                    RowLayout { Layout.fillWidth:true
+                                        Button { text:"加载 attempt / file 分页"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) }
+                                        Button { text:"继续加载 file"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() }
+                                        Button { text:"加载 range"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() }
+                                    }
+                                    Label { Layout.fillWidth:true; text:"attempt："+(rpc.attempts.length>0?rpc.attempts.length:"agent 未提供")+" · file："+(rpc.files.length>0?rpc.files.length:"agent 未提供")+" · range："+(rpc.ranges.length>0?rpc.ranges.length:"agent 未提供"); color:"#657389" }
+                                    Muted { Layout.fillWidth:true; text:window.selectedTask ? "请求引擎："+window.value(window.selectedTask.policy ? window.selectedTask.policy.requested_mode : null)+" · 实际引擎："+window.value(window.selectedTask.actual_mode)+" · 调度请求："+window.value(window.selectedTask.policy ? window.selectedTask.policy.scheduler : null)+" · 实际调度："+window.value(window.selectedTask.actual_scheduler)+" · range 策略："+window.value(window.selectedTask.actual_range_policy) : "" }
+                                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#a56b20"; text:window.selectedTask && window.selectedTask.fallback_reason ? "回退原因："+window.selectedTask.fallback_reason.message : "回退原因：agent 未提供（尚无或未协商）" }
+                                    Muted { Layout.fillWidth:true; text:window.selectedTask ? "通道："+window.value(window.metric(window.selectedTask,"channel_count_active"))+" · 数据连接："+window.value(window.metric(window.selectedTask,"data_connections"))+" · 队列："+window.value(window.metric(window.selectedTask,"queue_depth_current")) : "" }
+                                    Muted { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:window.selectedTask && window.selectedTask.backend_evidence && window.selectedTask.backend_evidence.phase_timing ? "阶段耗时：control_prepare "+window.seconds(window.selectedTask.backend_evidence.phase_timing.control_prepare)+" · data_connect "+window.seconds(window.selectedTask.backend_evidence.phase_timing.data_connect)+" · first_payload "+window.seconds(window.selectedTask.backend_evidence.phase_timing.first_payload)+" · payload_io "+window.seconds(window.selectedTask.backend_evidence.phase_timing.payload_io)+" · transfer_complete_wait "+window.seconds(window.selectedTask.backend_evidence.phase_timing.transfer_complete_wait) : "阶段耗时：agent 未提供" }
+                                    Muted { Layout.fillWidth:true; text:"恢复资格："+(window.selectedTask && window.selectedTask.recovery ? window.value(window.selectedTask.recovery.eligibility) : "agent 未提供")+" · attempt："+(window.selectedTask && window.selectedTask.attempt ? window.value(window.selectedTask.attempt.attempt_number) : "agent 未提供") }
+                                    Muted { Layout.fillWidth:true; text:"详情状态："+rpc.detailStatus+" · "+(rpc.stale?"连接已断开，等待重连":"当前 agent epoch")+" · watermark："+window.value(rpc.detailWatermark) }
                                 }
                             }
                         }
