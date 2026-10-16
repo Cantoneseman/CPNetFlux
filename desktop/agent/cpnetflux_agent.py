@@ -222,7 +222,9 @@ class Agent:
             total = summary.get("bytes_total")
             moved = summary.get("bytes_transferred")
             files = summary.get("file_count")
-            m.update(files_total=files, files_committed=summary.get("completed_files"),
+            m.update(files_total=files, files_discovered=files,
+                     files_transferred=summary.get("completed_files"),
+                     files_committed=summary.get("completed_files"),
                      files_failed=summary.get("failed_files"), files_skipped=summary.get("skipped_files"),
                      bytes_total=total, bytes_transferred=moved, bytes_verified=None,
                      bytes_committed=moved, channel_count_active=0, queue_depth_current=0,
@@ -240,7 +242,8 @@ class Agent:
                                                   "status": "observed" if manifest_path.exists() else "unknown"}
         elif local.exists() and local.is_dir():
             files = [f for f in local.rglob("*") if f.is_file()]
-            m.update(files_total=len(files), files_committed=None, files_failed=None, files_skipped=None,
+            m.update(files_total=len(files), files_discovered=len(files), files_transferred=None,
+                     files_committed=None, files_failed=None, files_skipped=None,
                      bytes_total=sum(f.stat().st_size for f in files), bytes_transferred=None,
                      bytes_verified=None, bytes_committed=None, channel_count_active=0,
                      queue_depth_current=None, data_connections=None, speed_bps=None,
@@ -461,10 +464,132 @@ class Agent:
         self.emit(t)
         self.runners[t["transfer_id"]] = asyncio.create_task(self.run_real(t))
 
+    def scan_real_source(self, t):
+        """Return a real local upload total without inventing remote progress."""
+        if t["direction"] != "upload":
+            return None
+        root = Path(t["source"]["path"])
+        files = []
+        total = 0
+        for item in root.rglob("*"):
+            try:
+                if item.is_file():
+                    files.append(item)
+                    total += item.stat().st_size
+            except OSError:
+                # The core remains the authority for changed/unreadable files.
+                continue
+        return len(files), total
+
+    async def monitor_real_events(self, t, proc):
+        """Consume core event-log records while the child is still running."""
+        path = Path(t["backend_evidence"].get("event_log", ""))
+        offset = 0
+        completed = int(t["metrics"].get("files_transferred") or 0)
+        skipped = int(t["metrics"].get("files_skipped") or 0)
+        moved = int(t["metrics"].get("bytes_transferred") or 0)
+        cumulative_progress = False
+        started = asyncio.get_running_loop().time()
+        last_bytes = moved
+        last_time = started
+        seen_files = set()
+        while proc.returncode is None:
+            changed = False
+            if path.is_file():
+                try:
+                    with path.open("r", encoding="utf-8") as stream:
+                        stream.seek(offset)
+                        lines = stream.readlines()
+                        offset = stream.tell()
+                except OSError:
+                    lines = []
+                for line in lines:
+                    try:
+                        event = json.loads(line)
+                    except (TypeError, ValueError):
+                        continue
+                    kind = event.get("event")
+                    identity = (kind, event.get("path"), event.get("bytes"))
+                    if kind in {"file_complete", "file_skipped"} and identity in seen_files:
+                        continue
+                    if kind in {"file_complete", "file_skipped"}:
+                        seen_files.add(identity)
+                    if kind == "file_complete":
+                        completed += 1
+                        if not cumulative_progress:
+                            moved += max(0, int(event.get("bytes") or 0))
+                        changed = True
+                    elif kind == "file_skipped":
+                        skipped += 1
+                        changed = True
+                    elif kind == "tree_progress":
+                        candidate = max(0, int(event.get("bytes") or 0))
+                        if candidate >= moved:
+                            moved = candidate
+                            cumulative_progress = True
+                            changed = True
+            current = asyncio.get_running_loop().time()
+            delta = moved - last_bytes
+            elapsed = current - started
+            if delta or changed:
+                instant = delta / max(current - last_time, 1e-6)
+                average = moved / max(elapsed, 1e-6)
+                total = t["metrics"].get("bytes_total")
+                m = t["metrics"]
+                m.update(files_transferred=completed, files_committed=completed,
+                         files_skipped=skipped, bytes_transferred=moved,
+                         speed_bps=instant if delta else m.get("speed_bps"),
+                         average_speed_bps=average,
+                         eta_seconds=((total - moved) / average if total is not None and average > 0 and total >= moved else None))
+                self.emit(t)
+                last_bytes, last_time = moved, current
+            await asyncio.sleep(0.10)
+        # Drain records written just before process exit.
+        if path.is_file():
+            try:
+                with path.open("r", encoding="utf-8") as stream:
+                    stream.seek(offset)
+                    for line in stream:
+                        try:
+                            event = json.loads(line)
+                        except (TypeError, ValueError):
+                            continue
+                        if event.get("event") == "file_complete":
+                            identity = (event.get("event"), event.get("path"), event.get("bytes"))
+                            if identity not in seen_files:
+                                seen_files.add(identity)
+                                completed += 1
+                                if not cumulative_progress:
+                                    moved += max(0, int(event.get("bytes") or 0))
+                        elif event.get("event") == "file_skipped":
+                            identity = (event.get("event"), event.get("path"), event.get("bytes"))
+                            if identity not in seen_files:
+                                seen_files.add(identity)
+                                skipped += 1
+                        elif event.get("event") == "tree_progress":
+                            moved = max(moved, int(event.get("bytes") or 0))
+                            cumulative_progress = True
+            except OSError:
+                pass
+        if moved != t["metrics"].get("bytes_transferred") or completed != t["metrics"].get("files_committed"):
+            t["metrics"].update(files_transferred=completed, files_committed=completed,
+                                 files_skipped=skipped, bytes_transferred=moved)
+            self.emit(t)
+
     async def run_real(self, t):
         proc = None
+        monitor = None
         try:
             command = self.build_real_command(t)
+            t["state"] = "scanning"; self.emit(t)
+            scanned = await asyncio.to_thread(self.scan_real_source, t)
+            if scanned is not None:
+                files, total = scanned
+                t["metrics"].update(files_total=files, files_discovered=files,
+                                     files_transferred=0, files_committed=0, files_skipped=0,
+                                     bytes_total=total, bytes_transferred=0, bytes_committed=0,
+                                     speed_bps=0, average_speed_bps=0, eta_seconds=None)
+                self.emit(t)
             t["state"] = "connecting"; self.emit(t)
             proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE,
                                                         stderr=asyncio.subprocess.PIPE)
@@ -476,7 +601,10 @@ class Agent:
                                           control_tls="verified", data_tls="verified", channel_count=1,
                                           applied_at=now())
             self.emit(t)
+            monitor = asyncio.create_task(self.monitor_real_events(t, proc))
             stdout, stderr = await proc.communicate()
+            if monitor is not None:
+                await monitor
             summary_path=t["backend_evidence"].get("summary")
             summary={}
             if summary_path and os.path.isfile(summary_path):
@@ -503,6 +631,9 @@ class Agent:
                 self.checkpoint(t)
             self.emit(t)
         except (OSError, RpcError) as exc:
+            if monitor is not None and not monitor.done():
+                monitor.cancel()
+                await asyncio.gather(monitor, return_exceptions=True)
             t.update(state="failed", transfer_status="fail", evidence_status="incomplete",
                      error=detail(getattr(exc,"code","internal_error"),str(exc),t["transfer_id"],"transfer"))
             t["attempt"].update(state="failed", ended_at=now(), quiescence="confirmed")

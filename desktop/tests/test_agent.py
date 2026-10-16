@@ -185,3 +185,63 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(self.p.call("directory.list", {"node_id":"n1", "root_id":"home", "path":"", "cursor":None, "limit":100})["error"]["data"]["code"], "unsupported")
 
 if __name__ == "__main__": unittest.main(verbosity=2)
+
+class RealProgressTests(unittest.TestCase):
+    """Exercise the real adapter with a deterministic core event producer."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.runtime, self.state = root / "runtime", root / "state"
+        self.core = root / "core"
+        self.core.mkdir()
+        source = root / "source"
+        source.mkdir()
+        for i in range(3): (source / f"file-{i}.bin").write_bytes(b"x" * 10)
+        self.source = source
+        ca = root / "ca.pem"; ca.write_text("test-ca\n")
+        token = root / "token"; token.write_text("test-token\n"); token.chmod(0o600)
+        fake = self.core / "cpnetflux-tree-upload-client"
+        fake.write_text(r'''#!/usr/bin/env python3
+import json, sys, time
+from pathlib import Path
+args=sys.argv[1:]
+def get(name): return args[args.index(name)+1]
+log=Path(get("--event-log")); summary=Path(get("--json-summary")); log.parent.mkdir(parents=True, exist_ok=True)
+def emit(event, path="", value=0):
+    with log.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"event":event,"path":path,"bytes":value})+"\n")
+emit("tree_start")
+for i in range(3):
+    time.sleep(0.20)
+    emit("tree_progress", value=(i+1)*10)
+    emit("file_complete", f"file-{i}.bin", 10)
+summary.write_text(json.dumps({"result":"pass","bytes_total":30,"bytes_transferred":30,"file_count":3,"completed_files":3,"failed_files":0,"skipped_files":0,"data_transfer_connect_count":1,"checksum_algorithm":"crc32c","elapsed_seconds":0.65}))
+''')
+        fake.chmod(0o700)
+        self.ca, self.token = ca, token
+        self.path = self.runtime / "agent.sock"
+        self.proc = subprocess.Popen([sys.executable, str(AGENT), "--runtime-dir", str(self.runtime), "--state-dir", str(self.state), "--core-bin-dir", str(self.core)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        end=time.monotonic()+5
+        while not self.path.exists() and time.monotonic()<end and self.proc.poll() is None: time.sleep(.02)
+        self.assertTrue(self.path.exists(), "real agent socket missing")
+        self.p=Peer(self.path)
+    def tearDown(self):
+        self.p.close(); self.proc.terminate(); self.proc.communicate(timeout=5); self.tmp.cleanup()
+    def call(self, method, params): return self.p.call(method, params)
+    def test_real_progress_is_visible_before_completion(self):
+        profile={"operation_id":"profile-real","profile":{"node_id":"n1","name":"test","host":"127.0.0.1","control_port":1,"server_name":"127.0.0.1","ca_path":str(self.ca),"auth_mode":"token","credential_ref":"file:"+str(self.token),"default_root_id":"home"}}
+        self.assertIn("result", self.call("profile.create", profile))
+        base=json.loads(json.dumps(CREATE)); base.update(operation_id="real-create", source={"kind":"local","path":str(self.source),"node_id":None,"root_id":None})
+        task=self.call("transfer.create", base)["result"]["snapshot"]
+        self.call("transfer.start", {"transfer_id":task["transfer_id"],"operation_id":"real-start","expected_revision":task["revision"]})
+        intermediate=[]; end=time.monotonic()+5
+        while time.monotonic()<end:
+            current=self.call("transfer.get", {"transfer_id":task["transfer_id"]})["result"]["snapshot"]
+            if current["state"] in {"completed", "failed", "cancelled", "recoverable"}: break
+            intermediate.append(current)
+            time.sleep(.05)
+        self.assertTrue(intermediate, "real task skipped running state")
+        self.assertTrue(any((x["metrics"].get("bytes_transferred") or 0) > 0 for x in intermediate), intermediate)
+        self.assertTrue(any((x["metrics"].get("files_committed") or 0) > 0 for x in intermediate), intermediate)
+        self.assertEqual(current["state"], "completed")
+        self.assertEqual(current["metrics"]["bytes_transferred"], 30)

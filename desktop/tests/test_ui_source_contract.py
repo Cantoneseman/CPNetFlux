@@ -31,7 +31,7 @@ assert "启动中…" in QML and 'rpc.action("transfer.start"' in QML
 
 # Presentation contract: the user-facing view must explain real agent stages,
 # keep unknown evidence explicit, and hide protocol-level fields by default.
-for marker in ["正在扫描目录", "等待远端准备", "阶段进度", "扫描目录", "远端准备", "传输数据", "校验清单", "提交完成", "agent 未提供", "不推算百分比", "完整性核验", "展开技术详情", "收起技术详情", "技术详情（原样保留 agent 返回值）"]:
+for marker in ["正在扫描目录", "等待远端准备", "阶段进度", "扫描目录", "远端准备", "传输数据", "校验清单", "提交完成", "待处理", "正在获取文件清单", "实时后端事件", "完整性核验", "展开技术详情", "收起技术详情", "技术详情（原样保留 agent 返回值）"]:
     assert marker in QML, marker
 assert "indeterminate:" not in QML
 assert "files_discovered" in QML

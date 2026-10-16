@@ -23,12 +23,14 @@ ApplicationWindow {
     }
     property var pageTitles: ["传输任务", "新建任务", "任务详情", "节点连接", "远端目录", "历史与恢复", "高级设置"]
     function known(v) { return v !== null && v !== undefined && v !== "" }
-    function value(v, unit) { return known(v) ? String(v) + (unit || "") : "agent 未提供" }
-    function seconds(v) { return known(v) ? Number(v).toFixed(3) + " 秒" : "agent 未提供" }
-    function bytes(v) { return known(v) ? (Number(v)/1048576).toFixed(2)+" MiB" : "agent 未提供" }
+    function value(v, unit) { return known(v) ? String(v) + (unit || "") : "暂无" }
+    function seconds(v) { return known(v) ? Number(v).toFixed(3) + " 秒" : "暂无" }
+    function bytes(v) { return known(v) ? (Number(v)/1048576).toFixed(2)+" MiB" : "暂无" }
+    function rate(v) { return known(v) ? (Number(v)/1048576).toFixed(2)+" MiB/s" : "等待首个进度事件" }
+    function eta(v) { return known(v) ? (Number(v) < 60 ? Number(v).toFixed(1)+" 秒" : (Number(v)/60).toFixed(1)+" 分钟") : "计算中" }
     function metric(t, key) { return t && t.metrics ? t.metrics[key] : null }
     function stateName(s) {
-        return ({queued:"已创建，等待启动", scanning:"正在扫描目录", connecting:"正在连接远端", negotiating:"正在协商传输", transferring:"正在传输", committing:"正在校验并提交", completed:"传输已完成", failed:"传输失败", cancelled:"已取消", recoverable:"可恢复", paused:"已暂停"})[s] || "等待 agent 提供状态"
+        return ({queued:"已创建，等待启动", scanning:"正在扫描目录", connecting:"正在连接远端", negotiating:"正在协商传输", transferring:"正在传输", committing:"正在校验并提交", completed:"传输已完成", failed:"传输失败", cancelled:"已取消", recoverable:"可恢复", paused:"已暂停"})[s] || "等待状态"
     }
     function stateSummary(t) {
         if (!t) return "请选择一项任务。"
@@ -37,14 +39,14 @@ ApplicationWindow {
             scanning:"正在扫描目录，文件数量可能仍在变化；请等待扫描和远端准备完成。",
             connecting:"正在连接远端并等待控制通道准备。",
             negotiating:"正在与远端协商传输能力和数据通道。",
-            transferring:"agent 正在传输已发现的文件；速度和进度只在 agent 返回时显示。",
+            transferring:"正在传输已发现的文件；速度和进度会随实时事件更新。",
             committing:"正在校验 manifest、checksum 并提交传输结果。",
             completed:"agent 已返回完成状态，传输结果可以核验。",
             failed:"agent 返回失败状态，请查看错误详情并按恢复资格重试。",
             cancelled:"任务已取消；是否可恢复由 agent 返回的恢复资格决定。",
             recoverable:"agent 已保留恢复点，可以尝试恢复或查看失败原因。",
             paused:"任务已暂停；继续操作取决于 agent 的实际能力。"
-        })[t.state] || "agent 尚未提供可理解的阶段状态。"
+        })[t.state] || "等待后端确认当前阶段。"
     }
     function phaseKey(t) {
         if (!t) return "scan"
@@ -69,18 +71,18 @@ ApplicationWindow {
     function nextStep(t) {
         if (!t) return ""
         if (t.state === "queued") return "下一步：确认路径和节点后开始任务。"
-        if (t.state === "scanning") return "下一步：等待目录扫描完成；agent 未提供总数时不显示百分比。"
+        if (t.state === "scanning") return "下一步：等待目录扫描完成；完成后显示文件总数。"
         if (t.state === "connecting" || t.state === "negotiating") return "下一步：等待远端准备和数据连接。"
-        if (t.state === "transferring") return "下一步：等待 agent 返回传输完成或错误。"
+        if (t.state === "transferring") return "下一步：等待传输完成或错误；实时进度会持续更新。"
         if (t.state === "committing") return "下一步：等待 manifest、checksum 和 finalize 结果。"
         if (t.state === "completed") return "下一步：查看完整性结果或从列表隐藏。"
-        if (t.state === "recoverable") return "下一步：使用 agent 提供的恢复能力继续任务。"
-        if (t.state === "cancelled") return "下一步：如有恢复资格，可请求 agent 恢复。"
-        return "下一步：查看错误详情并按 agent 返回的恢复资格处理。"
+        if (t.state === "recoverable") return "下一步：按恢复资格继续任务或查看失败原因。"
+        if (t.state === "cancelled") return "下一步：如有恢复资格，可继续任务。"
+        return "下一步：查看错误详情和恢复资格。"
     }
     function integrityText(t, key) {
         var e = t && t.backend_evidence ? t.backend_evidence[key] : null
-        if (!known(e)) return "agent 未提供此项证据"
+        if (!known(e)) return "待核验"
         if (typeof e === "object" && known(e.status)) return String(e.status)
         return "agent 已返回"
     }
@@ -230,7 +232,7 @@ ApplicationWindow {
                                         Label { text:window.bytes(modelData.metrics.bytes_committed)+" / "+window.bytes(modelData.metrics.bytes_total); color:"#44556e" }
                                         Item { Layout.fillWidth:true }
                                         Label { text:"文件 "+window.value(modelData.metrics.files_committed)+" / "+window.value(modelData.metrics.files_total); color:"#44556e" }
-                                        Label { text:"实际模式 "+(window.known(modelData.actual_mode)?modelData.actual_mode.toUpperCase():"agent 未提供"); color:"#44556e" }
+                                        Label { text:"实际模式 "+(window.known(modelData.actual_mode)?modelData.actual_mode.toUpperCase():"暂无"); color:"#44556e" }
                                     }
                                 }
                             }
@@ -267,9 +269,9 @@ ApplicationWindow {
                                     Label { text:"请求引擎" }
                                     ComboBox { id:mode; model:rpc.demoAdapter ? ["自动选择","V1（合成）","V2（合成回退）"] : ["V2 目录传输"]; enabled:rpc.demoAdapter; Layout.fillWidth:true }
                                     Label { text:"后端能力" }
-                                    Label { text:rpc.demoAdapter ? "开发诊断/合成数据" : (rpc.capabilities.modes ? "已从 agent 读取" : "未知/未提供"); color:"#657389"; Layout.fillWidth:true }
+                                    Label { text:rpc.demoAdapter ? "开发诊断/合成数据" : (rpc.capabilities.modes ? "已从 agent 读取" : "等待读取"); color:"#657389"; Layout.fillWidth:true }
                                 }
-                                Muted { Layout.fillWidth:true; text:rpc.demoAdapter ? "开发诊断入口；不会读取本地路径。" : "默认要求 CA/TLS 与凭据引用。agent 会在创建前检查路径、权限、认证和后端能力；缺失字段显示未知。" }
+                                Muted { Layout.fillWidth:true; text:rpc.demoAdapter ? "开发诊断入口；不会读取本地路径。" : "默认要求 CA/TLS 与凭据引用。agent 会在创建前检查路径、权限、认证和后端能力；状态和进度以实时后端事件为准。" }
                                 Label { visible:rpc.createInFlight || rpc.createStatus.length>0; Layout.fillWidth:true; text:rpc.createStatus; color:rpc.createInFlight?"#8a5a18":"#36734f"; wrapMode:Text.WordWrap }
                                 Label { visible:rpc.createError.length>0; Layout.fillWidth:true; text:rpc.createError; color:"#a64b31"; wrapMode:Text.WordWrap }
                                 Button { objectName:"createButton"; text:rpc.createInFlight ? "正在创建…" : "创建传输任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.createInFlight && (rpc.demoAdapter || rpc.profiles.length>0)
@@ -304,17 +306,18 @@ ApplicationWindow {
                                             border.color:phaseState==="current"?"#80a9df":(phaseState==="done"?"#9bcfb3":(phaseState==="error"?"#edb8b0":"#e2e7f0"))
                                             ColumnLayout { anchors.fill:parent; anchors.margins:7; spacing:2
                                                 Label { Layout.fillWidth:true; text:modelData.name; horizontalAlignment:Text.AlignHCenter; font.bold:true; color:"#274970"; elide:Text.ElideRight }
-                                                Label { Layout.fillWidth:true; text:phaseState==="current"?"进行中":(phaseState==="done"?"已完成":(phaseState==="error"?"失败":"待 agent 提供")); horizontalAlignment:Text.AlignHCenter; color:"#657389"; font.pixelSize:11 }
+                                                Label { Layout.fillWidth:true; text:phaseState==="current"?"进行中":(phaseState==="done"?"已完成":(phaseState==="error"?"失败":"待处理")); horizontalAlignment:Text.AlignHCenter; color:"#657389"; font.pixelSize:11 }
                                             }
                                         }
                                     }
                                 }
                                 Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:"文件进度"; font.bold:true; color:"#274970" }
-                                Label { visible:!!window.selectedTask; text:window.progressKnown(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")) ? "已提交 "+window.value(window.metric(window.selectedTask,"files_committed"))+" / "+window.value(window.metric(window.selectedTask,"files_total")) : "文件进度：agent 未提供（不推算百分比）"; color:"#44556e" }
+                                Label { visible:!!window.selectedTask; text:window.progressKnown(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")) ? "已提交 "+window.value(window.metric(window.selectedTask,"files_committed"))+" / "+window.value(window.metric(window.selectedTask,"files_total")) : "正在获取文件清单…"; color:"#44556e" }
                                 ProgressBar { visible:window.selectedTask && window.progressKnown(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")); Layout.fillWidth:true; value:window.fraction(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")) }
                                 Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:"字节进度"; font.bold:true; color:"#274970" }
-                                Label { visible:!!window.selectedTask; text:window.progressKnown(window.metric(window.selectedTask,"bytes_committed"),window.metric(window.selectedTask,"bytes_total")) ? "已传输 "+window.bytes(window.metric(window.selectedTask,"bytes_transferred"))+" · 已提交 "+window.bytes(window.metric(window.selectedTask,"bytes_committed"))+" / "+window.bytes(window.metric(window.selectedTask,"bytes_total")) : "字节进度：agent 未提供（不推算百分比、速度或 ETA）"; color:"#44556e" }
-                                ProgressBar { visible:window.selectedTask && window.progressKnown(window.metric(window.selectedTask,"bytes_committed"),window.metric(window.selectedTask,"bytes_total")); Layout.fillWidth:true; value:window.fraction(window.metric(window.selectedTask,"bytes_committed"),window.metric(window.selectedTask,"bytes_total")) }
+                                Label { visible:!!window.selectedTask; text:window.progressKnown(window.metric(window.selectedTask,"bytes_transferred"),window.metric(window.selectedTask,"bytes_total")) ? "已传输 "+window.bytes(window.metric(window.selectedTask,"bytes_transferred"))+" / "+window.bytes(window.metric(window.selectedTask,"bytes_total")) : "正在获取字节进度…"; color:"#44556e" }
+                                ProgressBar { visible:window.selectedTask && window.progressKnown(window.metric(window.selectedTask,"bytes_transferred"),window.metric(window.selectedTask,"bytes_total")); Layout.fillWidth:true; value:window.fraction(window.metric(window.selectedTask,"bytes_transferred"),window.metric(window.selectedTask,"bytes_total")) }
+                                Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:window.selectedTask && window.known(window.metric(window.selectedTask,"speed_bps")) ? "当前速度 "+window.rate(window.metric(window.selectedTask,"speed_bps"))+" · 平均 "+window.rate(window.metric(window.selectedTask,"average_speed_bps"))+" · 预计剩余 "+window.eta(window.metric(window.selectedTask,"eta_seconds")) : "速度将在首个实时进度事件后显示"; color:"#44556e" }
                                 Rectangle { visible:!!window.selectedTask; Layout.fillWidth:true; implicitHeight:72; radius:8; color:"#f7f9fc"; border.color:"#e2e7f0"
                                     ColumnLayout { anchors.fill:parent; anchors.margins:12; spacing:3
                                         Label { text:"完整性核验"; font.bold:true; color:"#274970" }
@@ -338,12 +341,12 @@ ApplicationWindow {
                                         Button { text:"继续加载 file"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() }
                                         Button { text:"加载 range"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() }
                                     }
-                                    Label { Layout.fillWidth:true; text:"attempt："+(rpc.attempts.length>0?rpc.attempts.length:"agent 未提供")+" · file："+(rpc.files.length>0?rpc.files.length:"agent 未提供")+" · range："+(rpc.ranges.length>0?rpc.ranges.length:"agent 未提供"); color:"#657389" }
+                                    Label { Layout.fillWidth:true; text:"attempt："+(rpc.attempts.length>0?rpc.attempts.length:"暂无")+" · file："+(rpc.files.length>0?rpc.files.length:"暂无")+" · range："+(rpc.ranges.length>0?rpc.ranges.length:"暂无"); color:"#657389" }
                                     Muted { Layout.fillWidth:true; text:window.selectedTask ? "请求引擎："+window.value(window.selectedTask.policy ? window.selectedTask.policy.requested_mode : null)+" · 实际引擎："+window.value(window.selectedTask.actual_mode)+" · 调度请求："+window.value(window.selectedTask.policy ? window.selectedTask.policy.scheduler : null)+" · 实际调度："+window.value(window.selectedTask.actual_scheduler)+" · range 策略："+window.value(window.selectedTask.actual_range_policy) : "" }
-                                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#a56b20"; text:window.selectedTask && window.selectedTask.fallback_reason ? "回退原因："+window.selectedTask.fallback_reason.message : "回退原因：agent 未提供（尚无或未协商）" }
+                                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#a56b20"; text:window.selectedTask && window.selectedTask.fallback_reason ? "回退原因："+window.selectedTask.fallback_reason.message : "回退原因：暂无（尚未发生回退）" }
                                     Muted { Layout.fillWidth:true; text:window.selectedTask ? "通道："+window.value(window.metric(window.selectedTask,"channel_count_active"))+" · 数据连接："+window.value(window.metric(window.selectedTask,"data_connections"))+" · 队列："+window.value(window.metric(window.selectedTask,"queue_depth_current")) : "" }
-                                    Muted { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:window.selectedTask && window.selectedTask.backend_evidence && window.selectedTask.backend_evidence.phase_timing ? "阶段耗时：control_prepare "+window.seconds(window.selectedTask.backend_evidence.phase_timing.control_prepare)+" · data_connect "+window.seconds(window.selectedTask.backend_evidence.phase_timing.data_connect)+" · first_payload "+window.seconds(window.selectedTask.backend_evidence.phase_timing.first_payload)+" · payload_io "+window.seconds(window.selectedTask.backend_evidence.phase_timing.payload_io)+" · transfer_complete_wait "+window.seconds(window.selectedTask.backend_evidence.phase_timing.transfer_complete_wait) : "阶段耗时：agent 未提供" }
-                                    Muted { Layout.fillWidth:true; text:"恢复资格："+(window.selectedTask && window.selectedTask.recovery ? window.value(window.selectedTask.recovery.eligibility) : "agent 未提供")+" · attempt："+(window.selectedTask && window.selectedTask.attempt ? window.value(window.selectedTask.attempt.attempt_number) : "agent 未提供") }
+                                    Muted { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:window.selectedTask && window.selectedTask.backend_evidence && window.selectedTask.backend_evidence.phase_timing ? "阶段耗时：control_prepare "+window.seconds(window.selectedTask.backend_evidence.phase_timing.control_prepare)+" · data_connect "+window.seconds(window.selectedTask.backend_evidence.phase_timing.data_connect)+" · first_payload "+window.seconds(window.selectedTask.backend_evidence.phase_timing.first_payload)+" · payload_io "+window.seconds(window.selectedTask.backend_evidence.phase_timing.payload_io)+" · transfer_complete_wait "+window.seconds(window.selectedTask.backend_evidence.phase_timing.transfer_complete_wait) : "阶段耗时：任务完成后显示" }
+                                    Muted { Layout.fillWidth:true; text:"恢复资格："+(window.selectedTask && window.selectedTask.recovery ? window.value(window.selectedTask.recovery.eligibility) : "暂无")+" · attempt："+(window.selectedTask && window.selectedTask.attempt ? window.value(window.selectedTask.attempt.attempt_number) : "暂无") }
                                     Muted { Layout.fillWidth:true; text:"详情状态："+rpc.detailStatus+" · "+(rpc.stale?"连接已断开，等待重连":"当前 agent epoch")+" · watermark："+window.value(rpc.detailWatermark) }
                                 }
                             }
@@ -413,13 +416,13 @@ ApplicationWindow {
                 // 6: advanced
                 Card { ColumnLayout { anchors.fill:parent; anchors.margins:24; spacing:16
                     Heading { text:"引擎与调度能力" }
-                    Muted { Layout.fillWidth:true; text:"能力和阶段均来自 agent/backend evidence；未提供的 V3/range 字段显示未知，相关操作保持禁用。" }
+                    Muted { Layout.fillWidth:true; text:"能力和阶段均来自 agent/backend evidence；尚未启用的 V3/range 操作保持禁用。" }
                     Label { text:"当前能力："+(rpc.demoAdapter?"开发诊断/合成数据":"真实 agent 返回的能力事实") }
                     Label { text:"checksum / resume / data TLS：以 agent capability 与任务 effective_policy 为准"; color:"#a46a1b" }
                     Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"未提供的 V3/range 能力保持禁用，不在 UI 内推算进度。"; color:"#a46a1b" }
                     ComboBox { model:["通道自动选择（请求）"]; enabled:false }
-                    ComboBox { model:["range policy：agent 未提供"]; enabled:false; Layout.fillWidth:true }
-                    Muted { Layout.fillWidth:true; text:"速度、ETA和阶段耗时未观测时显示未知。暂停不支持；恢复按钮只用于agent实际实现的demo checkpoint。真实安全策略须由权威底层协商后回读。" }
+                    ComboBox { model:["range policy：当前任务按文件调度"]; enabled:false; Layout.fillWidth:true }
+                    Muted { Layout.fillWidth:true; text:"速度、ETA和阶段耗时在产生观测后显示；暂停当前不支持，恢复按钮只在有真实恢复资格时启用。" }
                     Item { Layout.fillHeight:true }
                 } }
             }
