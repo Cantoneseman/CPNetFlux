@@ -26,6 +26,9 @@
 - `desktop/docs/`
 - `src/core/io/tree_transfer_client.cpp`
 
+- `src/core/io/persistent_tree_transfer.cpp`
+- `include/cpnetflux/config/file_transfer_options.h`
+
 ## 回滚
 
 回滚本任务提交即可恢复旧的状态呈现；不回退已有任务状态文件或远端传输数据。
