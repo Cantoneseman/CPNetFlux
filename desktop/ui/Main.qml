@@ -31,8 +31,10 @@ ApplicationWindow {
     function engineLabel(t) {
         if (!t) return "等待引擎协商"
         if (t.adapter === "demo") return "演示流程（不传输真实文件）"
-        if (t.actual_scheduler === "dynamic_ring" || t.actual_range_policy === "range_stripe")
-            return "CPNetFlux V3（动态目录 / 大文件分段）"
+        if (t.actual_range_policy === "range_stripe")
+            return "CPNetFlux V3（动态调度 + 大文件分段）"
+        if (t.actual_scheduler === "dynamic_ring")
+            return "CPNetFlux V3（动态文件调度）"
         if (t.actual_mode === "v2") return "CPNetFlux V2 兼容传输"
         if (t.actual_mode === "v1") return "兼容回退路径"
         return "等待后端确认"
@@ -40,8 +42,10 @@ ApplicationWindow {
     function engineDetail(t) {
         if (!t) return "尚未创建任务"
         if (t.adapter === "demo") return "演示数据只用于展示流程，不代表真实传输"
+        if (t.actual_range_policy === "range_stripe")
+            return "V3 动态队列和大文件分段均已由节点确认"
         if (t.actual_scheduler === "dynamic_ring")
-            return "V3 动态队列已启用；文件按空闲通道领取，避免固定通道绑定"
+            return "V3 动态文件队列已启用；本次任务按文件调度"
         if (t.actual_mode === "v2") return "V2 兼容数据面已启用；当前节点未返回 V3 调度证据"
         if (t.actual_mode === "v1") return "兼容回退路径；请检查节点能力和安全策略"
         return "等待后端返回实际协商结果"
@@ -285,7 +289,7 @@ ApplicationWindow {
                                     Label { text:"远端相对目录" }
                                     TextField { id:remotePath; text:"dataset"; Layout.fillWidth:true }
                                     Label { text:"传输引擎" }
-                                    ComboBox { id:mode; model:rpc.demoAdapter ? ["自动选择","V1（合成）","V2（合成回退）"] : ["CPNetFlux V3（动态目录/大文件分段）"]; enabled:rpc.demoAdapter; Layout.fillWidth:true }
+                                    ComboBox { id:mode; model:rpc.demoAdapter ? ["自动选择","V1（合成）","V2（合成回退）"] : ["CPNetFlux V3（动态调度）"]; enabled:rpc.demoAdapter; Layout.fillWidth:true }
                                     Label { text:"后端能力" }
                                     Label { text:rpc.demoAdapter ? "开发诊断/合成数据" : (rpc.capabilities.modes ? "已从 agent 读取" : "等待读取"); color:"#657389"; Layout.fillWidth:true }
                                 }
@@ -437,7 +441,7 @@ ApplicationWindow {
                     Muted { Layout.fillWidth:true; text:"引擎和阶段以节点返回的实际证据为准；不支持的操作会隐藏并说明原因。" }
                     Label { text:"当前能力："+(rpc.demoAdapter?"开发诊断/合成数据":"真实 agent 返回的能力事实") }
                     Label { text:"checksum / resume / data TLS：以 agent capability 与任务 effective_policy 为准"; color:"#a46a1b" }
-                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"当前任务按文件调度；大文件分段会在节点协商成功后自动启用。"; color:"#a46a1b" }
+                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"大文件分段仅在节点确认并实际启用时显示。"; color:"#a46a1b" }
                     ComboBox { model:["通道自动选择（请求）"]; enabled:false }
                     ComboBox { model:["range policy：当前任务按文件调度"]; enabled:false; Layout.fillWidth:true }
                     Muted { Layout.fillWidth:true; text:"速度、ETA和阶段耗时在产生观测后显示；暂停当前不支持，恢复按钮只在有真实恢复资格时启用。" }

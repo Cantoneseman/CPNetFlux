@@ -34,8 +34,10 @@ assert "启动中…" in QML and 'rpc.action("transfer.start"' in QML
 for marker in ["正在扫描目录", "等待远端准备", "阶段进度", "扫描目录", "远端准备", "传输数据", "校验清单", "提交完成", "待处理", "正在获取文件清单", "实时后端事件", "完整性核验", "展开技术详情", "收起技术详情", "技术详情（用于排查，不影响正常使用）"]:
     assert marker in QML, marker
 assert "indeterminate:" not in QML
-assert "CPNetFlux V3（动态目录/大文件分段）" in QML
+assert "CPNetFlux V3（动态文件调度）" in QML
 assert "engineLabel" in QML and "engineDetail" in QML
+assert "动态调度 + 大文件分段" in QML
+assert "本次任务按文件调度" in QML
 assert "目录浏览暂不可用" in QML
 assert "尚未检查" in QML
 assert "files_discovered" in QML
