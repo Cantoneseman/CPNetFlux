@@ -1,3 +1,12 @@
+# 当前执行（2026-10-17；R2026-10-16-V3-UNIFIED-MULTILINK）
+
+本节为当前生效状态。下方 2026-10-14 内容与未提交改动保留作历史记录；其中旧测试数量、资源阻塞和旧路线不作为本轮结论。
+
+- V3-WORK-UNIFY-01：done。统一 WorkItem/WorkLease/WorkerContext/ConnectionEpoch 契约已接入单文件与动态目录共用的 persistent sender；状态、owner、epoch、deadline、drain、断线回收和整文件 attempt 重派通过行为测试。
+- 实现提交：cbebce51e08bcdd986179e1f633885792f9bf762；GitHub main push 返回 0，远端 SHA 回读一致。Release/TLS/io_uring 构建通过，定向 96/96、全量 CTest 329/329、0 skip，V3 RST 矩阵 8 轮通过。结果：docs/tasks/2026-10-17-v3-work-unify-01-result.md。
+- 下一项：V3-WORK-UNIFY-02（planned，未开工），合并 worker loop、接入 global scheduler、实现 manifest 对账与自动 reconnect/retry；persistent + global scheduler 拒绝继续有效。尚未完成十链路、跨域性能或生产稳定性验收。
+- 开发位置：深圳根目录单写入者；GridFTP proxy 在实际对比实验前刷新，本阶段未使用真实 GridFTP。
+
 # 当前执行（2026-10-14）
 
 当前主线：V3-COMPOSITION-01 组合稳定性回归 -> V3-WORKER-STATE-01 统一 scheduler/pipeline/持久连接 worker 生命周期 -> V3-RELEASE-STABILITY-01 稳定候选验收。V3-WORKER-STATE-01A 状态报告修复已通过；下一步继续实现共同 worker/lease 生命周期，不据此宣称所有策略组合或生产 readiness 已验证。
