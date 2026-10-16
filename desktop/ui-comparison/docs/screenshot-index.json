@@ -1,0 +1,156 @@
+[
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "path": "evidence/original-tasks-p0-1366-1.png",
+    "sha256": "318da966b3f297295c91b2a94df9f2056e6db2f501c7d21d20fe03826e092b02",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "path": "evidence/original-tasks-p1-1366-1.png",
+    "sha256": "44b2a09879b6a58431ac9771a44777eb98d0862ddb50f9bcd855147685d2cfec",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "path": "evidence/original-tasks-p2-1366-1.png",
+    "sha256": "bc323ef73335638cfaba5fabcfaffe287576fe5aea207a08f49d216c7195ee4c",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "path": "evidence/original-tasks-p3-1366-1.png",
+    "sha256": "b4d3c92f4623164d022939c525df36a2a660529ba4a4250348307c26a151a0cd",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "path": "evidence/original-scanning-p2-1366-1.png",
+    "sha256": "4ee22987409969b8193fc50117988732c52390f8179f68769a6787688fe1988b",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "path": "evidence/original-failed-p2-1366-1.png",
+    "sha256": "820cc0b4c558b2b065d2dfc251d26dc393fb83ceaa47a6b348efdcafa35475d7",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "path": "evidence/original-offline-p0-1366-1.png",
+    "sha256": "ae0c5f8486ae7ce1f4a462b3b85cbc444e6e17b069cfd61aa20f345153fc74c5",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "path": "evidence/a-tasks-p0-1366-1.png",
+    "sha256": "0e67a5a25c2c21b0eb37fccd0daa4785922698d71d58e64c57ecfe478b694dd5",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "path": "evidence/a-tasks-p1-1366-1.png",
+    "sha256": "5acbd956b5f1a33e4b41a9b13fe3ec612635fd5437b9b0b6046d53dc51ce94ce",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "path": "evidence/a-tasks-p2-1366-1.png",
+    "sha256": "057846dbd090215d1f4e311f59a75173cce9f9de59368de2d93cb2db690f4a8b",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "path": "evidence/a-tasks-p3-1366-1.png",
+    "sha256": "4d60e09a6ec2e1d1ea8f75db9ec4c7b354e2f4bf249a029be544c1963cfe4455",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "path": "evidence/a-scanning-p2-1366-1.png",
+    "sha256": "185792f789c637f17e8076d4e1e68d4e1837193277f01bbb5935d00a430bb970",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "path": "evidence/a-failed-p2-1366-1.png",
+    "sha256": "45f92fbb86107f39a386989af7b701541518dab2c338183d1f8d7f78153610f0",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "path": "evidence/a-offline-p0-1366-1.png",
+    "sha256": "efb922e4835b1517758749d1519d45196c12f24ffd946e6b4d036e662df8462d",
+    "pixels": [
+      1366,
+      768
+    ]
+  }
+]

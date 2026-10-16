@@ -1,0 +1,270 @@
+{
+  "source_commit": "8253126c9baaa6737b81afdbf2911802eb6671cd",
+  "note": "Checkout SHA256 includes Windows line endings; Git blob is cross-platform identity. No runtime or build imports.",
+  "files": [
+    {
+      "path": "desktop/.gitignore",
+      "git_blob": "e0ac79144aeb1d58df8b20f96f9438ad778b2283",
+      "checkout_sha256": "4940ed65b417a4b74fd0c2d62bdd02f1ddb588f6afce26889212aae94133c3c7",
+      "size": 30
+    },
+    {
+      "path": "desktop/CMakeLists.txt",
+      "git_blob": "b910c286458b53b7876072f8e30f269d2cce5a04",
+      "checkout_sha256": "987f784ff08f69415d0c6c4cefb94ce1dc0cc858f5cd6e37aa655316f4bf0698",
+      "size": 3563
+    },
+    {
+      "path": "desktop/README.md",
+      "git_blob": "69653c73c50a5116ccc50b3fa17ca97dd9824ace",
+      "checkout_sha256": "dac326cc64f824dc51d82ab662da88447192e3da64845bc449eaaf82e3fa9e29",
+      "size": 1540
+    },
+    {
+      "path": "desktop/agent/adapter-boundary.md",
+      "git_blob": "f3a6376ca7026fc24241ee484dfca1a3b119fed0",
+      "checkout_sha256": "4eb4696b371a72a60ef017bd0908eeaebab616bf790166f9d45632df32931789",
+      "size": 2421
+    },
+    {
+      "path": "desktop/agent/cpnetflux-agent.in",
+      "git_blob": "58f658038f1efe44caee880e4797011b956bff8b",
+      "checkout_sha256": "868956fd8f70e34e58e25ff377f791d00dcf85dfbbcbe15e182e9de37d46b9aa",
+      "size": 163
+    },
+    {
+      "path": "desktop/agent/cpnetflux_agent.py",
+      "git_blob": "61d97a29aaff12d83c18d184109bd23f648ea36f",
+      "checkout_sha256": "210828e6ffcfce9f2ef3918eecad918f244fe8b92690266c0271b13565d3d6b2",
+      "size": 53503
+    },
+    {
+      "path": "desktop/docs/acceptance.md",
+      "git_blob": "11b70a4a955444d086890f997cdb1a128778bc39",
+      "checkout_sha256": "39ce4e8753f8f9833f262034723a383c5f604faa4f3df70d9ae9aa2b9839eb8d",
+      "size": 1777
+    },
+    {
+      "path": "desktop/docs/agent-api-01-handoff-prompt.md",
+      "git_blob": "2cc45e2fa032c24587c8d4ec775140420b4742f2",
+      "checkout_sha256": "d3f8461a9873bb8ef9c5850935ca815d63d6ecce88f6dfdd882a89cfaa7b272e",
+      "size": 2410
+    },
+    {
+      "path": "desktop/docs/backend-02-receipt.md",
+      "git_blob": "1c20b4a1215e51d27ba233e631bef3f4234553d8",
+      "checkout_sha256": "aaaf98354fb37ce4ca4b0385a3760f1c2f99b57bd74afe3dcfc9654255764de6",
+      "size": 1795
+    },
+    {
+      "path": "desktop/docs/desktop-shell-01.md",
+      "git_blob": "8b2e0449593d3942fdedafa290d21602898d47e4",
+      "checkout_sha256": "abaf535353e9122cb8cbde0b775f6bc45cc30dd94add1bd9248ae22aa19187cd",
+      "size": 1497
+    },
+    {
+      "path": "desktop/docs/phase-1-receipt.md",
+      "git_blob": "3a875665b283120b04ebc7a05cb347e34698d982",
+      "checkout_sha256": "14fe1cc99bc266a07e9c44027a7d9a1a87cd0ba984ab61b558e5b504450a7fa6",
+      "size": 2223
+    },
+    {
+      "path": "desktop/docs/phase-1-scope.md",
+      "git_blob": "989e9e3a5490f3177c3d3fd7d453ed736c0149bc",
+      "checkout_sha256": "b6c6d33768d68ca5f3535814c6cef1a69ddd9e261ebb40d32a8d7e1308cfedae",
+      "size": 1837
+    },
+    {
+      "path": "desktop/docs/product-and-state.md",
+      "git_blob": "bbb4f24da1f2fda74da293b48f94929a14b9d544",
+      "checkout_sha256": "aee14e7ca628503cd02c430d4d516a5fddcba8d89c94edae37f82e5731573654",
+      "size": 8077
+    },
+    {
+      "path": "desktop/docs/real-client-01-plan.md",
+      "git_blob": "cb9bbcf8cc697c0b739fae818dc3136ba5953ee2",
+      "checkout_sha256": "96d066b9a1cfd70f51e8769ca22d6de1b211cce9e5a157f69390d1603329083e",
+      "size": 6028
+    },
+    {
+      "path": "desktop/docs/rpc-contract.md",
+      "git_blob": "2f4cb3bdcaf61f8cde84b2cf52ecc65947820d0f",
+      "checkout_sha256": "e303cb01bd9a529f06e96fa124ef2713070beafd458ca938e8c07e416874e6ee",
+      "size": 8763
+    },
+    {
+      "path": "desktop/docs/shell-01-receipt.md",
+      "git_blob": "4155db6066dfb7b475031fdd1050075a17620745",
+      "checkout_sha256": "c401d68e1ff74ddf3a94b2cb2805a994a9a410471821cadc29082d2830e5a748",
+      "size": 2742
+    },
+    {
+      "path": "desktop/docs/task-2026-10-15-ui-reliability-01.md",
+      "git_blob": "025d4821fa45821a05cc669850bef422d6909926",
+      "checkout_sha256": "58d17d6dd2bd727ef9b020a776eff73fe263c21579a322dc8648b17a128a14a1",
+      "size": 3476
+    },
+    {
+      "path": "desktop/docs/task-2026-10-15-ui-run-fix-01.md",
+      "git_blob": "86bf01d9693ca88972a6561c8a334e11c922e75a",
+      "checkout_sha256": "f6bededc41849d09375f18031fc69dd060dcd9f04b4e6d2cec6a161d31f33297",
+      "size": 3357
+    },
+    {
+      "path": "desktop/docs/task-2026-10-16-agent-live-progress-03.md",
+      "git_blob": "ea94bbbeac99c14e4e6587c0bf84e0ce620f2a13",
+      "checkout_sha256": "6a58f75354153704b349e696c3b9286c5481f0d1409807e66b7a61438fa60ad3",
+      "size": 3300
+    },
+    {
+      "path": "desktop/docs/task-2026-10-16-ui-state-presentation-02.md",
+      "git_blob": "f433d78bab401696e014274208d329c13290597b",
+      "checkout_sha256": "c2cf114347db0f1078d07bfd3be57794dba7f1e18d55cfa66d6bf23ed6f6ad01",
+      "size": 1796
+    },
+    {
+      "path": "desktop/docs/ui-demo-03-scope.md",
+      "git_blob": "f2f51d829e58b5e28a7e51ae02cc087ae50cac87",
+      "checkout_sha256": "9ae14935dec984bfb462416060ffec88e15a3a356d04a6e6c582f17f4179e82e",
+      "size": 1134
+    },
+    {
+      "path": "desktop/schemas/desktop-agent.schema.json",
+      "git_blob": "2d8a8806288edba990401968de22c0204c7ccf5c",
+      "checkout_sha256": "da583483d0c41841d70328916ef18cfe75b53787f3b330c9d5df1c4fd7bd72da",
+      "size": 95211
+    },
+    {
+      "path": "desktop/tests/fixtures.json",
+      "git_blob": "a7b765bb66e2c1469981cfd6e822d4d5fbb7cd3b",
+      "checkout_sha256": "0d7d78542084387d6c91eb9f0870878662348ce0eb8d642fb628cdb2106db603",
+      "size": 99438
+    },
+    {
+      "path": "desktop/tests/test_agent.py",
+      "git_blob": "447d59140357085ba389b6b542c8dce5b4030c4e",
+      "checkout_sha256": "de208d883de11c8f6d4012125f3f31ab45827401d7a100acc3e26824ff737a1a",
+      "size": 15156
+    },
+    {
+      "path": "desktop/tests/test_contract.py",
+      "git_blob": "18a7d058db6210ae4a104f5e2713f1a727d2e7b7",
+      "checkout_sha256": "a9d9fa684773da24a1d30f4ee5cdc5cc511b25e177b1baf3efa854c0c4355768",
+      "size": 11842
+    },
+    {
+      "path": "desktop/tests/test_rpc_client.cpp",
+      "git_blob": "a57f76a8c4a7435966137170a2f8e11fb8891ee4",
+      "checkout_sha256": "c220b5ca65baf54cc5823ba8a48c39a6d79eee0b99c503119affe57a870126f2",
+      "size": 5354
+    },
+    {
+      "path": "desktop/tests/test_ui.py",
+      "git_blob": "62c05edd211f258cb5fdd27fdd4f33fcce22fe0c",
+      "checkout_sha256": "db3da4befcca4f986a496e8986598609daa5fbb381790c211c3e31f617ae933b",
+      "size": 5901
+    },
+    {
+      "path": "desktop/tests/test_ui_source_contract.py",
+      "git_blob": "8cf3c382f4b3c0e98029d2fb39d2faf277d9712b",
+      "checkout_sha256": "bfbee342208687f3ab7a26092157df5eeb8f973460b2fe2137e5f02082660975",
+      "size": 2650
+    },
+    {
+      "path": "desktop/ui/Main.qml",
+      "git_blob": "103456dd755905ca4ef77881a8e229ba8a794c7b",
+      "checkout_sha256": "58509f52ddb7e9347b7a1b41edd45a66720b525a6921ad4a80852ed540c0d687",
+      "size": 43018
+    },
+    {
+      "path": "desktop/ui/PathPicker.qml",
+      "git_blob": "16057718b4148f93864156a82638c262bb9a9df2",
+      "checkout_sha256": "42b004fdbceb7bb0a46e7333709bffbaa1d4e868d096b2e51888e984367958a9",
+      "size": 594
+    },
+    {
+      "path": "desktop/ui/main.cpp",
+      "git_blob": "5c6d92bb7afa40211d3ec5f401813994df25e707",
+      "checkout_sha256": "385b617df5be6248a9d1e63b512707bb1cb01b5aabed8852380b2134f24bc9db",
+      "size": 2288
+    },
+    {
+      "path": "desktop/ui/rpc_client.cpp",
+      "git_blob": "e4b5d171e0e0e3dd0009c0fce5468e07b97abc48",
+      "checkout_sha256": "9097cebc3ba5a0e6deb96d1899e91f1911892090196e57ef9b3138b1ba88ddf0",
+      "size": 30508
+    },
+    {
+      "path": "desktop/ui/rpc_client.h",
+      "git_blob": "17257664a0cb8212455c9778ea0c10b406fad7df",
+      "checkout_sha256": "deda8b78146c38e6d86f0aeb1bfa92d4a453d6b64759e64cec8aa20b3e2770e7",
+      "size": 6429
+    },
+    {
+      "path": "desktop/ui/wireframes.md",
+      "git_blob": "a8cb25cf1502334b431844f705ea0cc84e65c37d",
+      "checkout_sha256": "be8f01a82229b344a7c9a906b507053c4f6b535898c988238eb78b3f836d57a2",
+      "size": 2920
+    },
+    {
+      "path": "packaging/cpnetflux-agent.service",
+      "git_blob": "427e83fe46c5846f62cd148ff8d976bd30d12e98",
+      "checkout_sha256": "ebabf06edb12a03789cc03a46091904bcc45f2d518968f2bc1073c982804bf52",
+      "size": 328
+    },
+    {
+      "path": "packaging/cpnetflux-desktop.desktop",
+      "git_blob": "e5a7b7871ea6feb601d6faa8d6e6b5a65e805629",
+      "checkout_sha256": "99622ed58dae21b588163d9744f0584591107e314579c7064cf56cc00df624e5",
+      "size": 174
+    },
+    {
+      "path": "packaging/cpnetflux-server.service",
+      "git_blob": "c7362154b8ecda0d442133422aed2698a0866248",
+      "checkout_sha256": "472c62bfcb6324cd06cbc4113f8da96ba7933b938ecb96a277c882b6b7d1196f",
+      "size": 640
+    },
+    {
+      "path": "packaging/cpnetflux-service.in",
+      "git_blob": "8ed285b207a82c65fccb97a73f17e565065e6494",
+      "checkout_sha256": "c8cc068736a6810599604a16411f332144a11aa775aea9854ca9f55332799156",
+      "size": 159
+    },
+    {
+      "path": "packaging/cpnetflux.sysusers",
+      "git_blob": "fb3fb06f61c1948c8273b4b85a08dbd4cf205291",
+      "checkout_sha256": "898c11fb111d88c713a80797a3a3667a5073a8969a3e343f941bfc5d0904e49a",
+      "size": 81
+    },
+    {
+      "path": "packaging/cpnetflux.tmpfiles",
+      "git_blob": "d7b55d051da833d839a2f01f520ae21ca8efc45a",
+      "checkout_sha256": "2d5063a906e8951b2de94c44a4225dd4b89377be2eeffdd0dd84af436d3ca135",
+      "size": 143
+    },
+    {
+      "path": "packaging/cpnetflux_service.py",
+      "git_blob": "1b81a306f6d5395e6330916c3b6ec9b2154d891e",
+      "checkout_sha256": "4e7686e0a3291aa4e1460473c00fe711197f2c59733d9fd4ede3a4aa44e1de03",
+      "size": 3945
+    },
+    {
+      "path": "packaging/server.example.json",
+      "git_blob": "fec6975a7bb9c3b0f9355c31d07a5fdd5be87d06",
+      "checkout_sha256": "edfac794f45859993df190f5f662e59922baab26fc49dc9f655f3918ae3c07f4",
+      "size": 368
+    },
+    {
+      "path": "packaging/tests/test_installed.py",
+      "git_blob": "04fc2ff565382843f7d3bb45b934455d3876720f",
+      "checkout_sha256": "a01d15a6c3e62ee62b152646b3b313dff79ad72c82bc230e35ed179f89a47d1f",
+      "size": 2777
+    },
+    {
+      "path": "packaging/tests/test_service.py",
+      "git_blob": "1b5a9ba05b48869cb95285b44f45d72ad174c57f",
+      "checkout_sha256": "c65a68a12fbc3438b39b32e361ba19e74511770dd46f58eae583a372add85058",
+      "size": 3240
+    }
+  ]
+}

@@ -1,0 +1,1766 @@
+[
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "original",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1280,
+      720
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1366,
+      768
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.25",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 1,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "tasks",
+    "page": 3,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 3,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "scanning",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "failed",
+    "page": 2,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 1,
+    "qml_errors": []
+  },
+  {
+    "variant": "a",
+    "scenario": "offline",
+    "page": 0,
+    "window": [
+      1920,
+      1080
+    ],
+    "scale": "1.5",
+    "qt": "6.8.3",
+    "real_agent_connected": false,
+    "fixture_tasks": 0,
+    "qml_errors": []
+  }
+]
