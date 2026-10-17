@@ -3169,7 +3169,7 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
 bool persistentEligible(const config::TreeTransferOptions& options) {
     return options.reuseDataSession && options.maxFiles == 0 &&
         options.fileParallelism >= 1 && options.fileParallelism <= kPersistentTreeMaxChannels &&
-        options.schedulerMode == config::TreeSchedulerMode::Off &&
+        (options.schedulerMode == config::TreeSchedulerMode::Off || options.schedulerMode == config::TreeSchedulerMode::Global) &&
         (options.controlPipelineDepth == 0 || options.controlPipelineDepth == 1 ||
          options.controlPipelineDepth == 2 || options.controlPipelineDepth == 4);
 }
@@ -3178,6 +3178,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
     bool upload, bool* used, ControlClient* connected = nullptr) {
     *used = false;
+    const auto persistentStarted = std::chrono::steady_clock::now();
     if (!options.reuseDataSession) return common::Status::ok();
     if (!persistentEligible(options)) {
         return common::Status::invalidArgument(
@@ -3211,6 +3212,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     persistentOptions.dataPendingWindow = dispatchWindow;
     const std::string batchId = options.dynamicFileScheduling ? generateTransferId() : "";
     std::unique_ptr<DynamicFileQueue> ready;
+    std::unique_ptr<core::scheduler::GlobalScheduler> globalScheduler;
     std::vector<PersistentFileIdentity> files;
     if (upload) {
         if (manifest->files.size() > UINT32_MAX)
@@ -3233,9 +3235,55 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     if (upload && !options.dynamicFileScheduling &&
         std::any_of(files.begin(), files.end(), [](const auto& file) { return file.rangeId != 0; }))
         return common::Status::invalidArgument("persistent large-file ranges require dynamic scheduling");
-    if (upload && options.dynamicFileScheduling)
+    if (options.dynamicFileScheduling && options.schedulerMode == config::TreeSchedulerMode::Global) {
+        auto paths = schedulerMetricsPaths(options, manifestPath, upload ? "upload" : "download");
+        if (!paths.isOk()) return paths.status();
+        core::scheduler::SchedulerConfig schedulerConfig;
+        schedulerConfig.taskId = std::string("persistent-") + (upload ? "upload-" : "download-") +
+            std::to_string(manifest->updatedAtUnixNanos) + "-" + generateTransferId();
+        schedulerConfig.linkId = options.schedulerLinkId;
+        schedulerConfig.remoteHost = options.host;
+        schedulerConfig.capacityGbps = options.schedulerCapacityGbps;
+        schedulerConfig.policy = options.schedulerPolicy;
+        schedulerConfig.initialConnections = options.schedulerPolicy == core::scheduler::SchedulerPolicy::Adaptive ? 1 : channelCount;
+        schedulerConfig.maxConnections = channelCount;
+        schedulerConfig.workItemMinBytes = options.schedulerWorkItemMinBytes;
+        schedulerConfig.workItemMaxBytes = options.schedulerWorkItemMaxBytes;
+        schedulerConfig.defaultRttMs = options.schedulerDefaultRttMs;
+        schedulerConfig.minCompressGbps = options.schedulerMinCompressGbps;
+        schedulerConfig.enableCompression = options.compressionMode == config::CompressionMode::Auto;
+        schedulerConfig.metricsPaths = paths.value();
+        auto created = core::scheduler::GlobalScheduler::create(std::move(schedulerConfig));
+        if (!created.isOk()) return created.status();
+        globalScheduler = std::make_unique<core::scheduler::GlobalScheduler>(std::move(created.value()));
+    }
+    if (upload && options.dynamicFileScheduling) {
+        std::vector<WorkItem> boundWork;
+        if (globalScheduler) {
+            auto plans = globalScheduler->planManifest(*manifest, options.sourceDir,
+                core::scheduler::SchedulerDirection::Upload, true);
+            if (!plans.isOk()) return plans.status();
+            auto bound = bindScheduledPlans(plans.value(), files);
+            if (!bound.isOk()) return bound.status();
+            boundWork = std::move(bound.value());
+        } else {
+            boundWork.reserve(files.size());
+            for (const auto& file : files) boundWork.push_back(WorkItem{file, file.transferId});
+        }
+        ready = std::make_unique<DynamicFileQueue>(std::move(boundWork), channelCount, dispatchWindow,
+            channelCount * dispatchWindow * 2, options.schedulerMode == config::TreeSchedulerMode::Global);
+        if (globalScheduler) {
+            auto attached = ready->attachScheduler(globalScheduler.get());
+            if (!attached.isOk()) return attached;
+        }
+    }
+    if (!upload && options.dynamicFileScheduling && globalScheduler) {
         ready = std::make_unique<DynamicFileQueue>(
-            files, channelCount, dispatchWindow, channelCount * dispatchWindow * 2);
+            std::vector<WorkItem>{}, channelCount, dispatchWindow,
+            channelCount * dispatchWindow * 2, true);
+        auto attached = ready->attachScheduler(globalScheduler.get());
+        if (!attached.isOk()) return attached;
+    }
 
     struct Channel {
         std::unique_ptr<ControlClient> ownedControl;
@@ -3532,7 +3580,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     &channel.observed, callback, dispatchWindow, index, channelCount, ready.get(), &transferOptions)
                 : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
                     &channel.observed, callback, dispatchWindow, index, channelCount,
-                    channel.expectedFileCount, options.dynamicFileScheduling, options.resume, transactions);
+                    channel.expectedFileCount, options.dynamicFileScheduling, options.resume, transactions,
+                    ready.get());
             {
                 std::lock_guard<std::mutex> lock(channel.dataMutex);
                 channel.data = FramedDataSocket{};
@@ -3630,7 +3679,13 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         }
     }
     const auto saved = saveManifest(manifest, manifestPath);
-    return saved.isOk() ? result : saved;
+    if (!saved.isOk()) return saved;
+    if (globalScheduler) {
+        const auto summaryStatus = writeGlobalSchedulerSummary(
+            globalScheduler.get(), *manifest, *stats, GlobalSchedulerRuntime{}, result, persistentStarted);
+        if (!summaryStatus.isOk()) return summaryStatus;
+    }
+    return result;
 }
 
 }  // namespace

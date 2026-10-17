@@ -475,6 +475,11 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             "persistent tree channels are limited to 8");
     }
     options.requestedReuseDataSession = options.reuseDataSession;
+    if (options.reuseDataSession && options.schedulerMode == TreeSchedulerMode::Global &&
+        !options.dynamicFileScheduling) {
+        return common::Status::invalidArgument(
+            "persistent global scheduler requires dynamic file scheduling");
+    }
     if (options.controlPipelineDepth != 0) {
         if (options.controlPipelineDepth != 1 && options.controlPipelineDepth != 2 &&
             options.controlPipelineDepth != 4) {
@@ -485,10 +490,9 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             // Persistent V3 owns the data worker and its bounded dispatch queue.
             // The requested depth becomes a shared prefetch window; no second
             // control-pipeline state machine is created.
-            if (options.schedulerMode != TreeSchedulerMode::Off || options.maxFiles != 0 ||
-                !options.dynamicFileScheduling) {
+            if (options.maxFiles != 0 || !options.dynamicFileScheduling) {
                 return common::Status::invalidArgument(
-                    "persistent control pipeline requires dynamic scheduling, scheduler off, "
+                    "persistent control pipeline requires dynamic scheduling, "
                     "and no --max-files");
             }
         } else {

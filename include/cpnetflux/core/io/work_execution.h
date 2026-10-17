@@ -3,10 +3,11 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "cpnetflux/core/io/persistent_data_session.h"
 
-namespace cpnetflux::core::scheduler { struct WorkItem; }
+namespace cpnetflux::core::scheduler { struct WorkItem; struct FilePlan; }
 namespace cpnetflux::core::io {
 using WorkClock = std::chrono::steady_clock;
 struct ConnectionEpoch {
@@ -23,6 +24,7 @@ struct WorkerContext {
 struct WorkItem {
     PersistentFileIdentity file;
     std::string taskId;
+    bool compressionCandidate = false;
 };
 enum class WorkLeaseState { Claimed, InFlight, CommitPending, Completed, Reclaimable };
 // A value handle. State/counters/deadline are snapshots; the queue owns current state.
@@ -36,4 +38,8 @@ struct WorkLease : WorkItem {
 };
 [[nodiscard]] common::Result<WorkItem> bindScheduledWork(
     const scheduler::WorkItem& plan, const PersistentFileIdentity& identity);
+// Scheduler plans remain projections; this adapter binds their ordered file set to full V3 identities.
+[[nodiscard]] common::Result<std::vector<WorkItem>> bindScheduledPlans(
+    const std::vector<scheduler::FilePlan>& plans,
+    const std::vector<PersistentFileIdentity>& identities);
 }  // namespace cpnetflux::core::io

@@ -60,6 +60,8 @@ struct SchedulerEventRecord {
     std::uint32_t targetConnections = 0;
     std::string result;
     std::string message;
+    std::uint64_t leaseId = 0, connectionEpoch = 0, generation = 0, attempt = 0;
+    std::uint32_t workerId = 0;
 };
 
 struct SchedulerSampleRecordOut {

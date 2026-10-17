@@ -74,5 +74,6 @@ using PersistentFileCallback = std::function<common::Status(
     std::uint32_t pendingWindow = 1, std::uint32_t channelIndex = 0,
     std::uint32_t channelCount = 1,
     std::uint32_t expectedFileCount = kUnknownPersistentFileCount, bool dynamic = false,
-    bool resume = false, std::shared_ptr<PersistentTransferContext> context = {});
+    bool resume = false, std::shared_ptr<PersistentTransferContext> context = {},
+    DynamicFileQueue* ready = nullptr);
 }  // namespace cpnetflux::core::io

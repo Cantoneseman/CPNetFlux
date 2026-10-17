@@ -3,8 +3,8 @@
 本节为当前生效状态。下方 2026-10-14 内容与未提交改动保留作历史记录；其中旧测试数量、资源阻塞和旧路线不作为本轮结论。
 
 - V3-WORK-UNIFY-01：done。统一 WorkItem/WorkLease/WorkerContext/ConnectionEpoch 契约已接入单文件与动态目录共用的 persistent sender；状态、owner、epoch、deadline、drain、断线回收和整文件 attempt 重派通过行为测试。
-- 实现提交：cbebce51e08bcdd986179e1f633885792f9bf762；GitHub main push 返回 0，远端 SHA 回读一致。Release/TLS/io_uring 构建通过，定向 96/96、全量 CTest 329/329、0 skip，V3 RST 矩阵 8 轮通过。结果：docs/tasks/2026-10-17-v3-work-unify-01-result.md。
-- 下一项：V3-WORK-UNIFY-02（planned，未开工），合并 worker loop、接入 global scheduler、实现 manifest 对账与自动 reconnect/retry；persistent + global scheduler 拒绝继续有效。尚未完成十链路、跨域性能或生产稳定性验收。
+- 输入提交：cbebce51e08bcdd986179e1f633885792f9bf762；本轮在独立 codex/V3-WORK-UNIFY-02 worktree 实施，结果与残余边界见 docs/tasks/2026-10-17-v3-work-unify-02-result.md。
+- 当前项：V3-WORK-UNIFY-02（实施中）。persistent upload/download 的 global scheduler、共享 dispatch window、receiver incoming lease、fixed/adaptive 实际模式和 lease/worker/epoch/retry 事件已接通；完整共同 executor 抽取、自动 reconnect/retry 与 manifest 对账仍待下一轮。尚未完成十链路、跨域性能或生产稳定性验收。
 - 开发位置：深圳根目录单写入者；GridFTP proxy 在实际对比实验前刷新，本阶段未使用真实 GridFTP。
 
 # 当前执行（2026-10-14）

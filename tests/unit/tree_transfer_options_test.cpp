@@ -629,3 +629,31 @@ TEST(TreeTransferOptionsTest, AcceptsDynamicFileSchedulingForPersistentTree) {
         static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Download);
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
 }
+
+TEST(TreeTransferOptionsTest, AllowsGlobalSchedulerWithPersistentSharedDispatch) {
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--host", "127.0.0.1",
+        "--port", "2121", "--source-dir", "/tmp", "--dest-dir", "remote",
+        "--control-reuse", "worker", "--control-pipeline-depth", "2",
+        "--data-session-reuse", "tree", "--file-scheduling", "dynamic",
+        "--scheduler", "global", "--scheduler-policy", "adaptive",
+        "--scheduler-metrics-dir", "/var/tmp/cpnetflux-stage02-metrics"};
+    auto result = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(sizeof(argv) / sizeof(argv[0])), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(result.isOk()) << result.status().message();
+    EXPECT_EQ(result.value().schedulerMode, cpnetflux::config::TreeSchedulerMode::Global);
+    EXPECT_EQ(result.value().schedulerPolicy, cpnetflux::core::scheduler::SchedulerPolicy::Adaptive);
+    EXPECT_TRUE(result.value().reuseDataSession);
+    EXPECT_TRUE(result.value().dynamicFileScheduling);
+}
+
+TEST(TreeTransferOptionsTest, RejectsGlobalSchedulerWithPersistentStaticDispatch) {
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--host", "127.0.0.1",
+        "--port", "2121", "--source-dir", "/tmp", "--dest-dir", "remote",
+        "--data-session-reuse", "tree", "--file-scheduling", "static",
+        "--scheduler", "global", "--scheduler-metrics-dir", "/var/tmp/cpnetflux-stage02-static"};
+    auto result = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(sizeof(argv) / sizeof(argv[0])), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    EXPECT_FALSE(result.isOk());
+}

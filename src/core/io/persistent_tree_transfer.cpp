@@ -933,7 +933,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     bool download, const std::string& remoteRoot, PersistentTreeStats* stats,
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
     std::uint32_t channelIndex, std::uint32_t channelCount,
-    std::uint32_t expectedFileCount, bool dynamic, bool resume, std::shared_ptr<PersistentTransferContext> context) {
+    std::uint32_t expectedFileCount, bool dynamic, bool resume, std::shared_ptr<PersistentTransferContext> context, DynamicFileQueue* ready) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -946,6 +946,12 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     if (!status.isOk()) return status;
     if (!context) context = makePersistentTransferContext();
     PersistentDataSession state(dynamic);
+    std::optional<WorkerContext> worker;
+    if (ready) {
+        auto owner = ready->worker(channelIndex);
+        if (!owner.isOk()) return owner.status();
+        worker = owner.value();
+    }
     Status overall = Status::ok();
     for (;;) {
         auto frame = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
@@ -962,6 +968,24 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         auto decoded = PersistentDataSession::decodeBegin(frame.value());
         if (!decoded.isOk()) return decoded.status();
         const auto id = decoded.value();
+        std::optional<WorkLease> lease;
+        struct IncomingLeaseGuard {
+            DynamicFileQueue* queue = nullptr;
+            std::optional<WorkLease>* lease = nullptr;
+            bool finished = false;
+            ~IncomingLeaseGuard() {
+                if (queue && lease && lease->has_value() && !finished) (void)queue->reject(**lease);
+            }
+        } leaseGuard;
+        if (ready) {
+            auto claimed = ready->claimIncoming(*worker, WorkItem{id, id.transferId});
+            if (!claimed.isOk()) return claimed.status();
+            lease = claimed.value();
+            leaseGuard.queue = ready;
+            leaseGuard.lease = &lease;
+            status = ready->begin(*lease);
+            if (!status.isOk()) return status;
+        }
         const auto assignedChannel = id.rangeId != 0
             ? static_cast<std::uint32_t>((id.rangeId - 1) % channelCount)
             : (id.fileId - 1) % channelCount;
@@ -1102,6 +1126,15 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         status = PersistentDataSession::writeResult(socket, id,
             fileStatus.isOk() ? FrameStatusCode::Ok : FrameStatusCode::WriteFailed);
         if (!status.isOk()) return status;
+        if (ready) {
+            status = fileStatus.isOk() ? ready->awaitResult(*lease) : ready->reject(*lease);
+            if (!status.isOk()) return status;
+            if (fileStatus.isOk()) {
+                status = ready->commit(*lease);
+                if (!status.isOk()) return status;
+            }
+            leaseGuard.finished = true;
+        }
         stats->wireBytes += protocol::kFrameHeaderSize;
         timing.fileResultSeconds = secondsSince(resultStarted);
         timing.wallSeconds = secondsSince(fileStarted);

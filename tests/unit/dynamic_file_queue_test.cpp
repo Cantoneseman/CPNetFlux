@@ -9,6 +9,8 @@
 #include <netinet/in.h>
 #include <cerrno>
 #include "cpnetflux/core/scheduler/work_item.h"
+#include "cpnetflux/core/scheduler/work_item_planner.h"
+#include "cpnetflux/core/scheduler/scheduler.h"
 using namespace cpnetflux::core::io;
 using cpnetflux::common::Status;
 namespace {
@@ -498,4 +500,70 @@ TEST(WorkExecutionAdapterTest, RejectsMalformedFullIdentityAndIncompleteRangePar
         DynamicFileQueue queue(std::vector<PersistentFileIdentity>{wrong}, 1, 1, 1);
         EXPECT_FALSE(queue.claim(0).isOk()) << field;
     }
+}
+
+TEST(WorkExecutionAdapterTest, PreservesGlobalSchedulerPlanOrderInTheSharedQueue) {
+    auto first = tasks(2);
+    first[0].totalSize = 8;
+    first[1].totalSize = 16;
+    cpnetflux::core::scheduler::FilePlan planA;
+    planA.taskId = "global"; planA.fileId = first[0].transferId; planA.relativePath = first[0].relativePath;
+    planA.totalBytes = first[0].totalSize; planA.resumeGeneration = first[0].generation;
+    planA.checksumAlgorithm = first[0].checksumAlgorithm; planA.workItems.push_back({"global", first[0].transferId,
+        first[0].relativePath, 0, first[0].totalSize, cpnetflux::core::scheduler::SchedulerDirection::Upload,
+        first[0].checksumAlgorithm, {}, 0, first[0].generation, true});
+    cpnetflux::core::scheduler::FilePlan planB = planA;
+    planB.fileId = first[1].transferId; planB.relativePath = first[1].relativePath;
+    planB.totalBytes = first[1].totalSize; planB.resumeGeneration = first[1].generation;
+    planB.workItems.front().fileId = first[1].transferId; planB.workItems.front().relativePath = first[1].relativePath;
+    planB.workItems.front().length = first[1].totalSize;
+    auto bound = bindScheduledPlans({planB, planA}, first);
+    ASSERT_TRUE(bound.isOk()) << bound.status().message();
+    DynamicFileQueue queue(bound.value(), 1, 1, 2, true);
+    auto lease = queue.claim(queue.worker(0).value());
+    ASSERT_TRUE(lease.isOk()); ASSERT_TRUE(lease.value());
+    EXPECT_EQ(lease.value()->file.fileId, first[1].fileId);
+}
+
+TEST(WorkExecutionAdapterTest, IncomingLeaseUsesSchedulerIdentityAndEpoch) {
+    cpnetflux::core::scheduler::SchedulerConfig config;
+    config.taskId = "incoming-global";
+    config.linkId = "research-link";
+    config.initialConnections = 1;
+    config.maxConnections = 1;
+    auto scheduler = cpnetflux::core::scheduler::GlobalScheduler::create(config);
+    ASSERT_TRUE(scheduler.isOk());
+    DynamicFileQueue queue(std::vector<WorkItem>{}, 1, 1, 1, true);
+    ASSERT_TRUE(queue.setConnectionEpoch(ConnectionEpoch{7}).isOk());
+    ASSERT_TRUE(queue.attachScheduler(&scheduler.value()).isOk());
+    auto owner = queue.worker(0);
+    ASSERT_TRUE(owner.isOk());
+    auto file = tasks(1).front();
+    auto incoming = queue.claimIncoming(owner.value(), WorkItem{file, scheduler.value().taskId()});
+    ASSERT_TRUE(incoming.isOk());
+    EXPECT_EQ(incoming.value().owner.epoch.value, 7U);
+    ASSERT_TRUE(queue.begin(incoming.value()).isOk());
+    ASSERT_TRUE(queue.awaitResult(incoming.value()).isOk());
+    ASSERT_TRUE(queue.commit(incoming.value()).isOk());
+    EXPECT_FALSE(queue.commit(incoming.value()).isOk());
+    EXPECT_EQ(queue.outstanding(), 0U);
+}
+
+TEST(WorkExecutionAdapterTest, GlobalSchedulerUsesQueueLeaseOwnerAndEpoch) {
+    cpnetflux::core::scheduler::SchedulerConfig config;
+    config.taskId = "shared-global"; config.linkId = "research-link";
+    config.initialConnections = 1; config.maxConnections = 2;
+    config.policy = cpnetflux::core::scheduler::SchedulerPolicy::Adaptive;
+    auto scheduler = cpnetflux::core::scheduler::GlobalScheduler::create(config);
+    ASSERT_TRUE(scheduler.isOk());
+    DynamicFileQueue queue(tasks(2), 2, 1, 2);
+    ASSERT_TRUE(queue.setConnectionEpoch(ConnectionEpoch{2}).isOk());
+    ASSERT_TRUE(queue.attachScheduler(&scheduler.value()).isOk());
+    auto worker = queue.worker(0); ASSERT_TRUE(worker.isOk());
+    EXPECT_EQ(worker.value().linkId, "research-link"); EXPECT_EQ(worker.value().epoch.value, 2U);
+    auto next = queue.claim(worker.value()); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    ASSERT_TRUE(queue.begin(*next.value()).isOk()); ASSERT_TRUE(queue.awaitResult(*next.value()).isOk());
+    ASSERT_TRUE(queue.commit(*next.value()).isOk());
+    EXPECT_FALSE(queue.attachScheduler(&scheduler.value()).isOk());
+    EXPECT_FALSE(queue.setConnectionEpoch(ConnectionEpoch{3}).isOk());
 }
