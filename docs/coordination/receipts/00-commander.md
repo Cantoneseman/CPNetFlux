@@ -1,5 +1,14 @@
 # CPNetFlux｜00 总指挥接手回执
 
+## 2026-10-17 当前交接：V3-WORK-UNIFY-03
+
+- 按用户本轮要求在深圳独立 codex/V3-WORK-UNIFY-03 worktree 串行实现；Windows 仅 SSH/查看，无其他聊天派单或独立审查的执行声明。
+- 输入 739a124；共同 lease executor 与完整权威 ledger 的受控恢复提交 ccd7eda，range 恢复发布修复 05d2ef6；均已 push GitHub 并回读同 SHA。
+- 固定最终代码 full build exit=0、354/354 CTest（0 skip，73.51 秒），包含 8 轮 V3 稳定性矩阵。27 项定向回归通过；两类行为失败及修复证据已保存。
+- 结果：docs/tasks/2026-10-17-v3-work-unify-03-result.md；外部证据 /tmp/cpnetflux-runs/V3-WORK-UNIFY-03-20261017，含源码归档、binary/log SHA-256、原始日志和最终 push 回读记录。
+- 下一步 04：实际客户端有界自动重连、控制 batch/远端事务重建、manifest 权威对账；须先 stop/shutdown/join 再换 epoch，预算/总 deadline 跨重连累计。尚未实现自动重连、完整兼容编排合并或跨机性能验收。
+- GridFTP proxy 仅实际使用时刷新；上海未启动新实验。下方 2026-09-17 正文保留为历史，旧工具/磁盘状态不作为当前结论。
+
 保存说明：正文由正式总指挥会话生成并经 CLI output-last-message 落盘；设置线程仅整理此标题。该角色区分实查证据与资料判断，派单工具限制见文末。
 
 日期：2026-09-17，Asia/Shanghai。任务：SETUP-01 接手收尾；路线版本：`R2026-09-17.1`；回执版本：v1。目标工作区：`D:\Project\CPNetFlux`。
