@@ -9,7 +9,7 @@
 - 当前子阶段 V3-WORK-UNIFY-03：done。共同 lease executor、完整 ledger 的有界受控恢复、多 range 补传发布修复；最终代码 05d2ef6 的 354/354 CTest 通过（0 skip），27 项定向回归通过。输入 739a124，独立 codex/V3-WORK-UNIFY-03 worktree；实现和修复已 push/回读，详见 docs/tasks/2026-10-17-v3-work-unify-03-result.md。
 - V3-WORK-UNIFY-04：done。实际 persistent dynamic tree 显式有界重连、旧 batch 释放屏障、manifest 对账；最终代码 ff71014 的 357/357 CTest（0 skip）与深圳/上海 8/8 真实互传通过，4 次中断均自动恢复且 SHA-256 一致。代码已 push/回读；结果 docs/tasks/2026-10-17-v3-work-unify-04-result.md。
 - V3-WORK-UNIFY-05：done。static/per-file/global/pipeline 兼容编排共用 owner，终态失败释放 credit，stop claims/取消/join/静态保序已收口；362/362 CTest 与最终版深圳↔上海双向 static persistent tree 互传通过；结果 docs/tasks/2026-10-17-v3-work-unify-05-result.md。
-- 当前 V3-LINKSET-01：in_progress。LinkSet/运行态/能力协商、GlobalScheduler 单链路兼容视图、稳定能力广告摘要和 XCPNETFLUX V2 可选 LINKS/LINK_CAPS 控制字段已实现；333/333 单元、374/374 CTest 通过，默认兼容、显式接受和显式拒绝 loopback smoke 通过；真实多链路 range/data plane 尚未接入；任务 docs/tasks/2026-10-18-v3-linkset-01.md。
+- 当前 V3-LINKSET-01：in_progress。LinkSet、单链路兼容视图、稳定能力摘要及 XCPNETFLUX V2 可选 LINKS/LINK_CAPS 已实现；333/333 单元、374/374 CTest 通过，深圳↔上海双向显式控制面协商传输与跨机拒绝均通过，文件哈希一致；当前 LINKS=2 仍未映射到两个物理数据链路，range/data plane 待 V3-MULTILINK-RANGE-01；任务 docs/tasks/2026-10-18-v3-linkset-01.md。
 - 开发位置：深圳独立 worktree 单写入者（依本轮用户明确的 worktree 要求）；上海仅部署固定二进制作传输对端。两端本任务进程、端口与可再生 payload 已回收，原始诊断保留。
 
 # 当前执行（2026-10-14）

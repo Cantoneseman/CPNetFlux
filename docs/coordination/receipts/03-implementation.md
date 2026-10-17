@@ -155,7 +155,7 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 # 03 核心实现：V3-LINKSET-01 控制面承载切片回执
 
 日期：2026-10-18。角色：03 核心实现；交付对象：00 总指挥。
-状态：本轮控制面切片已完成并已验证；真实多链路数据面和深圳↔上海显式多链路验收仍待后续任务。
+状态：控制面切片及深圳↔上海双向显式协商传输已完成验证；真实多物理链路数据面仍待后续任务。
 
 - 输入提交：19f0deb4e3706909c08c0b51ebe2afd5651e1064；工作树：/root/projects/CPNetFlux-worktrees/v3-linkset-01；分支：codex/V3-LINKSET-01。
 - 实际解决：把 LinkSet 能力从内部摘要接入现有 XCPNETFLUX V2 persistent-tree 控制请求。显式请求携带 LINKS=<N> LINK_CAPS=<bits>，服务端按配置、现有 8 条 persistent 通道安全上限和能力位做协商；不支持时返回 504，客户端不静默降级。未带字段的旧请求继续使用默认单链路。
@@ -163,5 +163,5 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 - TDD 证据：新增控制字段行为测试先运行并按预期 linker red，记录于 /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-control-red.log；实现后目标构建成功，记录于 ...-control-green-build.log。
 - 验收命令：cmake --build /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-build --parallel 8 --target cpnetflux_unit_tests cpnetflux-gridftp-server cpnetflux-tree-upload-client cpnetflux-tree-download-client；cpnetflux_unit_tests --gtest_filter=SchedulerLinkSetTest.*:TreeTransferOptionsTest.ParsesExplicitLinkSetNegotiationOptions:ControlOptionsTest.ParsesExplicitLinkSetCapabilities；cpnetflux_unit_tests；CPNETFLUX_TEST_TOKEN=V3_W05_TEST_TOKEN ctest --test-dir /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-build --output-on-failure -j 8。
 - 输出证据：定向 12/12、完整单元 333/333、CTest 374/374（0 failed）；日志分别为 /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-control-targeted.log、...-control-unit.log、...-control-ctest.log。
-- 实际协议验证：loopback server max-links=4/capabilities=9 与 client links=2/capabilities=1 的 2 文件上传成功且 SHA-256 一致（/tmp/cpnetflux-runs/V3-LINKSET-01-20261018-control-smoke3）；默认兼容上传成功（.../control-compat）；server 默认能力拒绝 client links=2/capabilities=1，客户端输出明确拒绝且目标文件不存在（.../control-reject）。
-- 下一步交接：实现 V3-MULTILINK-RANGE-01 的真实 range/WorkLease 到 LinkSet 映射和进度/排空边界；随后在深圳↔上海阿里云两端做显式能力请求、旧端拒绝和哈希一致性验证。当前不能把控制面 200 回执或 loopback smoke 称作真实多链路传输。
+- 实际协议验证：loopback 显式接受、默认兼容与拒绝均通过。深圳→上海 2 文件/134,971 bytes、上海→深圳 2 文件/102,265 bytes 的源和目的 SHA-256 逐项一致；跨机默认能力服务端对 links=2/caps=1 明确拒绝且无目标文件。两端证据位于 /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-cross；反向初次使用 25300 被网络过滤，改用空闲 24300 后通过，未触碰既有 GridFTP 服务。
+- 下一步交接：实现 V3-MULTILINK-RANGE-01 的真实物理链路建立、range/WorkLease 到 LinkSet 映射、进度和 drain/cut；先补旧协议端拒绝测试，再重复深圳↔上海双向哈希验收。当前跨机测试只证明控制面协商及既有数据面的端到端完整性，不证明 LINKS=2 对应两个物理数据链路。
