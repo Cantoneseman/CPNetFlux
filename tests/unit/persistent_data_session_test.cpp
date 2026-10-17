@@ -774,3 +774,143 @@ TEST(PersistentTreeLeaseTest, UnreadResultReconcilesCommittedManifestWithoutPayl
         EXPECT_FALSE(executor.commit(*lease.value()).isOk());
     }
 }
+
+namespace {
+class PersistentMultiRangeRecoveryTest : public ::testing::TestWithParam<bool> {};
+}
+
+TEST_P(PersistentMultiRangeRecoveryTest, PublishesAfterMissingRangeWhenPriorRangeIsAlreadyVerified) {
+    const bool download = GetParam();
+    TempRoot source, destination;
+    std::ofstream(source.path / "ranges.bin", std::ios::binary) << "ABCDEFGHIJKLMNOP";
+    struct stat st{}; ASSERT_EQ(::stat((source.path / "ranges.bin").c_str(), &st), 0);
+    PersistentFileIdentity first{1, 7, 16, "ranges.bin", "multirange-recovery", 4,
+        st.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c, {}, 1, 0, 8, 2};
+    auto second = first; second.rangeId = 2; second.rangeOffset = 8;
+    DynamicFileQueue queue(std::vector<PersistentFileIdentity>{first, second}, 1, 1, 2, true);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    std::optional<WorkLease> interruptedLease;
+    {
+        SocketPair broken;
+        PersistentTreeStats partial;
+        cpnetflux::common::Status interrupted;
+        std::jthread receiver([&] {
+            interrupted = receivePersistentTree(&broken.receiver, destination.path.string(),
+                download, "remote/tree", &partial, {}, 1, 0, 1, 1, true);
+        });
+        auto a = executor.claim(); ASSERT_TRUE(a.isOk()); ASSERT_TRUE(a.value());
+        ASSERT_EQ(a.value()->file.rangeId, 1U);
+        ASSERT_TRUE(executor.begin(*a.value()).isOk());
+        ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, a.value()->file).isOk());
+        ASSERT_TRUE(PersistentDataSession::readResumeResponse(&broken.sender, a.value()->file).isOk());
+        const std::uint8_t bytes[]{'A','B','C','D','E','F','G','H','I','J','K','L'};
+        cpnetflux::checksum::ChecksumComputer digest(first.checksumAlgorithm);
+        digest.update(bytes, 8);
+        for (std::uint64_t offset : {0U, 4U}) {
+            ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender,
+                a.value()->file, offset, bytes + offset, 4).isOk());
+        }
+        ASSERT_TRUE(PersistentDataSession::writeEnd(&broken.sender, a.value()->file, digest.finalize()).isOk());
+        ASSERT_TRUE(executor.awaitResult(*a.value()).isOk());
+        auto result = PersistentDataSession::readResult(&broken.sender, a.value()->file);
+        ASSERT_TRUE(result.isOk()); ASSERT_EQ(result.value(), FrameStatusCode::Ok);
+        ASSERT_TRUE(executor.finalize(*a.value(), cpnetflux::common::Status::ok()).isOk());
+        auto b = executor.claim(); ASSERT_TRUE(b.isOk()); ASSERT_TRUE(b.value());
+        interruptedLease = *b.value();
+        ASSERT_EQ(b.value()->file.rangeId, 2U);
+        ASSERT_TRUE(executor.begin(*b.value()).isOk());
+        ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, b.value()->file).isOk());
+        ASSERT_TRUE(PersistentDataSession::readResumeResponse(&broken.sender, b.value()->file).isOk());
+        ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender,
+            b.value()->file, 8, bytes + 8, 4).isOk());
+        ::shutdown(broken.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        EXPECT_FALSE(interrupted.isOk());
+        EXPECT_EQ(partial.payloadBytes, 12U);
+    }
+    ASSERT_TRUE(interruptedLease.has_value());
+    ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+    ASSERT_TRUE(executor.recover({{*interruptedLease, WorkRecoveryDisposition::Missing}}, 1).isOk());
+
+    SocketPair resumed;
+    PersistentTreeStats sent, received;
+    cpnetflux::common::Status receiverStatus;
+    std::jthread receiver([&] {
+        receiverStatus = receivePersistentTree(&resumed.receiver, destination.path.string(),
+            download, "remote/tree", &received, {}, 1, 0, 1, 1, true, true);
+    });
+    cpnetflux::config::FileTransferOptions options; options.resume = true;
+    auto sentStatus = sendPersistentTree(&resumed.sender, source.path.string(), {}, &sent,
+        {}, 1, 0, 1, &queue, &options);
+    ::shutdown(resumed.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(sentStatus.isOk()) << sentStatus.message();
+    ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+    EXPECT_EQ(sent.payloadBytes, 4U);
+    EXPECT_EQ(sent.skippedBytes, 4U);
+    const auto output = destination.path / "ranges.bin";
+    ASSERT_TRUE(std::filesystem::exists(output)) << "complete verified coverage must publish the file";
+    std::ifstream file(output, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), "ABCDEFGHIJKLMNOP");
+
+}
+
+TEST_P(PersistentMultiRangeRecoveryTest, ReplaysVerifiedPartitionAfterFirstSkipPublishes) {
+    const bool download = GetParam();
+    TempRoot source, destination;
+    std::ofstream(source.path / "ranges.bin", std::ios::binary) << "ABCDEFGHIJKLMNOP";
+    struct stat st{}; ASSERT_EQ(::stat((source.path / "ranges.bin").c_str(), &st), 0);
+    PersistentFileIdentity first{1, 7, 16, "ranges.bin", "verified-partition", 4,
+        st.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c, {}, 1, 0, 8, 2};
+    auto second = first; second.rangeId = 2; second.rangeOffset = 8;
+    {
+        SocketPair broken;
+        PersistentTreeStats partial;
+        cpnetflux::common::Status interrupted;
+        std::jthread receiver([&] {
+            interrupted = receivePersistentTree(&broken.receiver, destination.path.string(),
+                download, "remote/tree", &partial, {}, 1, 0, 1, 1, true);
+        });
+        const std::uint8_t bytes[]{'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P'};
+        for (const auto& id : {first, second}) {
+            ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, id).isOk());
+            ASSERT_TRUE(PersistentDataSession::readResumeResponse(&broken.sender, id).isOk());
+            for (auto offset = id.rangeOffset; offset < id.rangeOffset + id.rangeLength; offset += 4)
+                ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender, id, offset, bytes + offset, 4).isOk());
+            if (id.rangeId == first.rangeId) {
+                cpnetflux::checksum::ChecksumComputer digest(id.checksumAlgorithm);
+                digest.update(bytes, 8);
+                ASSERT_TRUE(PersistentDataSession::writeEnd(&broken.sender, id, digest.finalize()).isOk());
+                auto result = PersistentDataSession::readResult(&broken.sender, id);
+                ASSERT_TRUE(result.isOk()); ASSERT_EQ(result.value(), FrameStatusCode::Ok);
+            }
+        }
+        // All chunks were checkpointed, but the final range END was lost.
+        ::shutdown(broken.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        ASSERT_FALSE(interrupted.isOk());
+        ASSERT_EQ(partial.payloadBytes, 16U);
+        ASSERT_FALSE(std::filesystem::exists(destination.path / "ranges.bin"));
+    }
+    // Replay the original partition. The first skip can publish full coverage;
+    // the later slot must still receive an empty missing-set and finish safely.
+    cpnetflux::config::FileTransferOptions options; options.resume = true;
+    SocketPair committed;
+    PersistentTreeStats skipped, validated;
+    DynamicFileQueue replay(std::vector<PersistentFileIdentity>{first, second}, 1, 1, 2, true);
+    cpnetflux::common::Status replayReceiverStatus;
+    std::jthread replayReceiver([&] {
+        replayReceiverStatus = receivePersistentTree(&committed.receiver, destination.path.string(),
+            download, "remote/tree", &validated, {}, 1, 0, 1, 1, true, true);
+    });
+    auto replayStatus = sendPersistentTree(&committed.sender, source.path.string(), {}, &skipped,
+        {}, 1, 0, 1, &replay, &options);
+    ::shutdown(committed.sender.fd(), SHUT_RDWR);
+    replayReceiver.join();
+    ASSERT_TRUE(replayStatus.isOk()) << replayStatus.message();
+    ASSERT_TRUE(replayReceiverStatus.isOk()) << replayReceiverStatus.message();
+    EXPECT_EQ(skipped.payloadBytes, 0U); EXPECT_EQ(skipped.skippedBytes, 16U);
+    EXPECT_EQ(validated.payloadBytes, 0U);
+}
+
+INSTANTIATE_TEST_SUITE_P(UploadDownload, PersistentMultiRangeRecoveryTest, ::testing::Bool());

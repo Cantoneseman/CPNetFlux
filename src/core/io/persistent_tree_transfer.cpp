@@ -379,8 +379,10 @@ class RangeFileCoordinator {
         std::lock_guard lock(entry->mutex);
         auto base = id;
         base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
-        if (entry->committed || !samePersistentIdentity(entry->base,base) ||
-            entry->rangeCount != id.rangeCount)
+        // A recovered file can become fully verified before every original range
+        // is replayed. Later ranges may only receive an empty missing-set handshake;
+        // write() still rejects all DATA after publication.
+        if (!samePersistentIdentity(entry->base,base) || entry->rangeCount != id.rangeCount)
             return Status::invalidArgument("range coordinator identity mismatch or replay");
         auto found = entry->slots.find(id.rangeId);
         if (found != entry->slots.end())
@@ -453,17 +455,26 @@ class RangeFileCoordinator {
                            checksum::ChecksumValue checksum, bool skipped) {
         std::lock_guard lock(entry->mutex);
         const auto slot = entry->slots.find(id.rangeId);
-        if (entry->committed || slot == entry->slots.end() || !slot->second.active ||
-            slot->second.completed || !samePersistentIdentity(slot->second.id,id))
+        if (slot == entry->slots.end() || !slot->second.active ||
+            slot->second.completed || !samePersistentIdentity(slot->second.id,id) ||
+            (entry->committed && !skipped))
             return Status::invalidArgument("invalid or duplicate range completion");
-        if (skipped && !entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength))
+        if (skipped && !entry->committed &&
+            !entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength))
             return Status::invalidArgument("skipped range is not verified");
         if (slot->second.next!=slot->second.missing.size())
             return Status::invalidArgument("range completion has missing bytes");
         auto status = Status::ok();
         slot->second.completed = true;
         slot->second.active = false;
-        if (++entry->completed == entry->rangeCount) {
+        ++entry->completed;
+        const bool drained = std::all_of(entry->slots.begin(), entry->slots.end(),
+            [](const auto& item) { return !item.second.active; });
+        const bool verified = entry->transaction->rangeComplete(0, entry->base.totalSize);
+        // Prior checkpointed ranges need not be dispatched again in this epoch.
+        // Full verified coverage plus no active writer is sufficient to publish.
+        if (!entry->committed &&
+            (entry->completed == entry->rangeCount || (drained && verified))) {
             status = entry->transaction->commit();
             if (!status.isOk()) return status;
             entry->committed = true;
