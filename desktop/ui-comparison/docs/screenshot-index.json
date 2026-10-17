@@ -229,5 +229,27 @@
       1366,
       768
     ]
+  },
+  {
+    "variant": "b",
+    "scenario": "tasks",
+    "page": 3,
+    "path": "evidence/b-node-native.png",
+    "sha256": "23a330ca3daa205810267f7b10bfdc4f6c1151d286f5a5264d5bf128577c283b",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "b",
+    "scenario": "failed",
+    "page": 2,
+    "path": "evidence/b-failed-native.png",
+    "sha256": "cf9b2cd05cad91bb8d7f7b56d9eee82c9e98185d9297de488cd1b10d0c9ad4fd",
+    "pixels": [
+      1366,
+      768
+    ]
   }
 ]

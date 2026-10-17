@@ -15,6 +15,8 @@
 
 ## 本阶段 B checkpoint
 
-- 用户确认以 Lenny's Newsletter 文章作为 article-guided 来源；候选 B、三方矩阵证据和 B 来源记录已提交：`4f2e409d306918f0d623b2910fa4cb78a3ebe275`。
-- 该提交尚未完成 GitHub 回读；下一步将把本分支 bundle 上传深圳临时 bare repo、推送到已核实 remote，并在后续回执提交中记录 bundle SHA 与远端 SHA。
-- 当前交付包含原版、A 与 article-guided B；不作正式合入、发布或方案选择。
+- 用户确认以 Lenny's Newsletter 文章作为 article-guided 来源；候选 B、三方矩阵证据和 B 来源记录提交：`4f2e409d306918f0d623b2910fa4cb78a3ebe275`；比较回执提交：`62ae7c31312be0bf7fc49e3b4d5ad2ba2043494b`。
+- 用于备份的完整分支 bundle SHA256：`e770282ea548b4a9423b0c5b29b77d76ac6fd6708d85cc72b0d15f3c66af6c46`；本地 `bundle verify` 通过，上传后深圳 SHA256 回读一致。
+- 深圳临时 bare repo 导入 bundle 后，以快进方式推送 GitHub remote `git@github.com:Cantoneseman/CPNetFlux.git` 成功。
+- GitHub `ls-remote` 回读：`62ae7c31312be0bf7fc49e3b4d5ad2ba2043494b refs/heads/codex/desktop-ui-skill-compare-01`，与已推送回执提交一致。
+- 当前交付包含原版、A 与 article-guided B；不作正式合入、发布或方案选择。之后的纯回执更新以当前任务最终远端回读为准。
