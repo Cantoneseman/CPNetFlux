@@ -3499,9 +3499,9 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             std::lock_guard failureLock(failureMutex);
             if (!firstFailure.isOk()) return firstFailure;
         }
-        if (complete && !fileStatus.isOk()) {
-            // Publish the original failure before any sibling callback can alter
-            // the shared identity ledger during transport teardown.
+        if (complete && fileStatus.code() == common::StatusCode::TransportError) {
+            // Publish transport teardown before sibling callbacks alter the ledger.
+            // Ordinary file rejection keeps the existing per-file continuation contract.
             recordFailure(fileStatus);
             return fileStatus;
         }
