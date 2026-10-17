@@ -20,3 +20,12 @@
 - 深圳临时 bare repo 导入 bundle 后，以快进方式推送 GitHub remote `git@github.com:Cantoneseman/CPNetFlux.git` 成功。
 - GitHub `ls-remote` 回读：`62ae7c31312be0bf7fc49e3b4d5ad2ba2043494b refs/heads/codex/desktop-ui-skill-compare-01`，与已推送回执提交一致。
 - 当前交付包含原版、A 与 article-guided B；不作正式合入、发布或方案选择。之后的纯回执更新以当前任务最终远端回读为准。
+
+## 本轮 B Mission Control checkpoint
+
+- 用户反馈首轮 B 与既有 UI 区别不够，并要求预留更多接口和按钮；本轮将 B 独立重做为 Mission Control 信息架构，提交：`2a0b1066e08d942f2d057ab13756f0df0ed08ff9`。
+- 本轮明确保留已有 RPC 边界，新增 B 的创建步骤、任务指挥、节点身份、文件/range、历史和能力诊断页面；未提供 agent API 的入口禁用并写出缺口。预览仍是隔离 synthetic fixture，不是真实 agent 验收。
+- 完整分支 bundle：`desktop/ui-comparison/preview-output/mission-control-2a0b106.bundle`；本地 `git bundle verify` 通过，SHA256：`651d7718d6c7a972d3036d73e67c810af2505f95730a19df4759a68be2c11d7f`。
+- 深圳上传文件：`/tmp/cpnetflux-ui-skill-compare-01-2a0b106.bundle`，远端 `sha256sum` 回读一致；临时 bare repo 导入和 `bundle verify` 通过。
+- 已从深圳临时 bare repo 推送 `git@github.com:Cantoneseman/CPNetFlux.git`；GitHub `ls-remote` 回读：`2a0b1066e08d942f2d057ab13756f0df0ed08ff9 refs/heads/codex/desktop-ui-skill-compare-01`。
+- 之后本回执更新需要再提交并推送；截图、`.venv`、bundle 和构建产物均不进 Git。
