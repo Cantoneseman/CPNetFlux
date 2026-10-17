@@ -1,6 +1,6 @@
 # DESKTOP-UI-SKILL-COMPARE-01
 
-日期：2026-10-17。状态：共同基线、原版和 A 已准备；B 等待用户指定 ui-design-system 来源。比较任务未完成；用户选择前不合入正式主线。
+日期：2026-10-17。状态：共同基线、原版、A 和 article-guided B 已准备；等待用户比较选择。用户选择前不合入正式主线。
 
 ## 范围与非目标
 
@@ -18,7 +18,8 @@
 ## 组织与启动
 
 - 原版：`desktop/ui/Main.qml`。
-- A：`desktop/ui-comparison/candidates/a/`，已使用本机核实的 Anthropic frontend-design；B 预留位置：`candidates/b/`，仅在收到用户指定 ui-design-system 后从同一固定输入生成。未取得 skill 前不创建冒名候选。
+- A：`desktop/ui-comparison/candidates/a/`，已使用本机核实的 Anthropic frontend-design。
+- B：`desktop/ui-comparison/candidates/b/`，用户已确认使用 Lenny's Newsletter 文章作为 `article-guided` 来源；它不是 `ui-design-system` 技能，来源和应用边界见 `docs/SKILL-B.md`。
 - 公共预览器：`desktop/ui-comparison/preview.py`；PowerShell 入口 `Preview.ps1`。只接收明确的 variant/scenario，不自动退回 demo。
 - 共享数据：合成 fixture，明确水印，`rpc.connected=false`；不访问 socket、文件传输或系统凭据。按钮不制造成功结果，真实动作在设计预览中不可执行。
 - Python/Qt 仅安装到本目录 `.venv`，本机 `.git/info/exclude` 明确忽略该目录，不改系统 Python；源码与截图忽略规则在本任务子目录中，原版根 `.gitignore` 也保持不变。
@@ -32,9 +33,9 @@
 ## skill 来源和待解决项
 
 - A 已发现并应用安装项：`C:\Users\12563\.claude\plugins\marketplaces\claude-plugins-official\plugins\frontend-design\skills\frontend-design\SKILL.md`；仓库 origin `https://github.com/anthropics/claude-plugins-official.git`，checkout `1a2f18b05cf5652fd25403e8d229fc884fb84103`；插件元数据无版本字段，以 commit + SKILL.md SHA256 定位。实际应用规则见 `SKILL-A.md`。
-- 另在 factory 插件找到同名 frontend-design，不混用。当前 skill 列表、`.agents`、`.codex`、插件缓存、`.claude`、`.factory`、`.trae-cn`、`.copilot`、`.continue`、`.openclaw`、常见用户文档/下载路径未找到 ui-design-system；已向用户索取准确链接/路径。
+- 另在 factory 插件找到同名 frontend-design，不混用。当前 skill 列表、`.agents`、`.codex`、插件缓存、`.claude`、`.factory`、`.trae-cn`、`.copilot`、`.continue`、`.openclaw`、常见用户文档/下载路径未找到 ui-design-system；B 已按用户确认改用文章来源并在 `docs/SKILL-B.md` 明确标注。
 - adapter-boundary 和 desktop README 的“仅 demo”介绍在输入提交中存在陈旧表述；本任务不改 API 文档事实，不将该文字当作最新实现证明，也不宣称预览验证了真实传输。
 
 ## 回滚与交接
 
-恢复原版直接启动 `-Variant original`；A/B 不覆盖原版。不执行 reset/clean，不删除已有项目。固定输入的 tracked 文件可用 `git show 8253126:<path>` 回读；导入清单记录 Git blob 和 SHA256。比较阶段完成或受 skill 来源阻塞时，精确提交本阶段源码/文档并推送独立 codex 分支，回读 SHA；不提交 `.venv`、截图大包、构建或私密数据。用户选定后另开正式合入任务，本阶段不作方案选择。
+恢复原版直接启动 `-Variant original`；A/B 不覆盖原版。不执行 reset/clean，不删除已有项目。固定输入的 tracked 文件可用 `git show 8253126:<path>` 回读；导入清单记录 Git blob 和 SHA256。比较阶段完成后，精确提交本阶段源码/文档并推送独立 codex 分支，回读 SHA；不提交 `.venv`、截图大包、构建或私密数据。用户选定后另开正式合入任务，本阶段不作方案选择。

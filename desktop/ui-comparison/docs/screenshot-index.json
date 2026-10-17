@@ -152,5 +152,82 @@
       1366,
       768
     ]
+  },
+  {
+    "variant": "b",
+    "scenario": "tasks",
+    "page": 0,
+    "path": "evidence/b-tasks-p0-1366-1.png",
+    "sha256": "87da0f895e84db20d78b85aaf3c4171d5e8a94553aa72fc84ef77e5354712fe6",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "b",
+    "scenario": "tasks",
+    "page": 1,
+    "path": "evidence/b-tasks-p1-1366-1.png",
+    "sha256": "18f5458b34ce84f4fdd7642acdf0e8eeceabd8281e7576a9a1ec18639b375dc2",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "b",
+    "scenario": "tasks",
+    "page": 2,
+    "path": "evidence/b-tasks-p2-1366-1.png",
+    "sha256": "6b474c537626a709683ff9258dc41fa6221bd0d9e8234db6a8707f737a15ff94",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "b",
+    "scenario": "tasks",
+    "page": 3,
+    "path": "evidence/b-tasks-p3-1366-1.png",
+    "sha256": "33756039bb4b57d5c8be941f7db308c5c726d72d6f5dd42b88df9ccdfc3972da",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "b",
+    "scenario": "scanning",
+    "page": 2,
+    "path": "evidence/b-scanning-p2-1366-1.png",
+    "sha256": "683f79b83d883bb3ef9cb2e6bf2b9362b0e91fd3b1e2d008d4b81edf6bb6a3a9",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "b",
+    "scenario": "failed",
+    "page": 2,
+    "path": "evidence/b-failed-p2-1366-1.png",
+    "sha256": "6acf2ef08125041af19c577e49d95e6150d60ede3a8423c7c66ed2e67e0fdb53",
+    "pixels": [
+      1366,
+      768
+    ]
+  },
+  {
+    "variant": "b",
+    "scenario": "offline",
+    "page": 0,
+    "path": "evidence/b-offline-p0-1366-1.png",
+    "sha256": "ae4f4cdfeadc536160a4ade3a58b81e7be1d3ac3f69f463fd3b375f7e58baa45",
+    "pixels": [
+      1366,
+      768
+    ]
   }
 ]

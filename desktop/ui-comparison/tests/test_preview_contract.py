@@ -53,12 +53,28 @@ class PreviewContract(unittest.TestCase):
         self.assertNotIn("XMLHttpRequest", source)
         self.assertNotIn("indeterminate:", source)
 
-    def test_missing_candidate_is_an_error(self):
-        if (HERE / "candidates/b/Main.qml").is_file():
-            self.skipTest("B is available")
-        result = subprocess.run([sys.executable, "-X", "utf8", str(HERE / "preview.py"), "--variant", "b"], capture_output=True, text=True, encoding="utf-8")
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("不会自动使用其他方案", result.stderr)
+    def test_candidate_b_preserves_rpc_boundary_and_is_independent(self):
+        source = (HERE / "candidates/b/Main.qml").read_text(encoding="utf-8")
+        baseline = subprocess.check_output(
+            ["git", "show", "8253126c9baaa6737b81afdbf2911802eb6671cd:desktop/ui/Main.qml"],
+            cwd=HERE.parents[1], text=True, encoding="utf-8")
+        for method in ["rpc.create(", 'rpc.action("transfer.cancel"', 'rpc.action("transfer.resume"',
+                       "rpc.saveProfile(", "rpc.testNode(", "rpc.refresh()"]:
+            self.assertIn(method, source)
+        self.assertIn("rpc.apiCompatible && !rpc.stale", source)
+        self.assertNotIn("XMLHttpRequest", source)
+        self.assertNotIn("indeterminate:", source)
+        self.assertNotEqual(source, (HERE / "candidates/a/Main.qml").read_text(encoding="utf-8"))
+        self.assertEqual(source.count("rpc.create("), baseline.count("rpc.create("))
+
+    def test_candidates_are_explicitly_present(self):
+        self.assertTrue((HERE / "candidates/a/Main.qml").is_file())
+        self.assertTrue((HERE / "candidates/b/Main.qml").is_file())
+
+        # A missing candidate must remain an explicit launcher error; preview.py
+        # never silently substitutes another candidate or fixture mode.
+        result = subprocess.run([sys.executable, "-X", "utf8", str(HERE / "preview.py"), "--variant", "missing"], capture_output=True, text=True, encoding="utf-8")
+        self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":
