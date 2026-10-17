@@ -177,7 +177,8 @@ common::Status DynamicFileQueue::schedulerEvent(const WorkLease& lease, const ch
     record.linkId = lease.owner.linkId; record.offset = file.rangeId ? file.rangeOffset : 0;
     record.length = file.rangeId ? file.rangeLength : file.totalSize;
     record.readyBytes = readyBytes_; record.targetConnections = workerLimit_;
-    record.reason = "shared_v3_executor";
+    record.reason = std::string(event) == "workitem_reconciled"
+        ? "manifest_confirmed_commit" : "shared_v3_executor";
     record.result = std::string(event) == "executor_failed" ? "fail" : "ok";
     record.leaseId = lease.leaseId; record.workerId = lease.owner.workerId;
     record.connectionEpoch = lease.owner.epoch.value; record.generation = file.generation;
@@ -185,6 +186,7 @@ common::Status DynamicFileQueue::schedulerEvent(const WorkLease& lease, const ch
     if (std::string(event) == "workitem_retry") return scheduler_->recordRetry(record);
     if (std::string(event) == "executor_failed") return scheduler_->recordFailed(record);
     if (std::string(event) == "executor_complete") return scheduler_->recordExecutorComplete(record);
+    if (std::string(event) == "workitem_reconciled") return scheduler_->recordLinkEvent(record);
     return scheduler_->recordDispatch(record);
 }
 common::Status DynamicFileQueue::schedulerFeedback() {
@@ -537,6 +539,94 @@ common::Result<WorkerContext> DynamicFileQueue::reopen(const WorkerContext& owne
     changed_.notify_all();
     return worker.context;
 }
+common::Result<WorkerContext> DynamicFileQueue::recover(
+    const WorkerContext& owner, const std::vector<WorkRecoveryDecision>& reconciled,
+    std::uint32_t maxRetries, WorkClock::time_point now) {
+    std::lock_guard lock(mutex_);
+    if (!status_.isOk()) return status_;
+    if (!matchesWorker(owner) || workers_[owner.workerId].state != WorkerState::Disconnected ||
+        owner.epoch.value == UINT64_MAX) return mismatch();
+
+    // Validate the entire ledger before releasing credits or changing any epoch.
+    std::unordered_set<std::uint64_t> seen;
+    std::size_t owned = 0;
+    for (const auto& [key, active] : active_) {
+        if (active.lease.owner == owner) ++owned;
+    }
+    if (reconciled.size() != owned || owned != credits_[owner.workerId]) {
+        return common::Status::invalidArgument("recovery requires a verdict for every active lease");
+    }
+    std::uint64_t retryBytes = 0;
+    for (const auto& decision : reconciled) {
+        const auto& lease = decision.lease;
+        if (lease.owner != owner || !seen.insert(lease.leaseId).second) return mismatch();
+        auto found = find(lease);
+        if (!found.isOk()) return found.status();
+        const auto& current = found.value()->lease;
+        if (current.state != WorkLeaseState::Reclaimable ||
+            current.inflightFrames || current.inflightBytes) return mismatch();
+        if (decision.disposition != WorkRecoveryDisposition::Missing &&
+            decision.disposition != WorkRecoveryDisposition::Committed) return mismatch();
+        if (decision.disposition == WorkRecoveryDisposition::Missing) {
+            if (current.file.attempt >= maxRetries) {
+                return common::Status::runtimeError("work retry limit exceeded");
+            }
+            const auto bytes = current.file.rangeId ? current.file.rangeLength : current.file.totalSize;
+            if (retryBytes > UINT64_MAX - bytes) return mismatch();
+            retryBytes += bytes;
+        }
+    }
+    if (readyBytes_ > UINT64_MAX - retryBytes) return mismatch();
+
+    for (const auto& decision : reconciled) {
+        auto found = active_.find(activeKey(decision.lease.file));
+        auto& active = found->second;
+        const bool retry = decision.disposition == WorkRecoveryDisposition::Missing;
+        const auto bytes = active.lease.file.rangeId ? active.lease.file.rangeLength :
+            active.lease.file.totalSize;
+        auto observed = common::Status::ok();
+        if (scheduler_ && active.schedulerInflight) {
+            observed = scheduler_->linkManager().releaseInflightBytes(
+                scheduler_->config().linkId, bytes);
+            if (observed.isOk()) active.schedulerInflight = false;
+        }
+        if (observed.isOk() && scheduler_ && retry) {
+            observed = scheduler_->linkManager().addReadyBytes(
+                scheduler_->config().linkId, bytes);
+            if (observed.isOk()) readyBytes_ += bytes;
+            if (observed.isOk()) observed = scheduler_->linkManager().addRetryCount(
+                scheduler_->config().linkId, 1);
+        }
+        if (observed.isOk()) observed = schedulerEvent(active.lease,
+            retry ? "workitem_retry" : "workitem_reconciled");
+        // A telemetry IO failure is terminal, as with ordinary claim/commit.
+        if (!observed.isOk()) {
+            status_ = observed;
+            changed_.notify_all();
+            return observed;
+        }
+        if (retry) {
+            auto item = static_cast<const WorkItem&>(active.lease);
+            ++item.file.attempt;
+            retry_.push_back({std::move(item), now});
+        }
+        --credits_[owner.workerId];
+        active_.erase(found);
+    }
+
+    auto observed = schedulerFeedback();
+    if (!observed.isOk()) {
+        status_ = observed;
+        changed_.notify_all();
+        return observed;
+    }
+    auto& worker = workers_[owner.workerId];
+    ++worker.context.epoch.value;
+    worker.state = WorkerState::Accepting;
+    changed_.notify_all();
+    return worker.context;
+}
+
 void DynamicFileQueue::cancel(const common::Status& reason) {
     std::lock_guard lock(mutex_);
     if (status_.isOk()) status_ = reason.isOk() ? common::Status::runtimeError("dynamic queue cancelled") : reason;

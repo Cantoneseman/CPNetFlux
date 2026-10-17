@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/dynamic_file_queue.h"
+#include "cpnetflux/core/io/work_executor.h"
 #include "cpnetflux/core/io/persistent_directory_batch.h"
 #include <gtest/gtest.h>
 #include <atomic>
@@ -8,6 +9,8 @@
 #include <poll.h>
 #include <netinet/in.h>
 #include <cerrno>
+#include <filesystem>
+#include <fstream>
 #include "cpnetflux/core/scheduler/work_item.h"
 #include "cpnetflux/core/scheduler/work_item_planner.h"
 #include "cpnetflux/core/scheduler/scheduler.h"
@@ -566,4 +569,223 @@ TEST(WorkExecutionAdapterTest, GlobalSchedulerUsesQueueLeaseOwnerAndEpoch) {
     ASSERT_TRUE(queue.commit(*next.value()).isOk());
     EXPECT_FALSE(queue.attachScheduler(&scheduler.value()).isOk());
     EXPECT_FALSE(queue.setConnectionEpoch(ConnectionEpoch{3}).isOk());
+}
+
+TEST(WorkExecutorTest, FinalizeSharesSuccessAndFailureLeaseTransitions) {
+    DynamicFileQueue queue(tasks(2), 1, 1, 2);
+    auto owner = queue.worker(0); ASSERT_TRUE(owner.isOk());
+    WorkExecutor executor(queue, owner.value());
+    auto first = executor.claim(); ASSERT_TRUE(first.isOk()); ASSERT_TRUE(first.value());
+    ASSERT_TRUE(executor.begin(*first.value()).isOk());
+    ASSERT_TRUE(executor.finalize(*first.value(), Status::ok()).isOk());
+    EXPECT_EQ(queue.outstanding(), 0U);
+    auto second = executor.claim(); ASSERT_TRUE(second.isOk()); ASSERT_TRUE(second.value());
+    ASSERT_TRUE(executor.begin(*second.value()).isOk());
+    ASSERT_TRUE(executor.finalize(*second.value(), Status::runtimeError("receiver failed")).isOk());
+    EXPECT_EQ(queue.outstanding(), 1U);
+    EXPECT_EQ(queue.snapshot(*second.value()).value().state, WorkLeaseState::Reclaimable);
+}
+
+TEST(WorkRecoveryTest, ReconcilesOnlyMissingActiveWorkAndAdvancesEpochAndAttempt) {
+    DynamicFileQueue queue(tasks(2), 1, 2, 2);
+    auto owner = queue.worker(0); ASSERT_TRUE(owner.isOk());
+    auto first = queue.claim(owner.value()); ASSERT_TRUE(first.isOk()); ASSERT_TRUE(first.value());
+    auto second = queue.claim(owner.value()); ASSERT_TRUE(second.isOk()); ASSERT_TRUE(second.value());
+    ASSERT_TRUE(queue.begin(*first.value()).isOk());
+    ASSERT_TRUE(queue.begin(*second.value()).isOk());
+    ASSERT_TRUE(queue.disconnect(owner.value()).isOk());
+    auto reopened = queue.recover(owner.value(), {
+        {*first.value(), WorkRecoveryDisposition::Committed},
+        {*second.value(), WorkRecoveryDisposition::Missing}}, 3);
+    ASSERT_TRUE(reopened.isOk()) << reopened.status().message();
+    EXPECT_EQ(reopened.value().epoch.value, owner.value().epoch.value + 1);
+    EXPECT_EQ(queue.outstanding(), 0U);
+    auto retry = queue.claim(reopened.value()); ASSERT_TRUE(retry.isOk()); ASSERT_TRUE(retry.value());
+    EXPECT_EQ(retry.value()->file.fileId, second.value()->file.fileId);
+    EXPECT_EQ(retry.value()->file.attempt, second.value()->file.attempt + 1);
+    EXPECT_FALSE(queue.begin(*second.value()).isOk());
+    ASSERT_TRUE(queue.begin(*retry.value()).isOk());
+    ASSERT_TRUE(queue.awaitResult(*retry.value()).isOk());
+    ASSERT_TRUE(queue.commit(*retry.value()).isOk());
+}
+
+TEST(WorkRecoveryTest, RejectsRetryBeyondBoundWithoutMutatingQueue) {
+    DynamicFileQueue queue(tasks(1), 1, 1, 1);
+    auto owner = queue.worker(0).value();
+    auto first = queue.claim(owner); ASSERT_TRUE(first.isOk()); ASSERT_TRUE(first.value());
+    ASSERT_TRUE(queue.begin(*first.value()).isOk());
+    ASSERT_TRUE(queue.disconnect(owner).isOk());
+    auto reopened = queue.recover(owner, {{*first.value(), WorkRecoveryDisposition::Missing}}, 1);
+    ASSERT_TRUE(reopened.isOk());
+    auto retry = queue.claim(reopened.value()); ASSERT_TRUE(retry.isOk()); ASSERT_TRUE(retry.value());
+    ASSERT_TRUE(queue.begin(*retry.value()).isOk());
+    ASSERT_TRUE(queue.disconnect(reopened.value()).isOk());
+    auto bounded = queue.recover(reopened.value(), {{*retry.value(), WorkRecoveryDisposition::Missing}}, 1);
+    EXPECT_FALSE(bounded.isOk());
+    EXPECT_EQ(queue.outstanding(), 1U);
+    EXPECT_FALSE(queue.claim(reopened.value()).isOk());
+}
+
+TEST(WorkExecutorTest, RejectsAnotherWorkersValidLeaseAtEveryBoundary) {
+    DynamicFileQueue queue(tasks(2), 2, 1, 2);
+    WorkExecutor left(queue, queue.worker(0).value());
+    WorkExecutor right(queue, queue.worker(1).value());
+    auto next = right.claim(); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    const auto lease = *next.value();
+    EXPECT_FALSE(left.begin(lease).isOk());
+    ASSERT_TRUE(right.begin(lease).isOk());
+    EXPECT_FALSE(left.startIo(lease, 1).isOk());
+    ASSERT_TRUE(right.startIo(lease, 1).isOk());
+    EXPECT_FALSE(left.finishIo(lease, 1).isOk());
+    ASSERT_TRUE(right.finishIo(lease, 1).isOk());
+    EXPECT_FALSE(left.awaitResult(lease).isOk());
+    ASSERT_TRUE(right.awaitResult(lease).isOk());
+    EXPECT_FALSE(left.commit(lease).isOk());
+    EXPECT_FALSE(left.reject(lease).isOk());
+    EXPECT_FALSE(left.finalize(lease, Status::ok()).isOk());
+    ASSERT_TRUE(right.commit(lease).isOk());
+}
+
+TEST(WorkRecoveryTest, RejectsAlteredFullIdentityAndForeignWorkerBeforeMutation) {
+    DynamicFileQueue queue(tasks(3), 2, 2, 3);
+    auto owner = queue.worker(0).value();
+    auto first = queue.claim(owner); ASSERT_TRUE(first.isOk()); ASSERT_TRUE(first.value());
+    auto foreign = queue.claim(queue.worker(1).value()); ASSERT_TRUE(foreign.isOk()); ASSERT_TRUE(foreign.value());
+    ASSERT_TRUE(queue.disconnect(owner).isOk());
+    for (int field = 0; field < 7; ++field) {
+        auto changed = *first.value();
+        if (field == 0) ++changed.file.totalSize;
+        if (field == 1) ++changed.file.chunkSize;
+        if (field == 2) ++changed.file.mtimeUnixSeconds;
+        if (field == 3) ++changed.file.rangeOffset;
+        if (field == 4) ++changed.file.checksum.value;
+        if (field == 5) ++changed.file.generation;
+        if (field == 6) ++changed.file.attempt;
+        EXPECT_FALSE(queue.recover(owner, {{changed, WorkRecoveryDisposition::Missing}}, 3).isOk()) << field;
+    }
+    EXPECT_FALSE(queue.recover(owner, {{*foreign.value(), WorkRecoveryDisposition::Missing}}, 3).isOk());
+    EXPECT_EQ(queue.outstanding(), 2U);
+    EXPECT_EQ(queue.worker(0).value(), owner);
+}
+
+TEST(WorkRecoveryTest, RequiresCompleteUniqueLedgerAndConfirmedTeardown) {
+    DynamicFileQueue queue(tasks(2), 1, 2, 2);
+    auto owner = queue.worker(0).value();
+    auto a = queue.claim(owner), b = queue.claim(owner);
+    ASSERT_TRUE(a.isOk()); ASSERT_TRUE(a.value());
+    ASSERT_TRUE(b.isOk()); ASSERT_TRUE(b.value());
+    const WorkRecoveryDecision first{*a.value(), WorkRecoveryDisposition::Missing};
+    const WorkRecoveryDecision second{*b.value(), WorkRecoveryDisposition::Committed};
+    EXPECT_FALSE(queue.recover(owner, {first, second}).isOk());
+    ASSERT_TRUE(queue.requestDrain(owner).isOk());
+    EXPECT_FALSE(queue.recover(owner, {first, second}).isOk());
+    ASSERT_TRUE(queue.disconnect(owner).isOk());
+    EXPECT_FALSE(queue.recover(owner, {first}).isOk());
+    EXPECT_FALSE(queue.recover(owner, {first, first}).isOk());
+    auto forged = first; ++forged.lease.leaseId;
+    EXPECT_FALSE(queue.recover(owner, {forged, second}).isOk());
+    auto invalid = first; invalid.disposition = static_cast<WorkRecoveryDisposition>(9);
+    EXPECT_FALSE(queue.recover(owner, {invalid, second}).isOk());
+    EXPECT_EQ(queue.outstanding(), 2U);
+    EXPECT_EQ(queue.worker(0).value(), owner);
+    ASSERT_TRUE(queue.recover(owner, {first, second}).isOk());
+    EXPECT_FALSE(queue.commit(*a.value()).isOk());
+    EXPECT_FALSE(queue.commit(*b.value()).isOk());
+}
+
+TEST(WorkRecoveryTest, ZeroRetryBudgetAllowsConfirmedCommitButNeverMissingWork) {
+    DynamicFileQueue queue(tasks(1), 1, 1, 1);
+    auto owner = queue.worker(0).value();
+    auto next = queue.claim(owner); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    ASSERT_TRUE(queue.disconnect(owner).isOk());
+    EXPECT_FALSE(queue.recover(owner, {{*next.value(), WorkRecoveryDisposition::Missing}}, 0).isOk());
+    auto recovered = queue.recover(owner, {{*next.value(), WorkRecoveryDisposition::Committed}}, 0);
+    ASSERT_TRUE(recovered.isOk());
+    auto empty = queue.claim(recovered.value()); ASSERT_TRUE(empty.isOk()); EXPECT_FALSE(empty.value());
+    EXPECT_EQ(queue.outstanding(), 0U);
+}
+
+TEST(WorkRecoveryTest, EpochExhaustionAndCancellationLeaveRecoveryUnavailable) {
+    DynamicFileQueue queue(tasks(1), 1, 1, 1);
+    ASSERT_TRUE(queue.setConnectionEpoch({UINT64_MAX}).isOk());
+    auto owner = queue.worker(0).value();
+    auto next = queue.claim(owner); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    ASSERT_TRUE(queue.disconnect(owner).isOk());
+    const std::vector<WorkRecoveryDecision> ledger{{*next.value(), WorkRecoveryDisposition::Committed}};
+    EXPECT_FALSE(queue.recover(owner, ledger).isOk());
+    EXPECT_EQ(queue.outstanding(), 1U);
+    EXPECT_EQ(queue.worker(0).value().epoch.value, UINT64_MAX);
+    queue.cancel(Status::runtimeError("explicit cancellation"));
+    EXPECT_FALSE(queue.recover(owner, ledger).isOk());
+}
+
+TEST(WorkExecutorTest, RecoveredExecutorClaimsNewEpochAndRejectsOldHandles) {
+    DynamicFileQueue queue(tasks(1), 1, 1, 1);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    auto next = executor.claim(); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    ASSERT_TRUE(executor.begin(*next.value()).isOk());
+    ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+    ASSERT_TRUE(executor.recover({{*next.value(), WorkRecoveryDisposition::Missing}}, 1).isOk());
+    EXPECT_EQ(executor.owner().epoch.value, 2U);
+    EXPECT_FALSE(executor.finalize(*next.value(), Status::ok()).isOk());
+    auto retried = executor.claim(); ASSERT_TRUE(retried.isOk()); ASSERT_TRUE(retried.value());
+    ASSERT_TRUE(executor.begin(*retried.value()).isOk());
+    ASSERT_TRUE(executor.startIo(*retried.value(), 1).isOk());
+    EXPECT_FALSE(executor.finalize(*retried.value(), Status::ok()).isOk());
+    ASSERT_TRUE(executor.finishIo(*retried.value(), 1).isOk());
+    ASSERT_TRUE(executor.awaitResult(*retried.value()).isOk());
+    ASSERT_TRUE(executor.finalize(*retried.value(), Status::ok()).isOk());
+    EXPECT_FALSE(executor.finalize(*retried.value(), Status::ok()).isOk());
+}
+
+TEST(WorkRecoveryTest, SchedulerAccountingTracksReconciliationAndMissingRetries) {
+    char pattern[] = "/tmp/cpnetflux-recovery-metrics-XXXXXX";
+    const char* created = ::mkdtemp(pattern); ASSERT_NE(created, nullptr);
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code error; std::filesystem::remove_all(root, error); }
+    } cleanup{created};
+    for (const bool rejected : {false, true}) {
+        cpnetflux::core::scheduler::SchedulerConfig config;
+        const auto eventPath = cleanup.root / (rejected ? "rejected.jsonl" : "disconnected.jsonl");
+        config.taskId = "recovery-test"; config.metricsPaths.eventsJsonl = eventPath.string();
+        auto scheduler = cpnetflux::core::scheduler::GlobalScheduler::create(config);
+        ASSERT_TRUE(scheduler.isOk());
+        DynamicFileQueue queue(tasks(3), 1, 2, 3);
+        ASSERT_TRUE(queue.attachScheduler(&scheduler.value()).isOk());
+        auto owner = queue.worker(0).value();
+        auto a = queue.claim(owner), b = queue.claim(owner);
+        ASSERT_TRUE(a.isOk()); ASSERT_TRUE(a.value());
+        ASSERT_TRUE(b.isOk()); ASSERT_TRUE(b.value());
+        const auto* link = scheduler.value().linkManager().link("link0");
+        ASSERT_NE(link, nullptr);
+        EXPECT_EQ(link->inflightBytes, a.value()->file.totalSize + b.value()->file.totalSize);
+        if (rejected) ASSERT_TRUE(queue.reject(*a.value()).isOk());
+        ASSERT_TRUE(queue.disconnect(owner).isOk());
+        auto recovered = queue.recover(owner, {
+            {*a.value(), WorkRecoveryDisposition::Missing},
+            {*b.value(), WorkRecoveryDisposition::Committed}});
+        ASSERT_TRUE(recovered.isOk()) << recovered.status().message();
+        EXPECT_EQ(link->inflightBytes, 0U);
+        EXPECT_EQ(link->retryCount, 1U);
+        EXPECT_EQ(link->readyBytes, a.value()->file.totalSize + 1U);
+        auto retried = queue.claim(recovered.value());
+        ASSERT_TRUE(retried.isOk()); ASSERT_TRUE(retried.value());
+        EXPECT_EQ(retried.value()->file.fileId, a.value()->file.fileId);
+        WorkExecutor executor(queue, recovered.value());
+        ASSERT_TRUE(executor.begin(*retried.value()).isOk());
+        ASSERT_TRUE(executor.finalize(*retried.value(), Status::ok()).isOk());
+        auto untouched = executor.claim();
+        ASSERT_TRUE(untouched.isOk()); ASSERT_TRUE(untouched.value());
+        EXPECT_EQ(untouched.value()->file.fileId, 1U);
+        ASSERT_TRUE(executor.begin(*untouched.value()).isOk());
+        ASSERT_TRUE(executor.finalize(*untouched.value(), Status::ok()).isOk());
+        EXPECT_EQ(link->readyBytes, 0U); EXPECT_EQ(link->inflightBytes, 0U);
+        std::ifstream events(eventPath);
+        const std::string text((std::istreambuf_iterator<char>(events)), {});
+        EXPECT_NE(text.find("\"event\":\"workitem_reconciled\""), std::string::npos);
+        EXPECT_NE(text.find("\"reason\":\"manifest_confirmed_commit\""), std::string::npos);
+        EXPECT_NE(text.find("\"event\":\"workitem_retry\""), std::string::npos);
+        EXPECT_NE(text.find("\"connection_epoch\":2"), std::string::npos);
+    }
 }

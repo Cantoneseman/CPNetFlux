@@ -109,6 +109,7 @@ add_library(cpnetflux_core STATIC
     src/core/io/persistent_data_session.cpp
     src/core/io/persistent_tree_transfer.cpp
     src/core/io/dynamic_file_queue.cpp
+    src/core/io/work_executor.cpp
     src/core/io/persistent_directory_batch.cpp
     src/core/io/socket_utils.cpp
     src/core/io/tcp_sink_client.cpp

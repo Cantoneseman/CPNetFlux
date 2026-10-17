@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/work_executor.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -559,11 +560,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
     std::vector<std::uint8_t> buffer(PersistentDataSession::kMaxPayload);
-    std::optional<WorkerContext> worker;
+    std::optional<WorkExecutor> executor;
     if (ready) {
         auto context = ready->worker(channelIndex);
         if (!context.isOk()) return context.status();
-        worker = context.value();
+        executor.emplace(*ready, context.value());
     }
     struct PendingFile {
         PersistentFileIdentity id;
@@ -626,7 +627,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 Status::runtimeError("persistent receiver rejected file: " + expected.relativePath);
             if (ready) {
                 if (!lease) { requestAbort(Status::runtimeError("missing work lease")); return; }
-                auto completed = fileStatus.isOk() ? ready->commit(*lease) : ready->reject(*lease);
+                auto completed = executor->finalize(*lease, fileStatus);
                 if (!completed.isOk()) { requestAbort(completed); return; }
             }
             {
@@ -687,7 +688,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             if (abort) break;
         }
         if (ready) {
-            auto next = ready->claim(*worker);
+            auto next = executor->claim();
             if (!next.isOk()) { failWriter(next.status()); break; }
             if (!next.value()) break;
             lease = *next.value();
@@ -721,7 +722,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             changed.notify_all();
         }
         if (ready) {
-            status = ready->begin(*lease);
+            status = executor->begin(*lease);
             if (!status.isOk()) { failWriter(status); break; }
         }
         status = PersistentDataSession::writeBegin(socket, id,transferOptions && transferOptions->resume);
@@ -828,12 +829,12 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 auto writePayload = [&](const std::uint8_t* payload, std::size_t size) {
                     const auto frameBytes = encoded.size() + size;
                     if (ready) {
-                        auto reserved = ready->startIo(*lease, frameBytes);
+                        auto reserved = executor->startIo(*lease, frameBytes);
                         if (!reserved.isOk()) return reserved;
                     }
                     auto written = socket->writeAll(encoded.data(), encoded.size());
                     if (written.isOk()) written = socket->writeAll(payload, size);
-                    if (written.isOk() && ready) written = ready->finishIo(*lease, frameBytes);
+                    if (written.isOk() && ready) written = executor->finishIo(*lease, frameBytes);
                     return written;
                 };
                 status = writePayload(bytes, wireLength);
@@ -863,7 +864,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             skipRange ? checksum::ChecksumValue{} : checksumComputer.finalize(), skipRange);
         if (writeFailed || !status.isOk()) { failWriter(status.isOk() ? Status::runtimeError("persistent data write failed") : status); break; }
         if (ready) {
-            status = ready->awaitResult(*lease);
+            status = executor->awaitResult(*lease);
             if (!status.isOk()) { failWriter(status); break; }
         }
         if (needsHandshake || socket->tlsEnabled()) {
@@ -874,7 +875,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             const auto rangeStatus = result.value() == FrameStatusCode::Ok ? Status::ok() :
                 Status::runtimeError("persistent receiver rejected range: " + id.relativePath);
             if (ready) {
-                auto completed = rangeStatus.isOk() ? ready->commit(*lease) : ready->reject(*lease);
+                auto completed = executor->finalize(*lease, rangeStatus);
                 if (!completed.isOk()) { failWriter(completed); break; }
             }
             stats->completeWaitSeconds += resultSeconds;
@@ -946,11 +947,11 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     if (!status.isOk()) return status;
     if (!context) context = makePersistentTransferContext();
     PersistentDataSession state(dynamic);
-    std::optional<WorkerContext> worker;
+    std::optional<WorkExecutor> executor;
     if (ready) {
         auto owner = ready->worker(channelIndex);
         if (!owner.isOk()) return owner.status();
-        worker = owner.value();
+        executor.emplace(*ready, owner.value());
     }
     Status overall = Status::ok();
     for (;;) {
@@ -970,20 +971,20 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         const auto id = decoded.value();
         std::optional<WorkLease> lease;
         struct IncomingLeaseGuard {
-            DynamicFileQueue* queue = nullptr;
+            WorkExecutor* executor = nullptr;
             std::optional<WorkLease>* lease = nullptr;
             bool finished = false;
             ~IncomingLeaseGuard() {
-                if (queue && lease && lease->has_value() && !finished) (void)queue->reject(**lease);
+                if (executor && lease && lease->has_value() && !finished) (void)executor->reject(**lease);
             }
         } leaseGuard;
         if (ready) {
-            auto claimed = ready->claimIncoming(*worker, WorkItem{id, id.transferId});
+            auto claimed = executor->claimIncoming(WorkItem{id, id.transferId});
             if (!claimed.isOk()) return claimed.status();
             lease = claimed.value();
-            leaseGuard.queue = ready;
+            leaseGuard.executor = &*executor;
             leaseGuard.lease = &lease;
-            status = ready->begin(*lease);
+            status = executor->begin(*lease);
             if (!status.isOk()) return status;
         }
         const auto assignedChannel = id.rangeId != 0
@@ -1127,12 +1128,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             fileStatus.isOk() ? FrameStatusCode::Ok : FrameStatusCode::WriteFailed);
         if (!status.isOk()) return status;
         if (ready) {
-            status = fileStatus.isOk() ? ready->awaitResult(*lease) : ready->reject(*lease);
+            status = executor->finalize(*lease, fileStatus);
             if (!status.isOk()) return status;
-            if (fileStatus.isOk()) {
-                status = ready->commit(*lease);
-                if (!status.isOk()) return status;
-            }
             leaseGuard.finished = true;
         }
         stats->wireBytes += protocol::kFrameHeaderSize;

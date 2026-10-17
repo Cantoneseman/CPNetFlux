@@ -4,8 +4,10 @@
 
 - V3-WORK-UNIFY-01：done。统一 WorkItem/WorkLease/WorkerContext/ConnectionEpoch 契约已接入单文件与动态目录共用的 persistent sender；状态、owner、epoch、deadline、drain、断线回收和整文件 attempt 重派通过行为测试。
 - 输入提交：cbebce51e08bcdd986179e1f633885792f9bf762；本轮在独立 codex/V3-WORK-UNIFY-02 worktree 实施，结果与残余边界见 docs/tasks/2026-10-17-v3-work-unify-02-result.md。
-- 当前项：V3-WORK-UNIFY-02（实施中）。persistent upload/download 的 global scheduler、共享 dispatch window、receiver incoming lease、fixed/adaptive 实际模式和 lease/worker/epoch/retry 事件已接通；完整共同 executor 抽取、自动 reconnect/retry 与 manifest 对账仍待下一轮。尚未完成十链路、跨域性能或生产稳定性验收。
+- 父项：V3-WORK-UNIFY-02（实施中）。persistent upload/download 的 global scheduler、共享 dispatch window、receiver incoming lease、fixed/adaptive 实际模式和 lease/worker/epoch/retry 事件已接通；完整共同 executor 抽取、自动 reconnect/retry 与 manifest 对账仍待下一轮。尚未完成十链路、跨域性能或生产稳定性验收。
 - 实现提交 db469b9d109e8f5624b1d5977b4c9cee3a66313f 已推送，远端 refs/heads/codex/V3-WORK-UNIFY-02 已回读同 SHA。
+- 当前子阶段 V3-WORK-UNIFY-03：共同 lease 执行入口与受控 recover 已实现，16 项定向回归通过；全量验收待执行，输入 739a124，独立 codex/V3-WORK-UNIFY-03 worktree。
+- 下一项 V3-WORK-UNIFY-04：实际客户端有界自动重连/控制 batch 重建/远端权威对账；03 不启用该功能。范围及验收见 docs/tasks/2026-10-17-v3-work-unify-03.md。
 - 开发位置：深圳根目录单写入者；GridFTP proxy 在实际对比实验前刷新，本阶段未使用真实 GridFTP。
 
 # 当前执行（2026-10-14）

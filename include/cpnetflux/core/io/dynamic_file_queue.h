@@ -50,6 +50,13 @@ class DynamicFileQueue {
     [[nodiscard]] common::Status disconnect(const WorkerContext&);
     [[nodiscard]] common::Result<bool> cutReady(const WorkerContext&) const;
     [[nodiscard]] common::Result<WorkerContext> reopen(const WorkerContext&);
+    // Caller confirms teardown via disconnect, then supplies an explicit authoritative verdict
+    // for every active lease of this worker. Only Missing verdicts are requeued.
+    // maxRetries excludes the initial attempt; invalid ledgers/budgets do not mutate the queue.
+    // Telemetry IO failure is terminal and does not reopen the worker.
+    [[nodiscard]] common::Result<WorkerContext> recover(
+        const WorkerContext&, const std::vector<WorkRecoveryDecision>& reconciled,
+        std::uint32_t maxRetries = 3, WorkClock::time_point now = WorkClock::now());
     void cancel(const common::Status& reason);
     [[nodiscard]] std::size_t highWatermark() const;
     [[nodiscard]] std::size_t outstanding() const;

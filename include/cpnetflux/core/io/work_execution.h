@@ -36,6 +36,13 @@ struct WorkLease : WorkItem {
     std::uint64_t inflightFrames = 0, inflightBytes = 0;
     double queueWaitSeconds = 0;
 };
+// Every active lease requires an explicit verdict from manifest/peer reconciliation.
+// Absence from a missing list is never sufficient evidence of a successful commit.
+enum class WorkRecoveryDisposition { Missing, Committed };
+struct WorkRecoveryDecision {
+    WorkLease lease;
+    WorkRecoveryDisposition disposition = WorkRecoveryDisposition::Missing;
+};
 [[nodiscard]] common::Result<WorkItem> bindScheduledWork(
     const scheduler::WorkItem& plan, const PersistentFileIdentity& identity);
 // Scheduler plans remain projections; this adapter binds their ordered file set to full V3 identities.

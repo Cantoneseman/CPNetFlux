@@ -9,6 +9,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/work_executor.h"
+#include <tuple>
 #include "cpnetflux/checkpoint/transfer_manifest.h"
 #include "cpnetflux/checkpoint/manifest_store.h"
 #include "cpnetflux/core/session/transfer_session.h"
@@ -631,4 +633,144 @@ TEST(PersistentTreeLeaseTest, ReopenedWorkerUsesCurrentEpochThroughActualSender)
     EXPECT_FALSE(queue.commit(*first.value()).isOk());
     std::ifstream output(destination.path / "retry.bin");
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), "ABCDEFGH");
+}
+
+namespace {
+class PersistentRecoveryTest : public ::testing::TestWithParam<std::tuple<bool, bool>> {};
+}
+
+TEST_P(PersistentRecoveryTest, ReopenedTransportSendsOnlyManifestMissingPayload) {
+    const auto [download, ranged] = GetParam();
+    TempRoot source, destination;
+    const auto sourcePath = source.path / "recover.bin";
+    std::ofstream(sourcePath, std::ios::binary) << "ABCDEFGH";
+    struct stat st{}; ASSERT_EQ(::stat(sourcePath.c_str(), &st), 0);
+    PersistentFileIdentity id{1, 7, 8, "recover.bin", "recover-transfer", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    // A single full-file range still uses the range coordinator and sparse handshake.
+    if (ranged) { id.rangeId = 1; id.rangeLength = 8; id.rangeCount = 1; }
+    DynamicFileQueue queue(std::vector<PersistentFileIdentity>{id}, 1, 1, 1);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    auto next = executor.claim(); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    ASSERT_TRUE(executor.begin(*next.value()).isOk());
+    {
+        SocketPair broken;
+        PersistentTreeStats partial;
+        cpnetflux::common::Status interrupted;
+        std::jthread receiver([&] {
+            interrupted = receivePersistentTree(&broken.receiver, destination.path.string(),
+                download, "remote/tree", &partial, {}, 1, 0, 1, 1, true);
+        });
+        ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, id).isOk());
+        if (ranged) {
+            auto missing = PersistentDataSession::readResumeResponse(&broken.sender, id);
+            ASSERT_TRUE(missing.isOk());
+        }
+        const std::uint8_t bytes[]{'A', 'B', 'C', 'D'};
+        ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender, id, 0, bytes, sizeof(bytes)).isOk());
+        ::shutdown(broken.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        EXPECT_FALSE(interrupted.isOk());
+        EXPECT_EQ(partial.payloadBytes, 4U);
+    } // Old sockets closed and receiver joined before disconnect/recover.
+    const auto output = (destination.path / "recover.bin").string();
+    if (download) {
+        auto manifest = cpnetflux::checkpoint::loadDownloadManifest(
+            cpnetflux::checkpoint::downloadManifestPathForOutput(output));
+        ASSERT_TRUE(manifest.isOk()); ASSERT_EQ(manifest.value().verifiedChunks.size(), 1U);
+        EXPECT_EQ(manifest.value().verifiedChunks.front().length, 4U);
+    } else {
+        auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+            cpnetflux::checkpoint::manifestPathForOutput(output));
+        ASSERT_TRUE(manifest.isOk()); ASSERT_EQ(manifest.value().verifiedChunks.size(), 1U);
+        EXPECT_EQ(manifest.value().verifiedChunks.front().length, 4U);
+    }
+    ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+    auto recovered = executor.recover({{*next.value(), WorkRecoveryDisposition::Missing}}, 1);
+    ASSERT_TRUE(recovered.isOk()) << recovered.status().message();
+    EXPECT_EQ(recovered.value().epoch.value, 2U);
+    EXPECT_FALSE(executor.commit(*next.value()).isOk());
+
+    SocketPair resumed;
+    PersistentTreeStats sent, received;
+    DynamicFileQueue incoming(std::vector<WorkItem>{}, 1, 1, 1);
+    ASSERT_TRUE(incoming.setConnectionEpoch({2}).isOk());
+    cpnetflux::common::Status receiverStatus;
+    std::jthread receiver([&] {
+        receiverStatus = receivePersistentTree(&resumed.receiver, destination.path.string(),
+            download, "remote/tree", &received, {}, 1, 0, 1, 1, true, true, {}, &incoming);
+    });
+    cpnetflux::config::FileTransferOptions options; options.resume = true;
+    std::uint64_t completedAttempt = 0;
+    auto senderStatus = sendPersistentTree(&resumed.sender, source.path.string(), {}, &sent,
+        [&](const PersistentFileIdentity& file, const cpnetflux::common::Status& status, bool complete) {
+            if (complete && status.isOk()) completedAttempt = file.attempt;
+            return cpnetflux::common::Status::ok();
+        }, 1, 0, 1, &queue, &options);
+    ::shutdown(resumed.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(senderStatus.isOk()) << senderStatus.message();
+    ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+    EXPECT_EQ(sent.payloadBytes, 4U);
+    EXPECT_EQ(sent.skippedBytes, 4U);
+    EXPECT_EQ(received.payloadBytes, 4U);
+    EXPECT_EQ(completedAttempt, 1U);
+    EXPECT_EQ(queue.outstanding(), 0U);
+    EXPECT_EQ(incoming.outstanding(), 0U);
+    std::ifstream file(output, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), "ABCDEFGH");
+}
+
+INSTANTIATE_TEST_SUITE_P(UploadDownloadWholeAndRange, PersistentRecoveryTest,
+    ::testing::Combine(::testing::Bool(), ::testing::Bool()));
+
+TEST(PersistentTreeLeaseTest, UnreadResultReconcilesCommittedManifestWithoutPayloadRetry) {
+    for (const bool download : {false, true}) {
+        TempRoot destination;
+        PersistentFileIdentity id{1, 7, 8, "committed.bin", "lost-result-transfer", 4, 12,
+            cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+        DynamicFileQueue queue(std::vector<PersistentFileIdentity>{id}, 1, 1, 1);
+        WorkExecutor executor(queue, queue.worker(0).value());
+        auto lease = executor.claim(); ASSERT_TRUE(lease.isOk()); ASSERT_TRUE(lease.value());
+        ASSERT_TRUE(executor.begin(*lease.value()).isOk());
+        {
+            SocketPair pair;
+            PersistentTreeStats received;
+            cpnetflux::common::Status receiverStatus;
+            std::jthread receiver([&] {
+                receiverStatus = receivePersistentTree(&pair.receiver, destination.path.string(),
+                    download, "remote/tree", &received, {}, 1, 0, 1, 1, true);
+            });
+            const std::uint8_t payload[]{'A','B','C','D','E','F','G','H'};
+            cpnetflux::checksum::ChecksumComputer digest(id.checksumAlgorithm);
+            digest.update(payload, sizeof(payload));
+            ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+            ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, payload, sizeof(payload)).isOk());
+            ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, digest.finalize()).isOk());
+            ASSERT_TRUE(executor.awaitResult(*lease.value()).isOk());
+            ASSERT_TRUE(PersistentDataSession::writeDirectoryEnd(&pair.sender, 1).isOk());
+            receiver.join();
+            ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+            // Leave FILE_RESULT unread: sender has no terminal acknowledgement.
+        }
+        const auto output = (destination.path / id.relativePath).string();
+        if (download) {
+            auto manifest = cpnetflux::checkpoint::loadDownloadManifest(
+                cpnetflux::checkpoint::downloadManifestPathForOutput(output));
+            ASSERT_TRUE(manifest.isOk());
+            EXPECT_EQ(manifest.value().state, cpnetflux::checkpoint::ManifestState::Committed);
+        } else {
+            auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+                cpnetflux::checkpoint::manifestPathForOutput(output));
+            ASSERT_TRUE(manifest.isOk());
+            EXPECT_EQ(manifest.value().state, cpnetflux::checkpoint::ManifestState::Committed);
+        }
+        std::ifstream file(output, std::ios::binary);
+        ASSERT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), "ABCDEFGH");
+        ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+        ASSERT_TRUE(executor.recover({{*lease.value(), WorkRecoveryDisposition::Committed}}, 0).isOk());
+        auto empty = executor.claim(); ASSERT_TRUE(empty.isOk()); EXPECT_FALSE(empty.value());
+        EXPECT_EQ(queue.outstanding(), 0U);
+        EXPECT_FALSE(executor.commit(*lease.value()).isOk());
+    }
 }
