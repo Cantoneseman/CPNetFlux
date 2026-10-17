@@ -24,3 +24,9 @@
 ## 边界
 
 本结果不宣称独立 work_executor 已抽取，也不宣称自动 transport reconnect/retry、manifest 对账重连、跨机性能、十链路、LinkSet/RDMA 或生产 readiness 已完成。现有 disconnect/reopen/requeue 是可调用原语；自动故障恢复和缺失工作重派仍是下一步。真实 GridFTP 对比前按用户要求刷新 proxy；本轮未刷新。
+
+## GitHub 备份记录
+
+- 实现提交：db469b9d109e8f5624b1d5977b4c9cee3a66313f。
+- push：成功；远端 efs/heads/codex/V3-WORK-UNIFY-02 回读 SHA 与实现提交一致。
+- GridFTP proxy：本轮未刷新，按约定留到实际 GridFTP 对比实验前。
