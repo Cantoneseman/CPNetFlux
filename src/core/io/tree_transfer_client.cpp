@@ -44,6 +44,7 @@
 #include "cpnetflux/core/io/file_download_client.h"
 #include "cpnetflux/core/io/file_transfer_client.h"
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/work_executor.h"
 #include "cpnetflux/core/metrics/error_code.h"
 #include "cpnetflux/core/metrics/event_log.h"
 #include "cpnetflux/core/io/socket_utils.h"
@@ -1505,6 +1506,24 @@ void setFirstErrorLocked(SchedulerState* state, common::Status status) {
     state->stop = true;
 }
 
+common::Result<WorkItem> treeWorkItem(const core::tree::TreeFileRecord& file,
+                                           std::size_t index,
+                                           const config::TreeTransferOptions& options) {
+    if (index >= UINT32_MAX || file.transferId.empty()) {
+        return common::Status::invalidArgument("tree work identity is incomplete");
+    }
+    PersistentFileIdentity identity;
+    identity.fileId = static_cast<std::uint32_t>(index + 1);
+    identity.generation = 1;
+    identity.totalSize = file.size;
+    identity.relativePath = file.relativePath;
+    identity.transferId = file.transferId;
+    identity.chunkSize = options.chunkSize;
+    identity.mtimeUnixSeconds = file.mtimeUnixSeconds;
+    identity.checksumAlgorithm = options.checksumAlgorithm;
+    return WorkItem{std::move(identity), file.transferId};
+}
+
 common::Status updateRecord(SchedulerState* state, std::size_t index,
                             core::tree::TreeFileStatus status, std::string error = "") {
     const auto started = std::chrono::steady_clock::now();
@@ -1577,6 +1596,8 @@ struct PipelineControlSlot {
 
 struct PreparedTransfer {
     detail::TreePipelineCandidateIdentity identity;
+    std::unique_ptr<WorkExecutor> executor;
+    std::optional<WorkLease> lease;
     PipelineControlSlot* slot = nullptr;
     ControlClient* control = nullptr;
     std::uint16_t dataPort = 0;
@@ -2415,6 +2436,7 @@ struct GlobalSchedulerRuntime {
 struct GlobalDispatch {
     bool hasPlan = false;
     bool waitForCapacity = false;
+    WorkLease lease;
     core::scheduler::FilePlan plan;
     std::uint32_t targetConnections = 1;
 };
@@ -2499,7 +2521,8 @@ common::Status recordPlanDispatch(core::scheduler::GlobalScheduler* scheduler,
 
 common::Result<GlobalDispatch> nextGlobalDispatch(SchedulerState* state,
                                                   GlobalSchedulerRuntime* runtime,
-                                                  core::scheduler::GlobalScheduler* scheduler) {
+                                                  core::scheduler::GlobalScheduler* scheduler,
+                                                  WorkExecutor* executor) {
     std::lock_guard<std::mutex> lock(state->mutex);
     GlobalDispatch dispatch;
     if (state->stop) {
@@ -2584,7 +2607,19 @@ common::Result<GlobalDispatch> nextGlobalDispatch(SchedulerState* state,
         return dispatch;
     }
 
+    auto claimed = executor->claim();
+    if (!claimed.isOk()) return claimed.status();
+    if (!claimed.value()) return dispatch;
+    if (claimed.value()->file.transferId != plan.fileId ||
+        claimed.value()->file.relativePath != plan.relativePath) {
+        return common::Status::runtimeError(
+            "global scheduler plan and canonical work queue disagree");
+    }
+    const auto begun = executor->begin(*claimed.value());
+    if (!begun.isOk()) return begun;
+
     dispatch.hasPlan = true;
+    dispatch.lease = *claimed.value();
     dispatch.plan = plan;
     dispatch.targetConnections = link == nullptr ? decision.targetConnections
                                                  : link->targetConnections;
@@ -2797,7 +2832,8 @@ common::Status completeGlobalDispatch(SchedulerState* state, GlobalSchedulerRunt
     if (!failedStatus.isOk()) {
         return failedStatus;
     }
-    setFirstErrorLocked(state, fileStatus);
+    if (state->firstError.isOk()) state->firstError = fileStatus;
+    if (fileStatus.code() == common::StatusCode::TransportError) state->stop = true;
     return common::Status::ok();
 }
 
@@ -3000,26 +3036,53 @@ common::Status runGlobalTreeScheduler(core::tree::TreeManifest* manifest,
                   1, std::min<std::uint32_t>(
                          options.fileParallelism,
                          static_cast<std::uint32_t>(runtime.plans.size())));
+    std::vector<PersistentFileIdentity> identities;
+    identities.reserve(runtime.plans.size());
+    for (const auto& plan : runtime.plans) {
+        if (plan.manifestIndex >= manifest->files.size()) {
+            return common::Status::runtimeError("global scheduler returned a stale manifest index");
+        }
+        auto item = treeWorkItem(manifest->files[plan.manifestIndex], plan.manifestIndex, options);
+        if (!item.isOk()) return item.status();
+        identities.push_back(std::move(item.value().file));
+    }
+    auto boundWork = bindScheduledPlans(runtime.plans, identities);
+    if (!boundWork.isOk()) return boundWork.status();
+    const std::size_t queueCapacity = std::max<std::size_t>(
+        1, std::min<std::size_t>(256, boundWork.value().size()));
+    DynamicFileQueue queue(std::move(boundWork.value()), workerCount, 1, queueCapacity, true);
     std::vector<std::thread> workers;
     workers.reserve(workerCount);
     for (std::uint32_t worker = 0; worker < workerCount; ++worker) {
         workers.emplace_back(
-            [&state, &runtime, &scheduler, &options, processFile, direction]() {
+            [&state, &runtime, &scheduler, &options, processFile, direction, &queue, worker]() {
+            auto owner = queue.worker(worker);
+            if (!owner.isOk()) {
+                {
+                    std::lock_guard<std::mutex> lock(state.mutex);
+                    setFirstErrorLocked(&state, owner.status());
+                }
+                (void)queue.stopClaims();
+                return;
+            }
+            WorkExecutor executor(queue, owner.value());
             TreeWorkerRuntime workerRuntime;
             while (true) {
-                auto dispatch = nextGlobalDispatch(&state, &runtime, &scheduler);
+                auto dispatch = nextGlobalDispatch(&state, &runtime, &scheduler, &executor);
                 if (!dispatch.isOk()) {
-                    std::lock_guard<std::mutex> lock(state.mutex);
-                    setFirstErrorLocked(&state, dispatch.status());
+                    {
+                        std::lock_guard<std::mutex> lock(state.mutex);
+                        setFirstErrorLocked(&state, dispatch.status());
+                    }
+                    (void)queue.stopClaims();
                     return;
                 }
                 if (dispatch.value().waitForCapacity) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     continue;
                 }
-                if (!dispatch.value().hasPlan) {
-                    return;
-                }
+                if (!dispatch.value().hasPlan) return;
+
                 config::TreeTransferOptions dispatchOptions = options;
                 dispatchOptions.connections = dispatch.value().targetConnections;
                 workerRuntime.hotPathCompression = {};
@@ -3034,6 +3097,11 @@ common::Status runGlobalTreeScheduler(core::tree::TreeManifest* manifest,
                 const common::Status fileStatus =
                     processFile(&state, dispatch.value().plan.manifestIndex, dispatchOptions,
                                 &workerRuntime);
+                const auto transition = fileStatus.isOk()
+                    ? executor.finalize(dispatch.value().lease, common::Status::ok())
+                    : executor.failTerminal(dispatch.value().lease, fileStatus);
+                const common::Status executionStatus =
+                    transition.isOk() ? fileStatus : transition;
                 const common::Status completeStatus =
                     completeGlobalDispatch(&state, &runtime, &scheduler, dispatch.value().plan,
                                            dispatch.value().targetConnections,
@@ -3041,20 +3109,40 @@ common::Status runGlobalTreeScheduler(core::tree::TreeManifest* manifest,
                                                ? &workerRuntime.transferMetrics
                                                : nullptr,
                                            workerRuntime.forcedRawRetry,
-                                           fileStatus);
+                                           executionStatus);
                 if (!completeStatus.isOk()) {
-                    std::lock_guard<std::mutex> lock(state.mutex);
-                    setFirstErrorLocked(&state, completeStatus);
+                    {
+                        std::lock_guard<std::mutex> lock(state.mutex);
+                        setFirstErrorLocked(&state, completeStatus);
+                    }
+                    (void)queue.stopClaims();
                     return;
                 }
-                if (!fileStatus.isOk()) {
+                if ((!transition.isOk() ||
+                     executionStatus.code() == common::StatusCode::TransportError)) {
+                    (void)queue.stopClaims();
                     return;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(state.mutex);
+                    if (state.stop) {
+                        (void)queue.stopClaims();
+                        return;
+                    }
                 }
             }
             });
     }
     for (auto& worker : workers) {
         worker.join();
+    }
+    if (queue.outstanding() != 0 || state.stop) {
+        common::Status cancellation;
+        {
+            std::lock_guard<std::mutex> lock(state.mutex);
+            cancellation = state.firstError;
+        }
+        queue.cancel(cancellation);
     }
 
     common::Status status = common::Status::ok();
@@ -3121,24 +3209,75 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
         std::max<std::uint32_t>(1, std::min<std::uint32_t>(options.fileParallelism,
                                                           static_cast<std::uint32_t>(
                                                               std::max<std::size_t>(1, manifest->files.size()))));
+    std::vector<WorkItem> work;
+    work.reserve(manifest->files.size());
+    for (std::size_t index = 0; index < manifest->files.size(); ++index) {
+        auto item = treeWorkItem(manifest->files[index], index, options);
+        if (!item.isOk()) {
+            copyStats();
+            return item.status();
+        }
+        work.push_back(std::move(item.value()));
+    }
+    const std::size_t capacity = std::max<std::size_t>(
+        1, std::min<std::size_t>(256, work.size()));
+    DynamicFileQueue queue(std::move(work), workerCount, 1, capacity, true);
+
     std::vector<std::thread> workers;
     workers.reserve(workerCount);
     for (std::uint32_t worker = 0; worker < workerCount; ++worker) {
-        workers.emplace_back([&state, &options, processFile]() {
-            TreeWorkerRuntime runtime;
-            while (true) {
-                std::size_t index = 0;
+        workers.emplace_back([&state, &options, processFile, &queue, worker]() {
+            auto owner = queue.worker(worker);
+            if (!owner.isOk()) {
                 {
                     std::lock_guard<std::mutex> lock(state.mutex);
-                    if (state.stop || state.nextIndex >= state.manifest->files.size()) {
-                        return;
-                    }
-                    index = state.nextIndex++;
+                    setFirstErrorLocked(&state, owner.status());
                 }
-                common::Status status = processFile(&state, index, options, &runtime);
-                if (!status.isOk()) {
+                queue.cancel(owner.status());
+                return;
+            }
+            WorkExecutor executor(queue, owner.value());
+            TreeWorkerRuntime runtime;
+            while (true) {
+                {
                     std::lock_guard<std::mutex> lock(state.mutex);
-                    setFirstErrorLocked(&state, std::move(status));
+                    if (state.stop) return;
+                }
+                auto next = executor.claim();
+                if (!next.isOk()) {
+                    {
+                        std::lock_guard<std::mutex> lock(state.mutex);
+                        setFirstErrorLocked(&state, next.status());
+                    }
+                    queue.cancel(next.status());
+                    return;
+                }
+                if (!next.value()) return;
+                auto status = executor.begin(*next.value());
+                if (status.isOk()) {
+                    const auto index = static_cast<std::size_t>(next.value()->file.fileId - 1);
+                    status = processFile(&state, index, options, &runtime);
+                }
+                const auto transition = status.isOk()
+                    ? executor.finalize(*next.value(), common::Status::ok())
+                    : executor.failTerminal(*next.value(), status);
+                if (!transition.isOk()) status = transition;
+
+                bool stop = false;
+                {
+                    std::lock_guard<std::mutex> lock(state.mutex);
+                    if (!status.isOk() && state.firstError.isOk()) {
+                        state.firstError = status;
+                    }
+                    stop = state.stop ||
+                        (!status.isOk() &&
+                         status.code() == common::StatusCode::TransportError);
+                    if (stop && !state.stop) state.stop = true;
+                }
+                if (stop) {
+                    queue.cancel(status.isOk()
+                        ? common::Status::runtimeError("tree scheduler stopped")
+                        : status);
                     return;
                 }
             }
@@ -3280,6 +3419,25 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         auto attached = ready->attachScheduler(globalScheduler.get());
         if (!attached.isOk()) return attached;
     }
+    if (upload && !options.dynamicFileScheduling) {
+        std::vector<WorkItem> staticWork;
+        staticWork.reserve(files.size());
+        for (const auto& file : files) {
+            staticWork.push_back(WorkItem{file, file.transferId});
+        }
+        const auto capacity = std::min<std::size_t>(
+            256, std::max<std::size_t>(1, channelCount * dispatchWindow * 2));
+        ready = std::make_unique<DynamicFileQueue>(
+            std::move(staticWork), channelCount, dispatchWindow, capacity, true, true);
+    }
+    if (!upload && !options.dynamicFileScheduling) {
+        // Incoming server sessions are accepted independently of the sender's
+        // channel index, so preserve shared leasing without sender-side affinity.
+        const auto capacity = std::min<std::size_t>(
+            256, std::max<std::size_t>(1, channelCount * dispatchWindow * 2));
+        ready = std::make_unique<DynamicFileQueue>(
+            std::vector<WorkItem>{}, channelCount, dispatchWindow, capacity, true);
+    }
 
     if (ready) {
         auto epoch = ready->setConnectionEpoch({static_cast<std::uint64_t>(options.reconnectAttempt) + 1});
@@ -3324,6 +3482,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     };
     std::mutex failureMutex;
     common::Status firstFailure = common::Status::ok();
+    common::Status firstFileFailure = common::Status::ok();
+    auto recordFileFailure = [&](const common::Status& failure) {
+        std::lock_guard<std::mutex> lock(failureMutex);
+        if (firstFileFailure.isOk()) firstFileFailure = failure;
+    };
     auto recordFailure = [&](const common::Status& failure) {
         bool first = false;
         {
@@ -3499,6 +3662,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             std::lock_guard failureLock(failureMutex);
             if (!firstFailure.isOk()) return firstFailure;
         }
+        if (complete && !fileStatus.isOk() &&
+            fileStatus.code() != common::StatusCode::TransportError) {
+            if (!options.dynamicFileScheduling) recordFileFailure(fileStatus);
+        }
         if (complete && fileStatus.code() == common::StatusCode::TransportError) {
             // Publish transport teardown before sibling callbacks alter the ledger.
             // Ordinary file rejection keeps the existing per-file continuation contract.
@@ -3599,7 +3766,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             channel.observed.phaseTiming = options.phaseTiming;
             auto transferStatus = upload
                 ? sendPersistentTree(&channel.data, options.sourceDir, channel.files,
-                    &channel.observed, callback, dispatchWindow, index, channelCount, ready.get(), &transferOptions)
+                    &channel.observed, callback, dispatchWindow, index, channelCount, ready.get(),
+                    &transferOptions, !options.dynamicFileScheduling)
                 : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
                     &channel.observed, callback, dispatchWindow, index, channelCount,
                     channel.expectedFileCount, options.dynamicFileScheduling, options.resume, transactions,
@@ -3609,9 +3777,22 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 channel.data = FramedDataSocket{};
             }
             const auto waiting = std::chrono::steady_clock::now();
-            if (!transferStatus.isOk()) recordFailure(transferStatus);
+            const auto recordTransferOutcome = [&](const common::Status& outcome) {
+                if (outcome.isOk()) return;
+                {
+                    std::lock_guard<std::mutex> lock(failureMutex);
+                    if (!options.dynamicFileScheduling && !firstFileFailure.isOk() &&
+                        firstFileFailure.code() == outcome.code() &&
+                        firstFileFailure.message() == outcome.message()) {
+                        return;
+                    }
+                }
+                recordFailure(outcome);
+            };
+            recordTransferOutcome(transferStatus);
             std::string terminal;
             auto controlStatus = channel.control->waitTransferComplete({}, &terminal);
+            recordTransferOutcome(controlStatus);
             if (options.dynamicFileScheduling && controlStatus.isOk()) {
                 std::istringstream fields(terminal);
                 std::string field;
@@ -3684,7 +3865,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     common::Status result;
     {
         std::lock_guard<std::mutex> lock(failureMutex);
-        result = firstFailure;
+        result = firstFailure.isOk() ? firstFileFailure : firstFailure;
     }
     if (!upload) {
         if (result.isOk() && expectedTotalFiles != kUnknownPersistentFileCount &&
@@ -3805,11 +3986,25 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
     state.manifest = manifest;
     state.manifestPath = manifestPath;
     state.phaseTiming = options.phaseTiming;
+    const std::uint32_t workerCount = std::max<std::uint32_t>(
+        1, std::min<std::size_t>(options.fileParallelism, manifest->files.size()));
+    std::vector<WorkItem> work;
+    work.reserve(manifest->files.size());
+    for (std::size_t index = 0; index < manifest->files.size(); ++index) {
+        auto item = treeWorkItem(manifest->files[index], index, options);
+        if (!item.isOk()) return item.status();
+        work.push_back(std::move(item.value()));
+    }
 
     // Depth counts pending files, excluding the current data transfer. A slot
     // remains leased until its terminal reply is consumed (or cancellation is
     // joined). In particular depth=1 really uses two independent connections.
     const std::size_t slotCount = depth + 1;
+    const std::size_t queueWorkerCount = slotCount + workerCount - 1;
+    const std::size_t queueCapacity = std::max<std::size_t>(
+        1, std::min<std::size_t>(256, work.size()));
+    DynamicFileQueue queue(std::move(work), static_cast<std::uint32_t>(queueWorkerCount),
+                           1, queueCapacity, true);
     std::array<PipelineControlSlot, 5> slots;
     const auto resetAllSlots = [&]() {
         for (std::size_t i = 0; i < slotCount; ++i) {
@@ -3858,8 +4053,6 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         state.stats.pipelineSlotCount.fetch_add(1);
     }
 
-    const std::uint32_t workerCount = std::max<std::uint32_t>(1,
-        std::min<std::size_t>(options.fileParallelism, manifest->files.size()));
     std::vector<std::unique_ptr<TreeWorkerRuntime>> ordinaryRuntimes;
     std::vector<std::thread> workers;
     try {
@@ -3876,6 +4069,7 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
             std::string("tree pipeline worker allocation failed: ") + error.what());
     }
     const auto failState = [&](common::Status failure) {
+        (void)queue.stopClaims();
         {
             std::lock_guard<std::mutex> lock(state.mutex);
             setFirstErrorLocked(&state, std::move(failure));
@@ -3891,8 +4085,13 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         }
     };
 
-    const auto makePrepared = [&](std::size_t index, PipelineControlSlot* slot) {
+    const auto makePrepared = [&](WorkLease lease,
+                                   std::unique_ptr<WorkExecutor> executor,
+                                   PipelineControlSlot* slot) {
         auto prepared = std::make_unique<PreparedTransfer>();
+        const auto index = static_cast<std::size_t>(lease.file.fileId - 1);
+        prepared->executor = std::move(executor);
+        prepared->lease = std::move(lease);
         ++slot->generation;
         prepared->identity = detail::TreePipelineCandidateIdentity{
             index, manifest->files[index].relativePath, upload, slot->generation, slot->index};
@@ -3918,6 +4117,9 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         if (!item->status.isOk()) {
             (void)updateRecord(&state, item->identity.manifestIndex,
                                core::tree::TreeFileStatus::Failed, item->status.message());
+            if (item->executor && item->lease) {
+                (void)item->executor->failTerminal(*item->lease, item->status);
+            }
             failState(item->status);
         }
     };
@@ -3951,19 +4153,29 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
             if (freeSlot == nullptr) {
                 throw std::runtime_error("tree pipeline has no unleased control slot");
             }
-            std::size_t index = 0;
-            bool available = false;
-            const auto claimed = nextWorkItem(&state, &index, &available);
-            if (!claimed.isOk()) {
-                failState(claimed);
+            auto owner = queue.worker(static_cast<std::uint32_t>(freeSlot->index));
+            if (!owner.isOk()) {
+                failState(owner.status());
                 return;
             }
-            if (!available) {
+            auto executor = std::make_unique<WorkExecutor>(queue, owner.value());
+            auto claimed = executor->claim();
+            if (!claimed.isOk()) {
+                failState(claimed.status());
+                return;
+            }
+            if (!claimed.value()) {
                 exhausted = true;
                 return;
             }
+            auto beginStatus = executor->begin(*claimed.value());
+            if (!beginStatus.isOk()) {
+                (void)executor->failTerminal(*claimed.value(), beginStatus);
+                failState(beginStatus);
+                return;
+            }
             auto item = std::make_unique<PendingPreparation>();
-            item->transfer = makePrepared(index, freeSlot);
+            item->transfer = makePrepared(*claimed.value(), std::move(executor), freeSlot);
             PendingPreparation* raw = item.get();
             pending.push_back(std::move(item));
             state.stats.pipelinePendingHighWatermark.store(
@@ -3974,36 +4186,57 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
     };
 
     try {
-        std::size_t index = 0;
-        bool available = false;
-        status = nextWorkItem(&state, &index, &available);
-        if (status.isOk() && available) {
-            current = makePrepared(index, &slots[0]);
-            prepare(current.get());
-            status = current->status;
+        auto currentOwner = queue.worker(static_cast<std::uint32_t>(slots[0].index));
+        if (!currentOwner.isOk()) {
+            status = currentOwner.status();
+        } else {
+            auto currentExecutor = std::make_unique<WorkExecutor>(queue, currentOwner.value());
+            auto claimed = currentExecutor->claim();
+            if (!claimed.isOk()) {
+                status = claimed.status();
+            } else if (claimed.value()) {
+                status = currentExecutor->begin(*claimed.value());
+                if (status.isOk()) {
+                    current = makePrepared(*claimed.value(), std::move(currentExecutor), &slots[0]);
+                    prepare(current.get());
+                    status = current->status;
+                } else {
+                    (void)currentExecutor->failTerminal(*claimed.value(), status);
+                }
+            }
         }
         if (status.isOk() && current != nullptr) {
             // Reserve this lane's pending window before other file workers can
             // consume all remaining manifest rows.
             fillPending();
-            for (auto& runtime : ordinaryRuntimes) {
-                TreeWorkerRuntime* raw = runtime.get();
-                workers.emplace_back([&, raw]() {
+            for (std::size_t ordinary = 0; ordinary < ordinaryRuntimes.size(); ++ordinary) {
+                TreeWorkerRuntime* raw = ordinaryRuntimes[ordinary].get();
+                workers.emplace_back([&, raw, ordinary]() {
                     try {
+                        auto owner = queue.worker(static_cast<std::uint32_t>(slotCount + ordinary));
+                        if (!owner.isOk()) {
+                            failState(owner.status());
+                            return;
+                        }
+                        WorkExecutor executor(queue, owner.value());
                         while (!state.pipelineCancelRequested.load(std::memory_order_acquire)) {
-                            std::size_t next = 0;
-                            bool available = false;
-                            auto fileStatus = nextWorkItem(&state, &next, &available);
-                            if (!fileStatus.isOk()) {
-                                failState(fileStatus);
+                            auto next = executor.claim();
+                            if (!next.isOk()) {
+                                failState(next.status());
                                 return;
                             }
-                            if (!available) {
-                                return;
+                            if (!next.value()) return;
+                            auto fileStatus = executor.begin(*next.value());
+                            const auto index = static_cast<std::size_t>(next.value()->file.fileId - 1);
+                            if (fileStatus.isOk()) {
+                                fileStatus = upload
+                                    ? processUploadFile(&state, index, options, raw)
+                                    : processDownloadFile(&state, index, options, raw);
                             }
-                            fileStatus = upload
-                                ? processUploadFile(&state, next, options, raw)
-                                : processDownloadFile(&state, next, options, raw);
+                            const auto transition = fileStatus.isOk()
+                                ? executor.finalize(*next.value(), common::Status::ok())
+                                : executor.failTerminal(*next.value(), fileStatus);
+                            if (!transition.isOk()) fileStatus = transition;
                             if (!fileStatus.isOk()) {
                                 failState(fileStatus);
                                 return;
@@ -4028,7 +4261,14 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
                                         &runtime, current.get(), fillPending, {})
                 : processDownloadFileImpl(&state, current->identity.manifestIndex, options,
                                           &runtime, current.get(), fillPending, {});
+            if (current->executor && current->lease) {
+                const auto transition = status.isOk()
+                    ? current->executor->finalize(*current->lease, common::Status::ok())
+                    : current->executor->failTerminal(*current->lease, status);
+                if (!transition.isOk()) status = transition;
+            }
             if (!status.isOk()) {
+                current->slot->owner = nullptr;
                 break;
             }
             current->slot->owner = nullptr;  // data and terminal reply are complete
@@ -4069,6 +4309,14 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         if (worker.joinable()) {
             worker.join();
         }
+    }
+    if (state.pipelineCancelRequested.load(std::memory_order_acquire)) {
+        common::Status cancellation;
+        {
+            std::lock_guard<std::mutex> lock(state.mutex);
+            cancellation = state.firstError;
+        }
+        queue.cancel(cancellation);
     }
     {
         std::lock_guard<std::mutex> lock(state.mutex);

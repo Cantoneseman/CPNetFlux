@@ -589,7 +589,8 @@ common::Result<std::vector<tree::TreeFileInfo>> scanPersistentTree(const std::st
 common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& root,
     const std::vector<PersistentFileIdentity>& files, PersistentTreeStats* stats,
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
-    std::uint32_t channelIndex, std::uint32_t channelCount, DynamicFileQueue* ready, const config::FileTransferOptions* transferOptions) {
+    std::uint32_t channelIndex, std::uint32_t channelCount, DynamicFileQueue* ready,
+    const config::FileTransferOptions* transferOptions, bool continueAfterFileFailure) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -668,7 +669,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 Status::runtimeError("persistent receiver rejected file: " + expected.relativePath);
             if (ready) {
                 if (!lease) { requestAbort(Status::runtimeError("missing work lease")); return; }
-                auto completed = executor->finalize(*lease, fileStatus);
+                auto completed = !fileStatus.isOk() && continueAfterFileFailure
+                    ? executor->failTerminal(*lease, fileStatus)
+                    : executor->finalize(*lease, fileStatus);
                 if (!completed.isOk()) { requestAbort(completed); return; }
             }
             {
@@ -705,7 +708,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 requestAbort(callbackStatus);
                 return;
             }
-            if (ready && !fileStatus.isOk()) { requestAbort(fileStatus); return; }
+            if (ready && !fileStatus.isOk() && !continueAfterFileFailure) {
+                requestAbort(fileStatus);
+                return;
+            }
         }
     });
     auto failWriter = [&](const Status& failure) {
@@ -1178,7 +1184,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             fileStatus.isOk() ? FrameStatusCode::Ok : FrameStatusCode::WriteFailed);
         if (!status.isOk()) return status;
         if (ready) {
-            status = executor->finalize(*lease, fileStatus);
+            status = !fileStatus.isOk() && !dynamic
+                ? executor->failTerminal(*lease, fileStatus)
+                : executor->finalize(*lease, fileStatus);
             if (!status.isOk()) return status;
             leaseGuard.finished = true;
         }

@@ -26,7 +26,7 @@ struct WorkItem {
     std::string taskId;
     bool compressionCandidate = false;
 };
-enum class WorkLeaseState { Claimed, InFlight, CommitPending, Completed, Reclaimable };
+enum class WorkLeaseState { Claimed, InFlight, CommitPending, Completed, Failed, Reclaimable };
 // A value handle. State/counters/deadline are snapshots; the queue owns current state.
 struct WorkLease : WorkItem {
     std::uint64_t leaseId = 0;

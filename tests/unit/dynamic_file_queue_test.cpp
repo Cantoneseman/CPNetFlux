@@ -586,6 +586,105 @@ TEST(WorkExecutorTest, FinalizeSharesSuccessAndFailureLeaseTransitions) {
     EXPECT_EQ(queue.snapshot(*second.value()).value().state, WorkLeaseState::Reclaimable);
 }
 
+TEST(WorkExecutorTest, TerminalFailureReleasesCreditAndAllowsNextFile) {
+    DynamicFileQueue queue(tasks(2), 1, 1, 2);
+    WorkExecutor executor(queue, queue.worker(0).value());
+
+    auto first = executor.claim();
+    ASSERT_TRUE(first.isOk());
+    ASSERT_TRUE(first.value());
+    ASSERT_TRUE(executor.begin(*first.value()).isOk());
+    ASSERT_TRUE(executor.awaitResult(*first.value()).isOk());
+    const auto failed = Status::runtimeError("file rejected");
+    ASSERT_TRUE(executor.failTerminal(*first.value(), failed).isOk());
+    EXPECT_EQ(queue.outstanding(), 0U);
+    EXPECT_FALSE(executor.finalize(*first.value(), Status::ok()).isOk());
+
+    auto second = executor.claim();
+    ASSERT_TRUE(second.isOk());
+    ASSERT_TRUE(second.value());
+    EXPECT_NE(second.value()->file.fileId, first.value()->file.fileId);
+    ASSERT_TRUE(executor.begin(*second.value()).isOk());
+    ASSERT_TRUE(executor.finalize(*second.value(), Status::ok()).isOk());
+    EXPECT_EQ(queue.outstanding(), 0U);
+    EXPECT_FALSE(executor.claim().value().has_value());
+}
+
+TEST(WorkExecutorTest, StaticAffinityKeepsPersistentChannelOwnership) {
+    DynamicFileQueue queue(tasks(4), 2, 1, 4, true, true);
+    WorkExecutor left(queue, queue.worker(0).value());
+    WorkExecutor right(queue, queue.worker(1).value());
+
+    for (std::uint32_t expected = 1; expected <= 4; ++expected) {
+        auto& executor = expected % 2 == 1 ? left : right;
+        auto next = executor.claim();
+        ASSERT_TRUE(next.isOk());
+        ASSERT_TRUE(next.value());
+        EXPECT_EQ(next.value()->file.fileId, expected);
+        ASSERT_TRUE(executor.begin(*next.value()).isOk());
+        ASSERT_TRUE(executor.finalize(*next.value(), Status::ok()).isOk());
+    }
+    EXPECT_EQ(queue.outstanding(), 0U);
+}
+
+TEST(WorkExecutorTest, StaticAffinityPreservesPerChannelFileOrderAcrossInterleaving) {
+    DynamicFileQueue queue(tasks(6), 2, 4, 2, true, true);
+    EXPECT_EQ(queue.highWatermark(), 6U);
+    auto worker0 = queue.worker(0);
+    auto worker1 = queue.worker(1);
+    ASSERT_TRUE(worker0.isOk());
+    ASSERT_TRUE(worker1.isOk());
+
+    auto rightFirst = queue.claim(worker1.value());
+    ASSERT_TRUE(rightFirst.isOk());
+    ASSERT_TRUE(rightFirst.value());
+    EXPECT_EQ(rightFirst.value()->file.fileId, 2U);
+
+    auto leftFirst = queue.claim(worker0.value());
+    ASSERT_TRUE(leftFirst.isOk());
+    ASSERT_TRUE(leftFirst.value());
+    EXPECT_EQ(leftFirst.value()->file.fileId, 1U);
+
+    auto rightSecond = queue.claim(worker1.value());
+    ASSERT_TRUE(rightSecond.isOk());
+    ASSERT_TRUE(rightSecond.value());
+    EXPECT_EQ(rightSecond.value()->file.fileId, 4U);
+
+    auto leftSecond = queue.claim(worker0.value());
+    ASSERT_TRUE(leftSecond.isOk());
+    ASSERT_TRUE(leftSecond.value());
+    EXPECT_EQ(leftSecond.value()->file.fileId, 3U);
+}
+
+TEST(WorkExecutorTest, StaticIncomingLeaseRejectsWrongChannel) {
+    DynamicFileQueue queue(std::vector<WorkItem>{}, 2, 1, 2, true, true);
+    WorkExecutor left(queue, queue.worker(0).value());
+    WorkExecutor right(queue, queue.worker(1).value());
+    const auto file = tasks(1).front();
+    EXPECT_FALSE(right.claimIncoming(WorkItem{file, file.transferId}).isOk());
+    auto accepted = left.claimIncoming(WorkItem{file, file.transferId});
+    ASSERT_TRUE(accepted.isOk());
+    ASSERT_TRUE(left.begin(accepted.value()).isOk());
+    ASSERT_TRUE(left.finalize(accepted.value(), Status::ok()).isOk());
+}
+
+TEST(WorkExecutorTest, StopClaimsKeepsActiveLeaseUntilWorkerQuiesces) {
+    DynamicFileQueue queue(tasks(2), 1, 1, 2);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    auto active = executor.claim();
+    ASSERT_TRUE(active.isOk());
+    ASSERT_TRUE(active.value());
+    ASSERT_TRUE(executor.begin(*active.value()).isOk());
+
+    ASSERT_TRUE(queue.stopClaims().isOk());
+    auto stopped = executor.claim();
+    ASSERT_TRUE(stopped.isOk());
+    EXPECT_FALSE(stopped.value());
+    EXPECT_EQ(queue.outstanding(), 1U);
+    ASSERT_TRUE(executor.finalize(*active.value(), Status::ok()).isOk());
+    EXPECT_EQ(queue.outstanding(), 0U);
+}
+
 TEST(WorkRecoveryTest, ReconcilesOnlyMissingActiveWorkAndAdvancesEpochAndAttempt) {
     DynamicFileQueue queue(tasks(2), 1, 2, 2);
     auto owner = queue.worker(0); ASSERT_TRUE(owner.isOk());

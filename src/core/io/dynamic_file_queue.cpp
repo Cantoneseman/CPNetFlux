@@ -73,18 +73,24 @@ common::Status mismatch() {
 }
 }
 DynamicFileQueue::DynamicFileQueue(std::vector<PersistentFileIdentity> files,
-    std::uint32_t channels, std::uint32_t window, std::size_t capacity, bool preserveReadyOrder)
-    : DynamicFileQueue(asWorkItems(std::move(files)), channels, window, capacity, preserveReadyOrder) {}
+    std::uint32_t channels, std::uint32_t window, std::size_t capacity, bool preserveReadyOrder,
+    bool staticChannelAffinity)
+    : DynamicFileQueue(asWorkItems(std::move(files)), channels, window, capacity,
+                       preserveReadyOrder, staticChannelAffinity) {}
 
 DynamicFileQueue::DynamicFileQueue(std::vector<WorkItem> files,
-    std::uint32_t channels, std::uint32_t window, std::size_t capacity, bool preserveReadyOrder)
-    : files_(std::move(files)), window_(window), preserveReadyOrder_(preserveReadyOrder) {
-    if (channels == 0 || channels > 64 || window == 0 || window > 16 || capacity == 0 || capacity > 256) {
+    std::uint32_t channels, std::uint32_t window, std::size_t capacity, bool preserveReadyOrder,
+    bool staticChannelAffinity)
+    : files_(std::move(files)), window_(window), preserveReadyOrder_(preserveReadyOrder),
+      staticChannelAffinity_(staticChannelAffinity) {
+    if (channels == 0 || channels > 64 || window == 0 || window > 16 ||
+        capacity == 0 || capacity > 256) {
         status_ = common::Status::invalidArgument("invalid dynamic queue bounds");
         return;
     }
     ring_.resize(capacity);
     credits_.resize(channels);
+    staticNextIndex_.resize(channels);
     for (std::uint32_t c = 0; c < channels; ++c) workers_.push_back({WorkerContext{c}});
     std::unordered_map<std::uint32_t, std::vector<PersistentFileIdentity>> groups;
     std::unordered_map<std::string, std::uint32_t> paths, transfers;
@@ -133,12 +139,22 @@ DynamicFileQueue::DynamicFileQueue(std::vector<WorkItem> files,
             status_ = common::Status::invalidArgument("incomplete range partition"); return;
         }
     }
-    if (!preserveReadyOrder_) {
+    if (staticChannelAffinity_) {
         std::stable_sort(files_.begin(), files_.end(), [](const auto& a, const auto& b) {
-            return a.file.totalSize != b.file.totalSize ? a.file.totalSize > b.file.totalSize : a.file.fileId < b.file.fileId;
+            return a.file.fileId != b.file.fileId
+                ? a.file.fileId < b.file.fileId
+                : a.file.rangeId < b.file.rangeId;
         });
+        high_ = files_.size();
+    } else {
+        if (!preserveReadyOrder_) {
+            std::stable_sort(files_.begin(), files_.end(), [](const auto& a, const auto& b) {
+                return a.file.totalSize != b.file.totalSize
+                    ? a.file.totalSize > b.file.totalSize : a.file.fileId < b.file.fileId;
+            });
+        }
+        fill();
     }
-    fill();
 }
 common::Status DynamicFileQueue::attachScheduler(scheduler::GlobalScheduler* scheduler) {
     std::lock_guard lock(mutex_);
@@ -165,8 +181,16 @@ common::Status DynamicFileQueue::attachScheduler(scheduler::GlobalScheduler* sch
 common::Status DynamicFileQueue::setConnectionEpoch(ConnectionEpoch epoch) {
     std::lock_guard lock(mutex_);
     if (!status_.isOk()) return status_;
-    if (!epoch.value || leasesIssued_) return mismatch();
+    if (!epoch.value || leasesIssued_ || claimsStopped_) return mismatch();
     for (auto& worker : workers_) worker.context.epoch = epoch;
+    return common::Status::ok();
+}
+
+common::Status DynamicFileQueue::stopClaims() {
+    std::lock_guard lock(mutex_);
+    if (!status_.isOk()) return status_;
+    claimsStopped_ = true;
+    changed_.notify_all();
     return common::Status::ok();
 }
 common::Status DynamicFileQueue::schedulerEvent(const WorkLease& lease, const char* event) {
@@ -241,6 +265,7 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
     if (!status_.isOk()) return status_;
     if (!matchesWorker(owner) || workers_[owner.workerId].state != WorkerState::Accepting ||
         !deadlineFits(now, timeout)) return mismatch();
+    if (claimsStopped_) return std::optional<WorkLease>{};
     if (scheduler_ && owner.workerId >= workerLimit_ && (size_ || !retry_.empty())) {
         const auto admissionDeadline = WorkClock::now() + timeout;
         if (changed_.wait_until(lock, admissionDeadline, [&] { return !status_.isOk() || !matchesWorker(owner) ||
@@ -252,16 +277,74 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
         now = WorkClock::now();
     }
     if (credits_[owner.workerId] >= window_) return common::Status::runtimeError("dynamic channel credit exhausted");
-    if (!size_ && retry_.empty()) return std::optional<WorkLease>{};
+    if (!staticChannelAffinity_ && !size_ && retry_.empty())
+        return std::optional<WorkLease>{};
+
+    Ready ready;
+    if (staticChannelAffinity_) {
+        auto retry = std::find_if(retry_.begin(), retry_.end(), [&](const Ready& candidate) {
+            return (candidate.item.file.fileId - 1) % workers_.size() == owner.workerId;
+        });
+        if (retry != retry_.end()) {
+            ready = std::move(*retry);
+            retry_.erase(retry);
+        } else {
+            auto& cursor = staticNextIndex_[owner.workerId];
+            std::size_t selected = cursor;
+            while (selected < files_.size() &&
+                   (files_[selected].file.fileId - 1) % workers_.size() != owner.workerId) {
+                ++selected;
+            }
+            if (selected == files_.size()) return std::optional<WorkLease>{};
+            ready = Ready{std::move(files_[selected]), now};
+            cursor = selected + 1;
+        }
+    } else {
+        if (retry_.empty() && !size_) return std::optional<WorkLease>{};
+        const auto leaseId = acquireLeaseId();
+        if (!leaseId) return common::Status::runtimeError("work lease ID exhausted");
+        auto retry = retry_.begin();
+        if (retry != retry_.end()) {
+            ready = std::move(*retry);
+            retry_.erase(retry);
+        } else {
+            const std::size_t selected = head_;
+            if (!ring_[selected]) return common::Status::runtimeError("dynamic ready ring is inconsistent");
+            ready = std::move(*ring_[selected]);
+            ring_[selected].reset();
+            head_ = (selected + 1) % ring_.size();
+            --size_;
+        }
+        WorkLease lease;
+        static_cast<WorkItem&>(lease) = std::move(ready.item);
+        lease.leaseId = leaseId;
+        lease.owner = owner;
+        lease.deadline = now + timeout;
+        lease.queueWaitSeconds = std::max(
+            0.0, std::chrono::duration<double>(WorkClock::now() - ready.admitted).count());
+        const auto inserted =
+            active_.emplace(activeKey(lease.file), Active{lease, timeout, scheduler_ != nullptr}).second;
+        if (!inserted) return common::Status::runtimeError("duplicate active work item");
+        ++credits_[owner.workerId];
+        leasesIssued_ = true;
+        fill();
+        if (scheduler_) {
+            const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
+            readyBytes_ -= bytes;
+            auto observed = scheduler_->linkManager().addInflightBytes(scheduler_->config().linkId, bytes);
+            if (observed.isOk()) observed = schedulerEvent(lease, "workitem_dispatch");
+            if (observed.isOk()) observed = schedulerFeedback();
+            if (!observed.isOk()) {
+                status_ = observed;
+                changed_.notify_all();
+                return observed;
+            }
+        }
+        changed_.notify_all();
+        return std::optional<WorkLease>{std::move(lease)};
+    }
     const auto leaseId = acquireLeaseId();
     if (!leaseId) return common::Status::runtimeError("work lease ID exhausted");
-    Ready ready;
-    if (!retry_.empty()) {
-        ready = std::move(retry_.front()); retry_.pop_front();
-    } else {
-        ready = std::move(*ring_[head_]); ring_[head_].reset();
-        head_ = (head_ + 1) % ring_.size(); --size_;
-    }
     WorkLease lease;
     static_cast<WorkItem&>(lease) = std::move(ready.item);
     lease.leaseId = leaseId;
@@ -271,7 +354,8 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
     lease.queueWaitSeconds = std::max(0.0, std::chrono::duration<double>(WorkClock::now() - ready.admitted).count());
     const auto inserted = active_.emplace(activeKey(lease.file), Active{lease, timeout, scheduler_ != nullptr}).second;
     if (!inserted) return common::Status::runtimeError("duplicate active work item");
-    ++credits_[owner.workerId]; leasesIssued_ = true; fill();
+    ++credits_[owner.workerId];
+    leasesIssued_ = true;
     if (scheduler_) {
         const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
         readyBytes_ -= bytes;
@@ -289,7 +373,9 @@ common::Result<WorkLease> DynamicFileQueue::claimIncoming(const WorkerContext& o
     if (!status_.isOk()) return status_;
     if (!validWorkItem(item) || !matchesWorker(owner) ||
         workers_[owner.workerId].state != WorkerState::Accepting ||
-        !deadlineFits(now, timeout)) return mismatch();
+        claimsStopped_ || !deadlineFits(now, timeout) ||
+        (staticChannelAffinity_ &&
+         (item.file.fileId - 1) % workers_.size() != owner.workerId)) return mismatch();
     if (scheduler_ && owner.workerId >= workerLimit_) {
         const auto admissionDeadline = WorkClock::now() + timeout;
         if (changed_.wait_until(lock, admissionDeadline, [&] {
@@ -442,6 +528,48 @@ common::Status DynamicFileQueue::reject(const WorkLease& lease) {
     changed_.notify_all();
     return common::Status::ok();
 }
+common::Status DynamicFileQueue::failTerminal(
+    const WorkLease& lease, const common::Status& reason) {
+    if (reason.isOk()) {
+        return common::Status::invalidArgument("terminal work failure requires an error");
+    }
+    std::lock_guard lock(mutex_);
+    auto found = find(lease);
+    if (!found.isOk()) {
+        return common::Status::runtimeError(
+            "terminal work lease is unavailable: " + found.status().message());
+    }
+    auto& active = *found.value();
+    auto& current = active.lease;
+    if ((current.state != WorkLeaseState::Claimed &&
+         current.state != WorkLeaseState::InFlight &&
+         current.state != WorkLeaseState::CommitPending) ||
+        current.inflightFrames || current.inflightBytes) {
+        return common::Status::runtimeError(
+            "terminal work lease cannot fail before IO quiesces or after a result transition");
+    }
+
+    if (scheduler_ && active.schedulerInflight) {
+        const auto bytes = current.file.rangeId ? current.file.rangeLength : current.file.totalSize;
+        auto observed = scheduler_->linkManager().releaseInflightBytes(
+            scheduler_->config().linkId, bytes);
+        if (observed.isOk()) observed = schedulerEvent(current, "executor_failed");
+        if (observed.isOk()) observed = schedulerFeedback();
+        if (!observed.isOk()) {
+            status_ = observed;
+            changed_.notify_all();
+            return observed;
+        }
+        active.schedulerInflight = false;
+    }
+
+    current.state = WorkLeaseState::Failed;
+    --credits_[current.owner.workerId];
+    active_.erase(activeKey(lease.file));
+    changed_.notify_all();
+    return common::Status::ok();
+}
+
 common::Status DynamicFileQueue::requeue(const WorkLease& lease, WorkClock::time_point now) {
     std::lock_guard lock(mutex_);
     auto found = find(lease); if (!found.isOk()) return found.status();
@@ -545,7 +673,7 @@ common::Result<WorkerContext> DynamicFileQueue::recover(
     std::lock_guard lock(mutex_);
     if (!status_.isOk()) return status_;
     if (!matchesWorker(owner) || workers_[owner.workerId].state != WorkerState::Disconnected ||
-        owner.epoch.value == UINT64_MAX) return mismatch();
+        claimsStopped_ || owner.epoch.value == UINT64_MAX) return mismatch();
 
     // Validate the entire ledger before releasing credits or changing any epoch.
     std::unordered_set<std::uint64_t> seen;
@@ -629,6 +757,7 @@ common::Result<WorkerContext> DynamicFileQueue::recover(
 
 void DynamicFileQueue::cancel(const common::Status& reason) {
     std::lock_guard lock(mutex_);
+    claimsStopped_ = true;
     if (status_.isOk()) status_ = reason.isOk() ? common::Status::runtimeError("dynamic queue cancelled") : reason;
     for (auto& item : ring_) item.reset();
     size_ = 0; retry_.clear(); active_.clear();

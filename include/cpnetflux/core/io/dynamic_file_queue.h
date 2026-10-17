@@ -19,11 +19,15 @@ using DynamicFileLeaseState = WorkLeaseState;
 class DynamicFileQueue {
  public:
     DynamicFileQueue(std::vector<PersistentFileIdentity> files, std::uint32_t channels,
-                     std::uint32_t window, std::size_t capacity, bool preserveReadyOrder = false);
+                     std::uint32_t window, std::size_t capacity, bool preserveReadyOrder = false,
+                     bool staticChannelAffinity = false);
     DynamicFileQueue(std::vector<WorkItem> work, std::uint32_t channels,
-                     std::uint32_t window, std::size_t capacity, bool preserveReadyOrder = false);
+                     std::uint32_t window, std::size_t capacity, bool preserveReadyOrder = false,
+                     bool staticChannelAffinity = false);
     [[nodiscard]] common::Status attachScheduler(scheduler::GlobalScheduler* scheduler);
     [[nodiscard]] common::Status setConnectionEpoch(ConnectionEpoch epoch);
+    // Prevent future claims while existing leases remain valid for teardown/finalization.
+    [[nodiscard]] common::Status stopClaims();
     // Compatibility entry points are restricted to the original epoch. New executors retain handles.
     [[nodiscard]] common::Result<std::optional<DynamicFileLease>> claim(std::uint32_t channel);
     [[nodiscard]] common::Status markInFlight(std::uint32_t channel, const PersistentFileIdentity& file);
@@ -41,6 +45,7 @@ class DynamicFileQueue {
     [[nodiscard]] common::Status awaitResult(const WorkLease&, WorkClock::time_point now = WorkClock::now());
     [[nodiscard]] common::Status commit(const WorkLease&, WorkClock::time_point now = WorkClock::now());
     [[nodiscard]] common::Status reject(const WorkLease&);
+    [[nodiscard]] common::Status failTerminal(const WorkLease&, const common::Status& reason);
     // Requeue requires confirmed transport teardown, zero IO, and reconciled missing work.
     [[nodiscard]] common::Status requeue(const WorkLease&, WorkClock::time_point now = WorkClock::now());
     [[nodiscard]] common::Result<WorkLease> snapshot(const WorkLease&) const;
@@ -78,6 +83,7 @@ class DynamicFileQueue {
     std::uint32_t workerLimit_ = 64;
     std::uint64_t readyBytes_ = 0;
     bool leasesIssued_ = false;
+    bool claimsStopped_ = false;
     std::vector<WorkItem> files_;
     std::vector<std::optional<Ready>> ring_;
     // Reclaimed work is bounded by released active credits and is claimed before fresh ready work.
@@ -87,6 +93,8 @@ class DynamicFileQueue {
     std::unordered_map<std::string, Active> active_;
     std::uint32_t window_;
     bool preserveReadyOrder_ = false;
+    bool staticChannelAffinity_ = false;
+    std::vector<std::size_t> staticNextIndex_;
     std::size_t next_ = 0, head_ = 0, tail_ = 0, size_ = 0, high_ = 0;
     common::Status status_ = common::Status::ok();
 };

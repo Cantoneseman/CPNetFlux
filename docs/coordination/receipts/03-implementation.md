@@ -114,3 +114,11 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 ```
 
 上述仅为本回执与仓库状态检查，不是 CMake/CTest 或真实传输验收。
+
+## 2026-10-18 V3-WORK-UNIFY-05 完成交接
+
+- 任务：V3-WORK-UNIFY-05；输入 3525a1638a653864c9abdb9cbb30badd603247cb；实现分支 codex/V3-WORK-UNIFY-05。
+- 实际解决：static/per-file/global/pipeline 兼容编排共用 WorkExecutor/queue owner；terminal failure 释放 lease/credit；stop claims、静态通道保序和取消/join 边界收口；逐文件失败继续其它文件的语义保留。
+- 验收：22 个定向单测、tree data reuse smoke、统一 executor smoke、362/362 CTest 均通过；最终版深圳↔上海双向 static persistent tree 互传 SHA-256 一致；1 次 reset 的故障证据收敛为 1 completed/1 failed。
+- 证据：/tmp/cpnetflux-runs/V3-WORK-UNIFY-05-20261017；结果 docs/tasks/2026-10-17-v3-work-unify-05-result.md 和 docs/tasks/2026-10-18-v3-work-unify-05-cloud-summary.json。
+- 下一步：V3-LINKSET-01 先实现 LinkSet 模型、能力协商、选择/记账接口和单测；不接入默认传输、不做十链路性能实验。

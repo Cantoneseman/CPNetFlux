@@ -1,4 +1,4 @@
-# 当前执行（2026-10-17；R2026-10-16-V3-UNIFIED-MULTILINK）
+# 当前执行（2026-10-18；R2026-10-16-V3-UNIFIED-MULTILINK）
 
 本节为当前生效状态。下方 2026-10-14 内容与未提交改动保留作历史记录；其中旧测试数量、资源阻塞和旧路线不作为本轮结论。
 
@@ -8,7 +8,8 @@
 - 实现提交 db469b9d109e8f5624b1d5977b4c9cee3a66313f 已推送，远端 refs/heads/codex/V3-WORK-UNIFY-02 已回读同 SHA。
 - 当前子阶段 V3-WORK-UNIFY-03：done。共同 lease executor、完整 ledger 的有界受控恢复、多 range 补传发布修复；最终代码 05d2ef6 的 354/354 CTest 通过（0 skip），27 项定向回归通过。输入 739a124，独立 codex/V3-WORK-UNIFY-03 worktree；实现和修复已 push/回读，详见 docs/tasks/2026-10-17-v3-work-unify-03-result.md。
 - V3-WORK-UNIFY-04：done。实际 persistent dynamic tree 显式有界重连、旧 batch 释放屏障、manifest 对账；最终代码 ff71014 的 357/357 CTest（0 skip）与深圳/上海 8/8 真实互传通过，4 次中断均自动恢复且 SHA-256 一致。代码已 push/回读；结果 docs/tasks/2026-10-17-v3-work-unify-04-result.md。
-- 下一步 V3-WORK-UNIFY-05：planned，尚未实施。static/per-file 兼容编排接入共同 owner，取消/超时/旧回调收口，保留逐文件错误继续处理；任务 docs/tasks/2026-10-17-v3-work-unify-05.md。
+- V3-WORK-UNIFY-05：done。static/per-file/global/pipeline 兼容编排共用 owner，终态失败释放 credit，stop claims/取消/join/静态保序已收口；362/362 CTest 与最终版深圳↔上海双向 static persistent tree 互传通过；结果 docs/tasks/2026-10-17-v3-work-unify-05-result.md。
+- 下一步 V3-LINKSET-01：planned。建立 LinkSet、每链路运行时状态、能力协商、确定性选择与 reserve/release 记账；不接入默认传输、不做十链路性能实验；任务 docs/tasks/2026-10-18-v3-linkset-01.md。
 - 开发位置：深圳独立 worktree 单写入者（依本轮用户明确的 worktree 要求）；上海仅部署固定二进制作传输对端。两端本任务进程、端口与可再生 payload 已回收，原始诊断保留。
 
 # 当前执行（2026-10-14）

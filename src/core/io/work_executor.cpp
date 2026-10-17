@@ -56,6 +56,14 @@ common::Status WorkExecutor::reject(const WorkLease& lease) {
     return queue_->reject(lease);
 }
 
+common::Status WorkExecutor::failTerminal(
+    const WorkLease& lease, const common::Status& reason) {
+    if (lease.owner != owner_) {
+        return common::Status::invalidArgument("work executor owner mismatch");
+    }
+    return queue_->failTerminal(lease, reason);
+}
+
 common::Status WorkExecutor::finalize(
     const WorkLease& lease, const common::Status& result, WorkClock::time_point now) {
     if (lease.owner != owner_) {

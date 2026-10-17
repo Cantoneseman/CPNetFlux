@@ -37,6 +37,7 @@ class WorkExecutor {
     [[nodiscard]] common::Status commit(
         const WorkLease&, WorkClock::time_point now = WorkClock::now());
     [[nodiscard]] common::Status reject(const WorkLease&);
+    [[nodiscard]] common::Status failTerminal(const WorkLease&, const common::Status& reason);
 
     // Returned Status describes the lifecycle transition, not the transfer result.
     // Success passes through awaitResult before commit; failure retains a reclaimable lease.

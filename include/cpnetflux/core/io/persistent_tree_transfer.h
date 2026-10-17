@@ -67,7 +67,8 @@ using PersistentFileCallback = std::function<common::Status(
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},
     std::uint32_t pendingWindow = 1, std::uint32_t channelIndex = 0,
     std::uint32_t channelCount = 1, DynamicFileQueue* ready = nullptr,
-    const config::FileTransferOptions* options = nullptr);
+    const config::FileTransferOptions* options = nullptr,
+    bool continueAfterFileFailure = false);
 [[nodiscard]] common::Status receivePersistentTree(FramedDataSocket* socket,
     const std::string& root, bool download, const std::string& remoteRoot,
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},
