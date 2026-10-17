@@ -253,6 +253,17 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 16)
                 return common::Status::invalidArgument("--data-pending-window must be in range 1..16");
             options.dataPendingWindow = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--link-set-links") {
+            auto parsed = parseUnsigned(value, "--link-set-links");
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 10)
+                return common::Status::invalidArgument("--link-set-links must be in range 1..10");
+            options.linkSetLinks = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--link-set-capabilities") {
+            auto parsed = parseUnsigned(value, "--link-set-capabilities");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.linkSetCapabilityBits = parsed.value();
         } else if (option == "--control-reuse") {
             auto parsed = parseControlReuseMode(value);
             if (!parsed.isOk()) {
@@ -582,7 +593,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
            "[--checksum-backend <auto|software|hardware>] [--reconnect-attempts 0..10] [--transfer-timeout-ms N] [--resume] [--max-files <N>] "
            "[--auth-probe] "
-           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window 1..16] [--compression off|auto] [--planner-preset <name>] "
+           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window 1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
            "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] [--scheduler off|global] "

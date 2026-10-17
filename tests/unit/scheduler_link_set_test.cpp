@@ -12,7 +12,9 @@ using cpnetflux::core::scheduler::LinkProfile;
 using cpnetflux::core::scheduler::LinkSet;
 using cpnetflux::core::scheduler::LinkSetCapability;
 using cpnetflux::core::scheduler::decodeLinkSetCapability;
+using cpnetflux::core::scheduler::decodeLinkSetControlFields;
 using cpnetflux::core::scheduler::encodeLinkSetCapability;
+using cpnetflux::core::scheduler::encodeLinkSetControlFields;
 using cpnetflux::core::scheduler::summarizeLinkNegotiation;
 using cpnetflux::core::scheduler::WorkItem;
 using cpnetflux::core::scheduler::GlobalScheduler;
@@ -87,6 +89,24 @@ TEST(SchedulerLinkSetTest, AdvertisesAndDecodesStableCapabilitySummary) {
               "requested_links=2 accepted_links=2 requested_pending_window=4 "
               "accepted_pending_window=4 accepted_ids=link0,link1 rejected_ids=- "
               "reason=fully_supported");
+}
+
+TEST(SchedulerLinkSetTest, EncodesControlFieldsForOptionalV2Negotiation) {
+    const LinkSetCapability capability{2, 4, 9};
+    EXPECT_EQ(encodeLinkSetControlFields(capability), "LINKS=2 LINK_CAPS=9");
+    const auto decoded = decodeLinkSetControlFields("LINK_CAPS=9 LINKS=2");
+    ASSERT_TRUE(decoded.isOk());
+    EXPECT_EQ(decoded.value().maxLinks, 2U);
+    EXPECT_EQ(decoded.value().maxPendingWindow, 1U);
+    EXPECT_EQ(decoded.value().capabilityBits, 9U);
+}
+
+TEST(SchedulerLinkSetTest, RejectsMalformedControlFields) {
+    for (const auto& encoded : {"LINKS=0 LINK_CAPS=0", "LINKS=11 LINK_CAPS=0",
+                                "LINKS=2", "LINK_CAPS=1", "LINKS=2 LINK_CAPS=0 EXTRA=1",
+                                "LINKS=2 LINKS=3 LINK_CAPS=0"}) {
+        EXPECT_FALSE(decodeLinkSetControlFields(encoded).isOk()) << encoded;
+    }
 }
 
 TEST(SchedulerLinkSetTest, RejectsMalformedCapabilityAdvertisement) {

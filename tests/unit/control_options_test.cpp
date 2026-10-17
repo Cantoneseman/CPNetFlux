@@ -598,3 +598,24 @@ TEST(ControlOptionsTest, FormatsMdtmAndListings) {
 }
 
 }  // namespace
+
+TEST(ControlOptionsTest, ParsesExplicitLinkSetCapabilities) {
+    const auto root = std::filesystem::temp_directory_path() / "cpnetflux-control-linkset-root";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    const char* args[] = {"server", "--root", rootText.c_str(),
+                          "--link-set-max-links", "4",
+                          "--link-set-capabilities", "9"};
+    auto parsed = cpnetflux::protocol::control::parseControlServerOptions(
+        static_cast<int>(std::size(args)), args);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().linkSetMaxLinks, 4U);
+    EXPECT_EQ(parsed.value().linkSetCapabilityBits, 9U);
+
+    const char* invalid[] = {"server", "--root", rootText.c_str(),
+                             "--link-set-max-links", "11"};
+    EXPECT_FALSE(cpnetflux::protocol::control::parseControlServerOptions(
+        static_cast<int>(std::size(invalid)), invalid).isOk());
+    std::filesystem::remove_all(root);
+}

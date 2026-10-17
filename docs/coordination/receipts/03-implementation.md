@@ -150,3 +150,18 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 - LinkSet 定向测试 6/6，完整单元测试 327/327，CTest 368/368 通过。
 - 证据：/tmp/cpnetflux-runs/V3-LINKSET-01-20261018-ctest-adapter.log。
 - 下一步：定义控制面能力协商摘要和安全上限策略，再接入真实协商；当前不改变默认传输上限。
+
+
+# 03 核心实现：V3-LINKSET-01 控制面承载切片回执
+
+日期：2026-10-18。角色：03 核心实现；交付对象：00 总指挥。
+状态：本轮控制面切片已完成并已验证；真实多链路数据面和深圳↔上海显式多链路验收仍待后续任务。
+
+- 输入提交：19f0deb4e3706909c08c0b51ebe2afd5651e1064；工作树：/root/projects/CPNetFlux-worktrees/v3-linkset-01；分支：codex/V3-LINKSET-01。
+- 实际解决：把 LinkSet 能力从内部摘要接入现有 XCPNETFLUX V2 persistent-tree 控制请求。显式请求携带 LINKS=<N> LINK_CAPS=<bits>，服务端按配置、现有 8 条 persistent 通道安全上限和能力位做协商；不支持时返回 504，客户端不静默降级。未带字段的旧请求继续使用默认单链路。
+- 修改文件：include/cpnetflux/config/tree_transfer_options.h、include/cpnetflux/core/scheduler/link_set.h、include/cpnetflux/protocol/control/control_options.h、src/config/tree_transfer_options.cpp、src/core/io/tree_transfer_client.cpp、src/core/scheduler/link_set.cpp、src/protocol/control/control_options.cpp、src/protocol/control/control_server.cpp、tests/unit/control_options_test.cpp、tests/unit/scheduler_link_set_test.cpp、tests/unit/tree_transfer_options_test.cpp，以及任务/BOARD/本回执。
+- TDD 证据：新增控制字段行为测试先运行并按预期 linker red，记录于 /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-control-red.log；实现后目标构建成功，记录于 ...-control-green-build.log。
+- 验收命令：cmake --build /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-build --parallel 8 --target cpnetflux_unit_tests cpnetflux-gridftp-server cpnetflux-tree-upload-client cpnetflux-tree-download-client；cpnetflux_unit_tests --gtest_filter=SchedulerLinkSetTest.*:TreeTransferOptionsTest.ParsesExplicitLinkSetNegotiationOptions:ControlOptionsTest.ParsesExplicitLinkSetCapabilities；cpnetflux_unit_tests；CPNETFLUX_TEST_TOKEN=V3_W05_TEST_TOKEN ctest --test-dir /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-build --output-on-failure -j 8。
+- 输出证据：定向 12/12、完整单元 333/333、CTest 374/374（0 failed）；日志分别为 /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-control-targeted.log、...-control-unit.log、...-control-ctest.log。
+- 实际协议验证：loopback server max-links=4/capabilities=9 与 client links=2/capabilities=1 的 2 文件上传成功且 SHA-256 一致（/tmp/cpnetflux-runs/V3-LINKSET-01-20261018-control-smoke3）；默认兼容上传成功（.../control-compat）；server 默认能力拒绝 client links=2/capabilities=1，客户端输出明确拒绝且目标文件不存在（.../control-reject）。
+- 下一步交接：实现 V3-MULTILINK-RANGE-01 的真实 range/WorkLease 到 LinkSet 映射和进度/排空边界；随后在深圳↔上海阿里云两端做显式能力请求、旧端拒绝和哈希一致性验证。当前不能把控制面 200 回执或 loopback smoke 称作真实多链路传输。

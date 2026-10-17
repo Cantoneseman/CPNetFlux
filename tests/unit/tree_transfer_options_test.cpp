@@ -680,3 +680,19 @@ TEST(TreeTransferOptionsTest, AutomaticReconnectRejectsUnverifiedCheckpointMode)
     const char* args[] = {"client", "--auth-probe", "--reconnect-attempts", "1", "--checksum", "none"};
     EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(6, args, cpnetflux::config::TreeTransferRole::Upload).isOk());
 }
+
+TEST(TreeTransferOptionsTest, ParsesExplicitLinkSetNegotiationOptions) {
+    const char* args[] = {"client", "--auth-probe", "--link-set-links", "4",
+                          "--link-set-capabilities", "9"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(args)), args, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().linkSetLinks, 4U);
+    EXPECT_EQ(parsed.value().linkSetCapabilityBits, 9U);
+
+    for (const auto value : {"0", "11", "abc"}) {
+        const char* invalid[] = {"client", "--auth-probe", "--link-set-links", value};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+            4, invalid, cpnetflux::config::TreeTransferRole::Upload).isOk());
+    }
+}

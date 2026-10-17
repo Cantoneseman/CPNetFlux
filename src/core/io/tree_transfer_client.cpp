@@ -266,9 +266,11 @@ class ControlClient {
     [[nodiscard]] common::Result<bool> negotiatePersistent(std::uint32_t requestedWindow,
         std::uint32_t requestedChannels, checksum::ChecksumAlgorithm checksumAlgorithm,
         bool resume, DataTlsMode dataTlsMode, std::uint32_t* actualWindow,
-        std::uint32_t* actualChannels, bool dynamic = false) {
+        std::uint32_t* actualChannels, bool dynamic = false,
+        std::uint32_t requestedLinks = 1, std::uint64_t requestedLinkCapabilities = 0) {
         if (requestedWindow == 0 || requestedWindow > 16 ||
             requestedChannels == 0 || requestedChannels > kPersistentTreeMaxChannels ||
+            requestedLinks == 0 || requestedLinks > core::scheduler::LinkSet::kMaxLinks ||
             actualWindow == nullptr || actualChannels == nullptr)
             return common::Status::invalidArgument("invalid persistent channel/window request");
         *actualWindow = 1;
@@ -287,6 +289,11 @@ class ControlClient {
         request += " CHECKSUM=" + std::string(checksum::checksumAlgorithmName(checksumAlgorithm));
         request += " RESUME=" + std::string(resume ? "1" : "0");
         request += " DATA_TLS=" + std::string(dataTlsModeName(dataTlsMode));
+        const bool linkSetRequested = requestedLinks != 1 || requestedLinkCapabilities != 0;
+        if (linkSetRequested) {
+            request += " " + core::scheduler::encodeLinkSetControlFields(
+                core::scheduler::LinkSetCapability{requestedLinks, 1, requestedLinkCapabilities});
+        }
         if (dynamic) request += " SCHED=dynamic";
         auto reply = command(request);
         if (!reply.isOk()) return reply.status();
@@ -296,7 +303,11 @@ class ControlClient {
                 std::string(checksum::checksumAlgorithmName(checksumAlgorithm));
             const std::string resumeToken = "resume=" + std::string(resume ? "1" : "0");
             const std::string tlsToken = "data_tls=" + std::string(dataTlsModeName(dataTlsMode));
+            const std::string linksToken = "links=" + std::to_string(requestedLinks);
+            const std::string linkCapsToken = "link_caps=" + std::to_string(requestedLinkCapabilities);
             if ((dynamic && replyText.find(" scheduling=dynamic") == std::string::npos) ||
+                (linkSetRequested && (replyText.find(linksToken) == std::string::npos ||
+                                      replyText.find(linkCapsToken) == std::string::npos)) ||
                 (requestedChannels > 1 &&
                  replyText.find("channels=" + std::to_string(requestedChannels)) == std::string::npos) ||
                 replyText.find(checksumToken) == std::string::npos ||
@@ -777,7 +788,8 @@ TreeAuthProbeResult runTreeAuthProbeInternal(const config::TreeTransferOptions& 
     std::uint32_t actualChannels = 0;
     auto negotiated = control.negotiatePersistent(
         1, 1, options.checksumAlgorithm, false, options.dataTlsMode,
-        &actualWindow, &actualChannels, false);
+        &actualWindow, &actualChannels, false, options.linkSetLinks,
+        options.linkSetCapabilityBits);
     if (!negotiated.isOk()) {
         result.capabilities = "failed";
         result.error = negotiated.status().message();
@@ -3526,7 +3538,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             std::uint32_t actualWindow = 1, actualChannels = 1;
             auto capability = channel.control->negotiatePersistent(
                 dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
-                options.dataTlsMode, &actualWindow, &actualChannels, options.dynamicFileScheduling);
+                options.dataTlsMode, &actualWindow, &actualChannels, options.dynamicFileScheduling,
+                options.linkSetLinks, options.linkSetCapabilityBits);
             if (!capability.isOk()) {
                 channel.status = capability.status();
                 recordFailure(channel.status);

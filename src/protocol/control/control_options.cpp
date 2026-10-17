@@ -181,6 +181,17 @@ common::Result<ControlServerOptions> parseControlServerOptions(int argc, const c
                 return common::Status::invalidArgument("--connections must be in range 1..64");
             }
             options.connections = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--link-set-max-links") {
+            auto parsed = parseUnsigned(value, "--link-set-max-links");
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 10)
+                return common::Status::invalidArgument("--link-set-max-links must be in range 1..10");
+            options.linkSetMaxLinks = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--link-set-capabilities") {
+            auto parsed = parseUnsigned(value, "--link-set-capabilities");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.linkSetCapabilityBits = parsed.value();
         } else if (option == "--chunk-size") {
             auto parsed = parseUnsigned(value, "--chunk-size");
             if (!parsed.isOk()) {
@@ -414,7 +425,7 @@ std::string controlServerUsage(const char* programName) {
     std::ostringstream output;
     output << "Usage: " << programName
            << " --root <dir> [--host <ip>] [--port <port>] "
-              "[--data-port-base <port>] [--connections <N>] "
+              "[--data-port-base <port>] [--connections <N>] [--link-set-max-links 1..10] "
               "[--chunk-size <N>] [--buffer-size <N>] "
               "[--checksum crc32c|none] [--checksum-backend auto|software|hardware] "
               "[--manifest-flush-policy every_n_chunks|final_only] "
@@ -428,7 +439,7 @@ std::string controlServerUsage(const char* programName) {
               "[--posix-write-strategy auto|direct|coalesced] "
               "[--auth-mode anonymous|token] [--auth-token-file <path>] "
               "[--access-policy read-write|read-only|write-only] "
-              "[--user <name>] [--password <password>] [--event-log <path>] "
+              "[--user <name>] [--password <password>] [--event-log <path>] [--link-set-capabilities <bits>] "
               "[--tls-mode off|explicit|required] [--tls-cert-file <path>] "
               "[--tls-key-file <path>] [--tls-ca-file <path>] "
               "[--tls-client-auth none|required] [--data-tls-mode off|required]";

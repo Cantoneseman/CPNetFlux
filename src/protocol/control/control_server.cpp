@@ -43,6 +43,7 @@
 #include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/core/io/socket_utils.h"
 #include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/scheduler/link_set.h"
 #include "cpnetflux/protocol/control/control_command.h"
 #include "cpnetflux/storage/posix_file.h"
 
@@ -1209,6 +1210,11 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 std::uint32_t requestedWindow = 1;
                 std::uint32_t requestedChannels = 1;
                 bool requestedDynamic = false;
+                std::uint32_t requestedLinks = 1;
+                std::uint64_t requestedLinkCaps = 0;
+                bool linkSetRequested = false;
+                bool hasRequestedLinks = false;
+                bool hasRequestedLinkCaps = false;
                 auto checksumAlgorithm = checksum::ChecksumAlgorithm::None;
                 bool requestedResume = false;
                 auto requestedDataTls = core::io::DataTlsMode::Off;
@@ -1233,6 +1239,27 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     } else if (key == "SCHED") {
                         valid = value == "dynamic";
                         requestedDynamic = valid;
+                    } else if (key == "LINKS") {
+                        unsigned long parsed = 0;
+                        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+                        valid = !hasRequestedLinks && result.ec == std::errc() &&
+                            result.ptr == value.data() + value.size() && parsed > 0 &&
+                            parsed <= core::scheduler::LinkSet::kMaxLinks;
+                        if (valid) {
+                            requestedLinks = static_cast<std::uint32_t>(parsed);
+                            hasRequestedLinks = true;
+                            linkSetRequested = true;
+                        }
+                    } else if (key == "LINK_CAPS") {
+                        unsigned long long parsed = 0;
+                        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+                        valid = !hasRequestedLinkCaps && result.ec == std::errc() &&
+                            result.ptr == value.data() + value.size();
+                        if (valid) {
+                            requestedLinkCaps = static_cast<std::uint64_t>(parsed);
+                            hasRequestedLinkCaps = true;
+                            linkSetRequested = true;
+                        }
                     } else if (key == "CHECKSUM") {
                         auto parsed = checksum::parseChecksumAlgorithm(value);
                         valid = parsed.isOk();
@@ -1250,7 +1277,11 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     if (!valid) break;
                 }
                 persistentNegotiated = valid && checksumAlgorithm == options.checksumAlgorithm &&
-                    requestedDataTls == options.dataTlsMode;
+                    requestedDataTls == options.dataTlsMode &&
+                    (!linkSetRequested || (hasRequestedLinks && hasRequestedLinkCaps &&
+                        requestedLinks <= core::io::kPersistentTreeMaxChannels &&
+                        requestedLinks <= options.linkSetMaxLinks &&
+                        (requestedLinkCaps & ~options.linkSetCapabilityBits) == 0));
                 if (persistentNegotiated) {
                     persistentWindow = requestedWindow;
                     persistentChannels = requestedChannels;
@@ -1262,6 +1293,8 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     " checksum=" + checksum::checksumAlgorithmName(checksumAlgorithm) +
                     " resume=" + std::string(requestedResume ? "1" : "0") +
                     " data_tls=" + core::io::dataTlsModeName(requestedDataTls) +
+                    (linkSetRequested ? " links=" + std::to_string(requestedLinks) +
+                        " link_caps=" + std::to_string(requestedLinkCaps) : "") +
                     (requestedDynamic ? " scheduling=dynamic" : "");
                 (void)sendLine(&control, formatReply(persistentNegotiated ? 200 : 504,
                     persistentNegotiated ? accepted : "Unsupported V2 configuration"));

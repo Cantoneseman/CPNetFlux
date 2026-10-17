@@ -28,6 +28,8 @@ struct ControlServerOptions {
     std::string root;
     std::uint16_t dataPortBase = 20200;
     std::uint32_t connections = 1;
+    std::uint32_t linkSetMaxLinks = 1;
+    std::uint64_t linkSetCapabilityBits = 0;
     std::uint64_t chunkSize = 1048576;
     std::uint32_t bufferSize = 65536;
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;

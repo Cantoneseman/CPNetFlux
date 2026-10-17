@@ -63,6 +63,8 @@ struct TreeTransferOptions {
     std::string modeFallbackReason;
     bool dynamicFileScheduling = true;
     std::uint32_t dataPendingWindow = 2;
+    std::uint32_t linkSetLinks = 1;
+    std::uint64_t linkSetCapabilityBits = 0;
     std::uint64_t maxFiles = 0;
     std::string authMode = "anonymous";
     std::string authTokenFile;

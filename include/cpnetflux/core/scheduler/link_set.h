@@ -43,6 +43,8 @@ struct LinkNegotiation {
 // field without duplicating scheduler-specific parsing rules.
 [[nodiscard]] std::string encodeLinkSetCapability(const LinkSetCapability& capability);
 [[nodiscard]] common::Result<LinkSetCapability> decodeLinkSetCapability(std::string_view encoded);
+[[nodiscard]] std::string encodeLinkSetControlFields(const LinkSetCapability& capability);
+[[nodiscard]] common::Result<LinkSetCapability> decodeLinkSetControlFields(std::string_view encoded);
 [[nodiscard]] std::string summarizeLinkNegotiation(const LinkNegotiation& negotiation);
 
 class LinkSet {

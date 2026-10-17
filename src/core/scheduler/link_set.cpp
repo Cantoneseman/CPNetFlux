@@ -95,6 +95,53 @@ common::Result<LinkSetCapability> decodeLinkSetCapability(std::string_view encod
     return capability;
 }
 
+std::string encodeLinkSetControlFields(const LinkSetCapability& capability) {
+    return "LINKS=" + std::to_string(capability.maxLinks) +
+           " LINK_CAPS=" + std::to_string(capability.capabilityBits);
+}
+
+common::Result<LinkSetCapability> decodeLinkSetControlFields(std::string_view encoded) {
+    LinkSetCapability capability;
+    capability.maxPendingWindow = 1;
+    bool hasLinks = false;
+    bool hasCapabilities = false;
+    std::istringstream input{std::string(encoded)};
+    std::string token;
+    while (input >> token) {
+        const auto separator = token.find('=');
+        if (separator == std::string::npos || separator == 0 ||
+            separator + 1 == token.size()) {
+            return common::Status::invalidArgument("invalid link control field: " + token);
+        }
+        const auto key = std::string_view(token).substr(0, separator);
+        const auto value = std::string_view(token).substr(separator + 1);
+        std::uint64_t parsed = 0;
+        if (!parseUnsigned(value, &parsed)) {
+            return common::Status::invalidArgument("invalid link control value: " + token);
+        }
+        if (key == "LINKS") {
+            if (hasLinks || parsed == 0 || parsed > LinkSet::kMaxLinks) {
+                return common::Status::invalidArgument("invalid link control LINKS");
+            }
+            capability.maxLinks = static_cast<std::uint32_t>(parsed);
+            hasLinks = true;
+        } else if (key == "LINK_CAPS") {
+            if (hasCapabilities) {
+                return common::Status::invalidArgument("duplicate link control LINK_CAPS");
+            }
+            capability.capabilityBits = parsed;
+            hasCapabilities = true;
+        } else {
+            return common::Status::invalidArgument("unknown link control key: " +
+                                                   std::string(key));
+        }
+    }
+    if (!hasLinks || !hasCapabilities) {
+        return common::Status::invalidArgument("incomplete link control fields");
+    }
+    return capability;
+}
+
 std::string summarizeLinkNegotiation(const LinkNegotiation& negotiation) {
     return "requested_links=" + std::to_string(negotiation.requestedLinks) +
            " accepted_links=" + std::to_string(negotiation.acceptedLinks) +
