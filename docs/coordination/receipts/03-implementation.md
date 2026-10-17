@@ -165,3 +165,5 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 - 输出证据：定向 12/12、完整单元 333/333、CTest 374/374（0 failed）；日志分别为 /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-control-targeted.log、...-control-unit.log、...-control-ctest.log。
 - 实际协议验证：loopback 显式接受、默认兼容与拒绝均通过。深圳→上海 2 文件/134,971 bytes、上海→深圳 2 文件/102,265 bytes 的源和目的 SHA-256 逐项一致；跨机默认能力服务端对 links=2/caps=1 明确拒绝且无目标文件。两端证据位于 /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-cross；反向初次使用 25300 被网络过滤，改用空闲 24300 后通过，未触碰既有 GridFTP 服务。
 - 下一步交接：实现 V3-MULTILINK-RANGE-01 的真实物理链路建立、range/WorkLease 到 LinkSet 映射、进度和 drain/cut；先补旧协议端拒绝测试，再重复深圳↔上海双向哈希验收。当前跨机测试只证明控制面协商及既有数据面的端到端完整性，不证明 LINKS=2 对应两个物理数据链路。
+
+- GitHub 备份记录：控制面代码提交 `c92d101486e6defefea2104c773093b2f45ae2c0` 已推送；当时 `git ls-remote origin refs/heads/codex/V3-LINKSET-01` 回读同 SHA。加入双向云端实验结果后的文档提交 `512a2da2bee6962b037320af0cdd72a31abe3e98` 也已推送并回读同 SHA；当前 HEAD/远端状态以最新回执提交及最终核验为准。
