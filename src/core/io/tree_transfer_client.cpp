@@ -952,7 +952,7 @@ struct TreeRunStats {
     bool persistentData = false;
     bool perFileStarted = false;
     std::uint64_t persistentDataConnectCount = 0;
-    std::uint64_t resumeSkippedBytes = 0;
+    std::uint64_t resumeSkippedBytes = 0, recoveryPayloadBytes = 0;
     std::uint32_t reconnectAttempts = 0, connectionEpoch = 1;
     std::uint32_t pendingWindow = 1;
     std::uint32_t pendingHighWatermark = 0;
@@ -1293,6 +1293,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"bytes_total\": " << logicalBytes << ",\n";
     output << "  \"bytes_transferred\": " << stats.transferredBytes.load() << ",\n";
     output << "  \"resume_skipped_bytes\": " << stats.resumeSkippedBytes << ",\n";
+    output << "  \"recovery_payload_bytes\": " << stats.recoveryPayloadBytes << ",\n";
     output << "  \"reconnect_attempts\": " << stats.reconnectAttempts << ",\n";
     output << "  \"connection_epoch\": " << stats.connectionEpoch << ",\n";
     output << "  \"compression_policy\": \""
@@ -3330,11 +3331,6 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             if (firstFailure.isOk()) {
                 firstFailure = failure;
                 first = true;
-            } else if (firstFailure.code() == common::StatusCode::TransportError &&
-                       failure.code() != common::StatusCode::TransportError &&
-                       failure.message() != "tree pipeline candidate cancelled" &&
-                       failure.message() != "directory channels cancelled") {
-                firstFailure = failure;
             }
         }
         if (first) cancelAll();
@@ -3499,6 +3495,16 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     auto callback = [&](const PersistentFileIdentity& id, const common::Status& fileStatus,
                         bool complete) {
         std::lock_guard<std::mutex> lock(manifestMutex);
+        {
+            std::lock_guard failureLock(failureMutex);
+            if (!firstFailure.isOk()) return firstFailure;
+        }
+        if (complete && !fileStatus.isOk()) {
+            // Publish the original failure before any sibling callback can alter
+            // the shared identity ledger during transport teardown.
+            recordFailure(fileStatus);
+            return fileStatus;
+        }
         auto base = id;
         base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = 0;
         auto active = activeIdentities.find(id.fileId);
@@ -3669,6 +3675,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             channel->observed.pendingHighWatermark);
     }
     stats->transferredBytes.fetch_add(transferredBytes);
+    if (options.reconnectAttempt != 0) stats->recoveryPayloadBytes += transferredBytes;
     stats->wireBytes.fetch_add(wireBytes);
     stats->completeWaitSeconds += completeWaitSeconds;
     stats->pendingHighWatermark = pendingHighWatermark;

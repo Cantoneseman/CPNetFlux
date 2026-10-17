@@ -103,6 +103,8 @@ def main():
         assert summary["reconnect_attempts"]==a.fault,summary
         assert summary["connection_epoch"]==1+a.fault,summary
         assert summary["resume_skipped_bytes"]>0 if a.fault else summary["resume_skipped_bytes"]==0
+        if a.fault:
+            assert summary["recovery_payload_bytes"]+summary["resume_skipped_bytes"] == sum(f["size"] for f in expected),summary
         print("cloud client PASS",a.direction,a.policy,"reconnects",summary["reconnect_attempts"],
             "payload",summary["bytes_transferred"],"skipped",summary["resume_skipped_bytes"],flush=True)
     else:

@@ -893,7 +893,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             if (writeFailed) break;
         }
         const auto expectedBytes=id.rangeId ? id.rangeLength : id.totalSize;
-        stats->skippedBytes+=expectedBytes-payloadSent;
+        std::uint64_t requestedBytes = 0;
+        for (const auto& piece : missing) requestedBytes += piece.end - piece.begin;
+        // Bytes not sent because a write failed are not verified/skipped bytes.
+        stats->skippedBytes += expectedBytes - requestedBytes;
         struct stat after{};
         if (!writeFailed && (::fstat(file.fd(), &after) != 0 || !sourceMatches(after, id) ||
             before.st_mtim.tv_nsec != after.st_mtim.tv_nsec || before.st_ctim.tv_sec != after.st_ctim.tv_sec ||

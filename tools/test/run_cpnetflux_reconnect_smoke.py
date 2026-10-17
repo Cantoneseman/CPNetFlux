@@ -22,6 +22,7 @@ def main():
             ("upload","fixed","clean"),("download","adaptive","clean"),
             ("upload","fixed","reset"),("download","adaptive","reset"),
             ("upload","adaptive","tls-range"),("download","fixed","tls-range"),
+            ("upload","fixed","tls-range"),("download","adaptive","tls-range"),
             ("upload","fixed","terminal"),("download","adaptive","terminal"),
             ("upload","fixed","result"),("download","adaptive","result"),
             ("upload","fixed","exhausted"),("download","adaptive","deadline"),
@@ -107,7 +108,8 @@ def main():
                     if kind=="terminal":
                         # No payload after the lost terminal: first attempt transferred exactly one tree.
                         assert data["bytes_transferred"]==expected[2],data
-                    else: assert data["bytes_transferred"] < expected[2]+4194304,data
+                    if reset:
+                        assert data["recovery_payload_bytes"] + data["resume_skipped_bytes"] == expected[2],data
                     if kind=="tls-range":
                         events=[json.loads(line) for line in (case/"metrics"/"scheduler_events.jsonl").read_text().splitlines()]
                         assert any(e.get("event")=="workitem_dispatch" and e.get("offset",0)>0 for e in events),events[:3]
