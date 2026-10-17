@@ -8,6 +8,7 @@
 #include "cpnetflux/core/scheduler/compression_advisor.h"
 #include "cpnetflux/core/scheduler/feedback_controller.h"
 #include "cpnetflux/core/scheduler/link_manager.h"
+#include "cpnetflux/core/scheduler/link_set.h"
 #include "cpnetflux/core/scheduler/metrics_writer.h"
 #include "cpnetflux/core/scheduler/task_queue.h"
 #include "cpnetflux/core/scheduler/work_item_planner.h"
@@ -39,7 +40,9 @@ class GlobalScheduler {
 
     [[nodiscard]] const SchedulerConfig& config() const noexcept;
     [[nodiscard]] LinkManager& linkManager() noexcept;
+    [[nodiscard]] LinkSet& linkSet() noexcept;
     [[nodiscard]] const LinkManager& linkManager() const noexcept;
+    [[nodiscard]] const LinkSet& linkSet() const noexcept;
     [[nodiscard]] FeedbackController& feedbackController() noexcept;
     [[nodiscard]] const FeedbackController& feedbackController() const noexcept;
     [[nodiscard]] WorkItemPlanner& workItemPlanner() noexcept;
@@ -65,13 +68,14 @@ class GlobalScheduler {
                                                  const LinkState& state) const;
 
    private:
-    explicit GlobalScheduler(SchedulerConfig config, LinkProfile linkProfile,
+    explicit GlobalScheduler(SchedulerConfig config, LinkProfile linkProfile, LinkSet linkSet,
                              MetricsWriter metricsWriter, WorkItemPlanner planner,
                              LinkManager linkManager, FeedbackController feedbackController,
                              CompressionAdvisor compressionAdvisor);
 
     SchedulerConfig config_;
     LinkProfile linkProfile_;
+    LinkSet linkSet_;
     MetricsWriter metricsWriter_;
     WorkItemPlanner planner_;
     LinkManager linkManager_;

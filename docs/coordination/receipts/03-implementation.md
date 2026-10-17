@@ -130,3 +130,11 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 - 新增 LinkSet 模型、每链路运行态、能力协商、确定性负载选择和 reserve/release 记账；不接入默认传输。
 - 5/5 LinkSet 单测、326/326 完整单元测试、367/367 CTest 通过；证据 /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-ctest-final.log。
 - 后续需解决控制面字段兼容、8 条通道限制、安全协商降级和多链路故障 reclaim/drain/cut。
+
+
+## 2026-10-18 V3-LINKSET-01 GlobalScheduler 兼容接入
+
+- GlobalScheduler 增加单链路 LinkSet 兼容视图，保留既有 LinkManager 和默认调度行为。
+- LinkSet 定向测试 6/6，完整单元测试 327/327，CTest 368/368 通过。
+- 证据：/tmp/cpnetflux-runs/V3-LINKSET-01-20261018-ctest-adapter.log。
+- 下一步：定义控制面能力协商摘要和安全上限策略，再接入真实协商；当前不改变默认传输上限。

@@ -70,22 +70,29 @@ common::Result<GlobalScheduler> GlobalScheduler::create(SchedulerConfig config) 
     if (!addStatus.isOk()) {
         return addStatus;
     }
+    LinkSet linkSet;
+    const common::Status linkSetStatus = linkSet.add(profile);
+    if (!linkSetStatus.isOk()) {
+        return linkSetStatus;
+    }
     FeedbackController feedbackController(FeedbackControllerConfig{config.policy,
                                                                    config.initialConnections,
                                                                    config.maxConnections});
     CompressionAdvisor compressionAdvisor(
         CompressionAdvisorConfig{0.85, 85.0, 0.5, config.minCompressGbps});
-    return GlobalScheduler(std::move(config), profile, std::move(metricsWriter), std::move(planner),
+    return GlobalScheduler(std::move(config), profile, std::move(linkSet), std::move(metricsWriter),
+                           std::move(planner),
                            std::move(linkManager), std::move(feedbackController),
                            std::move(compressionAdvisor));
 }
 
-GlobalScheduler::GlobalScheduler(SchedulerConfig config, LinkProfile linkProfile,
+GlobalScheduler::GlobalScheduler(SchedulerConfig config, LinkProfile linkProfile, LinkSet linkSet,
                                  MetricsWriter metricsWriter, WorkItemPlanner planner,
                                  LinkManager linkManager, FeedbackController feedbackController,
                                  CompressionAdvisor compressionAdvisor)
     : config_(std::move(config)),
       linkProfile_(std::move(linkProfile)),
+      linkSet_(std::move(linkSet)),
       metricsWriter_(std::move(metricsWriter)),
       planner_(std::move(planner)),
       linkManager_(std::move(linkManager)),
@@ -97,6 +104,10 @@ const SchedulerConfig& GlobalScheduler::config() const noexcept { return config_
 LinkManager& GlobalScheduler::linkManager() noexcept { return linkManager_; }
 
 const LinkManager& GlobalScheduler::linkManager() const noexcept { return linkManager_; }
+
+LinkSet& GlobalScheduler::linkSet() noexcept { return linkSet_; }
+
+const LinkSet& GlobalScheduler::linkSet() const noexcept { return linkSet_; }
 
 FeedbackController& GlobalScheduler::feedbackController() noexcept { return feedbackController_; }
 

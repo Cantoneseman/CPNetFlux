@@ -1,4 +1,5 @@
 #include "cpnetflux/core/scheduler/link_set.h"
+#include "cpnetflux/core/scheduler/scheduler.h"
 
 #include <gtest/gtest.h>
 
@@ -11,6 +12,8 @@ using cpnetflux::core::scheduler::LinkProfile;
 using cpnetflux::core::scheduler::LinkSet;
 using cpnetflux::core::scheduler::LinkSetCapability;
 using cpnetflux::core::scheduler::WorkItem;
+using cpnetflux::core::scheduler::GlobalScheduler;
+using cpnetflux::core::scheduler::SchedulerConfig;
 
 LinkProfile profile(std::string id) {
     LinkProfile result;
@@ -102,3 +105,18 @@ TEST(SchedulerLinkSetTest, ReservesAndReleasesBytesExactlyOnce) {
 }
 
 }  // namespace
+
+
+TEST(SchedulerLinkSetTest, GlobalSchedulerExposesSingleLinkCompatibilityView) {
+    SchedulerConfig config;
+    config.taskId = "linkset-compat";
+    config.linkId = "link0";
+    config.capacityGbps = 100.0;
+    config.initialConnections = 1;
+    config.maxConnections = 4;
+    auto scheduler = GlobalScheduler::create(config);
+    ASSERT_TRUE(scheduler.isOk());
+    EXPECT_EQ(scheduler.value().linkSet().size(), 1U);
+    ASSERT_NE(scheduler.value().linkSet().profile("link0"), nullptr);
+    EXPECT_DOUBLE_EQ(scheduler.value().linkSet().profile("link0")->capacityGbps, 100.0);
+}
