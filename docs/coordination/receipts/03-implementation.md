@@ -1,3 +1,15 @@
+# 03 核心实现：增量执行回执（V3-LINKSET-01）
+
+日期：2026-10-18。角色：03 核心实现；交付对象：00 总指挥。
+状态：本次 LinkSet 能力广告切片已完成，控制面承载和真实多链路传输仍待后续任务。
+
+- 输入提交：`4e2900842b7608f757d8c95c24ad62e6011000c0`；工作树：`/root/projects/CPNetFlux-worktrees/v3-linkset-01`。
+- 修改文件：`include/cpnetflux/core/scheduler/link_profile.h`、`include/cpnetflux/core/scheduler/link_set.h`、`src/core/scheduler/link_set.cpp`、`tests/unit/scheduler_link_set_test.cpp`，以及本任务、BOARD、回执文档。
+- 实现：能力广告稳定编码/严格解码、LinkSet 汇总能力、协商结果固定摘要；不改变现有 wire、默认传输策略或 8 通道限制。
+- 验收命令：`cmake --build /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-build --parallel 8`；`cpnetflux_unit_tests --gtest_filter=SchedulerLinkSetTest.*`；`cpnetflux_unit_tests`；`ctest --test-dir /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-build --output-on-failure -j 8`。
+- 输出证据：构建成功；定向 8/8、单元 329/329；CTest 370 项 368 通过，2 项 token-auth smoke 因 `CPNETFLUX_TEST_TOKEN` 未设置失败。
+- 下一步交接：将摘要适配 `XCPNETFLUX V2` 的兼容控制字段，增加旧端行为测试，再进行深圳↔上海显式多链路实测；不在本切片中宣称真实多链路已验收。
+
 # 03 核心实现：首次接手回执
 
 日期：2026-09-17（会话日期）。角色：03 核心实现；交付对象：00 总指挥。

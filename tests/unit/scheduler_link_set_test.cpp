@@ -11,6 +11,9 @@ namespace {
 using cpnetflux::core::scheduler::LinkProfile;
 using cpnetflux::core::scheduler::LinkSet;
 using cpnetflux::core::scheduler::LinkSetCapability;
+using cpnetflux::core::scheduler::decodeLinkSetCapability;
+using cpnetflux::core::scheduler::encodeLinkSetCapability;
+using cpnetflux::core::scheduler::summarizeLinkNegotiation;
 using cpnetflux::core::scheduler::WorkItem;
 using cpnetflux::core::scheduler::GlobalScheduler;
 using cpnetflux::core::scheduler::SchedulerConfig;
@@ -54,6 +57,47 @@ TEST(SchedulerLinkSetTest, RejectsInvalidIdentityAndEndpoint) {
     auto zeroWindow = profile("link3");
     zeroWindow.pendingWindow = 0;
     EXPECT_FALSE(set.add(zeroWindow).isOk());
+}
+
+TEST(SchedulerLinkSetTest, AdvertisesAndDecodesStableCapabilitySummary) {
+    LinkSet set(4);
+    auto first = profile("link0");
+    first.capabilityBits = 0x01;
+    ASSERT_TRUE(set.add(first).isOk());
+    auto second = profile("link1");
+    second.capabilityBits = 0x08;
+    ASSERT_TRUE(set.add(second).isOk());
+
+    const auto advertised = set.advertisedCapability();
+    EXPECT_EQ(advertised.maxLinks, 2U);
+    EXPECT_EQ(advertised.maxPendingWindow, 4U);
+    EXPECT_EQ(advertised.capabilityBits, 0x09U);
+    const auto encoded = encodeLinkSetCapability(advertised);
+    EXPECT_EQ(encoded, "links=2 pending_window=4 capabilities=9");
+
+    const auto decoded = decodeLinkSetCapability(encoded);
+    ASSERT_TRUE(decoded.isOk());
+    EXPECT_EQ(decoded.value().maxLinks, advertised.maxLinks);
+    EXPECT_EQ(decoded.value().maxPendingWindow, advertised.maxPendingWindow);
+    EXPECT_EQ(decoded.value().capabilityBits, advertised.capabilityBits);
+
+    const auto negotiation = set.negotiate(LinkSetCapability{2, 4, 0});
+    ASSERT_TRUE(negotiation.isOk());
+    EXPECT_EQ(summarizeLinkNegotiation(negotiation.value()),
+              "requested_links=2 accepted_links=2 requested_pending_window=4 "
+              "accepted_pending_window=4 accepted_ids=link0,link1 rejected_ids=- "
+              "reason=fully_supported");
+}
+
+TEST(SchedulerLinkSetTest, RejectsMalformedCapabilityAdvertisement) {
+    for (const auto& encoded : {"links=0 pending_window=4 capabilities=0",
+                                "links=11 pending_window=4 capabilities=0",
+                                "links=2 pending_window=0 capabilities=0",
+                                "links=2 pending_window=4",
+                                "links=2 pending_window=4 capabilities=0 extra=1",
+                                "links=2 links=3 pending_window=4 capabilities=0"}) {
+        EXPECT_FALSE(decodeLinkSetCapability(encoded).isOk()) << encoded;
+    }
 }
 
 TEST(SchedulerLinkSetTest, NegotiatesPeerBoundsExplicitly) {

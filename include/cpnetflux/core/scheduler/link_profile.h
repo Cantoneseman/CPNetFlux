@@ -14,6 +14,7 @@ struct LinkProfile {
     std::uint32_t initialConnections = 1;
     std::uint32_t maxConnections = 1;
     std::uint64_t targetQueueBytes = 0;
+    std::uint64_t capabilityBits = 0;
     std::uint32_t pendingWindow = 1;
     std::uint64_t rttMs = 0;
     std::uint64_t bdpBytes = 0;

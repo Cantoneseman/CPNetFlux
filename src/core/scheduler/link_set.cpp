@@ -1,8 +1,10 @@
 #include "cpnetflux/core/scheduler/link_set.h"
 
 #include <algorithm>
+#include <charconv>
 #include <limits>
 #include <sstream>
+#include <string_view>
 #include <unordered_set>
 
 namespace cpnetflux::core::scheduler {
@@ -12,7 +14,96 @@ common::Status unknownLink(const std::string& linkId) {
     return common::Status::invalidArgument("unknown link_id: " + linkId);
 }
 
+bool parseUnsigned(std::string_view text, std::uint64_t* value) {
+    if (text.empty() || value == nullptr) {
+        return false;
+    }
+    const auto* begin = text.data();
+    const auto* end = begin + text.size();
+    const auto parsed = std::from_chars(begin, end, *value, 10);
+    return parsed.ec == std::errc{} && parsed.ptr == end;
+}
+
+std::string joinIds(const std::vector<std::string>& ids) {
+    if (ids.empty()) {
+        return "-";
+    }
+    std::ostringstream output;
+    for (std::size_t index = 0; index < ids.size(); ++index) {
+        if (index != 0) {
+            output << ',';
+        }
+        output << ids[index];
+    }
+    return output.str();
+}
+
 }  // namespace
+
+std::string encodeLinkSetCapability(const LinkSetCapability& capability) {
+    return "links=" + std::to_string(capability.maxLinks) +
+           " pending_window=" + std::to_string(capability.maxPendingWindow) +
+           " capabilities=" + std::to_string(capability.capabilityBits);
+}
+
+common::Result<LinkSetCapability> decodeLinkSetCapability(std::string_view encoded) {
+    LinkSetCapability capability;
+    bool hasLinks = false;
+    bool hasPendingWindow = false;
+    bool hasCapabilities = false;
+    std::istringstream input{std::string(encoded)};
+    std::string token;
+    while (input >> token) {
+        const auto separator = token.find('=');
+        if (separator == std::string::npos || separator == 0 ||
+            separator + 1 == token.size()) {
+            return common::Status::invalidArgument("invalid link capability token: " + token);
+        }
+        const auto key = std::string_view(token).substr(0, separator);
+        const auto value = std::string_view(token).substr(separator + 1);
+        std::uint64_t parsed = 0;
+        if (!parseUnsigned(value, &parsed)) {
+            return common::Status::invalidArgument("invalid link capability value: " + token);
+        }
+        if (key == "links") {
+            if (hasLinks || parsed == 0 || parsed > LinkSet::kMaxLinks) {
+                return common::Status::invalidArgument("invalid link capability links");
+            }
+            capability.maxLinks = static_cast<std::uint32_t>(parsed);
+            hasLinks = true;
+        } else if (key == "pending_window") {
+            if (hasPendingWindow || parsed == 0 || parsed > 16) {
+                return common::Status::invalidArgument(
+                    "invalid link capability pending_window");
+            }
+            capability.maxPendingWindow = static_cast<std::uint32_t>(parsed);
+            hasPendingWindow = true;
+        } else if (key == "capabilities") {
+            if (hasCapabilities) {
+                return common::Status::invalidArgument("duplicate link capability capabilities");
+            }
+            capability.capabilityBits = parsed;
+            hasCapabilities = true;
+        } else {
+            return common::Status::invalidArgument("unknown link capability key: " +
+                                                   std::string(key));
+        }
+    }
+    if (!hasLinks || !hasPendingWindow || !hasCapabilities) {
+        return common::Status::invalidArgument("incomplete link capability advertisement");
+    }
+    return capability;
+}
+
+std::string summarizeLinkNegotiation(const LinkNegotiation& negotiation) {
+    return "requested_links=" + std::to_string(negotiation.requestedLinks) +
+           " accepted_links=" + std::to_string(negotiation.acceptedLinks) +
+           " requested_pending_window=" + std::to_string(negotiation.requestedPendingWindow) +
+           " accepted_pending_window=" + std::to_string(negotiation.acceptedPendingWindow) +
+           " accepted_ids=" + joinIds(negotiation.acceptedLinkIds) +
+           " rejected_ids=" + joinIds(negotiation.rejectedLinkIds) +
+           " reason=" + (negotiation.reason.empty() ? "-" : negotiation.reason);
+}
 
 LinkSet::LinkSet(std::uint32_t pendingWindow) : pendingWindow_(pendingWindow) {}
 
@@ -74,6 +165,16 @@ const LinkRuntimeState* LinkSet::runtime(const std::string& linkId) const {
 LinkRuntimeState* LinkSet::runtime(const std::string& linkId) {
     auto* item = entry(linkId);
     return item == nullptr ? nullptr : &item->runtime;
+}
+
+LinkSetCapability LinkSet::advertisedCapability() const noexcept {
+    LinkSetCapability capability;
+    capability.maxLinks = static_cast<std::uint32_t>(links_.size());
+    capability.maxPendingWindow = pendingWindow_;
+    for (const auto& link : links_) {
+        capability.capabilityBits |= link.profile.capabilityBits;
+    }
+    return capability;
 }
 
 common::Result<LinkNegotiation> LinkSet::negotiate(const LinkSetCapability& peer) const {

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -38,6 +39,12 @@ struct LinkNegotiation {
     std::string reason;
 };
 
+// Stable, additive control-plane representation. The wire protocol can adopt this
+// field without duplicating scheduler-specific parsing rules.
+[[nodiscard]] std::string encodeLinkSetCapability(const LinkSetCapability& capability);
+[[nodiscard]] common::Result<LinkSetCapability> decodeLinkSetCapability(std::string_view encoded);
+[[nodiscard]] std::string summarizeLinkNegotiation(const LinkNegotiation& negotiation);
+
 class LinkSet {
    public:
     static constexpr std::uint32_t kMaxLinks = 10;
@@ -52,6 +59,7 @@ class LinkSet {
     [[nodiscard]] const LinkProfile* profile(const std::string& linkId) const;
     [[nodiscard]] const LinkRuntimeState* runtime(const std::string& linkId) const;
     [[nodiscard]] LinkRuntimeState* runtime(const std::string& linkId);
+    [[nodiscard]] LinkSetCapability advertisedCapability() const noexcept;
 
     [[nodiscard]] common::Result<LinkNegotiation> negotiate(
         const LinkSetCapability& peer) const;
