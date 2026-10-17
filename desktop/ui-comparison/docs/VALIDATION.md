@@ -1,6 +1,6 @@
 # 本地比较检查点验收
 
-日期：2026-10-17。输入：`8253126c9baaa6737b81afdbf2911802eb6671cd`。原版、方案 A 和用户确认的 article-guided 方案 B 均可运行。**本比较阶段未完成，等待用户选择 A 或 B。**
+日期：2026-10-17。输入：`8253126c9baaa6737b81afdbf2911802eb6671cd`。原版、方案 A 和按用户反馈重做的 article-guided 方案 B 均可运行。**本比较阶段未完成，等待用户选择 A 或 B。**
 
 ## 已运行且通过
 
@@ -10,8 +10,8 @@
 |---|---|
 | `python -X utf8 desktop/tests/test_contract.py` | 8/8 通过，离线 schema/API 契约 |
 | `python -X utf8 desktop/tests/test_ui_source_contract.py` | 通过，固定原版 source contract |
-| `python -X utf8 desktop/ui-comparison/tests/test_preview_contract.py` | 6/6 通过；确认 fixture 永不报告真实连接/操作成功、未知扫描指标保留 null、原版/agent/schema Git blob 未改、A/B 都保留 RPC 边界且 B 不等同 A |
-| `python -X utf8 desktop/ui-comparison/tests/render_matrix.py --variants original a b` | 原版 63 + A 63 + B 63 = 189 次 Qt/QML 加载/渲染，无被检测到的 QML 错误；三者使用同一场景、页面、窗口和 scale 矩阵 |
+| `python -X utf8 desktop/ui-comparison/tests/test_preview_contract.py` | 7/7 通过；除原有 fixture、未知值和 RPC 边界检查外，新增 B 独立七页、禁用能力和无示例凭据值检查 |
+| `python -X utf8 desktop/ui-comparison/tests/render_matrix.py --variants original a b` | 原版 63 + A 63 + B 117 = 243 次 Qt/QML 加载/渲染，无被检测到的 QML 错误；B 额外覆盖新建向导第 2/3 步、文件分段、历史和能力诊断 |
 | `wsl -d Ubuntu-22.04 -- bash -lc 'cd /mnt/d/Project/CPNetFlux-Desktop && python3 -B -m unittest discover -s desktop/tests -p test_agent.py -v'` | 9/9 通过；包含 API v2、持久化、取消/恢复和确定性真实进度事件生产器测试，但不是实际跨进程文件传输 |
 | `python -X utf8 desktop/ui-comparison/preview.py --variant a --page 3 --width 1366 --height 768 --smoke-ms 400 --screenshot desktop/ui-comparison/evidence/a-node-native-final.png` | Windows 原生图形窗口启动/截图成功，`real_agent_connected=false`、QML 错误为空 |
 | 同一 native 入口 `--page 2 --scenario failed` | 失败状态窗口启动/截图成功，无 QML 错误 |
@@ -21,7 +21,7 @@
 | `wsl -d Ubuntu-22.04 -- bash -lc 'cd /mnt/d/Project/CPNetFlux-Desktop && cmake -S . -B desktop/ui-comparison/preview-output/cmake-check -G Ninja'` | 按预期失败：稀疏桌面 checkout 不含 `cmake/LinuxPackaging.cmake`；未把失败冒充为桌面打包通过 |
 | `git diff --check` | 通过；未修改原版 tracked 源码 |
 
-矩阵页面/状态：任务概览、任务详情、新建、节点/认证、扫描详情、失败详情、agent 离线。每项覆盖 1280×720、1366×768、1920×1080 **逻辑窗口** 和显式 Qt scale-factor 1/1.25/1.5。结构化结果见 `render-results.json`。关键截图在忽略的 `evidence/` 中；查看过任务概览、详情和节点页面，截图摘要另存 `screenshot-index.json`，截图不进 GitHub。B 的 native 1366×768 任务概览截图也已生成。
+矩阵页面/状态：任务概览、任务详情、新建第 1/2/3 步、节点/身份、文件/分段、历史、能力诊断、扫描详情、失败详情、agent 离线。每项覆盖 1280×720、1366×768、1920×1080 **逻辑窗口** 和显式 Qt scale-factor 1/1.25/1.5。结构化结果见 `render-results.json`。关键截图在忽略的 `evidence/` 中；已查看 B 的控制台、创建步骤、文件分段、历史和能力诊断截图，摘要另存 `screenshot-index.json`，截图不进 GitHub。
 
 ## 环境与尚未验证
 
@@ -31,7 +31,7 @@
 - 没有切换 Windows 系统 DPI 设置；native 窗口会叠加 OS 当前 DPI，offscreen 使用可重复的 Qt 显式缩放。没有把逻辑窗口和物理屏幕混为一谈。
 - 未运行 Ubuntu Qt 6.2/GNOME 会话/安装验收、真实 agent/socket/传输、跨域/性能实验。按任务不打正式 DEB。
 - main 上节点包导入/认证修复与本比较输入分叉；此处保留手工节点/凭据引用入口，正式合入前另行核对。
-- B 的来源是用户确认的文章，已在 `docs/SKILL-B.md` 标注为 `article-guided`；它不是 `ui-design-system` skill。正式合入前仍需用户选择方向。
+- B 的来源是用户确认的文章，已在 `docs/SKILL-B.md` 标注为 `article-guided`；它不是 `ui-design-system` skill。B 第二轮去掉了示例节点/CA/凭据默认值，并预留了能力缺口入口。正式合入前仍需用户选择方向。
 
 ## 下一步
 

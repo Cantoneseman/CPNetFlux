@@ -3,145 +3,239 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 ApplicationWindow {
-    id: window
+    id: root
     objectName: "mainWindow"
-    width: 1180; height: 780; minimumWidth: 760; minimumHeight: 560
+    width: 1440
+    height: 900
+    minimumWidth: 980
+    minimumHeight: 640
     visible: true
-    title: "CPNetFlux · 真实传输客户端"
-    color: "#f5efe6"
+    title: "CPNetFlux · Mission Control"
+    color: theme.canvas
     font.family: Qt.platform.os === "windows" ? "Microsoft YaHei UI" : "Noto Sans CJK SC"
     font.pixelSize: 14
+
     property int page: initialPage
+    property int createStep: 0
+    property int presetDirection: 0
     property string selectedId: ""
     property string selectedProfileId: ""
     property bool pickerDirectory: false
+    property string pickerTarget: "source"
     property var pendingRemoveTask: null
-    function pickPath(directory) { pickerDirectory=directory; pathPicker.active=true; if(pathPicker.status===Loader.Ready){ pathPicker.item.directoryMode=directory; pathPicker.item.open() } }
-    property var selectedTask: {
-        for (var i=0;i<rpc.tasks.length;i++) if(rpc.tasks[i].transfer_id === selectedId) return rpc.tasks[i]
-        return rpc.tasks.length ? rpc.tasks[0] : null
-    }
-    property var pageTitles: ["传输任务", "新建任务", "任务详情", "节点连接", "远端目录", "历史与恢复", "高级设置"]
+    property var pageTitles: ["任务控制台", "新建传输", "任务指挥", "节点与身份", "文件与分段", "历史任务", "能力与诊断"]
+    readonly property bool canOperate: rpc.connected && rpc.apiCompatible && !rpc.stale
+
     function known(v) { return v !== null && v !== undefined && v !== "" }
-    function value(v, unit) { return known(v) ? String(v) + (unit || "") : "暂无" }
-    function seconds(v) { return known(v) ? Number(v).toFixed(3) + " 秒" : "暂无" }
-    function bytes(v) { return known(v) ? (Number(v)/1048576).toFixed(2)+" MiB" : "暂无" }
-    function rate(v) { return known(v) ? (Number(v)/1048576).toFixed(2)+" MiB/s" : "等待首个进度事件" }
-    function eta(v) { return known(v) ? (Number(v) < 60 ? Number(v).toFixed(1)+" 秒" : (Number(v)/60).toFixed(1)+" 分钟") : "计算中" }
-    function engineLabel(t) {
-        if (!t) return "等待引擎协商"
-        if (t.adapter === "demo") return "演示流程（不传输真实文件）"
-        if (t.actual_range_policy === "range_stripe")
-            return "CPNetFlux V3（动态调度 + 大文件分段）"
-        if (t.actual_scheduler === "dynamic_ring")
-            return "CPNetFlux V3（动态文件调度）"
-        if (t.actual_mode === "v2") return "CPNetFlux V2 兼容传输"
-        if (t.actual_mode === "v1") return "兼容回退路径"
-        return "等待后端确认"
+    function value(v, unit) { return known(v) ? String(v) + (unit || "") : "未提供" }
+    function bytes(v) { return known(v) ? (Number(v) / 1048576).toFixed(2) + " MiB" : "未提供" }
+    function rate(v) { return known(v) ? (Number(v) / 1048576).toFixed(2) + " MiB/s" : "等待 agent 观测" }
+    function seconds(v) { return known(v) ? Number(v).toFixed(3) + " s" : "未提供" }
+    function progressKnown(done, total) { return known(done) && known(total) && Number(total) > 0 }
+    function fraction(done, total) { return progressKnown(done, total) ? Number(done) / Number(total) : 0 }
+    function terminal(state) { return ["completed", "failed", "cancelled", "recoverable"].indexOf(state) >= 0 }
+    function statusLabel(state) {
+        return ({queued:"排队中", scanning:"扫描中", connecting:"连接中", negotiating:"协商中",
+                 transferring:"传输中", committing:"校验 / finalize", completed:"已完成",
+                 failed:"失败", cancelled:"已取消", recoverable:"可恢复", paused:"已暂停"})[state] || "状态未知"
     }
-    function engineDetail(t) {
-        if (!t) return "尚未创建任务"
-        if (t.adapter === "demo") return "演示数据只用于展示流程，不代表真实传输"
-        if (t.actual_range_policy === "range_stripe")
-            return "V3 动态队列和大文件分段均已由节点确认"
-        if (t.actual_scheduler === "dynamic_ring")
-            return "V3 动态文件队列已启用；本次任务按文件调度"
-        if (t.actual_mode === "v2") return "V2 兼容数据面已启用；当前节点未返回 V3 调度证据"
-        if (t.actual_mode === "v1") return "兼容回退路径；请检查节点能力和安全策略"
-        return "等待后端返回实际协商结果"
+    function statusTone(state) {
+        if (state === "completed") return theme.good
+        if (state === "failed") return theme.bad
+        if (state === "cancelled" || state === "recoverable") return theme.warn
+        if (["scanning", "connecting", "negotiating", "transferring", "committing"].indexOf(state) >= 0) return theme.accent
+        return theme.muted
     }
-    function metric(t, key) { return t && t.metrics ? t.metrics[key] : null }
-    function stateName(s) {
-        return ({queued:"已创建，等待启动", scanning:"正在扫描目录", connecting:"正在连接远端", negotiating:"正在协商传输", transferring:"正在传输", committing:"正在校验并提交", completed:"传输已完成", failed:"传输失败", cancelled:"已取消", recoverable:"可恢复", paused:"已暂停"})[s] || "等待状态"
+    function countWhere(predicate) { return rpc.tasks.filter(predicate).length }
+    function taskFor(id) {
+        for (var i = 0; i < rpc.tasks.length; ++i)
+            if (rpc.tasks[i].transfer_id === id) return rpc.tasks[i]
+        return null
     }
-    function stateSummary(t) {
-        if (!t) return "请选择一项任务。"
-        return ({
-            queued:"任务已在 agent 中建立，等待启动。",
-            scanning:"正在扫描目录，文件数量可能仍在变化；请等待扫描和远端准备完成。",
-            connecting:"正在连接远端并等待控制通道准备。",
-            negotiating:"正在与远端协商传输能力和数据通道。",
-            transferring:"正在传输已发现的文件；速度和进度会随实时事件更新。",
-            committing:"正在校验 manifest、checksum 并提交传输结果。",
-            completed:"agent 已返回完成状态，传输结果可以核验。",
-            failed:"agent 返回失败状态，请查看错误详情并按恢复资格重试。",
-            cancelled:"任务已取消；是否可恢复由 agent 返回的恢复资格决定。",
-            recoverable:"agent 已保留恢复点，可以尝试恢复或查看失败原因。",
-            paused:"任务已暂停；继续操作取决于 agent 的实际能力。"
-        })[t.state] || "等待后端确认当前阶段。"
+    function selectedTask() {
+        var chosen = taskFor(selectedId)
+        return chosen || (rpc.tasks.length ? rpc.tasks[0] : null)
     }
-    function phaseKey(t) {
-        if (!t) return "scan"
-        if (t.state === "queued") return "queued"
-        if (t.state === "scanning") return "scan"
-        if (t.state === "connecting" || t.state === "negotiating") return "prepare"
-        if (t.state === "transferring") return "transfer"
-        if (t.state === "committing") return "verify"
-        if (t.state === "completed") return "done"
-        if (t.integrity_status === "fail" || t.state === "failed") return "error"
-        return "error"
+    function selectedProfile() {
+        for (var i = 0; i < rpc.profiles.length; ++i)
+            if (rpc.profiles[i].node_id === selectedProfileId) return rpc.profiles[i]
+        return rpc.profiles.length ? rpc.profiles[0] : null
     }
-    function phaseStatus(t, key) {
-        if (!t) return "pending"
-        if (t.state === "completed") return "done"
-        var current = phaseKey(t)
-        if (current === "error") return key === "verify" && t.integrity_status === "fail" ? "error" : "pending"
-        if (key === current) return "current"
-        if (key === "scan" && t.scan_complete === true) return "done"
-        return "pending"
+    function selectTask(task) {
+        if (!task) return
+        selectedId = task.transfer_id
+        page = 2
+        rpc.loadDetails(task.transfer_id, task.attempt ? task.attempt.attempt_id : "")
     }
-    function nextStep(t) {
-        if (!t) return ""
-        if (t.state === "queued") return "下一步：确认路径和节点后开始任务。"
-        if (t.state === "scanning") return "下一步：等待目录扫描完成；完成后显示文件总数。"
-        if (t.state === "connecting" || t.state === "negotiating") return "下一步：等待远端准备和数据连接。"
-        if (t.state === "transferring") return "下一步：等待传输完成或错误；实时进度会持续更新。"
-        if (t.state === "committing") return "下一步：等待 manifest、checksum 和 finalize 结果。"
-        if (t.state === "completed") return "下一步：查看完整性结果或从列表隐藏。"
-        if (t.state === "recoverable") return "下一步：按恢复资格继续任务或查看失败原因。"
-        if (t.state === "cancelled") return "下一步：如有恢复资格，可继续任务。"
-        return "下一步：查看错误详情和恢复资格。"
+    function newTransfer(direction) {
+        presetDirection = direction
+        createStep = 0
+        page = 1
     }
-    function integrityText(t, key) {
-        var e = t && t.backend_evidence ? t.backend_evidence[key] : null
-        if (!known(e)) return "待核验"
-        if (typeof e === "object" && known(e.status)) return String(e.status)
-        return "agent 已返回"
+    function pickPath(directory, target) {
+        pickerDirectory = directory
+        pickerTarget = target || "source"
+        pathPicker.active = true
+        if (pathPicker.status === Loader.Ready) {
+            pathPicker.item.directoryMode = directory
+            pathPicker.item.open()
+        }
     }
-    function fraction(done,total) { return known(done) && known(total) && Number(total) > 0 ? Number(done)/Number(total) : 0 }
-    function progressKnown(done,total) { return known(done) && known(total) && Number(total) > 0 }
-    function terminal(s) { return ["completed","failed","cancelled","recoverable"].indexOf(s)>=0 }
-    function selectTask(t) { selectedId=t.transfer_id; page=2 }
-    function loadProfile(p) {
-        nodeId.text=p.node_id; nodeName.text=p.name; host.text=p.host; port.text=p.control_port
-        rootPath.text=p.default_root_id || "home"; ca.text=p.ca_path; serverName.text=p.server_name
-        credentialRef.text=p.credential_ref || ""; auth.currentIndex=p.auth_mode==="admin_credential"?1:0
+    function loadProfile(profile) {
+        if (!profile) return
+        selectedProfileId = profile.node_id
+        nodeId.text = profile.node_id
+        nodeName.text = profile.name
+        host.text = profile.host
+        port.text = String(profile.control_port)
+        rootPath.text = profile.default_root_id || ""
+        caPath.text = profile.ca_path || ""
+        tlsName.text = profile.server_name || ""
+        credentialRef.text = profile.credential_ref || ""
+        authMode.currentIndex = profile.auth_mode === "admin_credential" ? 1 : 0
     }
+
+    QtObject {
+        id: theme
+        readonly property color canvas: "#0b1220"
+        readonly property color sidebar: "#101a2b"
+        readonly property color panel: "#142238"
+        readonly property color panelRaised: "#192a42"
+        readonly property color line: "#2b405b"
+        readonly property color ink: "#e8f0fa"
+        readonly property color muted: "#91a4bc"
+        readonly property color accent: "#55e0c1"
+        readonly property color blue: "#85a8ff"
+        readonly property color warn: "#f0b75e"
+        readonly property color bad: "#f07878"
+        readonly property color good: "#78d8a7"
+    }
+
+    component Panel: Rectangle {
+        default property alias contents: body.data
+        color: theme.panel
+        border.color: theme.line
+        border.width: 1
+        radius: 9
+        implicitWidth: 220
+        implicitHeight: Math.max(72, body.implicitHeight + 32)
+        ColumnLayout {
+            id: body
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 10
+        }
+    }
+    component Note: Label {
+        color: theme.muted
+        wrapMode: Text.WordWrap
+        Layout.fillWidth: true
+    }
+    component Eyebrow: Label {
+        color: theme.accent
+        font.family: "Consolas"
+        font.pixelSize: 10
+        font.letterSpacing: 1.1
+    }
+    component PageTitle: Label {
+        color: theme.ink
+        font.pixelSize: 29
+        font.bold: true
+        Layout.fillWidth: true
+    }
+    component Field: TextField {
+        implicitHeight: 42
+        color: theme.ink
+        placeholderTextColor: "#71859d"
+        selectByMouse: true
+        padding: 12
+        background: Rectangle {
+            color: "#0e192a"
+            radius: 5
+            border.color: parent.activeFocus ? theme.accent : theme.line
+            border.width: parent.activeFocus ? 2 : 1
+        }
+    }
+    component ActionButton: Button {
+        id: control
+        property bool primary: false
+        property color tint: theme.accent
+        implicitHeight: 40
+        horizontalPadding: 14
+        contentItem: Text {
+            text: control.text
+            color: !control.enabled ? "#687b91" : (control.primary ? theme.canvas : theme.ink)
+            font.family: control.font.family
+            font.pixelSize: control.font.pixelSize
+            font.bold: control.primary || control.activeFocus
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            radius: 5
+            color: !control.enabled ? "#17253a" : control.primary ? (control.down ? "#39b99d" : control.tint) : (control.hovered ? "#203550" : "#17283f")
+            border.color: control.activeFocus ? theme.ink : (control.primary ? control.tint : theme.line)
+            border.width: control.activeFocus ? 2 : 1
+        }
+    }
+    component StatusTag: Rectangle {
+        property string label: ""
+        property color tone: theme.muted
+        radius: 4
+        color: Qt.rgba(tone.r, tone.g, tone.b, 0.14)
+        border.color: Qt.rgba(tone.r, tone.g, tone.b, 0.5)
+        implicitWidth: tagText.implicitWidth + 18
+        implicitHeight: 26
+        Text {
+            id: tagText
+            anchors.centerIn: parent
+            text: parent.label
+            color: parent.tone
+            font.pixelSize: 11
+            font.bold: true
+        }
+    }
+    component Meter: ProgressBar {
+        id: meter
+        property var done: null
+        property var total: null
+        visible: root.progressKnown(done, total)
+        value: root.fraction(done, total)
+        implicitHeight: 7
+        background: Rectangle { color: "#22344b"; radius: 3 }
+        contentItem: Item {
+            Rectangle {
+                width: meter.visualPosition * parent.width
+                height: parent.height
+                color: theme.accent
+                radius: 3
+            }
+        }
+    }
+
     Connections {
         target: rpc
-        function onPageRequested(p) { window.page=p }
+        function onPageRequested(value) { root.page = value }
         function onCreateSucceeded(transferId, attemptId, revision) {
-            window.selectedId = transferId
-            window.page = 2
+            root.selectedId = transferId
+            root.page = 2
             rpc.loadDetails(transferId, attemptId)
         }
     }
 
     Dialog {
-        id: removeDialog
+        id: hideDialog
         modal: true
-        title: "从本机任务列表隐藏"
+        title: "隐藏任务"
         standardButtons: Dialog.Ok | Dialog.Cancel
         property var task: null
-        width: 460
-        contentItem: ColumnLayout {
-            spacing: 10
-            Label { Layout.fillWidth: true; wrapMode: Text.WordWrap
-                text: removeDialog.task ? "将隐藏任务 “" + removeDialog.task.transfer_id + "”。这不会删除远端文件、目录或 agent 任务。" : ""
-            }
-            Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; color: "#746b63"
-                text: "隐藏后会在本机重启和 agent 刷新后继续保持；demo 与真实任务分别保存。"
-            }
+        width: 440
+        contentItem: Label {
+            text: hideDialog.task ? "从此设备的任务列表隐藏 " + hideDialog.task.transfer_id + "？不会删除 agent 任务或远端数据。" : ""
+            color: theme.ink
+            wrapMode: Text.WordWrap
+            padding: 18
         }
         onAccepted: {
             if (task) rpc.removeTask(task.transfer_id, task.adapter || (rpc.demoAdapter ? "demo" : "real"))
@@ -150,306 +244,917 @@ ApplicationWindow {
         onRejected: task = null
     }
 
-    component Card: Rectangle {
-        color: "#fffdf8"; radius: 5; border.color: "#d9cbbb"
-        implicitHeight: 100
-    }
-    component Muted: Label { color: "#746b63"; wrapMode: Text.WordWrap }
-    component Heading: Label { font.pixelSize: 24; font.bold: true; color: "#1d2d3a" }
-
     RowLayout {
-        anchors.fill: parent; spacing: 0
+        anchors.fill: parent
+        spacing: 0
+
         Rectangle {
-            Layout.fillHeight: true; Layout.preferredWidth: 224; Layout.minimumWidth: 196; Layout.maximumWidth: 244; color: "#203846"
+            Layout.fillHeight: true
+            Layout.preferredWidth: 224
+            Layout.minimumWidth: 204
+            color: theme.sidebar
+            border.color: theme.line
+            border.width: 1
+
             ColumnLayout {
-                anchors.fill: parent; anchors.margins: 20; spacing: 12
-                Label { text: "CPNetFlux"; color: "#d36b55"; font.pixelSize: 25; font.bold: true }
-                Label { text: "SIGNAL DESK  /  真实传输"; color: "#d9c9b4"; font.family: "Consolas"; font.pixelSize: 10; font.letterSpacing: 1.1 }
-                Rectangle { Layout.fillWidth: true; height: 2; color: "#d36b55"; Layout.topMargin: 18 }
-                Repeater {
-                    model: ["传输任务", "新建任务", "任务详情", "节点连接", "远端目录", "历史与恢复", "高级设置"]
-                    Button {
-                        required property int index
-                        required property string modelData
-                        Layout.fillWidth: true; Layout.preferredHeight: 42; text: modelData
-                        highlighted: false
-                        background: Rectangle {
-                            radius: 7
-                            color: window.page===index ? "#f2b7a5" : (parent.hovered ? "#365463" : "transparent")
-                            border.color: window.page===index ? "#d36b55" : "transparent"
-                        }
-                        contentItem: Label {
-                            text: modelData
-                            leftPadding: 14
-                            verticalAlignment: Text.AlignVCenter
-                            color: window.page===index ? "#263f52" : "#f8f0e6"
-                            font.bold: window.page===index
-                            elide: Text.ElideRight
-                        }
-                        onClicked: window.page=index
+                anchors.fill: parent
+                anchors.margins: 18
+                spacing: 10
+
+                RowLayout {
+                    spacing: 10
+                    Rectangle {
+                        width: 34; height: 34; radius: 8
+                        color: theme.accent
+                        Text { anchors.centerIn: parent; text: "CF"; color: theme.canvas; font.bold: true; font.pixelSize: 13 }
+                    }
+                    ColumnLayout {
+                        spacing: 0
+                        Label { text: "CPNetFlux"; color: theme.ink; font.pixelSize: 18; font.bold: true }
+                        Label { text: "MISSION CONTROL"; color: theme.muted; font.family: "Consolas"; font.pixelSize: 9; font.letterSpacing: 1 }
                     }
                 }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: theme.line; Layout.topMargin: 9; Layout.bottomMargin: 6 }
+                Eyebrow { text: "OPERATIONS" }
+
+                Repeater {
+                    model: [
+                        {p:0, mark:"⌂", name:"控制台"},
+                        {p:1, mark:"＋", name:"新建传输"},
+                        {p:2, mark:"◎", name:"任务指挥"},
+                        {p:3, mark:"⇄", name:"节点与身份"},
+                        {p:4, mark:"▤", name:"文件与分段"},
+                        {p:5, mark:"◷", name:"历史任务"},
+                        {p:6, mark:"⌘", name:"能力与诊断"}
+                    ]
+                    Button {
+                        id: nav
+                        required property var modelData
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 43
+                        text: modelData.name
+                        onClicked: root.page = modelData.p
+                        background: Rectangle {
+                            radius: 6
+                            color: root.page === nav.modelData.p ? "#243b53" : (nav.hovered ? "#192b41" : "transparent")
+                            border.color: root.page === nav.modelData.p ? theme.accent : "transparent"
+                            border.width: root.page === nav.modelData.p ? 1 : 0
+                        }
+                        contentItem: RowLayout {
+                            spacing: 11
+                            Label {
+                                text: nav.modelData.mark
+                                color: root.page === nav.modelData.p ? theme.accent : theme.muted
+                                font.pixelSize: 17
+                            }
+                            Label {
+                                text: nav.text
+                                Layout.fillWidth: true
+                                color: root.page === nav.modelData.p ? theme.ink : "#c3d0df"
+                                font.bold: root.page === nav.modelData.p
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                }
+
                 Item { Layout.fillHeight: true }
-                Label { Layout.fillWidth:true; text: "CPNetFlux\n真实传输信号台"; color:"#d9c9b4"; font.pixelSize:11; wrapMode:Text.WordWrap }
+
+                Panel {
+                    Layout.fillWidth: true
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Eyebrow { text: "LOCAL AGENT" }
+                        StatusTag { label: root.canOperate ? "API READY" : rpc.connected ? "NEGOTIATING" : "OFFLINE"; tone: root.canOperate ? theme.good : theme.warn }
+                        Note { text: rpc.demoAdapter ? "设计诊断 / 合成数据" : (rpc.stale ? "快照已过期，等待重连" : "真实 agent 状态") }
+                    }
+                }
+                Label { text: "UI 不持有私钥或明文 token"; color: theme.muted; font.pixelSize: 10; Layout.fillWidth: true; wrapMode: Text.WordWrap }
             }
         }
+
         ColumnLayout {
-            Layout.fillHeight:true; Layout.fillWidth:true; Layout.margins:32; spacing:18
-            RowLayout {
-                Layout.fillWidth:true
-                Heading { text: window.pageTitles[window.page] }
-                Item { Layout.fillWidth:true }
-                Label { text: rpc.connected ? "● 本地 agent 已连接" : "● agent 离线 / 重连中"; color:rpc.connected?"#2f766d":"#b84e3c" }
-                Button { text:"刷新连接"; enabled:true; onClicked:rpc.refresh() }
-                Label { visible:rpc.removeStatus.length>0; text:rpc.removeStatus; color:rpc.removeInFlight?"#9a5a2d":"#2f766d"; elide:Text.ElideRight }
-            }
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 0
+
             Rectangle {
-                Layout.fillWidth:true; implicitHeight:58; radius:5; color:rpc.demoAdapter?"#f8dfcc":"#dcebe4"; border.color:rpc.demoAdapter?"#dc9a87":"#86b7a6"
-                Label { anchors.fill:parent; anchors.margins:14; text:rpc.demoAdapter ? "开发诊断 / 合成数据：不会读取或传输用户文件。" : (rpc.connected && rpc.apiCompatible ? "真实传输模式：任务状态、进度、校验和错误均来自 agent。" : "真实传输模式不可用：等待 agent 连接和 API 协商。"); color:rpc.demoAdapter?"#84452f":"#236255"; wrapMode:Text.WordWrap; verticalAlignment:Text.AlignVCenter }
+                Layout.fillWidth: true
+                Layout.preferredHeight: 70
+                color: "#0e1828"
+                border.color: theme.line
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 24
+                    anchors.rightMargin: 24
+                    Label { text: "WORKSPACE   /   " + root.pageTitles[root.page]; color: theme.muted; font.family: "Consolas"; font.pixelSize: 11 }
+                    Item { Layout.fillWidth: true }
+                    StatusTag { label: rpc.connected ? "SOCKET CONNECTED" : "SOCKET OFFLINE"; tone: rpc.connected ? theme.good : theme.bad }
+                    StatusTag { label: rpc.apiCompatible ? ("API " + (rpc.agentInfo.api_version || "unknown")) : "API UNVERIFIED"; tone: rpc.apiCompatible ? theme.blue : theme.warn }
+                    ActionButton { text: "刷新 agent"; enabled: true; onClicked: rpc.refresh() }
+                }
             }
-            Muted { Layout.fillWidth:true; text:rpc.message; maximumLineCount:2; elide:Text.ElideRight; visible:rpc.message.length>0 }
-            Muted { Layout.fillWidth:true; text:rpc.createError.length>0 ? rpc.createError : rpc.removeError; maximumLineCount:2; elide:Text.ElideRight; color:"#b84e3c"; visible:text.length>0 }
-            // The picker is loaded lazily so the client still starts with a clear
-            // diagnostic when the distro has not installed qt6-qpa-plugins/dialogs.
-            Loader { id:pathPicker; active:false; source:"qrc:/ui/PathPicker.qml"
-                onLoaded: { item.directoryMode=window.pickerDirectory; item.selected.connect(function(path){ localPath.text=path; pathPicker.active=false }) ; item.open() }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 42
+                color: rpc.demoAdapter ? "#392b26" : (root.canOperate ? "#17352f" : "#3a2c20")
+                border.color: rpc.demoAdapter ? "#955d43" : (root.canOperate ? "#2f766d" : "#866334")
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 18
+                    anchors.rightMargin: 18
+                    Label {
+                        Layout.fillWidth: true
+                        text: rpc.demoAdapter
+                              ? "DESIGN PREVIEW · 合成数据 / 未连接 agent / 所有真实操作已隔离"
+                              : root.canOperate ? "真实传输模式 · 所有任务状态和结果来自 agent"
+                                           : "真实传输不可用 · " + rpc.message
+                        color: rpc.demoAdapter ? "#ffc59d" : root.canOperate ? theme.good : theme.warn
+                        elide: Text.ElideRight
+                    }
+                    Label { text: rpc.agentInfo.api_version || "协议版本未知"; color: theme.muted; font.family: "Consolas"; font.pixelSize: 10 }
+                }
             }
+
             StackLayout {
-                currentIndex: window.page; Layout.fillWidth:true; Layout.fillHeight:true
-                // 0: tasks
+                id: pages
+                currentIndex: root.page
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                // 0 — Mission control: launch actions, snapshot totals, and live task ledger.
                 ScrollView {
-                    id: homeScroll
-                    clip:true
+                    clip: true
                     contentWidth: availableWidth
                     ColumnLayout {
-                        width:homeScroll.availableWidth; spacing:18
+                        width: parent.width
+                        spacing: 16
+                        Item { Layout.preferredHeight: 4 }
                         RowLayout {
-                            Button { text:"＋ 新建传输任务"; highlighted:true; font.bold:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.createInFlight; onClicked:window.page=1 }
-                            Label { text:rpc.tasks.length+" 项任务  /  后端快照"; color:"#746b63"; font.family:"Consolas" }
-                        }
-                        Card {
-                            visible:rpc.tasks.length===0; Layout.fillWidth:true; Layout.minimumWidth:homeScroll.availableWidth; implicitHeight:190
-                            ColumnLayout { anchors.fill:parent; anchors.margins:20; spacing:12
-                                Heading { text:"还没有传输任务" }
-                                Muted { Layout.fillWidth:true; text:rpc.demoAdapter ? "开发诊断/合成数据不会访问本地目录或远端节点。" : "选择新建任务并填写两端路径。提交后可在此查看服务端返回的进度、结果和错误。" }
-                                Button { text:rpc.demoAdapter ? "创建本地示例任务" : "新建传输任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.createInFlight; highlighted:true; onClicked:rpc.demoAdapter ? rpc.demo() : window.page=1 }
+                            Layout.fillWidth: true
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Eyebrow { text: "TRANSFER OPERATIONS  /  SNAPSHOT VIEW" }
+                                PageTitle { text: "任务控制台" }
+                                Note { text: "从单个文件到批量目录任务。进度只在 agent 返回对应字段时显示。" }
                             }
+                            ActionButton { text: "＋ 新建传输"; primary: true; onClicked: root.newTransfer(0) }
                         }
-                        Repeater {
-                            model:rpc.tasks
-                            Card {
-                                required property var modelData
-                                Layout.fillWidth:true; implicitHeight:165
-                                ColumnLayout { anchors.fill:parent; anchors.margins:18; spacing:8
-                                    RowLayout { Layout.fillWidth:true
-                                        Label { text:(modelData.direction==="upload"?"↑ 上传":"↓ 下载")+" · "+window.stateName(modelData.state); font.bold:true; color:"#1d2d3a" }
-                                        Item { Layout.fillWidth:true }
-                                        Label { text:rpc.demoAdapter?"开发诊断":"真实 agent 任务"; color:rpc.demoAdapter?"#9a5a2d":"#2f766d" }
-                                        Button { text:"查看详情"; onClicked:window.selectTask(modelData) }
-                                        Button { text:"从列表隐藏"; enabled:!rpc.removeInFlight; onClicked:{ removeDialog.task=modelData; removeDialog.open() } }
-                                    }
-                                    Muted { Layout.fillWidth:true; text:modelData.source.path+" → "+modelData.destination.path; elide:Text.ElideMiddle; maximumLineCount:1 }
-                                    ProgressBar { visible:window.progressKnown(modelData.metrics.bytes_committed,modelData.metrics.bytes_total); Layout.fillWidth:true; value:window.fraction(modelData.metrics.bytes_committed,modelData.metrics.bytes_total) }
-                                    RowLayout { Layout.fillWidth:true
-                                        Label { text:window.bytes(modelData.metrics.bytes_committed)+" / "+window.bytes(modelData.metrics.bytes_total); color:"#53626a" }
-                                        Item { Layout.fillWidth:true }
-                                        Label { text:"文件 "+window.value(modelData.metrics.files_committed)+" / "+window.value(modelData.metrics.files_total); color:"#53626a" }
-                                        Label { text:"实际模式 "+(window.known(modelData.actual_mode)?modelData.actual_mode.toUpperCase():"暂无"); color:"#53626a" }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 4
+                            columnSpacing: 12
+                            Repeater {
+                                model: [
+                                    {label:"任务总数", n:rpc.tasks.length, hint:"当前 agent 快照"},
+                                    {label:"进行中", n:root.countWhere(function(t){return !root.terminal(t.state)}), hint:"排队与活跃任务"},
+                                    {label:"已完成", n:root.countWhere(function(t){return t.state === "completed"}), hint:"agent 终态"},
+                                    {label:"需处理", n:root.countWhere(function(t){return t.state === "failed"}), hint:"失败任务"}
+                                ]
+                                Panel {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Note { text: modelData.label }
+                                        Label { text: modelData.n; color: theme.ink; font.pixelSize: 31; font.bold: true; font.family: "Consolas" }
+                                        Label { text: modelData.hint; color: theme.muted; font.pixelSize: 10 }
                                     }
                                 }
                             }
                         }
-                    }
-                }
-                // 1: create
-                ScrollView { id:createScroll; clip:true; contentWidth:availableWidth
-                    ColumnLayout { width:createScroll.availableWidth; spacing:18
-                        Card { Layout.fillWidth:true; Layout.minimumWidth:createScroll.availableWidth; implicitHeight:410
-                            ColumnLayout { anchors.fill:parent; anchors.margins:24; spacing:12
-                                Heading { text:"新建传输任务" }
-                                Muted { Layout.fillWidth:true; text:rpc.demoAdapter ? "填写的路径仅用于任务流程界面，不会被读取；当前连接不会访问任何节点。" : "填写本地路径与远端相对路径，然后提交到当前连接的传输服务。" }
-                                GridLayout { columns:window.width<980?1:2; Layout.fillWidth:true; columnSpacing:18; rowSpacing:8
-                                    Label { text:"方向" }
-                                    ComboBox { id:direction; objectName:"direction"; model:["本机 → 远端（上传）","远端 → 本机（下载）"]; Layout.fillWidth:true }
-                                    Label { text:"远端节点" }
-                                    ComboBox { id:profileChoice; model:rpc.profiles.length ? rpc.profiles.map(function(p){return p.name+" · "+p.host+":"+p.control_port}) : ["请先在“节点连接”保存真实节点"]; enabled:!rpc.demoAdapter; Layout.fillWidth:true
-                                        onActivated: {
-                                            if (index >= 0 && index < rpc.profiles.length) {
-                                                window.selectedProfileId = rpc.profiles[index].node_id
-                                                rpc.requestCapabilities(window.selectedProfileId)
+
+                        Panel {
+                            Layout.fillWidth: true
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Eyebrow { text: "QUICK LAUNCH" }
+                                    Label { text: "选择一个入口"; color: theme.ink; font.pixelSize: 17; font.bold: true }
+                                    Note { text: "快捷入口只设置传输类型或打开配置页；创建前仍需确认本地路径、节点与目标路径。" }
+                                }
+                                ActionButton { text: "↑ 上传文件 / 目录"; primary: true; onClicked: root.newTransfer(0) }
+                                ActionButton { text: "↓ 下载到本机"; tint: theme.blue; onClicked: root.newTransfer(1) }
+                                ActionButton { text: "节点 / TLS"; onClicked: root.page = 3 }
+                                ActionButton { text: "能力中心"; onClicked: root.page = 6 }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Panel {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label { text: "传输队列"; color: theme.ink; font.pixelSize: 17; font.bold: true }
+                                        StatusTag { label: rpc.tasks.length + " SNAPSHOTS"; tone: theme.blue }
+                                        Item { Layout.fillWidth: true }
+                                        ActionButton { text: "打开历史"; onClicked: root.page = 5 }
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label { text: "任务 / 目标"; color: theme.muted; Layout.fillWidth: true }
+                                        Label { text: "状态"; color: theme.muted; width: 124 }
+                                        Label { text: "已完成 / 总量"; color: theme.muted; width: 220 }
+                                        Label { text: "动作"; color: theme.muted; width: 116 }
+                                    }
+                                    Repeater {
+                                        model: rpc.tasks
+                                        Rectangle {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            implicitHeight: 78
+                                            radius: 5
+                                            color: "#0f1b2c"
+                                            border.color: theme.line
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                anchors.margins: 10
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 4
+                                                    Label {
+                                                        text: modelData.source.path.split("/").pop() || modelData.source.path
+                                                        color: theme.ink; font.bold: true; elide: Text.ElideMiddle
+                                                    }
+                                                    Label {
+                                                        text: modelData.source.path + "  →  " + modelData.destination.path
+                                                        color: theme.muted; font.pixelSize: 10; elide: Text.ElideMiddle
+                                                        Layout.fillWidth: true
+                                                    }
+                                                }
+                                                StatusTag { label: root.statusLabel(modelData.state); tone: root.statusTone(modelData.state); Layout.preferredWidth: 118 }
+                                                ColumnLayout {
+                                                    Layout.preferredWidth: 210
+                                                    Label {
+                                                        text: root.bytes(modelData.metrics.bytes_committed) + " / " + root.bytes(modelData.metrics.bytes_total)
+                                                        color: theme.ink; font.family: "Consolas"; font.pixelSize: 10
+                                                    }
+                                                    Meter { Layout.fillWidth: true; done: modelData.metrics.bytes_committed; total: modelData.metrics.bytes_total }
+                                                }
+                                                ActionButton { text: "详情"; onClicked: root.selectTask(modelData) }
                                             }
                                         }
                                     }
-                                    Label { text:"本地文件或目录" }
-                                    RowLayout { Layout.fillWidth:true
-                                        TextField { id:localPath; objectName:"localPath"; text:""; Layout.fillWidth:true; placeholderText:"绝对路径；agent 会在提交前校验" }
-                                        Button { text:"文件…"; enabled:!rpc.demoAdapter; onClicked:window.pickPath(false) }
-                                        Button { text:"目录…"; enabled:!rpc.demoAdapter; onClicked:window.pickPath(true) }
+                                    Label {
+                                        visible: rpc.tasks.length === 0
+                                        Layout.fillWidth: true
+                                        text: "当前快照没有任务。启动 agent 后，新建任务会在这里显示。"
+                                        color: theme.muted
+                                        padding: 18
                                     }
-                                    Label { text:"远端相对目录" }
-                                    TextField { id:remotePath; text:"dataset"; Layout.fillWidth:true }
-                                    Label { text:"传输引擎" }
-                                    ComboBox { id:mode; model:rpc.demoAdapter ? ["自动选择","V1（合成）","V2（合成回退）"] : ["CPNetFlux V3（动态调度）"]; enabled:rpc.demoAdapter; Layout.fillWidth:true }
-                                    Label { text:"后端能力" }
-                                    Label { text:rpc.demoAdapter ? "开发诊断/合成数据" : (rpc.capabilities.modes ? "已从 agent 读取" : "等待读取"); color:"#746b63"; Layout.fillWidth:true }
                                 }
-                                Muted { Layout.fillWidth:true; text:rpc.demoAdapter ? "开发诊断入口；不会读取本地路径。" : "默认要求 CA/TLS 与凭据引用。agent 会在创建前检查路径、权限、认证和后端能力；状态和进度以实时后端事件为准。" }
-                                Label { visible:rpc.createInFlight || rpc.createStatus.length>0; Layout.fillWidth:true; text:rpc.createStatus; color:rpc.createInFlight?"#9a5a2d":"#2f766d"; wrapMode:Text.WordWrap }
-                                Label { visible:rpc.createError.length>0; Layout.fillWidth:true; text:rpc.createError; color:"#b84e3c"; wrapMode:Text.WordWrap }
-                                Button { objectName:"createButton"; text:rpc.createInFlight ? "正在创建…" : "创建传输任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.createInFlight && (rpc.demoAdapter || rpc.profiles.length>0)
-                                    onClicked: rpc.create(direction.currentIndex===0?"upload":"download",localPath.text,remotePath.text,false,rpc.demoAdapter?["auto","v1","v2"][mode.currentIndex]:"v2",window.selectedProfileId)
+                            }
+
+                            ColumnLayout {
+                                Layout.preferredWidth: 276
+                                Layout.fillHeight: true
+                                Panel {
+                                    Layout.fillWidth: true
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Eyebrow { text: "LINK HEALTH" }
+                                        Label { text: rpc.connected ? "本地 socket 已连接" : "等待本地 agent"; color: theme.ink; font.bold: true }
+                                        Note { text: rpc.message }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Label { text: "协议"; color: theme.muted; Layout.fillWidth: true }
+                                            Label { text: rpc.agentInfo.api_version || "未知"; color: theme.ink; font.family: "Consolas" }
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Label { text: "兼容性"; color: theme.muted; Layout.fillWidth: true }
+                                            StatusTag { label: rpc.apiCompatible ? "兼容" : "未确认"; tone: rpc.apiCompatible ? theme.good : theme.warn }
+                                        }
+                                        ActionButton { text: "重新检查连接"; Layout.fillWidth: true; onClicked: rpc.refresh() }
+                                    }
+                                }
+                                Panel {
+                                    Layout.fillWidth: true
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Eyebrow { text: "CONTROL DECK" }
+                                        ActionButton { text: "选择任务"; Layout.fillWidth: true; enabled: rpc.tasks.length > 0; onClicked: root.selectTask(root.selectedTask()) }
+                                        ActionButton { text: "取消选中任务"; Layout.fillWidth: true; enabled: root.canOperate && root.selectedTask() && !root.terminal(root.selectedTask().state) && !rpc.actionInFlight; onClicked: rpc.action("transfer.cancel", root.selectedTask()) }
+                                        ActionButton { text: "暂停"; Layout.fillWidth: true; enabled: false; tint: theme.warn }
+                                        Note { text: "暂停：agent API 当前不支持；该入口不会伪装成已执行。" }
+                                    }
                                 }
                             }
                         }
                     }
                 }
-                // 2: detail
-                ScrollView { id:detailScroll; objectName:"detailScroll"; clip:true; contentWidth:availableWidth
-                    ColumnLayout { width:detailScroll.availableWidth; spacing:18
-                        Muted { visible:!window.selectedTask; text:"尚无任务，请先创建一项传输任务。" }
-                        Card { id:detailCard; property bool technicalExpanded: false; visible:!!window.selectedTask; Layout.fillWidth:true; implicitHeight:980
-                            ColumnLayout { anchors.fill:parent; anchors.margins:22; spacing:12
-                                Heading { text:window.selectedTask?window.stateName(window.selectedTask.state):"无任务" }
-                                Muted { Layout.fillWidth:true; text:window.selectedTask ? (window.selectedTask.direction==="upload"?"上传":"下载")+" · "+window.selectedTask.source.path+" → "+window.selectedTask.destination.path : ""; elide:Text.ElideMiddle; maximumLineCount:2 }
-                                Rectangle { Layout.fillWidth:true; implicitHeight:112; radius:10; color:window.selectedTask && ["failed","cancelled"].indexOf(window.selectedTask.state)>=0 ? "#fae3dd" : "#f5e4d9"; border.color:window.selectedTask && ["failed","cancelled"].indexOf(window.selectedTask.state)>=0 ? "#dc9a87" : "#e8b69d"
-                                    ColumnLayout { anchors.fill:parent; anchors.margins:14; spacing:4
-                                        Label { text:window.selectedTask?window.stateName(window.selectedTask.state):""; font.pixelSize:18; font.bold:true; color:"#263f52" }
-                                        Muted { Layout.fillWidth:true; text:window.stateSummary(window.selectedTask) }
-                                        Muted { Layout.fillWidth:true; text:window.nextStep(window.selectedTask) }
-                                        Label { visible:window.selectedTask && window.selectedTask.state==="scanning"; text:"已发现文件数："+window.value(window.metric(window.selectedTask,"files_discovered"))+" · 等待远端准备"; color:"#9a5a2d" }
+
+                // 1 — Guided create flow; the three panels expose real preparation steps.
+                ScrollView {
+                    clip: true; contentWidth: availableWidth
+                    ColumnLayout {
+                        width: parent.width; spacing: 16
+                        Item { Layout.preferredHeight: 4 }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Eyebrow { text: "TRANSFER WIZARD  /  PREPARE → REVIEW → SUBMIT" }
+                                PageTitle { text: "新建传输" }
+                                Note { text: "创建前逐项确认数据来源、远端节点和安全引用。" }
+                            }
+                            ActionButton { text: "返回控制台"; onClicked: root.page = 0 }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Repeater {
+                                model: ["01  数据来源", "02  节点与安全", "03  检查并提交"]
+                                ActionButton {
+                                    required property int index
+                                    required property string modelData
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                    primary: root.createStep === index
+                                    enabled: index <= root.createStep + 1
+                                    onClicked: root.createStep = index
+                                }
+                            }
+                        }
+
+                        Panel {
+                            visible: root.createStep === 0
+                            Layout.fillWidth: true
+                            Eyebrow { text: "STEP 01  /  SOURCE AND DESTINATION" }
+                            Label { text: "要传什么、传到哪里？"; color: theme.ink; font.pixelSize: 20; font.bold: true }
+                            GridLayout {
+                                columns: 2; Layout.fillWidth: true; columnSpacing: 16; rowSpacing: 12
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Label { text: "传输方向"; color: theme.muted }
+                                    ComboBox {
+                                        id: directionChoice
+                                        Layout.fillWidth: true
+                                        model: ["上传到远端", "下载到本机"]
+                                        currentIndex: root.presetDirection
+                                        onActivated: root.presetDirection = index
                                     }
                                 }
-                                Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:"阶段进度"; font.bold:true; color:"#284656" }
-                                RowLayout { visible:!!window.selectedTask; Layout.fillWidth:true; spacing:8
-                                    Repeater { model:[{key:"scan",name:"扫描目录"},{key:"prepare",name:"远端准备"},{key:"transfer",name:"传输数据"},{key:"verify",name:"校验清单"},{key:"done",name:"提交完成"}]
-                                        Rectangle { required property var modelData; Layout.fillWidth:true; Layout.preferredHeight:58; radius:8
-                                            property string phaseState:window.phaseStatus(window.selectedTask,modelData.key)
-                                            color:phaseState==="current"?"#f2b7a5":(phaseState==="done"?"#dcebe4":(phaseState==="error"?"#fae3dd":"#f3ebe2"))
-                                            border.color:phaseState==="current"?"#d36b55":(phaseState==="done"?"#86b7a6":(phaseState==="error"?"#dc9a87":"#d9cbbb"))
-                                            ColumnLayout { anchors.fill:parent; anchors.margins:7; spacing:2
-                                                Label { Layout.fillWidth:true; text:modelData.name; horizontalAlignment:Text.AlignHCenter; font.bold:true; color:"#284656"; elide:Text.ElideRight }
-                                                Label { Layout.fillWidth:true; text:phaseState==="current"?"进行中":(phaseState==="done"?"已完成":(phaseState==="error"?"失败":"待处理")); horizontalAlignment:Text.AlignHCenter; color:"#746b63"; font.pixelSize:11 }
-                                            }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Label { text: "本地数据类型"; color: theme.muted }
+                                    ComboBox {
+                                        id: sourceKind
+                                        Layout.fillWidth: true
+                                        model: ["单个文件", "目录树"]
+                                        onActivated: root.pickerDirectory = index === 1
+                                    }
+                                }
+                                ColumnLayout {
+                                    Layout.columnSpan: 2; Layout.fillWidth: true
+                                    Label { text: directionChoice.currentIndex === 0 ? "本地来源路径" : "本地接收位置"; color: theme.muted }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Field { id: localPath; objectName: "localPath"; Layout.fillWidth: true; placeholderText: "绝对路径；提交时由 agent 检查可访问性" }
+                                        ActionButton { text: "选文件"; onClicked: { sourceKind.currentIndex = 0; root.pickPath(false) } }
+                                        ActionButton { text: "选目录"; onClicked: { sourceKind.currentIndex = 1; root.pickPath(true) } }
+                                    }
+                                }
+                                ColumnLayout {
+                                    Layout.columnSpan: 2; Layout.fillWidth: true
+                                    Label { text: directionChoice.currentIndex === 0 ? "远端目标相对路径" : "远端来源相对路径"; color: theme.muted }
+                                    Field { id: remotePath; Layout.fillWidth: true; placeholderText: "例如 incoming/project-data" }
+                                }
+                            }
+                            Note { text: "UI 不预扫目录来估算进度。agent 创建任务后返回真实文件清单、总量和阶段。" }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ActionButton { text: "检查本地路径"; enabled: false; tint: theme.warn }
+                                Note { text: "本地权限/路径最终由 agent 的创建前校验返回；当前 RPC 没有独立本地预检接口。" }
+                            }
+                        }
+                        Panel {
+                            visible: root.createStep === 1
+                            Layout.fillWidth: true
+                            Eyebrow { text: "STEP 02  /  NODE AND IDENTITY" }
+                            Label { text: "选择一个受控节点"; color: theme.ink; font.pixelSize: 20; font.bold: true }
+                            Note { text: "节点地址、CA 和凭据引用由 agent 按保存的 profile 处理。" }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ComboBox {
+                                    id: createProfile
+                                    Layout.fillWidth: true
+                                    model: rpc.profiles.map(function(p) { return p.name + " · " + p.host + ":" + p.control_port })
+                                    currentIndex: {
+                                        for (var i = 0; i < rpc.profiles.length; ++i)
+                                            if (rpc.profiles[i].node_id === root.selectedProfileId) return i
+                                        return rpc.profiles.length ? 0 : -1
+                                    }
+                                    onActivated: {
+                                        if (index >= 0 && index < rpc.profiles.length) {
+                                            root.selectedProfileId = rpc.profiles[index].node_id
+                                            rpc.requestCapabilities(root.selectedProfileId)
                                         }
                                     }
                                 }
-                                Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:"文件进度"; font.bold:true; color:"#284656" }
-                                Label { visible:!!window.selectedTask; text:window.progressKnown(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")) ? "已提交 "+window.value(window.metric(window.selectedTask,"files_committed"))+" / "+window.value(window.metric(window.selectedTask,"files_total")) : "正在获取文件清单…"; color:"#53626a" }
-                                ProgressBar { visible:window.selectedTask && window.progressKnown(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")); Layout.fillWidth:true; value:window.fraction(window.metric(window.selectedTask,"files_committed"),window.metric(window.selectedTask,"files_total")) }
-                                Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:"字节进度"; font.bold:true; color:"#284656" }
-                                Label { visible:!!window.selectedTask; text:window.progressKnown(window.metric(window.selectedTask,"bytes_transferred"),window.metric(window.selectedTask,"bytes_total")) ? "已传输 "+window.bytes(window.metric(window.selectedTask,"bytes_transferred"))+" / "+window.bytes(window.metric(window.selectedTask,"bytes_total")) : "正在获取字节进度…"; color:"#53626a" }
-                                ProgressBar { visible:window.selectedTask && window.progressKnown(window.metric(window.selectedTask,"bytes_transferred"),window.metric(window.selectedTask,"bytes_total")); Layout.fillWidth:true; value:window.fraction(window.metric(window.selectedTask,"bytes_transferred"),window.metric(window.selectedTask,"bytes_total")) }
-                                Label { visible:!!window.selectedTask; Layout.fillWidth:true; text:window.selectedTask && window.known(window.metric(window.selectedTask,"speed_bps")) ? "当前速度 "+window.rate(window.metric(window.selectedTask,"speed_bps"))+" · 平均 "+window.rate(window.metric(window.selectedTask,"average_speed_bps"))+" · 预计剩余 "+window.eta(window.metric(window.selectedTask,"eta_seconds")) : "速度将在首个实时进度事件后显示"; color:"#53626a" }
-                                Rectangle { visible:!!window.selectedTask; Layout.fillWidth:true; implicitHeight:72; radius:8; color:"#fbf5ee"; border.color:"#d9cbbb"
-                                    ColumnLayout { anchors.fill:parent; anchors.margins:12; spacing:3
-                                        Label { text:"完整性核验"; font.bold:true; color:"#284656" }
-                                        Muted { Layout.fillWidth:true; text:"manifest："+window.integrityText(window.selectedTask,"manifest")+" · checksum："+window.integrityText(window.selectedTask,"checksum")+" · finalize："+window.integrityText(window.selectedTask,"finalize") }
+                                ActionButton { text: "管理节点 / TLS"; onClicked: root.page = 3 }
+                                ActionButton { text: "检查节点身份"; enabled: root.canOperate && root.selectedProfile() && root.selectedProfile().default_root_id; onClicked: { var p = root.selectedProfile(); rpc.testNode(p.node_id, p.default_root_id) } }
+                            }
+                            Panel {
+                                Layout.fillWidth: true
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    StatusTag { label: "TLS / 认证默认要求"; tone: theme.good }
+                                    Note { text: root.selectedProfile() ? ("CA: " + root.value(root.selectedProfile().ca_path) + "  ·  凭据引用: " + root.value(root.selectedProfile().credential_ref)) : "请先在节点页面配置受控节点。" }
+                                }
+                            }
+                            Note {
+                                visible: !!root.selectedProfile() && !root.selectedProfile().default_root_id
+                                text: "该 profile 没有 agent 授权根目录 ID；真实任务创建已禁用。请在节点配置中填写 agent 返回的授权目录 ID。"
+                                color: theme.warn
+                            }
+                            Note { text: "证书与 token 内容不会进入 QML；这里只引用 agent 已保存的安全配置。" }
+                            ActionButton { text: "导入节点配置包"; Layout.fillWidth: true; enabled: false; tint: theme.warn }
+                            Note { text: "配置包导入 API 尚未提供。可以先保存单个节点 profile。" }
+                        }
+                        Panel {
+                            visible: root.createStep === 2
+                            Layout.fillWidth: true
+                            Eyebrow { text: "STEP 03  /  PREFLIGHT AND SUBMIT" }
+                            Label { text: "最后核对"; color: theme.ink; font.pixelSize: 20; font.bold: true }
+                            GridLayout {
+                                columns: 2; Layout.fillWidth: true; columnSpacing: 12; rowSpacing: 10
+                                Label { text: "方向"; color: theme.muted }
+                                Label { text: root.presetDirection === 0 ? "本机 → 远端" : "远端 → 本机"; color: theme.ink }
+                                Label { text: "来源"; color: theme.muted }
+                                Label { text: localPath.text.length ? localPath.text : "未填写"; color: theme.ink; Layout.fillWidth: true; elide: Text.ElideMiddle }
+                                Label { text: "远端路径"; color: theme.muted }
+                                Label { text: remotePath.text.length ? remotePath.text : "未填写"; color: theme.ink; Layout.fillWidth: true; elide: Text.ElideMiddle }
+                                Label { text: "节点"; color: theme.muted }
+                                Label { text: root.selectedProfile() ? root.selectedProfile().name : "未选择"; color: theme.ink }
+                                Label { text: "安全策略"; color: theme.muted }
+                                Label { text: "TLS / 身份校验必需 · checksum required"; color: theme.good }
+                            }
+                            Note { text: "创建请求会经过 agent 幂等与路径/权限检查。若校验失败，会显示 agent 的错误，不生成假任务。" }
+                            Label { visible: rpc.createStatus.length > 0; text: rpc.createStatus; color: theme.warn; wrapMode: Text.WordWrap }
+                            Label { visible: rpc.createError.length > 0; text: rpc.createError; color: theme.bad; wrapMode: Text.WordWrap }
+                            ActionButton {
+                                objectName: "createButton"
+                                Layout.fillWidth: true
+                                text: rpc.createInFlight ? "正在请求 agent…" : "向 agent 创建真实任务"
+                                primary: true
+                                enabled: root.canOperate && !rpc.createInFlight && root.selectedProfile() && root.selectedProfile().default_root_id && localPath.text.length > 0 && remotePath.text.length > 0
+                                onClicked: rpc.create(root.presetDirection === 0 ? "upload" : "download", localPath.text, remotePath.text, false, "v2", root.selectedProfileId || root.selectedProfile().node_id)
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            ActionButton { text: "← 上一步"; enabled: root.createStep > 0; onClicked: root.createStep = Math.max(0, root.createStep - 1) }
+                            Item { Layout.fillWidth: true }
+                            ActionButton { text: "下一步 →"; visible: root.createStep < 2; enabled: root.createStep === 0 ? localPath.text.length > 0 && remotePath.text.length > 0 : !!root.selectedProfile(); onClicked: root.createStep = Math.min(2, root.createStep + 1) }
+                        }
+                    }
+                }
+
+                // 2 — Task command: real task facts, real controls, and phase evidence.
+                ScrollView {
+                    clip: true; contentWidth: availableWidth
+                    ColumnLayout {
+                        width: parent.width; spacing: 16
+                        Item { Layout.preferredHeight: 4 }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Eyebrow { text: "MISSION DETAIL  /  AGENT SNAPSHOT" }
+                                PageTitle { text: root.selectedTask() ? root.statusLabel(root.selectedTask().state) : "请选择任务" }
+                                Note { text: root.selectedTask() ? (root.selectedTask().source.path + "  →  " + root.selectedTask().destination.path) : "从控制台选择任务以查看 agent 返回的数据。" }
+                            }
+                            ActionButton { text: "文件 / 分段"; enabled: !!root.selectedTask(); onClicked: root.page = 4 }
+                            ActionButton { text: "刷新任务快照"; enabled: root.canOperate && !!root.selectedTask(); onClicked: { var t = root.selectedTask(); rpc.loadDetails(t.transfer_id, t.attempt.attempt_id) } }
+                        }
+                        Panel {
+                            Layout.fillWidth: true
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Eyebrow { text: "TRANSFER ID" }
+                                    Label { text: root.selectedTask() ? root.selectedTask().transfer_id : "未选择"; color: theme.ink; font.family: "Consolas"; font.pixelSize: 16; Layout.fillWidth: true; elide: Text.ElideMiddle }
+                                    Label { text: root.selectedTask() ? ("Attempt " + root.value(root.selectedTask().attempt.attempt_id) + "  ·  revision " + root.value(root.selectedTask().revision)) : "等待任务"; color: theme.muted; font.family: "Consolas"; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideMiddle }
+                                }
+                                StatusTag { label: root.selectedTask() ? root.statusLabel(root.selectedTask().state) : "暂无"; tone: root.selectedTask() ? root.statusTone(root.selectedTask().state) : theme.muted }
+                                ActionButton { text: rpc.actionInFlight ? "请求中…" : "启动"; enabled: root.canOperate && !!root.selectedTask() && root.selectedTask().state === "queued" && !rpc.actionInFlight; primary: true; onClicked: rpc.action("transfer.start", root.selectedTask()) }
+                                ActionButton { text: "取消"; enabled: root.canOperate && !!root.selectedTask() && !root.terminal(root.selectedTask().state) && !rpc.actionInFlight; tint: theme.bad; onClicked: rpc.action("transfer.cancel", root.selectedTask()) }
+                                ActionButton { text: "恢复"; enabled: root.canOperate && !!rpc.capabilities.resume_supported && !!root.selectedTask() && root.selectedTask().recovery.eligibility === "eligible" && root.terminal(root.selectedTask().state) && !rpc.actionInFlight; tint: theme.blue; onClicked: rpc.action("transfer.resume", root.selectedTask()) }
+                            }
+                        }
+                        Label { visible: rpc.actionStatus.length > 0 || rpc.actionError.length > 0; Layout.fillWidth: true; text: rpc.actionError.length > 0 ? rpc.actionError : rpc.actionStatus; color: rpc.actionError.length > 0 ? theme.bad : theme.warn; wrapMode: Text.WordWrap }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Panel {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Eyebrow { text: "TRANSFER PHASE" }
+                                    Repeater {
+                                        model: [
+                                            {key:"scan", name:"01  目录扫描"},
+                                            {key:"prepare", name:"02  control_prepare / data_connect"},
+                                            {key:"payload", name:"03  first_payload / payload_io"},
+                                            {key:"finish", name:"04  complete_wait / finalize"}
+                                        ]
+                                        RowLayout {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            Rectangle { width: 9; height: 9; radius: 5; color: root.selectedTask() && ((modelData.key === "scan" && root.selectedTask().state === "scanning") || (modelData.key === "prepare" && ["connecting","negotiating"].indexOf(root.selectedTask().state)>=0) || (modelData.key === "payload" && root.selectedTask().state === "transferring") || (modelData.key === "finish" && ["committing","completed"].indexOf(root.selectedTask().state)>=0)) ? theme.accent : theme.line }
+                                            Label { text: modelData.name; color: theme.ink; Layout.fillWidth: true; font.bold: true }
+                                            Label { text: root.selectedTask() && root.selectedTask().backend_evidence && root.selectedTask().backend_evidence.phase_timing ? root.value(root.selectedTask().backend_evidence.phase_timing[modelData.key === "prepare" ? "control_prepare" : modelData.key === "payload" ? "payload_io" : modelData.key === "finish" ? "transfer_complete_wait" : "scan"]) : "agent 未提供"; color: theme.muted; font.family: "Consolas"; font.pixelSize: 10 }
+                                        }
                                     }
                                 }
-                                Label { visible:!!window.selectedTask && !!window.selectedTask.error; Layout.fillWidth:true; wrapMode:Text.WordWrap; text:window.selectedTask && window.selectedTask.error ? "错误："+window.selectedTask.error.message : ""; color:"#b84e3c" }
-                                Label { visible:!!window.selectedTask && rpc.actionTransferId===window.selectedTask.transfer_id && (rpc.actionStatus.length>0 || rpc.actionError.length>0); Layout.fillWidth:true; wrapMode:Text.WordWrap; text:rpc.actionError.length>0 ? rpc.actionError : rpc.actionStatus; color:rpc.actionError.length>0?"#b84e3c":"#9a5a2d" }
-                                RowLayout { visible:!!window.selectedTask; Layout.fillWidth:true
-                                    Button { objectName:"startButton"; text:rpc.actionInFlight && rpc.actionTransferId===(window.selectedTask ? window.selectedTask.transfer_id : "") ? "启动中…" : "开始任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.actionInFlight && window.selectedTask && window.selectedTask.state==="queued"; onClicked:rpc.action("transfer.start",window.selectedTask) }
-                                    Button { text:"取消任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.actionInFlight && window.selectedTask && !window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.cancel",window.selectedTask) }
-                                    Button { text:"恢复任务"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale && !rpc.actionInFlight && !!rpc.capabilities.resume_supported && window.selectedTask && window.selectedTask.recovery.eligibility==="eligible" && window.terminal(window.selectedTask.state); onClicked:rpc.action("transfer.resume",window.selectedTask) }
-                                    Button { text:"从列表隐藏"; enabled:!rpc.removeInFlight; onClicked:{ removeDialog.task=window.selectedTask; removeDialog.open() } }
-                                }
-                                Button { visible:!!window.selectedTask; text:detailCard.technicalExpanded?"收起技术详情":"展开技术详情"; onClicked:detailCard.technicalExpanded=!detailCard.technicalExpanded }
-                                ColumnLayout { visible:detailCard.technicalExpanded; Layout.fillWidth:true; spacing:7
-                                    Rectangle { Layout.fillWidth:true; height:1; color:"#d9cbbb" }
-                                    Label { text:"技术详情（用于排查，不影响正常使用）"; font.bold:true; color:"#284656" }
-                                    RowLayout { Layout.fillWidth:true
-                                        Button { text:"加载任务尝试记录"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadDetails(window.selectedTask.transfer_id,window.selectedTask.attempt.attempt_id) }
-                                        Button { visible:rpc.demoAdapter; text:"加载演示文件"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextFiles() }
-                                        Button { visible:rpc.demoAdapter; text:"加载演示分段"; enabled:rpc.connected && rpc.apiCompatible && !rpc.stale; onClicked:rpc.loadNextRanges() }
+                            }
+                            ColumnLayout {
+                                Layout.preferredWidth: 290
+                                Panel {
+                                    Layout.fillWidth: true
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Eyebrow { text: "BACKEND METRICS" }
+                                        Label { text: root.selectedTask() ? root.bytes(root.selectedTask().metrics.bytes_committed) + " / " + root.bytes(root.selectedTask().metrics.bytes_total) : "未提供"; color: theme.ink; font.pixelSize: 17; font.family: "Consolas" }
+                                        Meter { Layout.fillWidth: true; done: root.selectedTask() ? root.selectedTask().metrics.bytes_committed : null; total: root.selectedTask() ? root.selectedTask().metrics.bytes_total : null }
+                                        Note { text: root.selectedTask() ? ("files " + root.value(root.selectedTask().metrics.files_committed) + " / " + root.value(root.selectedTask().metrics.files_total)) : "文件数未提供" }
+                                        Note { text: root.selectedTask() ? ("速度 " + root.rate(root.selectedTask().metrics.speed_bps) + "  ·  ETA " + root.value(root.selectedTask().metrics.eta_seconds, " s")) : "" }
                                     }
-                                    Label { Layout.fillWidth:true; text:"attempt："+(rpc.attempts.length>0?rpc.attempts.length:"暂无")+" · file："+(rpc.files.length>0?rpc.files.length:"暂无")+" · range："+(rpc.ranges.length>0?rpc.ranges.length:"暂无"); color:"#746b63" }
-                                    Muted { Layout.fillWidth:true; text:window.selectedTask ? "传输引擎："+window.engineLabel(window.selectedTask)+" · "+window.engineDetail(window.selectedTask) : "" }
-                                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#9a5a2d"; text:window.selectedTask && window.selectedTask.fallback_reason ? "回退原因："+window.selectedTask.fallback_reason.message : "回退原因：暂无（尚未发生回退）" }
-                                    Muted { Layout.fillWidth:true; text:window.selectedTask ? "通道："+window.value(window.metric(window.selectedTask,"channel_count_active"))+" · 数据连接："+window.value(window.metric(window.selectedTask,"data_connections"))+" · 队列："+window.value(window.metric(window.selectedTask,"queue_depth_current")) : "" }
-                                    Muted { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:window.selectedTask && window.selectedTask.backend_evidence && window.selectedTask.backend_evidence.phase_timing ? "阶段耗时：control_prepare "+window.seconds(window.selectedTask.backend_evidence.phase_timing.control_prepare)+" · data_connect "+window.seconds(window.selectedTask.backend_evidence.phase_timing.data_connect)+" · first_payload "+window.seconds(window.selectedTask.backend_evidence.phase_timing.first_payload)+" · payload_io "+window.seconds(window.selectedTask.backend_evidence.phase_timing.payload_io)+" · transfer_complete_wait "+window.seconds(window.selectedTask.backend_evidence.phase_timing.transfer_complete_wait) : "阶段耗时：任务完成后显示" }
-                                    Muted { Layout.fillWidth:true; text:"恢复资格："+(window.selectedTask && window.selectedTask.recovery ? window.value(window.selectedTask.recovery.eligibility) : "暂无")+" · attempt："+(window.selectedTask && window.selectedTask.attempt ? window.value(window.selectedTask.attempt.attempt_number) : "暂无") }
-                                    Muted { Layout.fillWidth:true; text:"详情状态："+rpc.detailStatus+" · "+(rpc.stale?"连接已断开，等待重连":"实时连接正常")+" · watermark："+window.value(rpc.detailWatermark) }
                                 }
+                                Panel {
+                                    Layout.fillWidth: true
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Eyebrow { text: "INTEGRITY" }
+                                        Label { text: "manifest  ·  " + (root.selectedTask() && root.selectedTask().backend_evidence.manifest ? JSON.stringify(root.selectedTask().backend_evidence.manifest) : "未提供"); color: theme.ink; wrapMode: Text.WordWrap }
+                                        Label { text: "checksum  ·  " + (root.selectedTask() && root.selectedTask().backend_evidence.checksum ? JSON.stringify(root.selectedTask().backend_evidence.checksum) : "未提供"); color: theme.ink; wrapMode: Text.WordWrap }
+                                        Label { text: "finalize  ·  " + (root.selectedTask() && root.selectedTask().backend_evidence.finalize ? JSON.stringify(root.selectedTask().backend_evidence.finalize) : "未提供"); color: theme.ink; wrapMode: Text.WordWrap }
+                                    }
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            ActionButton { text: "暂停任务"; enabled: false; tint: theme.warn }
+                            ActionButton { text: "复制任务"; enabled: false; tint: theme.blue }
+                            ActionButton { text: "重新校验"; enabled: false; tint: theme.blue }
+                            ActionButton { text: "导出报告"; enabled: false }
+                            Note { text: "暂停、复制和导出操作尚无 agent RPC；界面入口已预留，当前不会产生假成功。" }
+                        }
+                        Panel {
+                            Layout.fillWidth: true
+                            Eyebrow { text: "ERROR / RECOVERY" }
+                            Label {
+                                text: root.selectedTask() && root.selectedTask().error ? (root.selectedTask().error.code + "  ·  " + root.selectedTask().error.message) : "当前快照没有 agent 错误"
+                                color: root.selectedTask() && root.selectedTask().error ? theme.bad : theme.muted
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                            Note { text: root.selectedTask() && root.selectedTask().recovery ? ("恢复资格：" + root.value(root.selectedTask().recovery.eligibility) + "  ·  " + root.value(root.selectedTask().recovery.reason)) : "恢复资格未知" }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ActionButton { text: "查看事件与文件"; onClicked: root.page = 4 }
+                                ActionButton { text: "隐藏本机列表项"; enabled: !!root.selectedTask() && !rpc.removeInFlight; onClicked: { hideDialog.task = root.selectedTask(); hideDialog.open() } }
+                                Item { Layout.fillWidth: true }
+                                Label { text: rpc.detailStatus + "  ·  " + rpc.detailWatermark; color: theme.muted; font.pixelSize: 10; elide: Text.ElideRight; Layout.maximumWidth: 420 }
                             }
                         }
                     }
                 }
-                // 3: profiles
-                ScrollView { id:profileScroll; clip:true; contentWidth:availableWidth
-                    ColumnLayout { width:profileScroll.availableWidth; spacing:18
-                        Card { Layout.fillWidth:true; implicitHeight:580
-                            ColumnLayout { anchors.fill:parent; anchors.margins:22; spacing:10
-                                Heading { text:"节点连接配置" }
-                                Muted { Layout.fillWidth:true; text:"接收节点必须先运行受控CPNetFlux服务端。安装两个GUI不等于能互传。当前只保存配置和凭据引用，不接收密码或token值。" }
-                                ComboBox { Layout.fillWidth:true; model:rpc.profiles; textRole:"name"; displayText:currentIndex>=0 && currentIndex<rpc.profiles.length ? rpc.profiles[currentIndex].name : "已保存节点（选择以编辑）"; onActivated:window.loadProfile(rpc.profiles[currentIndex]) }
-                                GridLayout { columns:window.width<1120?2:4; Layout.fillWidth:true; columnSpacing:12; rowSpacing:8
-                                    Label { text:"节点ID" } TextField { id:nodeId; text:"lab-node"; Layout.fillWidth:true }
-                                    Label { text:"名称" } TextField { id:nodeName; text:"实验室节点"; Layout.fillWidth:true }
-                                    Label { text:"地址" } TextField { id:host; text:"node.example"; Layout.fillWidth:true }
-                                    Label { text:"控制端口" } TextField { id:port; text:"22310"; validator:IntValidator { bottom:1; top:65535 } Layout.fillWidth:true }
-                                    Label { text:"默认root" } TextField { id:rootPath; text:"home"; Layout.fillWidth:true }
-                                    Label { text:"TLS主机名" } TextField { id:serverName; text:host.text; Layout.fillWidth:true }
-                                    Label { text:"CA文件" } TextField { id:ca; text:"/home/student/.config/cpnetflux/ca.pem"; Layout.fillWidth:true; Layout.columnSpan:3 }
-                                    Label { text:"身份方式" } ComboBox { id:auth; model:["短期token引用","管理员凭据引用"]; Layout.fillWidth:true }
-                                    Label { text:"凭据引用" } TextField { id:credentialRef; text:"secret-service:cpnetflux/lab-node"; placeholderText:"仅引用，禁止填写凭据值"; Layout.fillWidth:true }
+
+                // 3 — Node portfolio, saved identity references, and real preflight.
+                ScrollView {
+                    clip: true; contentWidth: availableWidth
+                    ColumnLayout {
+                        width: parent.width; spacing: 16
+                        Item { Layout.preferredHeight: 4 }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Eyebrow { text: "NODE PORTFOLIO  /  TRUST BOUNDARY" }
+                                PageTitle { text: "节点与身份" }
+                                Note { text: "保存连接 profile 与受保护凭据引用。UI 不接收私钥、密码或 token 内容。" }
+                            }
+                            ActionButton { text: "＋ 新节点"; primary: true; onClicked: { root.selectedProfileId = ""; nodeId.clear(); nodeName.clear(); host.clear(); port.clear(); rootPath.clear(); caPath.clear(); tlsName.clear(); credentialRef.clear() } }
+                            ActionButton { text: "导入配置包"; enabled: false; tint: theme.warn }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Panel {
+                                Layout.preferredWidth: 300
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Eyebrow { text: "SAVED PROFILES" }
+                                    Repeater {
+                                        model: rpc.profiles
+                                        ActionButton {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            text: modelData.name + "\n" + modelData.host + ":" + modelData.control_port
+                                            primary: modelData.node_id === root.selectedProfileId
+                                            onClicked: root.loadProfile(modelData)
+                                        }
+                                    }
+                                    Label { visible: rpc.profiles.length === 0; text: "尚无 profile"; color: theme.muted }
+                                }
+                            }
+                            Panel {
+                                Layout.fillWidth: true
+                                Eyebrow { text: "ENDPOINT" }
+                                GridLayout {
+                                    columns: 2; Layout.fillWidth: true; columnSpacing: 14; rowSpacing: 8
+                                    Label { text: "节点 ID"; color: theme.muted }
+                                    Field { id: nodeId; placeholderText: "必填：唯一节点 ID"; Layout.fillWidth: true }
+                                    Label { text: "显示名称"; color: theme.muted }
+                                    Field { id: nodeName; placeholderText: "必填：便于识别的名称"; Layout.fillWidth: true }
+                                    Label { text: "地址 / 主机名"; color: theme.muted }
+                                    Field { id: host; placeholderText: "必填：远端主机名或 IP"; Layout.fillWidth: true }
+                                    Label { text: "控制端口"; color: theme.muted }
+                                    Field {
+                                        id: port
+                                        placeholderText: "必填：控制端口"
+                                        validator: IntValidator {
+                                            bottom: 1
+                                            top: 65535
+                                        }
+                                        Layout.fillWidth: true
+                                    }
+                                    Label { text: "TLS server name"; color: theme.muted }
+                                    Field { id: tlsName; placeholderText: "证书 SAN 对应名称"; Layout.fillWidth: true }
+                                    Label { text: "授权根目录 ID"; color: theme.muted }
+                                    Field { id: rootPath; placeholderText: "必填：agent 授权的目录 ID"; Layout.fillWidth: true }
+                                    Label { text: "CA 文件路径"; color: theme.muted }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Field { id: caPath; placeholderText: "必填：CA 文件路径"; Layout.fillWidth: true }
+                                        ActionButton { text: "选择 CA 文件"; onClicked: root.pickPath(false, "ca") }
+                                    }
+                                    Label { text: "凭据引用"; color: theme.muted }
+                                    Field { id: credentialRef; placeholderText: "只填 OS secret store 中的受保护引用"; Layout.fillWidth: true }
+                                    Label { text: "认证入口"; color: theme.muted }
+                                    ComboBox { id: authMode; model: ["短期 token 引用", "管理员凭据引用"]; Layout.fillWidth: true }
                                 }
                                 RowLayout {
-                                    Button { text:"保存配置"; enabled:rpc.connected && port.acceptableInput; onClicked:{
-                                        var update=false; for(var i=0;i<rpc.profiles.length;i++) if(rpc.profiles[i].node_id===nodeId.text) update=true
-                                        rpc.saveProfile({node_id:nodeId.text,name:nodeName.text,host:host.text,control_port:parseInt(port.text),server_name:serverName.text,ca_path:ca.text,auth_mode:["token","admin_credential"][auth.currentIndex],credential_ref:credentialRef.text,default_root_id:rootPath.text},update)
-                                    } }
-                                    Button { text:"分步连接检查"; enabled:rpc.connected; onClicked:rpc.testNode(nodeId.text,rootPath.text) }
-                                }
-                                Repeater { model:[{key:"dns_control_port",name:"① DNS / 控制端口"},{key:"tls_identity",name:"② TLS服务端身份"},{key:"login",name:"③ 登录"},{key:"capabilities",name:"④ 能力协商"},{key:"directory_permission",name:"⑤ 目录读写授权"},{key:"data_port",name:"协商数据端口"}]
-                                    Label { required property var modelData; text:modelData.name+"："+(rpc.checks[modelData.key] ? rpc.checks[modelData.key].state+" · "+rpc.checks[modelData.key].message : "尚未检查"); color:"#746b63" }
-                                }
-                            }
-                        }
-                    }
-                }
-                // 4: directory
-                Card { ColumnLayout { anchors.fill:parent; anchors.margins:24
-                    Heading { text:"远端目录浏览" }
-                    Muted { Layout.fillWidth:true; text:"远端目录浏览当前关闭；请直接填写远端相对目录，避免在未完成权限校验时误操作。" }
-                    TextField { placeholderText:"root-relative 路径"; Layout.fillWidth:true; enabled:false }
-                    Button { text:"目录浏览暂不可用"; enabled:false }
-                    Item { Layout.fillHeight:true }
-                } }
-                // 5: history
-                ScrollView { id:historyScroll; clip:true; contentWidth:availableWidth
-                    ColumnLayout { width:historyScroll.availableWidth; spacing:18
-                        Muted { Layout.fillWidth:true; text:"历史由 agent 持久保存。恢复按钮只在 agent 返回真实 checkpoint 时启用；暂时无法确认的字段会标记为“暂无”，不会影响已完成任务查看。" }
-                        Repeater { model:rpc.tasks
-                            Card { required property var modelData; Layout.fillWidth:true; implicitHeight:95; visible:window.terminal(modelData.state)
-                                RowLayout { anchors.fill:parent; anchors.margins:18
-                                    ColumnLayout { Layout.fillWidth:true
-                                        Label { text:window.stateName(modelData.state)+(rpc.demoAdapter?" · 开发诊断":" · 真实 agent"); font.bold:true }
-                                        Muted { text:modelData.source.path; elide:Text.ElideMiddle; Layout.fillWidth:true }
+                                    Layout.fillWidth: true
+                                    ActionButton {
+                                        text: "保存 profile"
+                                        primary: true
+                                        enabled: root.canOperate && port.acceptableInput && nodeId.text.length > 0 && nodeName.text.length > 0 && host.text.length > 0 && caPath.text.length > 0 && credentialRef.text.length > 0
+                                        onClicked: {
+                                            var update = rpc.profiles.some(function(p) { return p.node_id === nodeId.text })
+                                            root.selectedProfileId = nodeId.text
+                                            rpc.saveProfile({node_id:nodeId.text, name:nodeName.text, host:host.text,
+                                                control_port:parseInt(port.text), server_name:tlsName.text, ca_path:caPath.text,
+                                                auth_mode:["token","admin_credential"][authMode.currentIndex],
+                                                credential_ref:credentialRef.text, default_root_id:rootPath.text.length ? rootPath.text : null}, update)
+                                        }
                                     }
-                                    Label { text:modelData.recovery.eligibility==="eligible"?"可恢复":"不可恢复"; color:"#746b63" }
-                                    Button { text:"查看"; onClicked:window.selectTask(modelData) }
-                                    Button { text:"从列表隐藏"; enabled:!rpc.removeInFlight; onClicked:{ removeDialog.task=modelData; removeDialog.open() } }
+                                    ActionButton { text: "TLS / 登录 / 权限检查"; enabled: root.canOperate && nodeId.text.length > 0 && rootPath.text.length > 0; onClicked: rpc.testNode(nodeId.text, rootPath.text) }
+                                    ActionButton { text: "选择客户端证书"; enabled: false; tint: theme.warn }
+                                    ActionButton { text: "选择私钥"; enabled: false; tint: theme.warn }
+                                    ActionButton { text: "选择 token 文件"; enabled: false; tint: theme.warn }
+                                }
+                                Note { text: "当前 profile API 接收 CA 路径和 OS secret store 的 credential_ref。客户端证书、私钥和 token 文件导入接口尚未提供；对应入口禁用，不会把 secret 内容传给 QML。" }
+                            }
+                        }
+                        Panel {
+                            Layout.fillWidth: true
+                            Eyebrow { text: "PREFLIGHT RESULTS  /  AGENT RETURNED" }
+                            Repeater {
+                                model: [
+                                    {key:"dns_control_port",label:"网络与控制端口"},
+                                    {key:"tls_identity",label:"TLS 身份"},
+                                    {key:"login",label:"登录认证"},
+                                    {key:"capabilities",label:"能力协商"},
+                                    {key:"directory_permission",label:"目录权限"}
+                                ]
+                                RowLayout {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    Label { text: modelData.label; color: theme.ink; Layout.fillWidth: true }
+                                    Label { text: rpc.checks[modelData.key] ? rpc.checks[modelData.key].state + " · " + rpc.checks[modelData.key].message : "未检查"; color: rpc.checks[modelData.key] ? theme.blue : theme.muted; Layout.fillWidth: true }
+                                }
+                            }
+                            Note { text: "导入/密钥托管入口在 API 尚未支持时禁用，不存放 secret 到 profile。" }
+                        }
+                    }
+                }
+
+                // 4 — Paginated agent files/ranges. Directory browsing remains an explicit gap.
+                ScrollView {
+                    clip: true; contentWidth: availableWidth
+                    ColumnLayout {
+                        width: parent.width; spacing: 16
+                        Item { Layout.preferredHeight: 4 }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Eyebrow { text: "TASK ARTIFACTS  /  IMMUTABLE SNAPSHOT PAGES" }
+                                PageTitle { text: "文件与分段" }
+                                Note { text: root.selectedTask() ? ("任务 " + root.selectedTask().transfer_id + "  ·  file 与 range 页来自 agent") : "选择任务后查询文件清单。" }
+                            }
+                            ActionButton { text: "刷新任务详情"; enabled: root.canOperate && !!root.selectedTask(); onClicked: { var t = root.selectedTask(); rpc.loadDetails(t.transfer_id, t.attempt.attempt_id) } }
+                            ActionButton { text: "加载下一页文件"; enabled: root.canOperate && rpc.files.length > 0; onClicked: rpc.loadNextFiles() }
+                            ActionButton { text: "加载分段"; enabled: root.canOperate && rpc.files.length > 0; tint: theme.blue; onClicked: rpc.loadNextRanges() }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Panel {
+                                Layout.fillWidth: true; Layout.fillHeight: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label { text: "文件清单"; color: theme.ink; font.pixelSize: 18; font.bold: true }
+                                        StatusTag { label: rpc.files.length + " ITEMS"; tone: theme.blue }
+                                        Item { Layout.fillWidth: true }
+                                        ActionButton { text: "远端目录浏览"; enabled: false; tint: theme.warn }
+                                    }
+                                    Repeater {
+                                        model: rpc.files
+                                        Rectangle {
+                                            required property var modelData
+                                            Layout.fillWidth: true; implicitHeight: 62; radius: 5
+                                            color: "#0f1b2c"; border.color: theme.line
+                                            RowLayout {
+                                                anchors.fill: parent; anchors.margins: 9
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    Label { text: root.value(modelData.relative_path || modelData.path); color: theme.ink; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                                                    Label { text: "file_id " + root.value(modelData.file_id) + "  ·  " + root.value(modelData.state); color: theme.muted; font.pixelSize: 10; font.family: "Consolas" }
+                                                }
+                                                Label { text: root.bytes(modelData.bytes_committed) + " / " + root.bytes(modelData.size_bytes); color: theme.muted; font.family: "Consolas"; font.pixelSize: 10 }
+                                            }
+                                        }
+                                    }
+                                    Label { visible: rpc.files.length === 0; text: "暂无文件页。打开任务详情后由 agent 查询 attempt.list 与 file.list。"; color: theme.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true; padding: 12 }
+                                }
+                            }
+                            Panel {
+                                Layout.fillWidth: true; Layout.fillHeight: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label { text: "Range / 分段"; color: theme.ink; font.pixelSize: 18; font.bold: true }
+                                        StatusTag { label: rpc.ranges.length + " ITEMS"; tone: theme.accent }
+                                    }
+                                    Repeater {
+                                        model: rpc.ranges
+                                        Rectangle {
+                                            required property var modelData
+                                            Layout.fillWidth: true; implicitHeight: 52; radius: 5
+                                            color: "#0f1b2c"; border.color: theme.line
+                                            RowLayout {
+                                                anchors.fill: parent; anchors.margins: 9
+                                                Label { text: "range " + root.value(modelData.range_id); color: theme.ink; Layout.fillWidth: true }
+                                                Label { text: root.value(modelData.state); color: theme.muted }
+                                                Label { text: root.bytes(modelData.bytes_committed); color: theme.muted; font.family: "Consolas" }
+                                            }
+                                        }
+                                    }
+                                    Label { visible: rpc.ranges.length === 0; text: "尚未加载分段；若 backend 返回文件 ID，可查询对应 range。"; color: theme.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true; padding: 12 }
+                                    ActionButton { text: "导出文件清单"; enabled: false; Layout.fillWidth: true }
+                                    Note { text: "清单导出与远端目录浏览暂未暴露独立 RPC。" }
                                 }
                             }
                         }
                     }
                 }
-                // 6: advanced
-                Card { ColumnLayout { anchors.fill:parent; anchors.margins:24; spacing:16
-                    Heading { text:"引擎与调度能力" }
-                    Muted { Layout.fillWidth:true; text:"引擎和阶段以节点返回的实际证据为准；不支持的操作会隐藏并说明原因。" }
-                    Label { text:"当前能力："+(rpc.demoAdapter?"开发诊断/合成数据":"真实 agent 返回的能力事实"); font.bold:true }
-                    Label { text:"checksum / resume / data TLS：以 agent capability 与任务 effective_policy 为准"; color:"#9a5a2d" }
-                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"大文件分段仅在节点确认并实际启用时显示。"; color:"#9a5a2d" }
-                    ComboBox { model:["通道自动选择（请求）"]; enabled:false }
-                    ComboBox { model:["range policy：当前任务按文件调度"]; enabled:false; Layout.fillWidth:true }
-                    Muted { Layout.fillWidth:true; text:"速度、ETA和阶段耗时在产生观测后显示；暂停当前不支持，恢复按钮只在有真实恢复资格时启用。" }
-                    Item { Layout.fillHeight:true }
-                } }
+
+                // 5 — Persistent task history, sourced from the agent snapshots.
+                ScrollView {
+                    clip: true; contentWidth: availableWidth
+                    ColumnLayout {
+                        width: parent.width; spacing: 16
+                        Item { Layout.preferredHeight: 4 }
+                        Eyebrow { text: "PERSISTENT TASKS  /  RESUME IS CAPABILITY-GATED" }
+                        PageTitle { text: "历史任务" }
+                        Note { text: "退出界面不会结束 agent 任务。重新连接后，列表与终态以 agent 快照为准。" }
+                        Panel {
+                            Layout.fillWidth: true
+                            Label { text: "已结束与可恢复任务"; color: theme.ink; font.pixelSize: 18; font.bold: true }
+                            Repeater {
+                                model: rpc.tasks.filter(function(t) { return root.terminal(t.state) })
+                                Rectangle {
+                                    required property var modelData
+                                    Layout.fillWidth: true; implicitHeight: 70; radius: 5
+                                    color: "#0f1b2c"; border.color: theme.line
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.margins: 10
+                                        ColumnLayout {
+                                            Layout.fillWidth: true; spacing: 3
+                                            Label { text: root.statusLabel(modelData.state) + "  ·  " + modelData.source.path; color: theme.ink; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                                            Label { text: modelData.transfer_id + "  ·  恢复资格 " + root.value(modelData.recovery.eligibility); color: theme.muted; font.family: "Consolas"; font.pixelSize: 10 }
+                                        }
+                                        ActionButton { text: "查看结果"; onClicked: root.selectTask(modelData) }
+                                        ActionButton { text: "恢复"; enabled: root.canOperate && !!rpc.capabilities.resume_supported && modelData.recovery.eligibility === "eligible" && !rpc.actionInFlight; tint: theme.blue; onClicked: rpc.action("transfer.resume", modelData) }
+                                    }
+                                }
+                            }
+                            Label { visible: root.countWhere(function(t){return root.terminal(t.state)}) === 0; text: "agent 尚未返回终态任务"; color: theme.muted }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            ActionButton { text: "清除所选记录"; enabled: false; tint: theme.warn }
+                            ActionButton { text: "批量恢复"; enabled: false; tint: theme.blue }
+                            Note { text: "批量操作未提供 agent 幂等接口；逐项查看与恢复仍按单任务真实资格调用。" }
+                        }
+                    }
+                }
+
+                // 6 — Capability registry and diagnostic entry points.
+                ScrollView {
+                    clip: true; contentWidth: availableWidth
+                    ColumnLayout {
+                        width: parent.width; spacing: 16
+                        Item { Layout.preferredHeight: 4 }
+                        Eyebrow { text: "AGENT CONTRACT  /  CAPABILITY REGISTRY" }
+                        PageTitle { text: "能力与诊断" }
+                        Note { text: "只有 agent 明确返回的事实才显示为已启用。能力未提供时，操作入口会保留并标明缺口。" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Panel {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Eyebrow { text: "CONNECTION" }
+                                    Label { text: rpc.connected ? "本地 socket 在线" : "本地 socket 不可用"; color: rpc.connected ? theme.good : theme.bad; font.pixelSize: 18; font.bold: true }
+                                    Note { text: "协议/API 版本：" + root.value(rpc.agentInfo.api_version) + "  ·  协商：" + (rpc.apiCompatible ? "兼容" : "未完成") }
+                                    Note { text: "连接信息：" + rpc.message }
+                                    ActionButton { text: "重连并重新载入任务"; primary: true; Layout.fillWidth: true; onClicked: rpc.refresh() }
+                            ActionButton { text: "分步检查当前节点"; enabled: root.canOperate && root.selectedProfile() && root.selectedProfile().default_root_id; Layout.fillWidth: true; onClicked: { var p = root.selectedProfile(); rpc.testNode(p.node_id, p.default_root_id) } }
+                                }
+                            }
+                            Panel {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Eyebrow { text: "AGENT CAPABILITIES" }
+                                    Label { text: "Resume"; color: theme.ink; font.bold: true }
+                                    Note { text: rpc.capabilities.resume_supported === true ? "agent 声明支持；具体任务仍需有效 checkpoint。" : "未声明支持；恢复入口保持禁用。" }
+                                    Label { text: "Pause"; color: theme.ink; font.bold: true }
+                                    Note { text: "当前 agent API 不支持暂停。" }
+                                    Label { text: "远端目录浏览 / profile 导入 / 批量操作"; color: theme.ink; font.bold: true }
+                                    Note { text: "相关 RPC 尚未提供；预留入口不发送请求。" }
+                                }
+                            }
+                        }
+                        Panel {
+                            Layout.fillWidth: true
+                            Eyebrow { text: "EXTENSION POINTS" }
+                            GridLayout {
+                                columns: 3; Layout.fillWidth: true; columnSpacing: 10; rowSpacing: 10
+                                ActionButton { text: "查看 agent 日志"; enabled: false; Layout.fillWidth: true }
+                                ActionButton { text: "导出诊断包"; enabled: false; Layout.fillWidth: true }
+                                ActionButton { text: "校验安装依赖"; enabled: false; Layout.fillWidth: true }
+                                ActionButton { text: "查看服务端目录"; enabled: false; Layout.fillWidth: true }
+                                ActionButton { text: "管理客户端证书"; enabled: false; Layout.fillWidth: true }
+                                ActionButton { text: "调整并发 / 队列策略"; enabled: false; Layout.fillWidth: true }
+                            }
+                            Note { text: "这些扩展点在当前 schema/API 尚无对应接口前明确禁用；不会写入本地状态或显示成功。" }
+                        }
+                        Panel {
+                            Layout.fillWidth: true
+                            Eyebrow { text: "NEGOTIATED FACTS" }
+                            Label {
+                                Layout.fillWidth: true
+                                text: JSON.stringify(rpc.capabilities, null, 2)
+                                color: theme.muted
+                                font.family: "Consolas"
+                                font.pixelSize: 10
+                                wrapMode: Text.WrapAnywhere
+                            }
+                        }
+                    }
+                }
             }
+        }
+    }
+
+    Loader {
+        id: pathPicker
+        active: false
+        source: "qrc:/ui/PathPicker.qml"
+        onLoaded: {
+            item.directoryMode = root.pickerDirectory
+            item.selected.connect(function(path) {
+                if (root.pickerTarget === "ca") caPath.text = path
+                else localPath.text = path
+                pathPicker.active = false
+            })
+            item.open()
         }
     }
 }
-
 

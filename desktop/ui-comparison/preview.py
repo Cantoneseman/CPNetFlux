@@ -13,6 +13,7 @@ def main():
     parser.add_argument("--variant", choices=["original", "a", "b"], default="original")
     parser.add_argument("--scenario", choices=["tasks", "scanning", "completed", "failed", "offline", "empty"], default="tasks")
     parser.add_argument("--page", type=int, choices=range(7), default=0)
+    parser.add_argument("--create-step", type=int, choices=range(3), default=0)
     parser.add_argument("--width", type=int, default=1366)
     parser.add_argument("--height", type=int, default=768)
     parser.add_argument("--scale", choices=["1", "1.25", "1.5"], default="1")
@@ -61,6 +62,8 @@ def main():
     window = engine.rootObjects()[0]
     window.setWidth(args.width)
     window.setHeight(args.height)
+    if args.variant == "b":
+        window.setProperty("createStep", args.create_step)
     window.setTitle("[设计预览 · 未连接真实 agent] CPNetFlux · " + args.variant)
     # Add the same unmistakable watermark without changing the original QML.
     component = QQmlComponent(engine)
@@ -81,6 +84,7 @@ Text { anchors.centerIn: parent; text: "DESIGN PREVIEW | synthetic fixture | no 
             if image.isNull() or not image.save(str(args.screenshot)):
                 errors.append("screenshot capture failed")
         print(json.dumps(dict(variant=args.variant, scenario=args.scenario, page=args.page,
+            create_step=args.create_step if args.variant == "b" else 0,
             window=[window.width(), window.height()], scale=args.scale, qt=qVersion(),
             real_agent_connected=rpc.connected, fixture_tasks=len(rpc.tasks), qml_errors=errors), ensure_ascii=False))
         app.exit(1 if errors else 0)

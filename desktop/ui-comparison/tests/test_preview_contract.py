@@ -67,6 +67,19 @@ class PreviewContract(unittest.TestCase):
         self.assertNotEqual(source, (HERE / "candidates/a/Main.qml").read_text(encoding="utf-8"))
         self.assertEqual(source.count("rpc.create("), baseline.count("rpc.create("))
 
+    def test_candidate_b_is_a_distinct_control_console_with_truthful_gaps(self):
+        source = (HERE / "candidates/b/Main.qml").read_text(encoding="utf-8")
+        for page in ["任务控制台", "新建传输", "任务指挥", "节点与身份", "文件与分段", "历史任务", "能力与诊断"]:
+            self.assertIn(page, source)
+        for fake_profile_value in ["node.example", "/home/user/.config/cpnetflux/ca.pem",
+                                   "secret-service:cpnetflux/research-node", 'text: "research-node"']:
+            self.assertNotIn(fake_profile_value, source)
+        for reserved_action in ["选择客户端证书", "选择私钥", "选择 token 文件", "查看 agent 日志"]:
+            self.assertIn(f'text: "{reserved_action}"; enabled: false', source)
+        self.assertIn("恢复", source)
+        self.assertIn("agent API 当前不支持", source)
+        self.assertIn("root.selectedProfile().default_root_id", source)
+
     def test_candidates_are_explicitly_present(self):
         self.assertTrue((HERE / "candidates/a/Main.qml").is_file())
         self.assertTrue((HERE / "candidates/b/Main.qml").is_file())

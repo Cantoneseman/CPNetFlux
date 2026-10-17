@@ -1,10 +1,16 @@
 # DESKTOP-UI-SKILL-COMPARE-01
 
-日期：2026-10-17。状态：共同基线、原版、A 和 article-guided B 已准备；等待用户比较选择。用户选择前不合入正式主线。
+日期：2026-10-17。状态：B 已按用户反馈完成独立信息架构第二轮；原版、A 和 B 均保留，比较仍等待用户选择。用户选择前不合入正式主线。
 
 ## 范围与非目标
 
 只在 `D:\Project\CPNetFlux-Desktop` 开发 Qt/QML 桌面 UI 候选、样式、显示映射、预览脚本、UI 测试和任务文档。明确授权的本地预览例外不改变深圳正式源码权威。不修改 core、协议、agent API、认证实现、调度器、服务、发布打包或性能实验；不修改 `D:\Project\CPNetFlux`。
+
+### 用户反馈后的 B 第二轮
+
+首轮 B 只改变配色和卡片，用户指出“感觉好像没区别”，并明确希望“预留很多接口和按钮，用新的 UI 设计 skills 重新开发 UI”。因此 B 已按文章引导流程重新组织为 Mission Control，不再保留原版页面架构：新增常驻 agent/socket/API 状态区、快捷操作、分步骤创建、任务指挥、节点与安全、文件/range、历史和能力诊断共七页。已有动作仍调用原 RPC；暂无 API 的能力有可见的禁用入口和缺口说明。来源是用户确认的 Lenny's Newsletter 文章，文档按 `article-guided` 标注，不冒称本机 `ui-design-system` skill。
+
+第二轮受影响文件：`desktop/ui-comparison/candidates/b/Main.qml`、`desktop/ui-comparison/preview.py`、`desktop/ui-comparison/tests/render_matrix.py`、`desktop/ui-comparison/tests/test_preview_contract.py`、`desktop/ui-comparison/docs/SKILL-B.md`、本文件、`desktop/ui-comparison/README.md`、`desktop/ui-comparison/docs/VALIDATION.md`、`desktop/ui-comparison/docs/render-results.json` 和截图索引。截图仅保存在忽略的 `evidence/`，不纳入提交。
 
 ## 固定输入与核验
 
@@ -26,7 +32,7 @@
 
 ## API/schema 与验收
 
-候选复用 `rpc_client.h` 的 UI 属性/动作和 `desktop-agent API 2.0.0`、adapter-boundary 的真实状态语义；未知指标不能推算，凭据只展示引用。页面覆盖任务列表、任务详情、新建、节点、断线/错误；使用一致数据与窗口参数。
+候选复用 `rpc_client.h` 的 UI 属性/动作和 `desktop-agent API 2.0.0`、adapter-boundary 的真实状态语义；未知指标不能推算，凭据只展示引用。第二轮 B 覆盖任务列表、任务指挥、分步新建、节点身份、文件和 range、历史恢复与诊断；操作入口只能调用已有 RPC，能力缺口明确禁用。使用一致数据与窗口参数。
 
 验收：原版/A/B 分别启动；1280×720、1366×768、1920×1080 与 1/1.25/1.5 Qt scale-factor 矩阵；QML 错误/溢出检查和关键截图；已有 contract/source tests；尽可能验证 Qt 6.2 Linux 兼容，明确原生 Windows/PySide 预览不等于 Ubuntu GNOME/安装/真实传输验收。
 
