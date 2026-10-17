@@ -20,10 +20,14 @@ class DynamicFileQueue {
  public:
     DynamicFileQueue(std::vector<PersistentFileIdentity> files, std::uint32_t channels,
                      std::uint32_t window, std::size_t capacity, bool preserveReadyOrder = false,
-                     bool staticChannelAffinity = false);
+                     bool staticChannelAffinity = false,
+                     std::vector<std::string> workerLinkIds = {},
+                     bool rangeAffinity = false);
     DynamicFileQueue(std::vector<WorkItem> work, std::uint32_t channels,
                      std::uint32_t window, std::size_t capacity, bool preserveReadyOrder = false,
-                     bool staticChannelAffinity = false);
+                     bool staticChannelAffinity = false,
+                     std::vector<std::string> workerLinkIds = {},
+                     bool rangeAffinity = false);
     [[nodiscard]] common::Status attachScheduler(scheduler::GlobalScheduler* scheduler);
     [[nodiscard]] common::Status setConnectionEpoch(ConnectionEpoch epoch);
     // Prevent future claims while existing leases remain valid for teardown/finalization.
@@ -71,6 +75,7 @@ class DynamicFileQueue {
     struct Ready { WorkItem item; WorkClock::time_point admitted; };
     struct Active { WorkLease lease; std::chrono::milliseconds timeout; bool schedulerInflight = false; };
     [[nodiscard]] bool matchesWorker(const WorkerContext&) const;
+    [[nodiscard]] std::optional<std::size_t> preferredWorker(const WorkItem&) const;
     [[nodiscard]] common::Result<Active*> find(const WorkLease&);
     [[nodiscard]] common::Result<const Active*> find(const WorkLease&) const;
     [[nodiscard]] common::Result<WorkLease> legacyLease(std::uint32_t, const PersistentFileIdentity&) const;
@@ -90,6 +95,8 @@ class DynamicFileQueue {
     std::deque<Ready> retry_;
     std::vector<std::uint32_t> credits_;
     std::vector<Worker> workers_;
+    std::vector<std::string> workerLinkIds_;
+    bool rangeAffinity_ = false;
     std::unordered_map<std::string, Active> active_;
     std::uint32_t window_;
     bool preserveReadyOrder_ = false;

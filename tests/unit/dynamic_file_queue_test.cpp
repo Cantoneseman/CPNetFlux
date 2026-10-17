@@ -888,3 +888,23 @@ TEST(WorkRecoveryTest, SchedulerAccountingTracksReconciliationAndMissingRetries)
         EXPECT_NE(text.find("\"connection_epoch\":2"), std::string::npos);
     }
 }
+TEST(DynamicFileQueueTest, RangeAffinityAssignsDistinctLaneIds) {
+    auto file = tasks(1).front();
+    file.totalSize = 8;
+    file.rangeId = 1; file.rangeOffset = 0; file.rangeLength = 4; file.rangeCount = 2;
+    auto second = file;
+    second.rangeId = 2; second.rangeOffset = 4;
+    DynamicFileQueue queue(
+        std::vector<PersistentFileIdentity>{file, second}, 2, 1, 2, true, false,
+        std::vector<std::string>{"link0", "link1"}, true);
+    auto first = queue.claim(queue.worker(0).value());
+    ASSERT_TRUE(first.isOk()) << first.status().message();
+    ASSERT_TRUE(first.value());
+    EXPECT_EQ(first.value()->file.rangeId, 1U);
+    EXPECT_EQ(first.value()->owner.linkId, "link0");
+    auto secondLease = queue.claim(queue.worker(1).value());
+    ASSERT_TRUE(secondLease.isOk()) << secondLease.status().message();
+    ASSERT_TRUE(secondLease.value());
+    EXPECT_EQ(secondLease.value()->file.rangeId, 2U);
+    EXPECT_EQ(secondLease.value()->owner.linkId, "link1");
+}

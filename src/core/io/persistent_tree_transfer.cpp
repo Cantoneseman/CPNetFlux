@@ -692,6 +692,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     ++stats->files;
                     if (fileStatus.isOk()) stats->bytes += expected.totalSize;
                 }
+                if (fileStatus.isOk() && expected.rangeId != 0) ++stats->rangeCompletions;
                 if (stats->pendingHighWatermark > pending.size()) {
                     // Keep the peak unchanged; this branch documents that the queue is bounded.
                 }
@@ -938,6 +939,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 ++stats->files;
                 if (rangeStatus.isOk()) stats->bytes += id.totalSize;
             }
+            if (rangeStatus.isOk() && id.rangeId != 0) ++stats->rangeCompletions;
             if (!rangeStatus.isOk() && overall.isOk()) overall = rangeStatus;
             const auto callbackStarted = Clock::now();
             const auto callbackStatus = notifySafe(id, rangeStatus, true);
@@ -1177,6 +1179,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (!fileStatus.isOk() && overall.isOk()) overall = fileStatus;
         const auto completedStarted = Clock::now();
         status = notify(callback, id, fileStatus, true);
+        if (fileStatus.isOk() && id.rangeId != 0) ++stats->rangeCompletions;
         timing.manifestSeconds += secondsSince(completedStarted);
         if (!status.isOk()) return status;
         const auto resultStarted = Clock::now();

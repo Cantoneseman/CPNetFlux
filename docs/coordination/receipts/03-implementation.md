@@ -167,3 +167,14 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 - 下一步交接：实现 V3-MULTILINK-RANGE-01 的真实物理链路建立、range/WorkLease 到 LinkSet 映射、进度和 drain/cut；先补旧协议端拒绝测试，再重复深圳↔上海双向哈希验收。当前跨机测试只证明控制面协商及既有数据面的端到端完整性，不证明 LINKS=2 对应两个物理数据链路。
 
 - GitHub 备份记录：控制面代码提交 `c92d101486e6defefea2104c773093b2f45ae2c0` 已推送；当时 `git ls-remote origin refs/heads/codex/V3-LINKSET-01` 回读同 SHA。加入双向云端实验结果后的文档提交 `512a2da2bee6962b037320af0cdd72a31abe3e98` 也已推送并回读同 SHA；当前 HEAD/远端状态以最新回执提交及最终核验为准。
+## 2026-10-18 V3-MULTILINK-RANGE-01 真实数据面切片回执
+
+日期：2026-10-18。角色：03 核心实现。状态：done。
+
+- 输入提交：49eb3eea84c4455d4c407f07fe5ec1070e764825（V3-LINKSET-01，已推送）；实现分支 `codex/V3-MULTILINK-RANGE-01`；worktree `/root/projects/CPNetFlux-worktrees/v3-multilink-range-01`。
+- 本次实际解决：V3-LINKSET-01 已经能协商 LINKS/LINK_CAPS，但 persistent tree 仍按 fileParallelism 建数据会话，range 没有稳定 link_id，LINKS=2 可能只有一个数据连接。本轮把请求链路数接入 persistent data plane，建立至少一个独立 TCP session/lane，给 worker 和 WorkLease 稳定 link ID，按 range/整文件做 lane affinity，并在首选 lane 不再 accepting 时允许健康 worker 接管 ready/retry item；摘要增加 observed data connection 和逐 lane range completion 计数。
+- 修改文件：`include/cpnetflux/core/io/dynamic_file_queue.h`、`src/core/io/dynamic_file_queue.cpp`、`include/cpnetflux/core/io/persistent_tree_transfer.h`、`src/core/io/persistent_tree_transfer.cpp`、`src/core/io/tree_transfer_client.cpp`、`tests/unit/dynamic_file_queue_test.cpp`，以及本任务单、BOARD 和本回执。
+- TDD/门禁：先以新 queue 行为测试得到预期编译失败，证据 `/tmp/cpnetflux-runs/V3-MULTILINK-RANGE-01-red.log`；实现后全量构建通过。最终单元测试 334 项中 333 通过、1 项因 io_uring 条件不可用跳过；CTest 375/375，0 failed，1 skipped。最终日志：`/tmp/cpnetflux-runs/V3-MULTILINK-RANGE-01-build-final-verification.log`、`/tmp/cpnetflux-runs/V3-MULTILINK-RANGE-01-unit-final-verification.log`、`/tmp/cpnetflux-runs/V3-MULTILINK-RANGE-01-ctest-final-verification.log`。
+- 云端实测：资源复核显示深圳 / 可用 66 GiB、可用内存 2.5 GiB，上海 / 可用 81 GiB、可用内存 2.8 GiB，均为 2 CPU；任务端口在启动前确认空闲。深圳→上海和上海→深圳各传 80 MiB，均 `result=pass`、`data_connect_count=2`、accepted links=2、lane IDs=[link0,link1]、range completions=[2,2]。两方向源/目的 SHA-256 分别为 `b7e162d1c71e675c00834092a22150b1506a7d70837ec7e3d2b88ea8cbe8cd79` 与 `ac20c938f665a81df00c80b06d3169125ce07efa2694139024e425df2e20f5b5`；摘要位于两端 `/tmp/cpnetflux-runs/V3-MULTILINK-RANGE-01-cross/logs/upload-{shenzhen,shanghai}.json`，manifest 均为 `completed_ranges=0-83886080`。
+- 证据边界：当前证明的是两个独立 TCP data session、逻辑 lane/range 亲和和端到端完整性，不是不同物理 NIC/交换路径或性能提升。首次反向尝试使用被过滤端口超时，改用已验证可达的任务端口后通过；临时服务和端口已回收。
+- 下一步：V3-FLOWCUT-01 / 剩余 V3-MULTILINK-RANGE，解决 endpoint/local-bind/path identity、global scheduler 的 LinkSet adapter、weighted runtime selection、lane drain/cut、失败 lane reclaim、stale/duplicate epoch 证据，并运行 1/2/4/8/10-link 双向矩阵后再评估稳定性和性能。

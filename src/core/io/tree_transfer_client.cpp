@@ -965,6 +965,8 @@ struct TreeRunStats {
     bool persistentData = false;
     bool perFileStarted = false;
     std::uint64_t persistentDataConnectCount = 0;
+    std::vector<std::string> persistentLaneIds;
+    std::vector<std::uint64_t> persistentLaneRangeCompletions;
     std::uint64_t resumeSkippedBytes = 0, recoveryPayloadBytes = 0;
     std::uint32_t reconnectAttempts = 0, connectionEpoch = 1;
     std::uint32_t pendingWindow = 1;
@@ -1358,7 +1360,22 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"data_session_reuse_mode\": \"" << (stats.persistentData ? "tree" : "off") << "\",\n";
     output << "  \"data_connect_count\": " << (stats.persistentData ? stats.persistentDataConnectCount : stats.dataTransferCount.load() * options.connections) << ",\n";
     output << "  \"data_connect_count_source\": \"" << (stats.persistentData ? "observed" : "estimated") << "\",\n";
+    output << "  \"link_set_requested_links\": " << options.linkSetLinks << ",\n";
     if (stats.persistentData) {
+        output << "  \"link_set_accepted_links\": " << stats.persistentLaneIds.size() << ",\n";
+        output << "  \"persistent_lane_ids\": [";
+        for (std::size_t index = 0; index < stats.persistentLaneIds.size(); ++index) {
+            if (index != 0) output << ", ";
+            output << "\"" << jsonEscape(stats.persistentLaneIds[index]) << "\"";
+        }
+        output << "],\n";
+        output << "  \"persistent_lane_range_completed\": [";
+        for (std::size_t index = 0; index < stats.persistentLaneRangeCompletions.size(); ++index) {
+            if (index != 0) output << ", ";
+            output << stats.persistentLaneRangeCompletions[index];
+        }
+        output << "],\n";
+
         output << "  \"control_prepare_seconds\": " << stats.controlPrepareSeconds << ",\n";
         output << "  \"control_prepare_scope\": \"sum_channel_v2_prepare_excludes_preexisting_download_login_and_data_connect\",\n";
         output << "  \"data_connect_seconds\": " << stats.dataConnectSeconds << ",\n";
@@ -1367,7 +1384,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "  \"queue_high_watermark\": " << stats.queueHighWatermark << ",\n";
         const auto dispatchWindow = options.controlPipelineDepth != 0
             ? options.controlPipelineDepth : options.dataPendingWindow;
-        output << "  \"queue_capacity\": " << (stats.dynamicScheduling ? options.fileParallelism*dispatchWindow*2 : 0) << ",\n";
+        output << "  \"queue_capacity\": " << (stats.dynamicScheduling ? stats.persistentDataConnectCount*dispatchWindow*2 : 0) << ",\n";
         output << "  \"dispatch_window\": " << (stats.persistentData ? stats.pendingWindow : 0) << ",\n";
         output << "  \"scan_seconds\": ";
         if (stats.scanSeconds) output << *stats.scanSeconds; else output << "null";
@@ -3344,7 +3361,20 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
         }
     }
-    const std::uint32_t channelCount = options.fileParallelism;
+    if (options.linkSetLinks > kPersistentTreeMaxChannels) {
+        return common::Status::invalidArgument(
+            "persistent multi-link requests above the safe 8-channel limit are unsupported");
+    }
+    if (options.schedulerMode == config::TreeSchedulerMode::Global && options.linkSetLinks > 1) {
+        return common::Status::invalidArgument(
+            "persistent multi-link requests require scheduler off until the LinkSet adapter is complete");
+    }
+    const std::uint32_t channelCount = std::max(options.fileParallelism, options.linkSetLinks);
+    std::vector<std::string> laneLinkIds;
+    laneLinkIds.reserve(channelCount);
+    for (std::uint32_t index = 0; index < channelCount; ++index) {
+        laneLinkIds.push_back("link" + std::to_string(index % options.linkSetLinks));
+    }
     config::TreeTransferOptions persistentOptions = options;
     // A persistent directory channel carries one file stream at a time. The
     // user-facing connection count remains a per-file control setting; V3 uses
@@ -3418,7 +3448,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             for (const auto& file : files) boundWork.push_back(WorkItem{file, file.transferId});
         }
         ready = std::make_unique<DynamicFileQueue>(std::move(boundWork), channelCount, dispatchWindow,
-            channelCount * dispatchWindow * 2, options.schedulerMode == config::TreeSchedulerMode::Global);
+            channelCount * dispatchWindow * 2, options.schedulerMode == config::TreeSchedulerMode::Global,
+            false, laneLinkIds, options.linkSetLinks > 1);
         if (globalScheduler) {
             auto attached = ready->attachScheduler(globalScheduler.get());
             if (!attached.isOk()) return attached;
@@ -3427,7 +3458,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     if (!upload && options.dynamicFileScheduling && globalScheduler) {
         ready = std::make_unique<DynamicFileQueue>(
             std::vector<WorkItem>{}, channelCount, dispatchWindow,
-            channelCount * dispatchWindow * 2, true);
+            channelCount * dispatchWindow * 2, true, false, laneLinkIds, options.linkSetLinks > 1);
         auto attached = ready->attachScheduler(globalScheduler.get());
         if (!attached.isOk()) return attached;
     }
@@ -3440,7 +3471,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         const auto capacity = std::min<std::size_t>(
             256, std::max<std::size_t>(1, channelCount * dispatchWindow * 2));
         ready = std::make_unique<DynamicFileQueue>(
-            std::move(staticWork), channelCount, dispatchWindow, capacity, true, true);
+            std::move(staticWork), channelCount, dispatchWindow, capacity, true, true,
+            laneLinkIds, options.linkSetLinks > 1);
     }
     if (!upload && !options.dynamicFileScheduling) {
         // Incoming server sessions are accepted independently of the sender's
@@ -3448,7 +3480,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         const auto capacity = std::min<std::size_t>(
             256, std::max<std::size_t>(1, channelCount * dispatchWindow * 2));
         ready = std::make_unique<DynamicFileQueue>(
-            std::vector<WorkItem>{}, channelCount, dispatchWindow, capacity, true);
+            std::vector<WorkItem>{}, channelCount, dispatchWindow, capacity, true, false,
+            laneLinkIds, options.linkSetLinks > 1);
     }
 
     if (ready) {
@@ -3467,6 +3500,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         std::uint32_t expectedFileCount = kUnknownPersistentFileCount;
         double controlWaitSeconds = 0, prepareSeconds = 0, connectSeconds = 0, remoteQueueWait = 0, remoteScan = 0;
         bool dataConnected = false;
+        std::string linkId;
         std::size_t remoteQueueHigh = 0;
         common::Status status = common::Status::ok();
         bool capable = false;
@@ -3475,6 +3509,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     channels.reserve(channelCount);
     for (std::uint32_t index = 0; index < channelCount; ++index) {
         auto channel = std::make_unique<Channel>();
+        channel->linkId = laneLinkIds[index];
         if (index == 0 && connected != nullptr) {
             channel->control = connected;
         } else {
@@ -3845,16 +3880,26 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     }
     for (auto& worker : workers) worker.join();
 
+    stats->persistentLaneIds.clear();
+    for (std::uint32_t index = 0; index < options.linkSetLinks; ++index) {
+        stats->persistentLaneIds.push_back("link" + std::to_string(index));
+    }
+    stats->persistentLaneRangeCompletions.assign(options.linkSetLinks, 0);
     std::uint64_t transferredBytes = 0, wireBytes = 0;
     double completeWaitSeconds = 0;
     std::uint32_t pendingHighWatermark = 0;
-    for (const auto& channel : channels) {
+    for (std::size_t index = 0; index < channels.size(); ++index) {
+        const auto& channel = channels[index];
         stats->resumeSkippedBytes += channel->observed.skippedBytes;
         stats->queueWaitSeconds += upload ? channel->observed.queueWaitSeconds : channel->remoteQueueWait;
         if (!upload && options.dynamicFileScheduling)
             stats->scanSeconds = std::max(stats->scanSeconds.value_or(0),channel->remoteScan);
         stats->queueHighWatermark = std::max(stats->queueHighWatermark,channel->remoteQueueHigh);
         stats->fileTimings.insert(stats->fileTimings.end(),channel->observed.fileTimings.begin(),channel->observed.fileTimings.end());
+        const auto laneIndex = index % options.linkSetLinks;
+        if (laneIndex < stats->persistentLaneRangeCompletions.size()) {
+            stats->persistentLaneRangeCompletions[laneIndex] += channel->observed.rangeCompletions;
+        }
         transferredBytes += channel->observed.payloadBytes;
         wireBytes += channel->observed.wireBytes;
         stats->compressionAttempts.fetch_add(channel->observed.runtime.compressionAttempts);

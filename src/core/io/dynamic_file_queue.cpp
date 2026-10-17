@@ -74,24 +74,38 @@ common::Status mismatch() {
 }
 DynamicFileQueue::DynamicFileQueue(std::vector<PersistentFileIdentity> files,
     std::uint32_t channels, std::uint32_t window, std::size_t capacity, bool preserveReadyOrder,
-    bool staticChannelAffinity)
+    bool staticChannelAffinity, std::vector<std::string> workerLinkIds, bool rangeAffinity)
     : DynamicFileQueue(asWorkItems(std::move(files)), channels, window, capacity,
-                       preserveReadyOrder, staticChannelAffinity) {}
+                       preserveReadyOrder, staticChannelAffinity, std::move(workerLinkIds),
+                       rangeAffinity) {}
 
 DynamicFileQueue::DynamicFileQueue(std::vector<WorkItem> files,
     std::uint32_t channels, std::uint32_t window, std::size_t capacity, bool preserveReadyOrder,
-    bool staticChannelAffinity)
+    bool staticChannelAffinity, std::vector<std::string> workerLinkIds, bool rangeAffinity)
     : files_(std::move(files)), window_(window), preserveReadyOrder_(preserveReadyOrder),
+      workerLinkIds_(std::move(workerLinkIds)), rangeAffinity_(rangeAffinity),
       staticChannelAffinity_(staticChannelAffinity) {
     if (channels == 0 || channels > 64 || window == 0 || window > 16 ||
         capacity == 0 || capacity > 256) {
         status_ = common::Status::invalidArgument("invalid dynamic queue bounds");
         return;
     }
+    if (!workerLinkIds_.empty() && workerLinkIds_.size() != channels) {
+        status_ = common::Status::invalidArgument("worker link ID count must match channels");
+        return;
+    }
+    if (workerLinkIds_.empty()) workerLinkIds_.assign(channels, "link0");
+    for (const auto& linkId : workerLinkIds_) {
+        if (linkId.empty()) {
+            status_ = common::Status::invalidArgument("worker link IDs must be non-empty");
+            return;
+        }
+    }
     ring_.resize(capacity);
     credits_.resize(channels);
     staticNextIndex_.resize(channels);
-    for (std::uint32_t c = 0; c < channels; ++c) workers_.push_back({WorkerContext{c}});
+    for (std::uint32_t c = 0; c < channels; ++c)
+        workers_.push_back({WorkerContext{c, workerLinkIds_[c]}});
     std::unordered_map<std::uint32_t, std::vector<PersistentFileIdentity>> groups;
     std::unordered_map<std::string, std::uint32_t> paths, transfers;
     std::unordered_map<std::uint32_t, std::string> taskIds;
@@ -240,6 +254,11 @@ void DynamicFileQueue::fill() {
 bool DynamicFileQueue::matchesWorker(const WorkerContext& worker) const {
     return worker.workerId < workers_.size() && workers_[worker.workerId].context == worker;
 }
+std::optional<std::size_t> DynamicFileQueue::preferredWorker(const WorkItem& item) const {
+    if (!rangeAffinity_ || workers_.empty()) return std::nullopt;
+    const auto key = item.file.rangeId != 0 ? item.file.rangeId - 1 : item.file.fileId - 1;
+    return static_cast<std::size_t>(key % workers_.size());
+}
 common::Result<const DynamicFileQueue::Active*> DynamicFileQueue::find(const WorkLease& lease) const {
     if (!status_.isOk()) return status_;
     const auto found = active_.find(activeKey(lease.file));
@@ -282,8 +301,12 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
 
     Ready ready;
     if (staticChannelAffinity_) {
+        const auto affinity = [&](const WorkItem& item) {
+            const auto preferred = preferredWorker(item);
+            return preferred ? *preferred : static_cast<std::size_t>((item.file.fileId - 1) % workers_.size());
+        };
         auto retry = std::find_if(retry_.begin(), retry_.end(), [&](const Ready& candidate) {
-            return (candidate.item.file.fileId - 1) % workers_.size() == owner.workerId;
+            return affinity(candidate.item) == owner.workerId;
         });
         if (retry != retry_.end()) {
             ready = std::move(*retry);
@@ -292,7 +315,7 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
             auto& cursor = staticNextIndex_[owner.workerId];
             std::size_t selected = cursor;
             while (selected < files_.size() &&
-                   (files_[selected].file.fileId - 1) % workers_.size() != owner.workerId) {
+                   affinity(files_[selected]) != owner.workerId) {
                 ++selected;
             }
             if (selected == files_.size()) return std::optional<WorkLease>{};
@@ -303,16 +326,50 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
         if (retry_.empty() && !size_) return std::optional<WorkLease>{};
         const auto leaseId = acquireLeaseId();
         if (!leaseId) return common::Status::runtimeError("work lease ID exhausted");
-        auto retry = retry_.begin();
+        auto retry = retry_.end();
+        if (rangeAffinity_) {
+            retry = std::find_if(retry_.begin(), retry_.end(), [&](const Ready& candidate) {
+                const auto preferred = preferredWorker(candidate.item);
+                return preferred && *preferred == owner.workerId;
+            });
+            if (retry == retry_.end()) {
+                retry = std::find_if(retry_.begin(), retry_.end(), [&](const Ready& candidate) {
+                    const auto preferred = preferredWorker(candidate.item);
+                    return preferred && workers_[*preferred].state != WorkerState::Accepting;
+                });
+            }
+        } else {
+            retry = retry_.begin();
+        }
         if (retry != retry_.end()) {
             ready = std::move(*retry);
             retry_.erase(retry);
         } else {
-            const std::size_t selected = head_;
+            std::size_t selected = head_;
+            if (rangeAffinity_) {
+                bool found = false;
+                bool fallback = false;
+                for (std::size_t offset = 0; offset < size_; ++offset) {
+                    const auto candidate = (head_ + offset) % ring_.size();
+                    if (!ring_[candidate]) return common::Status::runtimeError("dynamic ready ring is inconsistent");
+                    const auto preferred = preferredWorker(ring_[candidate].value().item);
+                    if (preferred && *preferred == owner.workerId) {
+                        selected = candidate;
+                        found = true;
+                        break;
+                    }
+                    if (preferred && workers_[*preferred].state != WorkerState::Accepting) {
+                        selected = candidate;
+                        fallback = true;
+                    }
+                }
+                if (!found && !fallback) return std::optional<WorkLease>{};
+            }
             if (!ring_[selected]) return common::Status::runtimeError("dynamic ready ring is inconsistent");
-            ready = std::move(*ring_[selected]);
-            ring_[selected].reset();
-            head_ = (selected + 1) % ring_.size();
+            if (selected != head_) std::swap(ring_[selected], ring_[head_]);
+            ready = std::move(*ring_[head_]);
+            ring_[head_].reset();
+            head_ = (head_ + 1) % ring_.size();
             --size_;
         }
         WorkLease lease;
