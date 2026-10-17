@@ -68,49 +68,22 @@ class ControlClient {
    public:
     [[nodiscard]] common::Status connectTo(const std::string& host, std::uint16_t port,
                                            const TlsConfig& tls,
-                                           const std::string& tlsServerName = {}) {
+                                           const std::string& tlsServerName = {}, SocketDeadline deadline = {}) {
         if (cancelled_.load(std::memory_order_acquire)) {
             return common::Status::runtimeError("tree pipeline candidate cancelled");
         }
-        // DNS/connect/TLS handshake retain their existing blocking behavior.
-        // Cancellation can shutdown the socket after publication below.
         host_ = host;
-        addrinfo hints{};
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-        addrinfo* results = nullptr;
-        const std::string portText = std::to_string(port);
-        const int gaiStatus = ::getaddrinfo(host.c_str(), portText.c_str(), &hints, &results);
-        if (gaiStatus != 0) {
-            return common::Status::runtimeError(std::string("getaddrinfo: ") +
-                                                gai_strerror(gaiStatus));
-        }
-        int lastError = 0;
-        for (addrinfo* item = results; item != nullptr; item = item->ai_next) {
-            UniqueFd candidate(
-                ::socket(item->ai_family, item->ai_socktype | SOCK_CLOEXEC, item->ai_protocol));
-            if (!candidate.isValid()) {
-                lastError = errno;
-                continue;
-            }
-            if (::connect(candidate.get(), item->ai_addr, item->ai_addrlen) == 0) {
-                fd_ = std::move(candidate);
-                break;
-            }
-            lastError = errno;
-        }
-        ::freeaddrinfo(results);
-        if (!fd_.isValid()) {
-            return common::Status::systemError("connect: " + std::string(std::strerror(lastError)),
-                                               lastError);
-        }
+        deadline_ = deadline;
+        auto connection = connectBlockingSocket(host.c_str(), port, deadline);
+        if (!connection.isOk()) return connection.status();
+        fd_ = std::move(connection.value());
         if (tls.mode == TlsMode::Required) {
             auto context = TlsClientContext::create(tls);
             if (!context.isOk()) {
                 return context.status();
             }
             const std::string& identityName = tlsServerName.empty() ? host_ : tlsServerName;
-            auto connection = context.value().connect(std::move(fd_), identityName);
+            auto connection = context.value().connect(std::move(fd_), identityName, deadline);
             if (!connection.isOk()) {
                 return connection.status();
             }
@@ -132,6 +105,14 @@ class ControlClient {
             return common::Status::runtimeError("unexpected control greeting");
         }
         return common::Status::ok();
+    }
+
+    [[nodiscard]] common::Result<bool> batchDrained(const std::string& id) {
+        auto reply = command("XCPNETFLUX DRAIN " + id);
+        if (!reply.isOk()) return reply.status();
+        if (reply.value().code == 200) return true;
+        if (reply.value().code == 450) return false;
+        return common::Status::invalidArgument("server does not support safe batch drain");
     }
 
     void cancel() noexcept {
@@ -533,7 +514,9 @@ class ControlClient {
             return common::Status::runtimeError("tree pipeline candidate cancelled");
         }
         const std::string text = commandText + "\r\n";
-        return control_.writeAll(text.data(), text.size());
+        auto status = control_.writeAll(text.data(), text.size());
+        if (!status.isOk()) return status;
+        return status;
     }
 
     [[nodiscard]] common::Result<ControlReply> command(const std::string& commandText) {
@@ -583,6 +566,7 @@ class ControlClient {
         if (responseTimeout_.has_value()) {
             deadline = std::chrono::steady_clock::now() + *responseTimeout_;
         }
+        if (deadline_ && (!deadline || *deadline_ < *deadline)) deadline = deadline_;
         auto first = readLine(deadline);
         if (!first.isOk()) {
             return first.status();
@@ -673,6 +657,7 @@ class ControlClient {
 
     UniqueFd fd_;
     TlsConnection control_;
+    SocketDeadline deadline_;
     std::string host_;
     std::string buffer_;
     std::uint32_t parallelism_ = 0;
@@ -732,7 +717,7 @@ common::Status saveManifest(core::tree::TreeManifest* manifest, const std::strin
 
 common::Status ensureControlReady(ControlClient* client, const config::TreeTransferOptions& options) {
     const common::Status connectStatus =
-        client->connectTo(options.host, options.port, options.tls, options.tlsServerName);
+        client->connectTo(options.host, options.port, options.tls, options.tlsServerName, options.transferDeadline);
     if (!connectStatus.isOk()) {
         return connectStatus;
     }
@@ -750,7 +735,7 @@ TreeAuthProbeResult runTreeAuthProbeInternal(const config::TreeTransferOptions& 
     TreeAuthProbeResult result;
     ControlClient control;
     const common::Status connectStatus =
-        control.connectTo(options.host, options.port, options.tls, options.tlsServerName);
+        control.connectTo(options.host, options.port, options.tls, options.tlsServerName, options.transferDeadline);
     if (!connectStatus.isOk()) {
         const std::string message = connectStatus.message();
         result.error = message;
@@ -967,6 +952,8 @@ struct TreeRunStats {
     bool persistentData = false;
     bool perFileStarted = false;
     std::uint64_t persistentDataConnectCount = 0;
+    std::uint64_t resumeSkippedBytes = 0;
+    std::uint32_t reconnectAttempts = 0, connectionEpoch = 1;
     std::uint32_t pendingWindow = 1;
     std::uint32_t pendingHighWatermark = 0;
     double controlPrepareSeconds = 0;
@@ -1305,6 +1292,9 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"changed_files\": " << summary.changedFiles << ",\n";
     output << "  \"bytes_total\": " << logicalBytes << ",\n";
     output << "  \"bytes_transferred\": " << stats.transferredBytes.load() << ",\n";
+    output << "  \"resume_skipped_bytes\": " << stats.resumeSkippedBytes << ",\n";
+    output << "  \"reconnect_attempts\": " << stats.reconnectAttempts << ",\n";
+    output << "  \"connection_epoch\": " << stats.connectionEpoch << ",\n";
     output << "  \"compression_policy\": \""
            << (options.compressionMode == config::CompressionMode::Auto ? "auto" : "off") << "\",\n";
     output << "  \"compression_decision\": \"" << compressionDecision << "\",\n";
@@ -1817,12 +1807,14 @@ common::Status preflightDownloadResume(const config::TreeTransferOptions& option
         const std::string remotePath = joinRemotePath(options.sourceDir, record.relativePath);
         auto remoteSize = control->size(remotePath);
         if (!remoteSize.isOk()) {
+            if (remoteSize.status().code() == common::StatusCode::TransportError) return remoteSize.status();
             const std::string message =
                 changedMissingMessage("remote file changed", record, remoteSize.status().message());
             return markManifestChanged(manifest, manifestPath, index, message);
         }
         auto remoteMtime = control->mdtm(remotePath);
         if (!remoteMtime.isOk()) {
+            if (remoteMtime.status().code() == common::StatusCode::TransportError) return remoteMtime.status();
             const std::string message =
                 changedMissingMessage("remote file changed", record, remoteMtime.status().message());
             return markManifestChanged(manifest, manifestPath, index, message);
@@ -2120,7 +2112,8 @@ common::Status processUploadFileImpl(
         runtime->hotPathCompression.candidate && !runtime->forcedRawRetry) {
         const common::Status firstControlStatus = controlClient->waitTransferComplete(effectiveTransferId);
         if (!firstControlStatus.isOk() &&
-            firstControlStatus.code() == common::StatusCode::SystemError) {
+            (firstControlStatus.code() == common::StatusCode::SystemError ||
+             firstControlStatus.code() == common::StatusCode::TransportError)) {
             (void)updateRecord(state, index, core::tree::TreeFileStatus::Failed,
                                transferStatus.message());
             emitTreeEvent(options, "file_failed", "upload", record.relativePath, transferStatus,
@@ -3176,7 +3169,7 @@ bool persistentEligible(const config::TreeTransferOptions& options) {
 
 common::Status tryPersistentDirectory(const config::TreeTransferOptions& options,
     core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
-    bool upload, bool* used, ControlClient* connected = nullptr) {
+    bool upload, bool* used, ControlClient* connected = nullptr, std::string* attemptedBatch = nullptr) {
     *used = false;
     const auto persistentStarted = std::chrono::steady_clock::now();
     if (!options.reuseDataSession) return common::Status::ok();
@@ -3211,6 +3204,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         ? options.controlPipelineDepth : options.dataPendingWindow;
     persistentOptions.dataPendingWindow = dispatchWindow;
     const std::string batchId = options.dynamicFileScheduling ? generateTransferId() : "";
+    if (attemptedBatch) *attemptedBatch = batchId;
     std::unique_ptr<DynamicFileQueue> ready;
     std::unique_ptr<core::scheduler::GlobalScheduler> globalScheduler;
     std::vector<PersistentFileIdentity> files;
@@ -3227,6 +3221,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         }
     }
 
+    for (auto& file : files) file.attempt = options.reconnectAttempt;
     const std::uint32_t logicalFileCount = static_cast<std::uint32_t>(files.size());
     auto expandedFiles = upload && options.dynamicFileScheduling ? expandPersistentFileRanges(files, channelCount)
                                 : common::Result<std::vector<PersistentFileIdentity>>(files);
@@ -3285,6 +3280,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         if (!attached.isOk()) return attached;
     }
 
+    if (ready) {
+        auto epoch = ready->setConnectionEpoch({static_cast<std::uint64_t>(options.reconnectAttempt) + 1});
+        if (!epoch.isOk()) return epoch;
+    }
+
     struct Channel {
         std::unique_ptr<ControlClient> ownedControl;
         ControlClient* control = nullptr;
@@ -3330,10 +3330,26 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             if (firstFailure.isOk()) {
                 firstFailure = failure;
                 first = true;
+            } else if (firstFailure.code() == common::StatusCode::TransportError &&
+                       failure.code() != common::StatusCode::TransportError &&
+                       failure.message() != "tree pipeline candidate cancelled" &&
+                       failure.message() != "directory channels cancelled") {
+                firstFailure = failure;
             }
         }
         if (first) cancelAll();
     };
+
+    std::jthread deadlineGuard([&](std::stop_token stop) {
+        if (!options.transferDeadline) return;
+        while (!stop.stop_requested()) {
+            if (std::chrono::steady_clock::now() >= *options.transferDeadline) {
+                recordFailure(common::Status::runtimeError("transfer total deadline exceeded"));
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
 
     std::vector<std::thread> workers;
     workers.reserve(channelCount);
@@ -3424,7 +3440,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             channel.prepareSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now()-preparing).count();
             const auto connecting = std::chrono::steady_clock::now();
             auto data = connectFramedDataSocket(options.host.c_str(), port.value(), options.dataTlsMode, options.tls,
-                                                  options.tlsServerName.empty() ? nullptr : options.tlsServerName.c_str());
+                                                  options.tlsServerName.empty() ? nullptr : options.tlsServerName.c_str(), options.transferDeadline);
             channel.connectSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now()-connecting).count();
             if (!data.isOk()) {
                 channel.status = data.status();
@@ -3633,6 +3649,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     double completeWaitSeconds = 0;
     std::uint32_t pendingHighWatermark = 0;
     for (const auto& channel : channels) {
+        stats->resumeSkippedBytes += channel->observed.skippedBytes;
         stats->queueWaitSeconds += upload ? channel->observed.queueWaitSeconds : channel->remoteQueueWait;
         if (!upload && options.dynamicFileScheduling)
             stats->scanSeconds = std::max(stats->scanSeconds.value_or(0),channel->remoteScan);
@@ -3651,9 +3668,9 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         pendingHighWatermark = std::max(pendingHighWatermark,
             channel->observed.pendingHighWatermark);
     }
-    stats->transferredBytes.store(transferredBytes);
-    stats->wireBytes.store(wireBytes);
-    stats->completeWaitSeconds = completeWaitSeconds;
+    stats->transferredBytes.fetch_add(transferredBytes);
+    stats->wireBytes.fetch_add(wireBytes);
+    stats->completeWaitSeconds += completeWaitSeconds;
     stats->pendingHighWatermark = pendingHighWatermark;
     if (ready) stats->queueHighWatermark = ready->highWatermark();
 
@@ -3686,6 +3703,81 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         if (!summaryStatus.isOk()) return summaryStatus;
     }
     return result;
+}
+
+
+common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOptions& options,
+    core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
+    bool upload, bool* used, ControlClient* connected = nullptr) {
+    if (options.reconnectAttempts == 0)
+        return tryPersistentDirectory(options, manifest, manifestPath, stats, upload, used, connected);
+    if (!persistentEligible(options) || !options.dynamicFileScheduling ||
+        options.checksumAlgorithm == checksum::ChecksumAlgorithm::None)
+        return common::Status::invalidArgument("automatic reconnect requires persistent dynamic scheduling with checksums");
+    config::TreeTransferOptions attemptOptions = options;
+    std::string previousBatch;
+    common::Status status;
+    for (std::uint32_t attempt = 0; attempt <= options.reconnectAttempts; ++attempt) {
+        if (options.transferDeadline && std::chrono::steady_clock::now() >= *options.transferDeadline)
+            return common::Status::runtimeError("transfer total deadline exceeded");
+        stats->reconnectAttempts = attempt;
+        stats->connectionEpoch = attempt + 1;
+        attemptOptions.reconnectAttempt = attempt;
+        if (attempt != 0) {
+            if (connected) { connected->reset(); connected = nullptr; }
+            stats->controlReconnectCount.fetch_add(options.fileParallelism);
+            ControlClient reconciliation;
+            status = ensureControlReadyWithStats(&reconciliation, attemptOptions, stats);
+            if (status.isOk() && !previousBatch.empty()) {
+                for (;;) {
+                    auto drained = reconciliation.batchDrained(previousBatch);
+                    if (!drained.isOk()) { status = drained.status(); break; }
+                    if (drained.value()) break;
+                    if (options.transferDeadline && std::chrono::steady_clock::now() >= *options.transferDeadline) {
+                        status = common::Status::runtimeError("transfer total deadline exceeded waiting for old batch");
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                }
+            }
+            attemptOptions.resume = true;
+            if (status.isOk()) status = upload
+                ? preflightUploadResume(attemptOptions, manifest, manifestPath)
+                : preflightDownloadResume(attemptOptions, manifest, manifestPath, stats, &reconciliation);
+            if (status.isOk() && upload) {
+                // Replay every identity, including uncertain FILE_RESULT. The receiver
+                // must verify committed output/checkpoint before returning no missing bytes.
+                for (auto& file : manifest->files) {
+                    file.status = core::tree::TreeFileStatus::Pending;
+                    file.error.clear();
+                }
+                status = saveManifest(manifest, manifestPath);
+            }
+        }
+        if (status.isOk())
+            status = tryPersistentDirectory(attemptOptions, manifest, manifestPath, stats,
+                                             upload, used, connected, &previousBatch);
+        if (status.isOk() || status.code() != common::StatusCode::TransportError) return status;
+        if (attempt == options.reconnectAttempts)
+            return common::Status::runtimeError("reconnect attempt limit exceeded: " + status.message());
+        if (options.schedulerMode == config::TreeSchedulerMode::Global) {
+            auto paths = schedulerMetricsPaths(options, manifestPath, upload ? "upload" : "download");
+            if (!paths.isOk()) return paths.status();
+            for (const auto& path : {paths.value().summaryCsv, paths.value().eventsJsonl, paths.value().samplesCsv}) {
+                std::error_code error;
+                if (!std::filesystem::exists(path, error)) {
+                    if (error) return common::Status::runtimeError("cannot inspect scheduler attempt evidence");
+                    continue;
+                }
+                std::filesystem::copy_file(path, path + ".attempt-" + std::to_string(attempt),
+                    std::filesystem::copy_options::overwrite_existing, error);
+                if (error) return common::Status::runtimeError("cannot preserve scheduler attempt evidence");
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        status = common::Status::ok();
+    }
+    return status;
 }
 
 }  // namespace
@@ -3982,8 +4074,12 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
     return status;
 }
 
-common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
+common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptions) {
     const auto startedAt = std::chrono::steady_clock::now();
+    auto options = inputOptions;
+    if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
+    if (options.transferTimeoutMs != 0)
+        options.transferDeadline = startedAt + std::chrono::milliseconds(options.transferTimeoutMs);
     const std::string manifestPath = core::tree::treeManifestPathForUpload(options.sourceDir);
     core::tree::TreeManifest manifest;
     std::optional<double> scanSeconds;
@@ -4025,7 +4121,7 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
     TreeRunStats persistentStats;
     persistentStats.scanSeconds = scanSeconds;
     bool usedPersistent = false;
-    auto persistentStatus = tryPersistentDirectory(options, &manifest, manifestPath,
+    auto persistentStatus = tryRecoveringPersistentDirectory(options, &manifest, manifestPath,
         &persistentStats, true, &usedPersistent);
     if (usedPersistent || !persistentStatus.isOk())
         return emitTreeSummary("tree_upload_complete", "upload", persistentStatus, options,
@@ -4058,8 +4154,12 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& options) {
                            startedAt);
 }
 
-common::Status runTreeDownloadClient(const config::TreeTransferOptions& options) {
+common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOptions) {
     const auto startedAt = std::chrono::steady_clock::now();
+    auto options = inputOptions;
+    if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
+    if (options.transferTimeoutMs != 0)
+        options.transferDeadline = startedAt + std::chrono::milliseconds(options.transferTimeoutMs);
     const std::string manifestPath = core::tree::treeManifestPathForDownload(options.destDir);
     core::tree::TreeManifest manifest;
     TreeRunStats stats;
@@ -4089,7 +4189,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& options)
     }
 
     bool usedPersistent = false;
-    auto persistentStatus = tryPersistentDirectory(options, &manifest, manifestPath,
+    auto persistentStatus = tryRecoveringPersistentDirectory(options, &manifest, manifestPath,
         &stats, false, &usedPersistent, needInitialControl ? &control : nullptr);
     if (usedPersistent || !persistentStatus.isOk())
         return emitTreeSummary("tree_download_complete", "download", persistentStatus, options,

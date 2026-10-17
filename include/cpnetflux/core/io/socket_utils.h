@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <chrono>
+#include <optional>
 
 #include "cpnetflux/common/status.h"
 
@@ -28,6 +30,10 @@ class UniqueFd {
     int fd_ = -1;
 };
 
+using SocketDeadline = std::optional<std::chrono::steady_clock::time_point>;
+// Numeric addresses or synchronous resolver; deadline is rechecked after resolution.
+common::Result<UniqueFd> connectBlockingSocket(const char* host, std::uint16_t port,
+                                               SocketDeadline deadline = {});
 common::Status setNonBlocking(int fd);
 common::Result<UniqueFd> createListener(const char* host, std::uint16_t port, int backlog);
 common::Result<UniqueFd> createNonBlockingConnection(const char* host, std::uint16_t port);

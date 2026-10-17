@@ -21,6 +21,7 @@ class PersistentDirectoryBatch {
                                           const common::Status& status, bool complete);
     [[nodiscard]] common::Status finish(std::uint32_t channel, std::chrono::milliseconds timeout);
     void cancel(const common::Status& status);
+    [[nodiscard]] common::Status status();
  private:
     struct Channel { bool attached = false, ready = false, done = false; int control = -1, data = -1; };
     struct File {

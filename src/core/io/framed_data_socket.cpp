@@ -12,45 +12,10 @@ namespace cpnetflux::core::io {
 namespace {
 
 common::Status systemStatus(const char* operation, int errorNumber) {
-    return common::Status::systemError(std::string(operation) + ": " + std::strerror(errorNumber),
+    return common::Status::transportError(std::string(operation) + ": " + std::strerror(errorNumber),
                                        errorNumber);
 }
 
-common::Result<UniqueFd> createBlockingConnection(const char* host, std::uint16_t port) {
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    addrinfo* results = nullptr;
-    const std::string portText = std::to_string(port);
-    const int gaiStatus = ::getaddrinfo(host, portText.c_str(), &hints, &results);
-    if (gaiStatus != 0) {
-        return common::Status::runtimeError(std::string("getaddrinfo: ") + gai_strerror(gaiStatus));
-    }
-
-    UniqueFd connection;
-    int lastError = 0;
-    for (addrinfo* item = results; item != nullptr; item = item->ai_next) {
-        UniqueFd candidate(
-            ::socket(item->ai_family, item->ai_socktype | SOCK_CLOEXEC, item->ai_protocol));
-        if (!candidate.isValid()) {
-            lastError = errno;
-            continue;
-        }
-        if (::connect(candidate.get(), item->ai_addr, item->ai_addrlen) == 0) {
-            connection = std::move(candidate);
-            break;
-        }
-        lastError = errno;
-    }
-
-    ::freeaddrinfo(results);
-    if (!connection.isValid()) {
-        return common::Status::systemError("connect: " + std::string(std::strerror(lastError)),
-                                           lastError);
-    }
-    return connection;
-}
 
 }  // namespace
 
@@ -77,7 +42,9 @@ common::Status FramedDataSocket::writeAll(const std::uint8_t* data, std::size_t 
         common::Status status =
             tls_.writeAll(reinterpret_cast<const char*>(data), length);
         if (!status.isOk()) {
-            return common::Status::runtimeError("data TLS write failed: " + status.message());
+            return status.code() == common::StatusCode::TransportError
+                ? common::Status::transportError("data TLS write failed: " + status.message(), status.errorNumber())
+                : common::Status::runtimeError("data TLS write failed: " + status.message());
         }
         return status;
     }
@@ -95,7 +62,7 @@ common::Status FramedDataSocket::writeAll(const std::uint8_t* data, std::size_t 
         if (sent < 0) {
             return systemStatus("send", errno);
         }
-        return common::Status::runtimeError("send returned zero bytes");
+        return common::Status::transportError("send returned zero bytes");
     }
     return common::Status::ok();
 }
@@ -104,8 +71,10 @@ common::Result<std::size_t> FramedDataSocket::readSome(std::uint8_t* data, std::
     if (tlsMode_) {
         auto result = tls_.readSome(reinterpret_cast<char*>(data), length);
         if (!result.isOk()) {
-            return common::Status::runtimeError("data TLS read failed: " +
-                                                result.status().message());
+            const auto& status = result.status();
+            return status.code() == common::StatusCode::TransportError
+                ? common::Status::transportError("data TLS read failed: " + status.message(), status.errorNumber())
+                : common::Status::runtimeError("data TLS read failed: " + status.message());
         }
         return result;
     }
@@ -114,7 +83,7 @@ common::Result<std::size_t> FramedDataSocket::readSome(std::uint8_t* data, std::
         return static_cast<std::size_t>(received);
     }
     if (received == 0) {
-        return common::Status::runtimeError("data connection closed");
+        return common::Status::transportError("data connection closed");
     }
     if (errno == EINTR) {
         return std::size_t{0};
@@ -140,8 +109,8 @@ common::Status FramedDataSocket::readAll(std::uint8_t* data, std::size_t length)
 common::Result<FramedDataSocket> connectFramedDataSocket(const char* host, std::uint16_t port,
                                                          DataTlsMode dataTlsMode,
                                                          const TlsConfig& tlsConfig,
-                                                         const char* tlsServerName) {
-    auto connection = createBlockingConnection(host, port);
+                                                         const char* tlsServerName, SocketDeadline deadline) {
+    auto connection = connectBlockingSocket(host, port, deadline);
     if (!connection.isOk()) {
         return connection.status();
     }
@@ -162,7 +131,7 @@ common::Result<FramedDataSocket> connectFramedDataSocket(const char* host, std::
     const char* peerName = (tlsServerName != nullptr && *tlsServerName != '\0')
                                 ? tlsServerName
                                 : host;
-    auto tlsConnection = context.value().connect(std::move(connection.value()), peerName);
+    auto tlsConnection = context.value().connect(std::move(connection.value()), peerName, deadline);
     if (!tlsConnection.isOk()) {
         return common::Status::runtimeError("data TLS handshake failed: " +
                                             tlsConnection.status().message());

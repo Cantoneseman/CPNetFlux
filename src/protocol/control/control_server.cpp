@@ -878,7 +878,14 @@ core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& 
     p.options.preallocateMode=options.preallocateMode;p.options.resume=resume;
     return p;
 }
+struct DirectoryLifetime { std::atomic<bool> released{false}, terminalError{false}; };
 struct DynamicDirectory {
+    std::shared_ptr<DirectoryLifetime> lifetime = std::make_shared<DirectoryLifetime>();
+    ~DynamicDirectory() {
+        transactions.reset();
+        queue.reset();
+        lifetime->released.store(true, std::memory_order_release);
+    }
     std::string destination;
     bool upload;
     std::uint32_t channels, window, total;
@@ -887,18 +894,35 @@ struct DynamicDirectory {
     std::unique_ptr<core::io::DynamicFileQueue> queue;
     std::shared_ptr<core::io::PersistentTransferContext> transactions = core::io::makePersistentTransferContext();
 };
+struct DirectoryRegistration {
+    std::weak_ptr<DynamicDirectory> directory;
+    std::shared_ptr<DirectoryLifetime> lifetime;
+};
+std::mutex directoryRegistryMutex;
+std::unordered_map<std::string, DirectoryRegistration> directoryRegistry;
+bool directoryTerminalError(const std::string& key) {
+    std::lock_guard lock(directoryRegistryMutex);
+    const auto found = directoryRegistry.find(key);
+    return found != directoryRegistry.end() && found->second.lifetime->terminalError.load(std::memory_order_acquire);
+}
+bool directoryReleased(const std::string& key) {
+    std::lock_guard lock(directoryRegistryMutex);
+    const auto found = directoryRegistry.find(key);
+    return found == directoryRegistry.end() ||
+        found->second.lifetime->released.load(std::memory_order_acquire);
+}
 common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     const std::string& key, const std::string& destination, bool upload,
     std::uint32_t channels, std::uint32_t window, std::uint32_t requestedTotal,
     std::uint64_t chunkSize, checksum::ChecksumAlgorithm checksumAlgorithm,
     const ControlServerOptions& policyOptions) {
-    static std::mutex mutex;
-    static std::unordered_map<std::string, std::weak_ptr<DynamicDirectory>> batches;
-    std::lock_guard lock(mutex);
-    for (auto i = batches.begin(); i != batches.end();)
-        if (i->second.expired()) i = batches.erase(i); else ++i;
-    const auto found = batches.find(key);
-    if (found != batches.end()) if (auto existing = found->second.lock()) {
+    std::lock_guard lock(directoryRegistryMutex);
+    for (auto i = directoryRegistry.begin(); i != directoryRegistry.end();)
+        if (i->second.lifetime->released.load(std::memory_order_acquire))
+            i = directoryRegistry.erase(i);
+        else ++i;
+    const auto found = directoryRegistry.find(key);
+    if (found != directoryRegistry.end()) if (auto existing = found->second.directory.lock()) {
         if (existing->destination != destination || existing->upload != upload ||
             existing->channels != channels || existing->window != window ||
             (upload && existing->total != requestedTotal)) {
@@ -907,7 +931,7 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
         }
         return existing;
     }
-    if (batches.size() >= 64) return common::Status::runtimeError("dynamic batch capacity exhausted");
+    if (directoryRegistry.size() >= 64) return common::Status::runtimeError("dynamic batch capacity exhausted");
     auto created = std::make_shared<DynamicDirectory>();
     created->transactions=core::io::makePersistentTransferContext(persistentPolicy(policyOptions));
     created->destination = destination; created->upload = upload;
@@ -932,7 +956,7 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
             std::move(expanded.value()),channels,window,channels*window*2);
     }
     created->batch = std::make_shared<core::io::PersistentDirectoryBatch>(created->total,channels);
-    batches[key] = created;
+    directoryRegistry[key] = {created, created->lifetime};
     return created;
 }
 struct DynamicDirectoryGuard {
@@ -1065,6 +1089,10 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
                      pendingWindow, channelIndex, channelCount, guard.directory ? guard.directory->queue.get() : nullptr, &policy.options);
     std::string details;
     if (guard.directory) {
+        auto original = guard.directory->batch->status();
+        if (original.isOk()) original = status;
+        if (!original.isOk() && original.code() != common::StatusCode::TransportError)
+            guard.directory->lifetime->terminalError.store(true, std::memory_order_release);
         if (!status.isOk()) guard.directory->batch->cancel(status);
         else status = guard.directory->batch->finish(channelIndex,std::chrono::seconds(30));
         double queueWait = 0;
@@ -1127,6 +1155,27 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         : readLine(&control, &inputBuffer);
         if (!line.isOk()) {
             return;
+        }
+
+        if (line.value().starts_with("XCPNETFLUX DRAIN ")) {
+            if (!session.authenticated()) {
+                (void)sendLine(&control, formatReply(530, "Authenticate before batch status"));
+                continue;
+            }
+            const auto id = line.value().substr(17);
+            if (id.size() != 32 || id.find_first_not_of("0123456789abcdef") != std::string::npos) {
+                (void)sendLine(&control, formatReply(504, "Invalid batch identity"));
+                continue;
+            }
+            auto root = resolveControlPath(options.root, "/", "", ControlPathKind::ExistingDirectory, "XDIR");
+            if (!root.isOk()) { (void)sendLine(&control, formatReply(550, "Invalid batch root")); continue; }
+            const auto key = options.host + ":" + std::to_string(options.port) + ":" + root.value().fullPath + "/" + id;
+            const bool drained = directoryReleased(key);
+            const bool terminal = drained && directoryTerminalError(key);
+            (void)sendLine(&control, formatReply(terminal ? 550 : (drained ? 200 : 450),
+                terminal ? "CPNetFlux prior batch has a non-retryable error" :
+                (drained ? "CPNetFlux batch drained" : "CPNetFlux batch still active")));
+            continue;
         }
 
         const bool persistentNegotiation = line.value() == "XCPNETFLUX V2" ||

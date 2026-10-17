@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <chrono>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -51,6 +53,11 @@ struct TreeTransferOptions {
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;
     checksum::ChecksumBackend checksumBackend = checksum::ChecksumBackend::Auto;
     bool resume = false;
+    std::uint32_t reconnectAttempts = 0;
+    std::uint64_t transferTimeoutMs = 0;
+    // Runtime-only attempt identity and absolute deadline; not CLI identity input.
+    std::uint32_t reconnectAttempt = 0;
+    std::optional<std::chrono::steady_clock::time_point> transferDeadline;
     bool reuseDataSession = true;
     bool requestedReuseDataSession = true;
     std::string modeFallbackReason;

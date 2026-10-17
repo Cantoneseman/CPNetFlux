@@ -414,6 +414,9 @@ if(CPNETFLUX_BUILD_TESTS)
         NAME cpnetflux_gridftp_data_tls_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_data_tls_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
+    add_test(NAME cpnetflux_reconnect_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_reconnect_smoke PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_v3_stability_matrix
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_stability_matrix.py --build-dir ${CMAKE_BINARY_DIR} --rounds 8

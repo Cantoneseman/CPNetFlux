@@ -35,7 +35,7 @@ class FramedDataSocket {
 
 [[nodiscard]] common::Result<FramedDataSocket> connectFramedDataSocket(
     const char* host, std::uint16_t port, DataTlsMode dataTlsMode, const TlsConfig& tlsConfig,
-    const char* tlsServerName = nullptr);
+    const char* tlsServerName = nullptr, SocketDeadline deadline = {});
 
 [[nodiscard]] common::Result<FramedDataSocket> acceptFramedDataSocket(
     UniqueFd fd, DataTlsMode dataTlsMode, const TlsConfig& tlsConfig);

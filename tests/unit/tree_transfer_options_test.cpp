@@ -657,3 +657,26 @@ TEST(TreeTransferOptionsTest, RejectsGlobalSchedulerWithPersistentStaticDispatch
         cpnetflux::config::TreeTransferRole::Upload);
     EXPECT_FALSE(result.isOk());
 }
+
+TEST(TreeTransferOptionsTest, ReconnectBudgetAndTotalDeadlineAreBounded) {
+    const char* valid[] = {"client", "--auth-probe", "--reconnect-attempts", "2"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(4, valid, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().reconnectAttempts, 2U);
+    EXPECT_EQ(parsed.value().transferTimeoutMs, 300000U);
+    for (const auto value : {"-1", "11", "abc"}) {
+        const char* invalid[] = {"client", "--auth-probe", "--reconnect-attempts", value};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(4, invalid, cpnetflux::config::TreeTransferRole::Upload).isOk());
+    }
+    for (const auto value : {"0", "86400001", "-1"}) {
+        const char* invalid[] = {"client", "--auth-probe", "--transfer-timeout-ms", value};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(4, invalid, cpnetflux::config::TreeTransferRole::Upload).isOk());
+    }
+    const char* incompatible[] = {"client", "--auth-probe", "--reconnect-attempts", "1", "--file-scheduling", "static"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(6, incompatible, cpnetflux::config::TreeTransferRole::Upload).isOk());
+}
+
+TEST(TreeTransferOptionsTest, AutomaticReconnectRejectsUnverifiedCheckpointMode) {
+    const char* args[] = {"client", "--auth-probe", "--reconnect-attempts", "1", "--checksum", "none"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(6, args, cpnetflux::config::TreeTransferRole::Upload).isOk());
+}

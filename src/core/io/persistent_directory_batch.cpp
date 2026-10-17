@@ -64,7 +64,7 @@ void PersistentDirectoryBatch::checkControlsLocked() {
     for (const auto& c : channels_) if (c.control >= 0) {
         pollfd descriptor{c.control,POLLIN,0};
         if (::poll(&descriptor,1,0) > 0 && descriptor.revents != 0) {
-            failLocked(common::Status::runtimeError("dynamic batch control disconnected/cancelled"));
+            failLocked(common::Status::transportError("dynamic batch control disconnected/cancelled"));
             return;
         }
     }
@@ -86,7 +86,7 @@ common::Status PersistentDirectoryBatch::wait(bool finishing, std::chrono::milli
         checkControlsLocked();
         if (!status_.isOk()) return status_;
         if (std::chrono::steady_clock::now() >= deadline) {
-            failLocked(common::Status::runtimeError("dynamic batch channel timeout"));
+            failLocked(common::Status::transportError("dynamic batch channel timeout"));
             return status_;
         }
         changed_.wait_until(lock, std::min(deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(50)));
@@ -154,5 +154,9 @@ common::Status PersistentDirectoryBatch::finish(std::uint32_t channel, std::chro
         changed_.notify_all();
     }
     return wait(true, timeout);
+}
+common::Status PersistentDirectoryBatch::status() {
+    std::lock_guard lock(mutex_);
+    return status_;
 }
 }  // namespace cpnetflux::core::io

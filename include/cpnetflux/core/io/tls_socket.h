@@ -117,7 +117,7 @@ class TlsClientContext {
     TlsClientContext& operator=(TlsClientContext&& other) noexcept;
 
     [[nodiscard]] static common::Result<TlsClientContext> create(const TlsConfig& config);
-    [[nodiscard]] common::Result<TlsConnection> connect(UniqueFd fd, const std::string& host) const;
+    [[nodiscard]] common::Result<TlsConnection> connect(UniqueFd fd, const std::string& host, SocketDeadline deadline = {}) const;
 
    private:
     struct Impl;

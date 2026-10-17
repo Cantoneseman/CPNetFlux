@@ -80,12 +80,25 @@ class FileTransaction {
         if (!available.isOk()) return available;
         const auto existing = fs::symlink_status(output_, error);
         if (existing.type() != fs::file_type::not_found && !policy_.options.overwrite) {
-            if (!resume || !download || error || !fs::is_regular_file(existing))
+            if (!resume || error || !fs::is_regular_file(existing))
                 return Status::invalidArgument("persistent output already exists");
             std::error_code sizeError;
             const auto size = fs::file_size(output_, sizeError);
             if (sizeError || size != id.totalSize) return Status::invalidArgument("persistent output identity mismatch");
-            auto loaded = checkpoint::loadDownloadManifest(checkpoint::downloadManifestPathForOutput(output_));
+            auto loaded = [&]() -> common::Result<checkpoint::DownloadManifest> {
+                if (download) return checkpoint::loadDownloadManifest(checkpoint::downloadManifestPathForOutput(output_));
+                auto uploaded = checkpoint::ManifestStore::load(checkpoint::manifestPathForOutput(output_));
+                if (!uploaded.isOk()) return uploaded.status();
+                const auto& upload = uploaded.value();
+                if (upload.transferId != id.transferId || upload.chunkSize != id.chunkSize)
+                    return Status::invalidArgument("committed upload identity mismatch");
+                checkpoint::DownloadManifest converted;
+                converted.state = upload.state; converted.totalSize = upload.totalSize;
+                converted.checksumAlgorithm = upload.checksumAlgorithm;
+                converted.sourcePath = (fs::path(remoteRoot)/relative).lexically_normal().generic_string();
+                converted.verifiedChunks = upload.verifiedChunks;
+                return converted;
+            }();
             if (!loaded.isOk()) return loaded.status();
             const auto& m = loaded.value();
             if (m.state != checkpoint::ManifestState::Committed || m.totalSize != id.totalSize ||
@@ -94,6 +107,10 @@ class FileTransaction {
                 return Status::invalidArgument("committed download identity mismatch");
             auto existingFile = storage::PosixFile::openReadOnly(output_);
             if (!existingFile.isOk()) return existingFile.status();
+            struct stat existingMetadata{};
+            if (::fstat(existingFile.value().fd(), &existingMetadata) != 0 ||
+                existingMetadata.st_mtim.tv_sec != id.mtimeUnixSeconds)
+                return Status::invalidArgument("committed output mtime mismatch");
             chunk::RangeList coverage;
             std::vector<std::uint8_t> checkBuffer(65536);
             for (const auto& record : m.verifiedChunks) {
@@ -115,6 +132,19 @@ class FileTransaction {
             identity_ = id;
             active_ = true;
             return Status::ok();
+        }
+        if (resume) {
+            const auto manifest = download ? checkpoint::downloadManifestPathForOutput(output_)
+                                           : checkpoint::manifestPathForOutput(output_);
+            const auto info = fs::symlink_status(manifest, error);
+            if (info.type() == fs::file_type::not_found) {
+                // A peer can fail after FILE_BEGIN but before this file's checkpoint
+                // exists. Create exclusively; never treat a corrupt manifest as absent.
+                error.clear();
+                resume = false;
+            } else if (error || !fs::is_regular_file(info) || fs::is_symlink(info)) {
+                return Status::invalidArgument("persistent checkpoint is not a safe regular file");
+            }
         }
         if (resume) {
             if (download) {
@@ -1018,9 +1048,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (id.rangeId != 0) {
             auto started = RangeFileCoordinator::begin(*context, root, id, download, remoteRoot, resume);
             if (!started.isOk()) {
-                (void)notify(callback,id,started.status(),true);
-                // Return a structured rejection before the sender can transmit payload.
+                // Write the semantic rejection before callbacks can cancel sibling sockets.
                 auto rejected = PersistentDataSession::writeResumeResponse(socket,id,{},FrameStatusCode::WriteFailed);
+                (void)notify(callback,id,started.status(),true);
                 return rejected.isOk() ? started.status() : rejected;
             } else {
                 rangeEntry = std::move(started.value());
@@ -1028,6 +1058,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 stats->loadedVerifiedChunks += rangeStats.first;
                 stats->removedCorruptChunks += rangeStats.second;
                 const auto missing=RangeFileCoordinator::missingRanges(rangeEntry,id);
+                std::uint64_t missingBytes = 0;
+                for (const auto& range : missing) missingBytes += range.end - range.begin;
+                stats->skippedBytes += id.rangeLength - missingBytes;
                 status=state.setMissingRanges(missing);
                 if (!status.isOk()) return status;
                 status = PersistentDataSession::writeResumeResponse(socket, id, missing);
@@ -1047,6 +1080,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     return fileStatus;
                 }
                 auto missing = transaction->missingRanges();
+                std::uint64_t missingBytes = 0;
+                for (const auto& range : missing) missingBytes += range.end - range.begin;
+                stats->skippedBytes += id.totalSize - missingBytes;
                 status = state.setMissingRanges(missing);
                 if (!status.isOk()) return status;
                 status = PersistentDataSession::writeResumeResponse(socket,id,missing);

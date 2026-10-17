@@ -230,6 +230,16 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                     "--file-parallelism must be in range 1..16");
             }
             options.fileParallelism = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--reconnect-attempts") {
+            auto parsed = parseUnsigned(value, option);
+            if (!parsed.isOk() || parsed.value() > 10)
+                return common::Status::invalidArgument("--reconnect-attempts must be in range 0..10");
+            options.reconnectAttempts = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--transfer-timeout-ms") {
+            auto parsed = parseUnsigned(value, option);
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 86400000)
+                return common::Status::invalidArgument("--transfer-timeout-ms must be in range 1..86400000");
+            options.transferTimeoutMs = parsed.value();
         } else if (option == "--data-session-reuse") {
             if (value != "off" && value != "tree")
                 return common::Status::invalidArgument("--data-session-reuse must be off or tree");
@@ -552,6 +562,13 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     if (!dataTlsStatus.isOk()) {
         return dataTlsStatus;
     }
+    if (options.reconnectAttempts > 0) {
+        if (options.checksumAlgorithm == checksum::ChecksumAlgorithm::None)
+            return common::Status::invalidArgument("automatic reconnect requires verified checksums");
+        if (!options.reuseDataSession || !options.dynamicFileScheduling || options.maxFiles != 0)
+            return common::Status::invalidArgument("automatic reconnect requires persistent dynamic scheduling without --max-files");
+        if (options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
+    }
     return options;
 }
 
@@ -563,7 +580,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            destText +
            " [--connections <N>] [--file-parallelism <N>] [--chunk-size <bytes>] "
            "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
-           "[--checksum-backend <auto|software|hardware>] [--resume] [--max-files <N>] "
+           "[--checksum-backend <auto|software|hardware>] [--reconnect-attempts 0..10] [--transfer-timeout-ms N] [--resume] [--max-files <N>] "
            "[--auth-probe] "
            "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window 1..16] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "

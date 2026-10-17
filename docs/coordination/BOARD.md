@@ -7,7 +7,7 @@
 - 父项：V3-WORK-UNIFY-02（实施中）。persistent upload/download 的 global scheduler、共享 dispatch window、receiver incoming lease、fixed/adaptive 实际模式和 lease/worker/epoch/retry 事件已接通；共同 lease executor 与受控恢复已由 03 交付；全部兼容编排合并、实际客户端自动 reconnect/retry 与远端 manifest 对账仍待后续。尚未完成十链路、跨域性能或生产稳定性验收。
 - 实现提交 db469b9d109e8f5624b1d5977b4c9cee3a66313f 已推送，远端 refs/heads/codex/V3-WORK-UNIFY-02 已回读同 SHA。
 - 当前子阶段 V3-WORK-UNIFY-03：done。共同 lease executor、完整 ledger 的有界受控恢复、多 range 补传发布修复；最终代码 05d2ef6 的 354/354 CTest 通过（0 skip），27 项定向回归通过。输入 739a124，独立 codex/V3-WORK-UNIFY-03 worktree；实现和修复已 push/回读，详见 docs/tasks/2026-10-17-v3-work-unify-03-result.md。
-- 下一项 V3-WORK-UNIFY-04：实际客户端有界自动重连/控制 batch 重建/远端权威对账；03 不启用该功能。范围及验收见 docs/tasks/2026-10-17-v3-work-unify-03.md。
+- 当前 V3-WORK-UNIFY-04：in_progress。显式有界自动重连、旧 batch 退出屏障、manifest 权威恢复握手；采用新 queue/epoch 重建，避免复活永久 cancelled queue。新增深圳/上海双向真实互传与中断恢复验收，见 docs/tasks/2026-10-17-v3-work-unify-04.md。
 - 开发位置：深圳独立 worktree 单写入者（依本轮用户明确的 worktree 要求）；GridFTP proxy 在实际对比实验前刷新，本阶段未使用真实 GridFTP。
 
 # 当前执行（2026-10-14）

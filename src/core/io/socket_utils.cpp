@@ -3,6 +3,9 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <poll.h>
+#include <algorithm>
+#include <climits>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -155,6 +158,65 @@ common::Result<UniqueFd> createNonBlockingConnection(const char* host, std::uint
     }
 
     return connection;
+}
+
+common::Result<UniqueFd> connectBlockingSocket(const char* host, std::uint16_t port,
+                                               SocketDeadline deadline) {
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* addresses = nullptr;
+    const auto portText = std::to_string(port);
+    const int resolved = ::getaddrinfo(host, portText.c_str(), &hints, &addresses);
+    if (resolved != 0)
+        return common::Status::runtimeError(std::string("getaddrinfo: ") + gai_strerror(resolved));
+    struct AddressGuard { addrinfo* value; ~AddressGuard() { ::freeaddrinfo(value); } } guard{addresses};
+    UniqueFd fd;
+    int lastError = ECONNREFUSED;
+    for (auto* address = addresses; address; address = address->ai_next) {
+        UniqueFd candidate(::socket(address->ai_family, address->ai_socktype | SOCK_CLOEXEC, address->ai_protocol));
+        if (!candidate.isValid()) { lastError = errno; continue; }
+        auto nonblocking = setNonBlocking(candidate.get());
+        if (!nonblocking.isOk()) return nonblocking;
+        if (::connect(candidate.get(), address->ai_addr, address->ai_addrlen) != 0) {
+            if (errno != EINPROGRESS) { lastError = errno; continue; }
+            for (;;) {
+                int timeout = -1;
+                if (deadline) {
+                    auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        *deadline - std::chrono::steady_clock::now()).count();
+                    if (left <= 0) return common::Status::transportError("connection deadline exceeded", ETIMEDOUT);
+                    timeout = static_cast<int>(std::min<std::int64_t>(left, INT_MAX));
+                }
+                pollfd descriptor{candidate.get(), POLLOUT, 0};
+                const int ready = ::poll(&descriptor, 1, timeout);
+                if (ready < 0 && errno == EINTR) continue;
+                if (ready <= 0) return common::Status::transportError("connection timed out or poll failed",
+                                                                      ready == 0 ? ETIMEDOUT : errno);
+                auto error = getSocketError(candidate.get());
+                if (!error.isOk()) return error.status();
+                lastError = error.value();
+                break;
+            }
+            if (lastError) continue;
+        }
+        fd = std::move(candidate);
+        break;
+    }
+    if (!fd.isValid()) return common::Status::transportError(
+        "connect: " + std::string(std::strerror(lastError)), lastError);
+    const int flags = ::fcntl(fd.get(), F_GETFL, 0);
+    if (flags < 0 || ::fcntl(fd.get(), F_SETFL, flags & ~O_NONBLOCK) < 0)
+        return lastSystemError("fcntl blocking socket");
+    if (deadline) {
+        auto left = std::max<std::int64_t>(1, std::chrono::duration_cast<std::chrono::microseconds>(
+            *deadline - std::chrono::steady_clock::now()).count());
+        timeval timeout{left / 1000000, left % 1000000};
+        if (::setsockopt(fd.get(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) ||
+            ::setsockopt(fd.get(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)))
+            return lastSystemError("socket deadline");
+    }
+    return fd;
 }
 
 common::Result<UniqueFd> createEpoll() {

@@ -91,7 +91,7 @@ common::Result<std::string> readTreePipelineControlLine(
         if (deadline.has_value()) {
             const int timeout = timeoutMilliseconds(*deadline);
             if (timeout == 0) {
-                return common::Status::runtimeError("tree pipeline control reply timed out");
+                return common::Status::transportError("tree pipeline control reply timed out", ETIMEDOUT);
             }
 
             if (!control->hasPendingRead()) {
@@ -133,7 +133,7 @@ common::Result<std::string> readTreePipelineControlLine(
             }
             if (deadline.has_value() &&
                 std::chrono::steady_clock::now() >= *deadline) {
-                return common::Status::runtimeError("tree pipeline control reply timed out");
+                return common::Status::transportError("tree pipeline control reply timed out", ETIMEDOUT);
             }
             return received.status();
         }
@@ -142,7 +142,7 @@ common::Result<std::string> readTreePipelineControlLine(
             continue;
         }
         if (peerClosed) {
-            return common::Status::runtimeError("tree pipeline control connection closed");
+            return common::Status::transportError("tree pipeline control connection closed");
         }
         // TLS may return zero for WANT_READ/EINTR. Retry; an optional absolute
         // deadline bounds the pipeline path without changing depth-zero reads.

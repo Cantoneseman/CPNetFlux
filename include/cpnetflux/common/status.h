@@ -10,6 +10,7 @@ enum class StatusCode {
     InvalidArgument,
     SystemError,
     RuntimeError,
+    TransportError,
 };
 
 class Status {
@@ -28,6 +29,10 @@ class Status {
 
     static Status runtimeError(std::string message) {
         return Status(StatusCode::RuntimeError, std::move(message), 0);
+    }
+
+    static Status transportError(std::string message, int errorNumber = 0) {
+        return Status(StatusCode::TransportError, std::move(message), errorNumber);
     }
 
     [[nodiscard]] bool isOk() const noexcept { return code_ == StatusCode::Ok; }
