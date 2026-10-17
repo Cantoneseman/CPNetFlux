@@ -1,0 +1,155 @@
+{
+  "source_commit": "ff71014044ce1a788988ff1ae5a3eb911671e3ee",
+  "passed": 8,
+  "failed": 0,
+  "fault_cases": 4,
+  "binaries": {
+    "cpnetflux-gridftp-server": "162060b339bf3fda5ba3e7e62e37d179f7ea53fd5a6b01e1fad66be067b064af",
+    "cpnetflux-tree-upload-client": "44e18210abfa487c96b1ad1448fdfb8f9cb5db9ec35859211ca79fcf5e527ddc",
+    "cpnetflux-tree-download-client": "98a6e4e1b7059f79c6589db0500fa8303a489c586062c90220b94438280a90e7"
+  },
+  "rows": [
+    {
+      "case": "shanghai-server-download-adaptive-fault0",
+      "logical_bytes": 67112064,
+      "payload_bytes": 67112064,
+      "recovery_payload_bytes": 0,
+      "verified_skipped_bytes": 0,
+      "reconnects": 0,
+      "epoch": 1,
+      "hash_match": true,
+      "manifest_committed": true,
+      "client_exit": 0,
+      "server_exit": 0,
+      "seconds": 6.785216865129769
+    },
+    {
+      "case": "shanghai-server-download-adaptive-fault1",
+      "logical_bytes": 67112064,
+      "payload_bytes": 67112064,
+      "recovery_payload_bytes": 66587776,
+      "verified_skipped_bytes": 524288,
+      "reconnects": 1,
+      "epoch": 2,
+      "hash_match": true,
+      "manifest_committed": true,
+      "client_exit": 0,
+      "server_exit": 0,
+      "seconds": 7.084124451503158
+    },
+    {
+      "case": "shanghai-server-upload-fixed-fault0",
+      "logical_bytes": 67112064,
+      "payload_bytes": 67112064,
+      "recovery_payload_bytes": 0,
+      "verified_skipped_bytes": 0,
+      "reconnects": 0,
+      "epoch": 1,
+      "hash_match": true,
+      "manifest_committed": true,
+      "client_exit": 0,
+      "server_exit": 0,
+      "seconds": 6.326011926867068
+    },
+    {
+      "case": "shanghai-server-upload-fixed-fault1",
+      "logical_bytes": 67112064,
+      "payload_bytes": 68553856,
+      "recovery_payload_bytes": 66125824,
+      "verified_skipped_bytes": 986240,
+      "reconnects": 1,
+      "epoch": 2,
+      "hash_match": true,
+      "manifest_committed": true,
+      "client_exit": 0,
+      "server_exit": 0,
+      "seconds": 8.698924199678004
+    },
+    {
+      "case": "shenzhen-server-download-adaptive-fault0",
+      "logical_bytes": 67112064,
+      "payload_bytes": 67112064,
+      "recovery_payload_bytes": 0,
+      "verified_skipped_bytes": 0,
+      "reconnects": 0,
+      "epoch": 1,
+      "hash_match": true,
+      "manifest_committed": true,
+      "client_exit": 0,
+      "server_exit": 0,
+      "seconds": 5.421789751388133
+    },
+    {
+      "case": "shenzhen-server-download-adaptive-fault1",
+      "logical_bytes": 67112064,
+      "payload_bytes": 67112064,
+      "recovery_payload_bytes": 66784384,
+      "verified_skipped_bytes": 327680,
+      "reconnects": 1,
+      "epoch": 2,
+      "hash_match": true,
+      "manifest_committed": true,
+      "client_exit": 0,
+      "server_exit": 0,
+      "seconds": 6.523087959736586
+    },
+    {
+      "case": "shenzhen-server-upload-fixed-fault0",
+      "logical_bytes": 67112064,
+      "payload_bytes": 67112064,
+      "recovery_payload_bytes": 0,
+      "verified_skipped_bytes": 0,
+      "reconnects": 0,
+      "epoch": 1,
+      "hash_match": true,
+      "manifest_committed": true,
+      "client_exit": 0,
+      "server_exit": 0,
+      "seconds": 7.924649673514068
+    },
+    {
+      "case": "shenzhen-server-upload-fixed-fault1",
+      "logical_bytes": 67112064,
+      "payload_bytes": 71994496,
+      "recovery_payload_bytes": 66125824,
+      "verified_skipped_bytes": 986240,
+      "reconnects": 1,
+      "epoch": 2,
+      "hash_match": true,
+      "manifest_committed": true,
+      "client_exit": 0,
+      "server_exit": 0,
+      "seconds": 7.223560913465917
+    }
+  ],
+  "transfer": "pass",
+  "integrity": "pass",
+  "evidence": "pass",
+  "wire_accounting": "observed application frames; excludes TLS/TCP headers; no performance claim",
+  "schema_version": 1,
+  "endpoint_roles": {
+    "shenzhen": "development authority; client and server in separate cases",
+    "shanghai": "deployed transfer endpoint; client and server in separate cases"
+  },
+  "fixture": {
+    "files": 2,
+    "logical_bytes_per_case": 67112064,
+    "sha256": {
+      "a.bin": "e8981652ae50bab37b2f229fdb5c5fec13354ff13234ecde26f4bffba4e84006",
+      "b.bin": "281e519df3077b557c6b03f5da83c4e8d397219259615dd7c3308f89cae8f2a6"
+    }
+  },
+  "transport": {
+    "control_tls": "required",
+    "data_tls": "required",
+    "authentication": "ephemeral token; removed after tests",
+    "control_port": 22410,
+    "data_ports": [
+      23380,
+      23395
+    ],
+    "reconnect_attempt_budget": 2,
+    "transfer_timeout_ms": 120000,
+    "fault": "one transparent-proxy TCP reset after 1 MiB; fault0 has no reset"
+  }
+}

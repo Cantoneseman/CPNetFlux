@@ -1,5 +1,17 @@
 # CPNetFlux｜00 总指挥接手回执
 
+## 2026-10-17 当前交接：V3-WORK-UNIFY-04
+
+- 本轮用户要求解释实际问题、继续下一阶段并用两台阿里云服务器互传；04 已完成源码开发与真实验收。深圳独立 codex/V3-WORK-UNIFY-04 worktree 单写入者；上海仅固定二进制传输对端，Windows 仅连接/部署/取证。无其他聊天派单或独立审查执行声明。
+- 输入 28bc94e；代码 33fca25、453b9c7、最终 ff71014044ce1a788988ff1ae5a3eb911671e3ee 均已 push GitHub 并分别回读相同 SHA。
+- 交付：实际 persistent dynamic tree 在显式 --reconnect-attempts 下自动完成 teardown/join、远端 batch drain、重新认证和 manifest 缺失补传；总 deadline/重试预算有限。默认不自动重连，static/per-file 和通用单文件 CLI 不扩大承诺。
+- 最终固定代码 Release/TLS/io_uring ON full build exit=0，357/357 CTest（0 skip，99.44 秒），包含 17 场景重连门禁与 8 轮 V3 稳定性矩阵；深圳/上海交换角色的真实互传 8/8 pass，4 个中断均重连 1 次、epoch 2、文件 SHA-256 一致。
+- 双云发现 range callback 在 transport 中止后仍改共享 identity，已修复；恢复跳过统计不再把未发送字节计作已验证。全量回归要求保留逐文件错误继续处理，最终代码及两云八项已重跑。
+- 结果 docs/tasks/2026-10-17-v3-work-unify-04-result.md；小型云测摘要同目录 *-04-cloud-summary.json。外部证据 /tmp/cpnetflux-runs/V3-WORK-UNIFY-04-20261017（两端），深圳 evidence-index.json 含源码/日志/归档 SHA；backup-verification.json 记录收尾文档 push/远端回读。
+- 两端任务进程退出、端口释放、可再生 payload 和临时凭据已清理；清理后深圳/上海约 67.96/81.59 GiB 可用。历史 dirty 与其他实验未改。
+- 下一步 05 planned：兼容 static/per-file 共同 owner 与取消/超时/旧回调收口，保留逐文件拒绝后继续处理。父项 02 继续 in_progress。未声称十链路、性能提升或生产 readiness；05 尚未源码实施。
+
+
 ## 2026-10-17 当前交接：V3-WORK-UNIFY-03
 
 - 按用户本轮要求在深圳独立 codex/V3-WORK-UNIFY-03 worktree 串行实现；Windows 仅 SSH/查看，无其他聊天派单或独立审查的执行声明。
