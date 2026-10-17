@@ -122,3 +122,11 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 - 验收：22 个定向单测、tree data reuse smoke、统一 executor smoke、362/362 CTest 均通过；最终版深圳↔上海双向 static persistent tree 互传 SHA-256 一致；1 次 reset 的故障证据收敛为 1 completed/1 failed。
 - 证据：/tmp/cpnetflux-runs/V3-WORK-UNIFY-05-20261017；结果 docs/tasks/2026-10-17-v3-work-unify-05-result.md 和 docs/tasks/2026-10-18-v3-work-unify-05-cloud-summary.json。
 - 下一步：V3-LINKSET-01 先实现 LinkSet 模型、能力协商、选择/记账接口和单测；不接入默认传输、不做十链路性能实验。
+
+
+## 2026-10-18 V3-LINKSET-01 首个实现切片
+
+- 独立分支 codex/V3-LINKSET-01，输入 4e2900842b7608f757d8c95c24ad62e6011000c0。
+- 新增 LinkSet 模型、每链路运行态、能力协商、确定性负载选择和 reserve/release 记账；不接入默认传输。
+- 5/5 LinkSet 单测、326/326 完整单元测试、367/367 CTest 通过；证据 /tmp/cpnetflux-runs/V3-LINKSET-01-20261018-ctest-final.log。
+- 后续需解决控制面字段兼容、8 条通道限制、安全协商降级和多链路故障 reclaim/drain/cut。

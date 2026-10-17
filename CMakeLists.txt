@@ -125,6 +125,7 @@ add_library(cpnetflux_core STATIC
     src/core/scheduler/compression_advisor.cpp
     src/core/scheduler/feedback_controller.cpp
     src/core/scheduler/link_manager.cpp
+    src/core/scheduler/link_set.cpp
     src/core/scheduler/metrics_writer.cpp
     src/core/scheduler/scheduler.cpp
     src/core/scheduler/task_queue.cpp
@@ -329,6 +330,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/scheduler_compression_advisor_test.cpp
         tests/unit/scheduler_feedback_controller_test.cpp
         tests/unit/scheduler_link_manager_test.cpp
+        tests/unit/scheduler_link_set_test.cpp
         tests/unit/scheduler_metrics_writer_test.cpp
         tests/unit/scheduler_task_queue_test.cpp
         tests/unit/scheduler_work_item_test.cpp
