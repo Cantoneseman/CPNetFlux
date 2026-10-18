@@ -371,7 +371,7 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             client_output = (case / "client.log").read_text(encoding="utf-8")
             if expect_budget_exhausted:
                 if multi_data_fault:
-                    assert summary.get("error", {}).get("message") == "reconnect attempt budget exhausted", summary
+                    assert "reconnect attempt budget exhausted" in summary.get("error", {}).get("message", ""), summary
                 assert "reconnect attempt budget exhausted" in client_output, client_output
             return {
                 "case": case.name, "server_side": server_side, "transfer": transfer,

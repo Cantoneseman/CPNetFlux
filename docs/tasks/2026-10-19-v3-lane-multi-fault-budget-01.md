@@ -46,15 +46,16 @@
 ## 当前初步排查与待解决点
 
 - 现有 `RecoveryBudget::tryConsume()` 使用互斥锁，共享对象传给 lane 与整批重试；尚无证据显示本身会超额消费。
-- 首个真实双云 N=0 用例已在 10.24 秒内失败并确认代理同时重置数据连接 1/2，时间差约 53 微秒；摘要显示预算 0、消耗 0、lane 恢复 0，但客户端/摘要只写 `work retry limit exceeded`。代码原因是状态转换额外要求 `used()!=0`，因此零预算未使用 `reconnect attempt budget exhausted`。这是实际确认的错误提示问题；已按红测移除该状态映射对 `used()>0` 的多余要求，仍待固定提交重建和回归验收。
+- 首个真实双云 N=0 用例已在 10.24 秒内失败并确认代理同时重置数据连接 1/2，时间差约 53 微秒；摘要显示预算 0、消耗 0、lane 恢复 0，但客户端/摘要只写 `work retry limit exceeded`。根因是 `tryRecoveringPersistentDirectory` 对 N=0 直接走无预算对象的路径，绕过了 lane 级预算错误映射；仅放宽 lane 映射条件无效。已改为在 N=0 的外层返回处把 `work retry limit exceeded` 转成可读预算耗尽错误；仍待固定提交重建和回归验收。
 - 现有代理只支持单一 `--target-data-connection`。即使重复写相同选项，argparse 默认也只保留最后一个；代理还有一个单连接目标字段，无法证明两条 lane 都被重置。这是本轮首要测试工具缺口。
 - 需要确认两条连接是否都已达到数据阈值再放行故障，避免把先后两个独立故障误称为“几乎同时”；需防同一连接的双向 pump 对故障计数重复触发。
 - 需要确认双 reset 时客户端 N=0/1/2 的实际错误字段、连接重建次数与 lane 恢复计数关系；这是实测未知项。
 
 ## 执行记录与下一步交接
 
+- 当前待验收代码已撤回无效的中间条件改动，最终根因修复尚待单独提交并重建。
 - 任务计划提交：`e0fb8a57de12c7f2d758cdfcd799582e851fc2e7`，已推送并回读 origin 同 SHA。
 - 测试代理/runner 实现提交：`c0361322f9c5c950e0883388a0cb745ae4e2b21f`，已推送并回读 origin 同 SHA；固定输入构建成功。
 - 代理同步门控 RED→GREEN：`python3 tools/test/test_cpnetflux_fault_proxy.py`，先因缺少门控类失败，实现后 3/3 通过；`cpnetflux_lane_recovery_smoke` 与 `cpnetflux_fault_proxy_unit` CTest 2/2 通过。
 - 跨机矩阵首次红测：CTest `cpnetflux_lane_multi_fault_budget_interop` 在首个用例按预期中止；证据目录 `/tmp/cpnetflux-runs/V3-LANE-MULTI-FAULT-BUDGET-01/build/cpnetflux-lane-multi-fault-budget-interop-evidence/20261018T204324Z-1792356204499525037/shanghai-upload-multi-data-budget-0/`。`proxy.jsonl` 确认两个独立目标连接均重置，间隔约 0.000052 秒；`summary.json` 确认预算 0 / 使用 0 / 恢复 0 / 失败，但错误消息不够清楚。
-- 下一步：在固定修复提交上重建；确认 N=0 的 summary 与客户端输出都写明 `reconnect attempt budget exhausted`；重跑 12 项矩阵及代理/恢复回归，再更新最终验收记录。
+- 修正根因：第一次仅删除 `used()!=0` 判断后，固定构建的 N=0 跨机用例仍返回原始错误；证据确认 N=0 早期分支未创建共享预算对象。现改在该早期分支映射 `work retry limit exceeded`，并要求 summary 与客户端错误均包含 `reconnect attempt budget exhausted`。

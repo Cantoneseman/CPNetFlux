@@ -4008,6 +4008,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 const common::Status transferOrControlStatus = committedOutputIntegrityFailure
                     ? controlStatus : (transferStatus.isOk() ? controlStatus : transferStatus);
                 if (recoveryBudget && recoveryBudget->exhausted() &&
+                    recoveryBudget->used() != 0 &&
                     transferStatus.message() == "work retry limit exceeded") {
                     channel.status = reconnectBudgetExhausted(transferOrControlStatus);
                     recordTransferOutcome(channel.status);
@@ -4131,8 +4132,12 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
 common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOptions& options,
     core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
     bool upload, bool* used, ControlClient* connected = nullptr) {
-    if (options.reconnectAttempts == 0)
-        return tryPersistentDirectory(options, manifest, manifestPath, stats, upload, used, connected);
+    if (options.reconnectAttempts == 0) {
+        auto status = tryPersistentDirectory(options, manifest, manifestPath, stats, upload, used, connected);
+        if (status.message() == "work retry limit exceeded")
+            return reconnectBudgetExhausted(status);
+        return status;
+    }
     if (!persistentEligible(options) || !options.dynamicFileScheduling ||
         options.checksumAlgorithm == checksum::ChecksumAlgorithm::None)
         return common::Status::invalidArgument("automatic reconnect requires persistent dynamic scheduling with checksums");
