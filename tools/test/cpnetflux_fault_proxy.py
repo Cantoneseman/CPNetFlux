@@ -43,10 +43,20 @@ class FaultProxy:
         self.forwarded = 0
         self.forwarded_by_connection = {}
         self.log = Path(log) if log else None
+        if drop_control_after_data_connection is None:
+            self.control_reset_targets = set()
+        elif isinstance(drop_control_after_data_connection, int):
+            self.control_reset_targets = {drop_control_after_data_connection}
+        else:
+            self.control_reset_targets = {int(value) for value in drop_control_after_data_connection}
+        self.drop_control_after_data_connection = self.control_reset_targets
         self.target_data_connection = target_data_connection
-        self.drop_control_after_data_connection = drop_control_after_data_connection
-        if self.target_data_connection is None and drop_control_after_data_connection is not None:
-            self.target_data_connection = drop_control_after_data_connection
+        self.target_data_connections = set()
+        if target_data_connection is not None:
+            self.target_data_connections.add(int(target_data_connection))
+        self.target_data_connections.update(self.control_reset_targets)
+        if self.target_data_connection is None and self.control_reset_targets:
+            self.target_data_connection = min(self.control_reset_targets)
         self.target_connection = None
         self.data_connection_count = 0
         self.control_connection_count = 0
@@ -56,7 +66,7 @@ class FaultProxy:
         self.data_connection_control = {}
         self.control_lane_index = {}
         self.control_batch_id = {}
-        self.control_reset_done = False
+        self.control_reset_done = set()
         self.next_connection = 1
 
         for port in [control_port, *range(data_base, data_base + count)]:
@@ -97,7 +107,7 @@ class FaultProxy:
                         self.data_connection_control[connection_id] = control_connection
                         target = (
                             self.target_data_connection is not None
-                            and self.data_connection_count == self.target_data_connection
+                            and self.data_connection_count in self.target_data_connections
                         )
                         if target:
                             self.target_connection = connection_id
@@ -191,7 +201,7 @@ class FaultProxy:
                                 )
                         forwarded = self.forwarded_by_connection.get(connection_id, 0)
                         data_triggered = (
-                            self.drop_control_after_data_connection is None
+                            not self.control_reset_targets
                             and should_fault
                             and self.drop_bytes
                             and forwarded >= self.drop_bytes
@@ -220,12 +230,12 @@ class FaultProxy:
                         mapped_control = self.data_connection_control.get(connection_id)
                         if (
                             data
-                            and not self.control_reset_done
-                            and self.drop_control_after_data_connection == data_number
+                            and data_number in self.control_reset_targets
+                            and data_number not in self.control_reset_done
                             and mapped_control is not None
                             and forwarded >= self.drop_bytes
                         ):
-                            self.control_reset_done = True
+                            self.control_reset_done.add(data_number)
                             reset_control_connection = mapped_control
                             self.event(
                                 event="reset",
@@ -314,7 +324,7 @@ if __name__ == "__main__":
     parser.add_argument("--delay", type=float, default=0.001)
     parser.add_argument("--drops", type=int, default=1)
     parser.add_argument("--target-data-connection", type=int)
-    parser.add_argument("--drop-control-after-data-connection", type=int)
+    parser.add_argument("--drop-control-after-data-connection", type=int, action="append")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
     proxy = FaultProxy(

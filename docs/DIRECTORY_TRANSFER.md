@@ -65,6 +65,17 @@ resume semantics stay unchanged. JSON summaries now also record:
 - `data_transfer_count`
 - `planner_preset`
 
+Automatic reconnect is available for persistent dynamic tree transfers when
+checksums are enabled. `--reconnect-attempts N` is one shared limit for the
+whole transfer: recovering a lane or rebuilding the whole batch each uses one
+attempt. A value of `0` disables automatic reconnect. When the limit is used,
+the transfer fails with `reconnect attempt budget exhausted`; it does not keep
+reconnecting in a different layer.
+
+JSON summaries include `reconnect_attempt_budget` (the configured limit) and
+`recovery_attempts_used` (the actual number of recovery actions). The older
+`reconnect_attempts` field continues to report whole-batch retry epochs;
+lane-only recoveries are reflected by `lane_local_recovery_count`.
 Phase 5B makes `--file-parallelism` active: it controls how many files are
 processed concurrently. The default remains `1`. Each file worker opens its own
 control session and each file still uses `--connections` for per-file framed

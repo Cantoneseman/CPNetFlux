@@ -962,6 +962,7 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> controlConnectCount{0};
     std::atomic<std::uint64_t> controlReconnectCount{0};
     std::atomic<std::uint64_t> laneControlReconnectCount{0};
+    std::atomic<std::uint64_t> recoveryBudgetUsed{0};
     std::atomic<std::uint64_t> dataTransferCount{0};
     std::atomic<std::uint64_t> laneLocalRecoveryCount{0};
     bool persistentData = false;
@@ -993,6 +994,43 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> pipelineSlotCount{0};
     std::atomic<std::uint64_t> pipelinePendingHighWatermark{0};
 };
+
+class RecoveryBudget {
+   public:
+    RecoveryBudget(std::uint32_t limit, std::atomic<std::uint64_t>* observed)
+        : remaining_(limit), observed_(observed) {}
+
+    bool tryConsume() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (remaining_ == 0) return false;
+        --remaining_;
+        ++used_;
+        if (observed_) observed_->fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    bool exhausted() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return remaining_ == 0;
+    }
+
+    std::uint32_t used() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return used_;
+    }
+
+   private:
+    mutable std::mutex mutex_;
+    std::uint32_t remaining_;
+    std::uint32_t used_ = 0;
+    std::atomic<std::uint64_t>* observed_;
+};
+
+common::Status reconnectBudgetExhausted(const common::Status& cause) {
+    std::string message = "reconnect attempt budget exhausted";
+    if (!cause.message().empty()) message += ": " + cause.message();
+    return common::Status::runtimeError(message);
+}
 
 std::uint64_t phaseNanos(std::chrono::steady_clock::duration duration) {
     return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count());
@@ -1312,6 +1350,8 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"resume_skipped_bytes\": " << stats.resumeSkippedBytes << ",\n";
     output << "  \"recovery_payload_bytes\": " << stats.recoveryPayloadBytes << ",\n";
     output << "  \"reconnect_attempts\": " << stats.reconnectAttempts << ",\n";
+    output << "  \"reconnect_attempt_budget\": " << options.reconnectAttempts << ",\n";
+    output << "  \"recovery_attempts_used\": " << stats.recoveryBudgetUsed.load() << ",\n";
     output << "  \"connection_epoch\": " << stats.connectionEpoch << ",\n";
     output << "  \"compression_policy\": \""
            << (options.compressionMode == config::CompressionMode::Auto ? "auto" : "off") << "\",\n";
@@ -3351,7 +3391,8 @@ bool persistentEligible(const config::TreeTransferOptions& options) {
 
 common::Status tryPersistentDirectory(const config::TreeTransferOptions& options,
     core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
-    bool upload, bool* used, ControlClient* connected = nullptr, std::string* attemptedBatch = nullptr) {
+    bool upload, bool* used, ControlClient* connected = nullptr, std::string* attemptedBatch = nullptr,
+    RecoveryBudget* recoveryBudget = nullptr) {
     *used = false;
     const auto persistentStarted = std::chrono::steady_clock::now();
     if (!options.reuseDataSession) return common::Status::ok();
@@ -3952,9 +3993,25 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 const bool transportDisconnected =
                     transferStatus.code() == common::StatusCode::TransportError ||
                     controlStatus.code() == common::StatusCode::TransportError;
-                const bool canRetry = options.dynamicFileScheduling && transferCanResume &&
-                    transportDisconnected && laneAttempt < options.reconnectAttempts;
-                if (canRetry) {
+                const common::Status transferOrControlStatus =
+                    transferStatus.isOk() ? controlStatus : transferStatus;
+                if (recoveryBudget && recoveryBudget->exhausted() &&
+                    recoveryBudget->used() != 0 &&
+                    transferStatus.message() == "work retry limit exceeded") {
+                    channel.status = reconnectBudgetExhausted(transferOrControlStatus);
+                    recordTransferOutcome(channel.status);
+                    break;
+                }
+                const bool retryEligible = options.dynamicFileScheduling && transferCanResume &&
+                    transportDisconnected;
+                const bool canRetryWithoutBudget =
+                    !recoveryBudget && laneAttempt < options.reconnectAttempts;
+                if (retryEligible && (recoveryBudget || canRetryWithoutBudget)) {
+                    if (recoveryBudget && !recoveryBudget->tryConsume()) {
+                        channel.status = reconnectBudgetExhausted(transferOrControlStatus);
+                        recordTransferOutcome(channel.status);
+                        break;
+                    }
                     ++laneAttempt;
                     channel.localRecoveryAttempts = laneAttempt;
                     stats->laneLocalRecoveryCount.fetch_add(1);
@@ -4063,10 +4120,11 @@ common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOption
     if (!persistentEligible(options) || !options.dynamicFileScheduling ||
         options.checksumAlgorithm == checksum::ChecksumAlgorithm::None)
         return common::Status::invalidArgument("automatic reconnect requires persistent dynamic scheduling with checksums");
+    RecoveryBudget recoveryBudget(options.reconnectAttempts, &stats->recoveryBudgetUsed);
     config::TreeTransferOptions attemptOptions = options;
     std::string previousBatch;
     common::Status status;
-    for (std::uint32_t attempt = 0; attempt <= options.reconnectAttempts; ++attempt) {
+    for (std::uint32_t attempt = 0;; ++attempt) {
         if (options.transferDeadline && std::chrono::steady_clock::now() >= *options.transferDeadline)
             return common::Status::runtimeError("transfer total deadline exceeded");
         stats->reconnectAttempts = attempt;
@@ -4105,10 +4163,11 @@ common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOption
         }
         if (status.isOk())
             status = tryPersistentDirectory(attemptOptions, manifest, manifestPath, stats,
-                                             upload, used, connected, &previousBatch);
+                                             upload, used, connected, &previousBatch,
+                                             &recoveryBudget);
         if (status.isOk() || status.code() != common::StatusCode::TransportError) return status;
-        if (attempt == options.reconnectAttempts)
-            return common::Status::runtimeError("reconnect attempt limit exceeded: " + status.message());
+        if (!recoveryBudget.tryConsume())
+            return reconnectBudgetExhausted(status);
         if (options.schedulerMode == config::TreeSchedulerMode::Global) {
             auto paths = schedulerMetricsPaths(options, manifestPath, upload ? "upload" : "download");
             if (!paths.isOk()) return paths.status();

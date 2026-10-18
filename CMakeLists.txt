@@ -462,6 +462,63 @@ if(CPNETFLUX_BUILD_TESTS)
                 --transfer download
         )
         set_tests_properties(cpnetflux_lane_control_recovery_download_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_recovery_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-recovery-budget-interop-evidence
+                --fault-kind control
+                --server-side both
+                --reconnect-attempts 1
+                --control-reset-data-connection 2
+                --control-reset-data-connection 3
+                --expect-budget-exhausted
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/bin
+        )
+        set_tests_properties(cpnetflux_lane_recovery_budget_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_recovery_budget_two_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-recovery-budget-two-interop-evidence
+                --fault-kind control
+                --server-side both
+                --reconnect-attempts 2
+                --control-reset-data-connection 2
+                --control-reset-data-connection 3
+                --control-reset-data-connection 4
+                --expect-budget-exhausted
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/bin
+        )
+        set_tests_properties(cpnetflux_lane_recovery_budget_two_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_recovery_budget_download_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-recovery-budget-download-interop-evidence
+                --fault-kind control
+                --server-side both
+                --transfer download
+                --reconnect-attempts 1
+                --control-reset-data-connection 2
+                --control-reset-data-connection 3
+                --expect-budget-exhausted
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/bin
+        )
+        set_tests_properties(cpnetflux_lane_recovery_budget_download_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_zero_recovery_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-zero-recovery-budget-interop-evidence
+                --fault-kind control
+                --server-side both
+                --reconnect-attempts 0
+                --control-reset-data-connection 2
+                --expect-no-recovery
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/bin
+        )
+        set_tests_properties(cpnetflux_zero_recovery_budget_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
     endif()
     add_test(
         NAME cpnetflux_tree_download_smoke
