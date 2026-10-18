@@ -1,19 +1,14 @@
 # 当前执行（2026-10-18；R2026-10-16-V3-UNIFIED-MULTILINK）
 
-本节为当前生效状态。下方 2026-10-14 内容与未提交改动保留作历史记录；其中旧测试数量、资源阻塞和旧路线不作为本轮结论。
+本节为当前生效状态。下方历史路线保留供追溯；历史测试数、资源阻塞和已被替代的下一步不覆盖本轮结论。
 
-- V3-WORK-UNIFY-01：done。统一 WorkItem/WorkLease/WorkerContext/ConnectionEpoch 契约已接入单文件与动态目录共用的 persistent sender；状态、owner、epoch、deadline、drain、断线回收和整文件 attempt 重派通过行为测试。
-- 输入提交：cbebce51e08bcdd986179e1f633885792f9bf762；本轮在独立 codex/V3-WORK-UNIFY-02 worktree 实施，结果与残余边界见 docs/tasks/2026-10-17-v3-work-unify-02-result.md。
-- 父项：V3-WORK-UNIFY-02（实施中）。persistent upload/download 的 global scheduler、共享 dispatch window、receiver incoming lease、fixed/adaptive 实际模式和 lease/worker/epoch/retry 事件已接通；共同 lease executor 与受控恢复已由 03 交付；实际客户端有界自动 reconnect/retry 与远端 manifest 对账已由 04 交付；全部兼容编排合并及取消/超时收口仍待 05。尚未完成十链路、跨域性能或生产稳定性验收。
-- 实现提交 db469b9d109e8f5624b1d5977b4c9cee3a66313f 已推送，远端 refs/heads/codex/V3-WORK-UNIFY-02 已回读同 SHA。
-- 当前子阶段 V3-WORK-UNIFY-03：done。共同 lease executor、完整 ledger 的有界受控恢复、多 range 补传发布修复；最终代码 05d2ef6 的 354/354 CTest 通过（0 skip），27 项定向回归通过。输入 739a124，独立 codex/V3-WORK-UNIFY-03 worktree；实现和修复已 push/回读，详见 docs/tasks/2026-10-17-v3-work-unify-03-result.md。
-- V3-WORK-UNIFY-04：done。实际 persistent dynamic tree 显式有界重连、旧 batch 释放屏障、manifest 对账；最终代码 ff71014 的 357/357 CTest（0 skip）与深圳/上海 8/8 真实互传通过，4 次中断均自动恢复且 SHA-256 一致。代码已 push/回读；结果 docs/tasks/2026-10-17-v3-work-unify-04-result.md。
-- V3-WORK-UNIFY-05：done。static/per-file/global/pipeline 兼容编排共用 owner，终态失败释放 credit，stop claims/取消/join/静态保序已收口；362/362 CTest 与最终版深圳↔上海双向 static persistent tree 互传通过；结果 docs/tasks/2026-10-17-v3-work-unify-05-result.md。
-- V3-LINKSET-01：done。LinkSet、单链路兼容视图、稳定能力摘要及 XCPNETFLUX V2 可选 LINKS/LINK_CAPS 已实现；333/333 单元、374/374 CTest 通过，深圳↔上海双向显式控制面协商传输与跨机拒绝均通过，文件哈希一致；控制面结果见 docs/tasks/2026-10-18-v3-linkset-01.md。
-- 当前 V3-MULTILINK-RANGE-01：done。LINKS/LINK_CAPS 已驱动 persistent data plane 的独立 TCP session、lane ID 和 range affinity；334 单元（333 pass、1 skip）、375/375 CTest 及深圳↔上海双向 80 MiB 哈希验收通过；下一步为 V3-FLOWCUT-01。
-- V3-FLOWCUT-01：done。GlobalScheduler 已驱动 N 条逻辑 LinkSet lane；persistent global + LINKS>1 可用；队列选择、drain/disconnect/recover 与 epoch 同步通过 337 单元（336 pass、1 io_uring skip）、378/378 CTest。深圳↔上海双向各传 80 MiB，2/2 lane、每 lane 2 ranges、SHA-256 一致。证据 docs/tasks/2026-10-18-v3-flowcut-01.md；日志 /tmp/cpnetflux-runs/V3-FLOWCUT-01-{build-final,unit-final,ctest-final}.log。物理链路尚未验证。 实现提交 edf92bf4081347ea9ad60f196d741499f99b222e 已推送 GitHub；远端 refs/heads/codex/V3-FLOWCUT-01 回读同 SHA。
-- 下一阶段 V3-LANE-FAILOVER-01：验证单 lane 故障时未提交 range 定向回收、其他健康 lane 接管、旧 epoch 结果拒绝及恢复后的递增 epoch 重入；完成代码侧故障切换后，再按用户要求到服务器配置不同物理路径验证。
-- 开发位置：深圳独立 worktree 单写入者（依本轮用户明确的 worktree 要求）；上海仅部署固定二进制作传输对端。两端本任务进程和测试端口已停止并核实为空闲；临时传输文件保留在 /tmp 作为证据。
+- V3-FLOWCUT-01：done。GlobalScheduler 已驱动 N 条逻辑 LinkSet lane；persistent global + LINKS>1 可用，队列 lane 选择与 drain/disconnect/recover/epoch 同步通过。337 单元（336 通过、1 项 io_uring 条件跳过）、378/378 CTest，深圳↔上海双向各 80 MiB 哈希一致。实现提交 edf92bf4081347ea9ad60f196d741499f99b222e 已推送并回读；详情见 docs/tasks/2026-10-18-v3-flowcut-01.md。
+- V3-LANE-FAILOVER-01：done。修复 DynamicFileQueue 活跃 lease 未记入 LinkSet inflightBytes，补齐 commit/fail/reject/retry/recovery/cancel 的对称释放；低负载 lane 选择、断线后健康 lane 接管、旧 lease 拒绝和恢复 epoch 已有行为测试。
+- 本阶段实现提交 c571de0150037a43346cfe12050a1db783ed10f6，分支 codex/V3-LANE-FAILOVER-01 已推送到 origin；refs/heads/codex/V3-LANE-FAILOVER-01 回读同 SHA。结果见 docs/tasks/2026-10-18-v3-lane-failover-01.md。
+- 最终全量构建成功；340 单元测试 339 通过、1 项 io_uring 条件跳过；CTest 381/381、0 失败、1 项条件跳过。token-auth/event-log 在 CTest 进程内注入临时随机测试值。日志位于 /tmp/cpnetflux-runs/V3-LANE-FAILOVER-01-{build-final,unit-final,ctest-final}.log。
+- 深圳→上海及上海→深圳各传输 256 MiB，单 data TCP session 故障注入后均 result=pass、2/2 lane、range completion=[2,2]、SHA-256 一致。两方向分别为 a8c1906883db8da9d1f1378873e230cf647157d9c8bfd7ce2837ad5d1e1e5836 与 ff81afe80419ec7442cda8ece2d35eb64c1844a25a81cc9105508ed36c56810a。但各方向 control_reconnect_count=2、data_connect_count=4，表明当前恢复会重建整批控制/数据会话；健康 lane 连续性尚未证明。
+- 下一项 V3-LANE-LOCAL-RECOVERY-01（planned，输入提交 c571de0150037a43346cfe12050a1db783ed10f6）：单 lane TransportError 不再 cancel/rebuild 整个 batch，只回收失败 lane 的未提交 lease 并恢复该 lane，保持健康 lane 的 data session 与 epoch；详见 docs/tasks/2026-10-18-v3-lane-local-recovery-01.md。
+- 物理 NIC、local bind、不同物理路径的配置与验证按用户要求暂缓；lane-local recovery 完成后再在服务器上配置验证。深圳为唯一权威开发端，上海仅作传输对端。测试服务/端口已停止并核实空闲，证据负载和日志保留在 /tmp，不纳入 Git。
 
 # 当前执行（2026-10-14）
 

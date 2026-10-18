@@ -5,6 +5,7 @@
 输入提交：2a7615991a396e7d2856ab47920eda208c90d826
 工作区：/root/projects/CPNetFlux-worktrees/v3-multilink-range-01
 分支：codex/V3-LANE-FAILOVER-01
+实现提交：c571de0150037a43346cfe12050a1db783ed10f6；已推送 origin/codex/V3-LANE-FAILOVER-01，远端 refs 回读同 SHA。
 
 ## 本阶段解决的实际问题
 
