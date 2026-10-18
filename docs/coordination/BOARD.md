@@ -68,8 +68,8 @@
 
 ## 2026-10-19 V3-LANE-RECOVERY-INTEROP-01 当前交付
 
-- 状态：双向验收通过，待提交与 GitHub SHA 回读；输入提交 `92bc148d2d0aeacdd0cb021abba918018af40699`；worktree `/root/projects/CPNetFlux-worktrees/v3-lane-recovery-interop-01`，分支 `codex/V3-LANE-RECOVERY-INTEROP-01`。
+- 状态：done；输入提交 `92bc148d2d0aeacdd0cb021abba918018af40699`；实现提交 `2b223b1bbb8ed9db2d0119d3c63c07129292d737` 已推送，GitHub ref 回读同 SHA；worktree `/root/projects/CPNetFlux-worktrees/v3-lane-recovery-interop-01`，分支 `codex/V3-LANE-RECOVERY-INTEROP-01`。
 - 实际解决：健康 lane 完成后，其 done 状态不再被清理抹掉；失败 lane 重连不再误等健康 lane 重新上线。跨机 runner 固化 2-lane/多-range TCP reset 测试。
-- 验收：单元 7/7、loopback 恢复 CTest 1/1；真实深圳→上海、上海→深圳均 tree hash 相等，lane-local recovery=1、control reconnect=0、data connect=3、ranges=[2,2]；跨机 CTest 1/1。证据详见 `docs/tasks/2026-10-19-v3-lane-recovery-interop-01.md` 和 `/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/bidirectional-final1/`。
+- 验收：单元 7/7、loopback 恢复 CTest 1/1；真实深圳→上海、上海→深圳均 tree hash 相等，lane-local recovery=1、control reconnect=0、data connect=3、ranges=[2,2]；跨机 CTest 1/1（36.20 秒，矩阵 `/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/build/cpnetflux-lane-recovery-interop-evidence/20261018T165743Z-1792342663694352372/matrix.json`）。证据详见 `docs/tasks/2026-10-19-v3-lane-recovery-interop-01.md` 和 `/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/bidirectional-final1/`。
 - 边界：只证明 plain TCP 数据通道 reset 的软件恢复；控制通道断开、TLS/认证互操作、物理 NIC/local bind/不同物理路径、吞吐和生产 readiness 未验证。
 - 下一阶段：`V3-LANE-CONTROL-RECOVERY-01`，解决 lane 控制连接断开时升级成整批重连、扰动健康 lane 的问题；按原批次身份只重建故障 lane 的控制与数据连接。物理链路验证继续后置。

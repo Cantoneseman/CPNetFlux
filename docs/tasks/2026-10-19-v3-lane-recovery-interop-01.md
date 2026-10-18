@@ -1,11 +1,11 @@
 # V3-LANE-RECOVERY-INTEROP-01：深圳—上海跨机恢复互操作
 
-- 状态：验收通过，待提交与远端回读
+- 状态：done
 - 路线/任务版本：R2026-10-16-V3-UNIFIED-MULTILINK / V3-LANE-RECOVERY-INTEROP-01
 - 深圳 `gridflux-beta-shenzhen` 是权威构建端；上海 `gridflux-beta-shanghai` 是传输对端。
 - 输入提交：`92bc148d2d0aeacdd0cb021abba918018af40699`（V3-LANE-RECOVERY-COVERAGE-01）
 - worktree/分支：`/root/projects/CPNetFlux-worktrees/v3-lane-recovery-interop-01` / `codex/V3-LANE-RECOVERY-INTEROP-01`
-- 代码提交与 GitHub 回读：待提交后补记。
+- 实现提交：`2b223b1bbb8ed9db2d0119d3c63c07129292d737`；已推送到 `origin/codex/V3-LANE-RECOVERY-INTEROP-01`，`git ls-remote` 回读 SHA 与本地一致。
 
 ## 要解决的问题
 
@@ -26,11 +26,11 @@
 - `cmake --build ... --target cpnetflux-gridftp-server cpnetflux-tree-upload-client cpnetflux-tree-download-client cpnetflux_unit_tests --parallel 2`：退出码 0。
 - `cpnetflux_unit_tests --gtest_filter='PersistentDirectoryBatchTest.*' --gtest_brief=1`：7/7 通过。
 - `ctest --test-dir .../build -R '^cpnetflux_lane_recovery_smoke$' --output-on-failure`：1/1 通过，6.43 秒。
-- `ctest --test-dir .../build -R '^cpnetflux_lane_recovery_interop$' --output-on-failure`：1/1 通过，36.25 秒；提交后再跑并保存与提交 SHA 对应的结果。
+- `ctest --test-dir .../build -R '^cpnetflux_lane_recovery_interop$' --output-on-failure`：1/1 通过，36.20 秒；此时 worktree 源码状态随后提交为 `2b223b1bbb8ed9db2d0119d3c63c07129292d737`。
 - 双向命令：`CPNETFLUX_INPUT_COMMIT=92bc148d2d0aeacdd0cb021abba918018af40699 python3 tools/test/run_cpnetflux_lane_recovery_interop.py --build-dir /tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/build --evidence-dir /tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/bidirectional-final1 --server-side both`：两方向均通过。
 - 深圳→上海、上海→深圳均为：源/目的 tree SHA 相等；3 个文件、67,230,715 字节；代理只 reset 目标 data connection 一次；`lane_local_recovery_count=1`、`control_reconnect_count=0`、`data_connect_count=3`、`persistent_lane_range_completed=[2,2]`。
 - 双向证据：`/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/bidirectional-final1/matrix.json` 及各方向子目录中的 summary、proxy JSONL、server/client 日志和接收树。Tree SHA：`5816ca45fdc866157f2c8c9d0097009af11a3132eee66cd2fcdd745ab696c092`。
-- CTest 证据：`/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/build/cpnetflux-lane-recovery-interop-evidence/matrix.json`。
+- CTest 证据：`/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/build/cpnetflux-lane-recovery-interop-evidence/20261018T165743Z-1792342663694352372/matrix.json`；矩阵记录输入基线 `92bc148d2d0aeacdd0cb021abba918018af40699`，最终测试代码提交 SHA 见本记录上方。
 - 实验前：深圳可用盘 62 GiB、可用内存约 2.5 GiB、2 CPU；上海可用盘 80 GiB、可用内存约 2.8 GiB、2 CPU。既有 2121/22310/2811 服务保持不动。
 - 实验后：两端无本任务 server/proxy/client 残留进程，24600/24610 与 24700/24710 测试端口释放。
 
