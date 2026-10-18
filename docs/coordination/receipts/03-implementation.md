@@ -190,3 +190,5 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 - 临时 CPNetFlux 服务、进程及测试端口在两台服务器已停止并核实为空闲。
 - 边界：这是逻辑 lane/调度的端到端验证，不证明不同物理 NIC/路径或物理吞吐提升。
 - 下一步 V3-LANE-FAILOVER-01：补足单 lane 失效后 unfinished range 定向回收、健康 lane 接管、旧 epoch 迟到结果拒绝，以及恢复 lane 递增 epoch 重新加入；通过可控 lane 断连在云端双向复验。用户要求把物理网卡/不同物理链路配置验证留在代码侧工作完成后。
+
+- GitHub 备份：实现提交 edf92bf4081347ea9ad60f196d741499f99b222e 已推送 origin/codex/V3-FLOWCUT-01；推送后 refs/heads/codex/V3-FLOWCUT-01 回读同 SHA。后续仅文档记录的提交另行推送。

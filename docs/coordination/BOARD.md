@@ -11,9 +11,9 @@
 - V3-WORK-UNIFY-05：done。static/per-file/global/pipeline 兼容编排共用 owner，终态失败释放 credit，stop claims/取消/join/静态保序已收口；362/362 CTest 与最终版深圳↔上海双向 static persistent tree 互传通过；结果 docs/tasks/2026-10-17-v3-work-unify-05-result.md。
 - V3-LINKSET-01：done。LinkSet、单链路兼容视图、稳定能力摘要及 XCPNETFLUX V2 可选 LINKS/LINK_CAPS 已实现；333/333 单元、374/374 CTest 通过，深圳↔上海双向显式控制面协商传输与跨机拒绝均通过，文件哈希一致；控制面结果见 docs/tasks/2026-10-18-v3-linkset-01.md。
 - 当前 V3-MULTILINK-RANGE-01：done。LINKS/LINK_CAPS 已驱动 persistent data plane 的独立 TCP session、lane ID 和 range affinity；334 单元（333 pass、1 skip）、375/375 CTest 及深圳↔上海双向 80 MiB 哈希验收通过；下一步为 V3-FLOWCUT-01。
-- V3-FLOWCUT-01：done。GlobalScheduler 已驱动 N 条逻辑 LinkSet lane；persistent global + LINKS>1 可用；队列选择、drain/disconnect/recover 与 epoch 同步通过 337 单元（336 pass、1 io_uring skip）、378/378 CTest。深圳↔上海双向各传 80 MiB，2/2 lane、每 lane 2 ranges、SHA-256 一致。证据 docs/tasks/2026-10-18-v3-flowcut-01.md；日志 /tmp/cpnetflux-runs/V3-FLOWCUT-01-{build-final,unit-final,ctest-final}.log。物理链路尚未验证。
+- V3-FLOWCUT-01：done。GlobalScheduler 已驱动 N 条逻辑 LinkSet lane；persistent global + LINKS>1 可用；队列选择、drain/disconnect/recover 与 epoch 同步通过 337 单元（336 pass、1 io_uring skip）、378/378 CTest。深圳↔上海双向各传 80 MiB，2/2 lane、每 lane 2 ranges、SHA-256 一致。证据 docs/tasks/2026-10-18-v3-flowcut-01.md；日志 /tmp/cpnetflux-runs/V3-FLOWCUT-01-{build-final,unit-final,ctest-final}.log。物理链路尚未验证。 实现提交 edf92bf4081347ea9ad60f196d741499f99b222e 已推送 GitHub；远端 refs/heads/codex/V3-FLOWCUT-01 回读同 SHA。
 - 下一阶段 V3-LANE-FAILOVER-01：验证单 lane 故障时未提交 range 定向回收、其他健康 lane 接管、旧 epoch 结果拒绝及恢复后的递增 epoch 重入；完成代码侧故障切换后，再按用户要求到服务器配置不同物理路径验证。
-- 开发位置：深圳独立 worktree 单写入者（依本轮用户明确的 worktree 要求）；上海仅部署固定二进制作传输对端。两端本任务进程、端口与可再生 payload 已回收，原始诊断保留。
+- 开发位置：深圳独立 worktree 单写入者（依本轮用户明确的 worktree 要求）；上海仅部署固定二进制作传输对端。两端本任务进程和测试端口已停止并核实为空闲；临时传输文件保留在 /tmp 作为证据。
 
 # 当前执行（2026-10-14）
 
@@ -59,4 +59,4 @@
 - 实际解决：LINKS/LINK_CAPS 不再只停留在控制面；persistent tree 至少建立请求数量的数据会话，worker 获得稳定 lane ID，range/整文件 claim 按 lane 亲和分配，并在 lane 不可接受时走既有回收/重试接管；摘要输出 observed data connections 和逐 lane range 完成数。
 - 验收：334 个单元测试 333 通过、1 个 io_uring 条件跳过；CTest 375/375，0 失败；深圳↔上海双向 80 MiB、2 lane、每 lane 2 个 range 完成，源/目的 SHA-256 一致。证据详见 `docs/tasks/2026-10-18-v3-multilink-range-01.md`。
 - 边界：本轮只证明两个独立 TCP data session 和逻辑 lane/range 绑定，不证明不同物理网卡/交换路径、吞吐提升、全局调度多链路、故障 drain/cut 或十链路稳定性。
-- 下一项：V3-FLOWCUT-01，先做 endpoint/local-bind/path identity 与 LinkSet 的 global-scheduler adapter，再做 lane drain/cut、失败 lane reclaim、epoch 证据和 1/2/4/8/10-link 双向矩阵。
+- 后续：V3-FLOWCUT-01 已完成 GlobalScheduler/逻辑 LinkSet 接入；V3-LANE-FAILOVER-01 将验证单 lane 故障回收与 epoch 保护。endpoint/local-bind/物理路径配置和不同物理链路验证依用户要求暂缓到代码侧故障切换完成后。
