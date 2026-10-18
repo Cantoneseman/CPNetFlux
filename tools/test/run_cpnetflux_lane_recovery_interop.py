@@ -21,7 +21,7 @@ SHANGHAI_PUBLIC = "47.116.174.181"
 SHENZHEN_BIND = "192.168.10.22"
 SHANGHAI_BIND = "192.168.10.138"
 REMOTE_ALIAS = "gridflux-beta-shanghai"
-REMOTE_ROOT = Path("/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-01")
+REMOTE_ROOT = Path("/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01/remote")
 
 
 def run_process(command: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
@@ -186,8 +186,9 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
     local_server: subprocess.Popen[str] | None = None
     local_proxy: FaultProxy | None = None
     try:
+        if server_alias or client_alias:
+            ssh_run(REMOTE_ALIAS, ["rm", "-rf", str(remote_case)], timeout=30)
         if server_alias:
-            ssh_run(server_alias, ["rm", "-rf", str(remote_case)], timeout=30)
             ssh_run(server_alias, ["mkdir", "-p", str(remote_server_root)], timeout=30)
         if transfer == "download":
             server_dataset = remote_server_root / "dataset" if server_alias else server_root / "dataset"
@@ -262,6 +263,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             if result.returncode:
                 raise AssertionError(result.stdout + result.stderr)
             scp_from(client_alias, str(remote_case / "summary.json"), case / "summary.json")
+            if transfer == "download":
+                scp_from(client_alias, str(remote_downloaded), case / "result", recursive=True)
         else:
             result = run_process(command, timeout=180)
             (case / "client.log").write_text(result.stdout + result.stderr, encoding="utf-8")
@@ -274,9 +277,12 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             remote_server_pid = None
             scp_from(server_alias, str(remote_proxy_log), case / "proxy.jsonl")
             scp_from(server_alias, str(remote_log), case / "server.log")
-            remote_result_root = remote_server_root / "uploaded" if transfer == "upload" else remote_downloaded
-            scp_from(server_alias, str(remote_result_root), case / "result", recursive=True)
-            actual_root = case / "result"
+            if transfer == "download" and not client_alias:
+                actual_root = case / "downloaded"
+            else:
+                remote_result_root = remote_server_root / "uploaded" if transfer == "upload" else remote_downloaded
+                scp_from(server_alias, str(remote_result_root), case / "result", recursive=True)
+                actual_root = case / "result"
         else:
             assert local_server is not None
             stop_server(local_server, case / "server.log")
@@ -284,7 +290,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             assert local_proxy is not None
             local_proxy.close()
             local_proxy = None
-            actual_root = server_root / "uploaded" if transfer == "upload" else case / "downloaded"
+            actual_root = server_root / "uploaded" if transfer == "upload" else (
+                case / "result" if client_alias else case / "downloaded")
         summary = json.loads((case / "summary.json").read_text(encoding="utf-8"))
         actual = tree_hash(actual_root)
         proxy_events = parse_proxy_log(case / "proxy.jsonl")
@@ -348,7 +355,8 @@ def main() -> int:
     parser.add_argument("--server-side", choices=("shanghai", "shenzhen", "both"), default="both",
                         help="run only one server side while diagnosing, or both for acceptance")
     parser.add_argument("--fault-kind", choices=("data", "control"), default="data")
-    parser.add_argument("--remote-bin", type=Path, default=Path("/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-01/bin"))
+    parser.add_argument("--transfer", choices=("upload", "download"), default="upload")
+    parser.add_argument("--remote-bin", type=Path, default=Path("/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01/bin"))
     args = parser.parse_args()
     args.evidence_dir.mkdir(parents=True, exist_ok=True)
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"-{time.time_ns()}"
@@ -361,7 +369,7 @@ def main() -> int:
     server_sides = ("shanghai", "shenzhen") if args.server_side == "both" else (args.server_side,)
     for server_side in server_sides:
         records.append(run_case(args.build_dir, root, server_side=server_side,
-                                transfer="upload", fault_kind=args.fault_kind,
+                                transfer=args.transfer, fault_kind=args.fault_kind,
                                 remote_bin=args.remote_bin))
     input_commit = os.environ.get("CPNETFLUX_INPUT_COMMIT")
     if not input_commit:
