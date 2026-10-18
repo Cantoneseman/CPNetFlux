@@ -1,13 +1,12 @@
 # 当前执行（2026-10-19；R2026-10-16-V3-UNIFIED-MULTILINK）
 
-本节优先于下方历史路线和旧任务快照。深圳为权威 Git 工作区；本轮按用户提供的协作指示在深圳任务 worktree 内串行修改，上海只作传输对端。
+本节优先于下方历史路线和旧任务快照。深圳为权威 Git 工作区；本轮在深圳任务 worktree 完成，上海仅作传输对端。
 
-- V3-LANE-DATA-FAULT-RECOVERY-01：实现与双云验收已完成，独立质量复核尚未取得回执；结果和边界见 `docs/tasks/2026-10-19-v3-lane-data-fault-recovery-01.md`。
-- V3-LANE-MULTI-FAULT-BUDGET-01：in_progress。输入 `73b1fc2dcf78860536769b8c245d35ad80e662f7`；任务 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-multi-fault-budget-01`，分支 `codex/V3-LANE-MULTI-FAULT-BUDGET-01`。目标是实测两条数据 lane 近同时断开时 `--reconnect-attempts` 的共享预算是否在 N=0/1/2 下严格生效；先修故障代理/矩阵，不预设生产代码有错。计划见 `docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md`。
-- 计划验收：深圳/上海作服务端 × 上传/下载 × N=0/1/2 共 12 个实际互传 case；双 reset 需由代理日志证明不同连接且时间差小于 500 ms。N=0/1 失败边界和预算消耗须清楚，N=2 成功并以最终树 SHA 相等验收。
-- 首个 N=0 双云红测确认两条数据连接确实近同时重置，实际恢复数为 0；程序却只报告 `work retry limit exceeded`，没有说明预算已耗尽。N=0 早期路径绕过共享预算对象；upload 与 download 红测还揭示 worker retry-limit 和直接 TransportError 两种失败，都需标注预算已耗尽。已在外层补齐两种状态映射，待固定提交重建与矩阵回归；尚未发现恢复次数超预算。
-- 非目标：物理 NIC、local bind、不同物理路径、吞吐优化、TLS/生产认证和 readiness 均不在本轮范围；物理链路按用户要求后置。
-- 资源边界：运行前重查两端空间、内存和 24600–24799 实验端口；每端 `/` 与 `/tmp` 至少保留 10 GiB 及本次 payload/build 预算。只停本轮自启 PID；生产端口 2121 只读，不改服务。
+- V3-LANE-MULTI-FAULT-BUDGET-01：已完成。两条数据 lane 近同时断开时，深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个跨机场景全部通过；N=0 消耗 0 次并明确报错，N=1 恢复 1 次后明确失败，N=2 恢复 2 次并成功，上传/下载树校验值一致。未发现共享预算超额；实际修复了 N=0 上传/下载错误未统一说明预算耗尽的问题。实现与验收记录见 docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md。
+- 固定测试提交：c2031d221a94186057e4317f75db955b4de30ae5；矩阵 CTest 1/1、相关回归 CTest 8/8、Python 代理单测 3/3、完整 C++ 单元 343 通过/1 个 io_uring 条件跳过。
+- 下一计划：V3-LANE-MIXED-FAULT-BUDGET-01。用容易理解的话说，是同时让一条 lane 的数据连接和另一条 lane 的控制连接出故障，检查这两种恢复是否也共同消耗同一个 reconnect-attempts 总预算。先做同步故障注入和 N=0/1/2 跨机验收，只有红测证明行为错误才改生产逻辑。
+- 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求在软件故障恢复开发完成后再配置服务器验证。
+- 环境边界：深圳与上海生产端口 2121 只读观察，未停止或改配；本次测试端口范围结束后无任务监听或遗留 runner/代理进程。
 
 ## 历史执行快照
 
