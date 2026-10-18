@@ -100,3 +100,12 @@
 - 验收：单元 342/342、lane recovery smoke 1/1；原有上传/下载控制故障 CTest 通过；双云注入 N=1 上传/下载及 N=2 上传时，深圳和上海各自为服务端的结果都精确消费 1/1/2 次；N=0 双向保持 0 次恢复。测试矩阵和边界见 `docs/tasks/2026-10-19-v3-lane-recovery-budget-01.md`。
 - 额外发现：`cpnetflux_reconnect_smoke` 的 data-only reset 测试在 30 秒 deadline 超时；同样失败可在输入提交旧二进制中复现，已确认是任务前存在的问题，不是预算改动引入。
 - 下一阶段：`V3-LANE-DATA-FAULT-RECOVERY-01`，定位 data-only fault 后旧任务/队列/FINAL 的等待关系，修复并双向验收；物理 NIC/local bind 与真实不同物理路径继续暂缓。计划见 `docs/tasks/2026-10-19-v3-lane-data-fault-recovery-01.md`。
+
+
+## 2026-10-19 V3-LANE-DATA-FAULT-RECOVERY-01 开发中
+
+- 状态：in_progress；输入提交 `4af82db824d7d4a7c02accb4f63a40b62e3caa9a`；独立 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-data-fault-recovery-01`，分支 `codex/V3-LANE-DATA-FAULT-RECOVERY-01`。
+- 用户能看到的问题：只断数据 socket 时，Global scheduler 测试可能等 30 秒才按总 deadline 失败。
+- 初步证据：proxy 显示一次局部恢复并投递 retry attempt=1；服务器随后报告同一 batch 的新等待里缺健康 channel，直到 30 秒 timeout。旧输入提交二进制可复现，需查清 server batch 生命周期与重挂接顺序。
+- 当前先做：独立复现上传/下载；按日志验证 weak registry 生命周期假设；修复后用同一 fault matrix 比较完成时间、树 SHA、恢复预算。
+- 非目标：物理 NIC/local bind、多物理路径、TLS/生产认证 readiness、吞吐优化和 scheduler 策略重写。

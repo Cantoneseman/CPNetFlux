@@ -1,9 +1,9 @@
 # V3-LANE-DATA-FAULT-RECOVERY-01：数据连接断开后的快速恢复
 
-- 状态：planned
+- 状态：in_progress
 - 路线/任务版本：R2026-10-16-V3-UNIFIED-MULTILINK / V3-LANE-DATA-FAULT-RECOVERY-01
 - 权威开发端：深圳 gridflux-beta-shenzhen；上海仅作传输对端。
-- 输入提交：0cc1696dffda995b078516ffece8a7e47834cbd3（V3-LANE-RECOVERY-BUDGET-01 实现提交）。
+- 输入提交：4af82db824d7d4a7c02accb4f63a40b62e3caa9a（V3-LANE-RECOVERY-BUDGET-01 实现与交接文档提交）。
 - 实现 worktree/分支：/root/projects/CPNetFlux-worktrees/v3-lane-data-fault-recovery-01 / codex/V3-LANE-DATA-FAULT-RECOVERY-01。
 
 ## 要解决的问题（易懂版）
@@ -13,6 +13,7 @@
 ## 范围、非目标与验收标准
 
 - 先对两版代码重跑相同数据链路 reset，保留命令、summary、proxy log 和耗时，避免把环境故障归因给最近改动。
+- 初步证据指向服务器端同一 batch ID 的生命周期：旧 channel 退出后 registry 只持有 weak_ptr，batch 对象可能先释放；局部重连只带回故障 lane，服务器因健康 lane 的 done 状态丢失而重新等全部 channel ready。需要用测试/事件日志确认，再决定是否修它。
 - 追踪数据 socket 错误如何传到 sender/receiver、DynamicFileQueue、lane 完成状态和控制 FINAL/DRAIN；找出导致 deadline 前不退出或不恢复的具体等待点。
 - 修复最小的状态通知/等待路径；不更改 lane selection、调度策略或传输协议，除非证据说明它们是必要原因。
 - 上传和下载都要有可重复的 data-only reset 测试；用时明显小于 30 秒；恢复成功时树 SHA 完全一致，预算消耗不超过配置值；预算耗尽时错误明确并快速返回。
@@ -29,6 +30,8 @@
 
 ## 预计受影响文件
 
+- src/protocol/control/control_server.cpp（若确认 DynamicDirectory 生命周期造成重建空 batch）
+- src/core/io/persistent_directory_batch.cpp/.h（若需暴露安全 drain/attach 状态）
 - src/core/io/tree_transfer_client.cpp
 - src/core/io/dynamic_file_queue.cpp（若证据确认队列重试/等待是原因）
 - tools/test/cpnetflux_fault_proxy.py
