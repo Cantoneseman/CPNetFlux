@@ -5,7 +5,7 @@
 - V3-LANE-DATA-FAULT-RECOVERY-01：实现与双云验收已完成，独立质量复核尚未取得回执；结果和边界见 `docs/tasks/2026-10-19-v3-lane-data-fault-recovery-01.md`。
 - V3-LANE-MULTI-FAULT-BUDGET-01：in_progress。输入 `73b1fc2dcf78860536769b8c245d35ad80e662f7`；任务 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-multi-fault-budget-01`，分支 `codex/V3-LANE-MULTI-FAULT-BUDGET-01`。目标是实测两条数据 lane 近同时断开时 `--reconnect-attempts` 的共享预算是否在 N=0/1/2 下严格生效；先修故障代理/矩阵，不预设生产代码有错。计划见 `docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md`。
 - 计划验收：深圳/上海作服务端 × 上传/下载 × N=0/1/2 共 12 个实际互传 case；双 reset 需由代理日志证明不同连接且时间差小于 500 ms。N=0/1 失败边界和预算消耗须清楚，N=2 成功并以最终树 SHA 相等验收。
-- 首个 N=0 双云红测确认两条数据连接确实近同时重置，实际恢复数为 0；程序却只报告 `work retry limit exceeded`，没有说明预算已耗尽。首个错误修复没有覆盖 N=0 的早期路径；已定位到该路径绕过共享预算对象，并改在外层返回时映射明确的耗尽原因，待固定提交重建与矩阵回归；尚未发现恢复次数超预算。
+- 首个 N=0 双云红测确认两条数据连接确实近同时重置，实际恢复数为 0；程序却只报告 `work retry limit exceeded`，没有说明预算已耗尽。N=0 早期路径绕过共享预算对象；upload 与 download 红测还揭示 worker retry-limit 和直接 TransportError 两种失败，都需标注预算已耗尽。已在外层补齐两种状态映射，待固定提交重建与矩阵回归；尚未发现恢复次数超预算。
 - 非目标：物理 NIC、local bind、不同物理路径、吞吐优化、TLS/生产认证和 readiness 均不在本轮范围；物理链路按用户要求后置。
 - 资源边界：运行前重查两端空间、内存和 24600–24799 实验端口；每端 `/` 与 `/tmp` 至少保留 10 GiB 及本次 payload/build 预算。只停本轮自启 PID；生产端口 2121 只读，不改服务。
 

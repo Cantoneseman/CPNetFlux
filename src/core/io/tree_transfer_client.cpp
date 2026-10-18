@@ -4134,7 +4134,8 @@ common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOption
     bool upload, bool* used, ControlClient* connected = nullptr) {
     if (options.reconnectAttempts == 0) {
         auto status = tryPersistentDirectory(options, manifest, manifestPath, stats, upload, used, connected);
-        if (status.message() == "work retry limit exceeded")
+        if (status.code() == common::StatusCode::TransportError ||
+            status.message() == "work retry limit exceeded")
             return reconnectBudgetExhausted(status);
         return status;
     }
