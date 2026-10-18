@@ -208,6 +208,37 @@ std::string DynamicFileQueue::schedulerLinkId(const WorkerContext& owner) const 
     }
     return scheduler_ == nullptr ? owner.linkId : scheduler_->config().linkId;
 }
+common::Status DynamicFileQueue::reserveLinkSetLease(Active& active) {
+    if (scheduler_ == nullptr || active.linkSetReserved) {
+        return active.linkSetReserved
+            ? common::Status::invalidArgument("LinkSet lease is already reserved")
+            : common::Status::ok();
+    }
+    const auto& lease = active.lease;
+    const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
+    if (bytes == 0) {
+        return common::Status::ok();
+    }
+    auto observed = scheduler_->linkSet().reserve(
+        schedulerLinkId(lease.owner), std::to_string(lease.leaseId), bytes);
+    if (observed.isOk()) {
+        active.linkSetReserved = true;
+    }
+    return observed;
+}
+common::Status DynamicFileQueue::releaseLinkSetLease(Active& active) {
+    if (scheduler_ == nullptr || !active.linkSetReserved) {
+        return common::Status::ok();
+    }
+    const auto& lease = active.lease;
+    const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
+    auto observed = scheduler_->linkSet().release(
+        schedulerLinkId(lease.owner), std::to_string(lease.leaseId), bytes);
+    if (observed.isOk()) {
+        active.linkSetReserved = false;
+    }
+    return observed;
+}
 common::Status DynamicFileQueue::setConnectionEpoch(ConnectionEpoch epoch) {
     std::lock_guard lock(mutex_);
     if (!status_.isOk()) return status_;
@@ -410,7 +441,7 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
         lease.queueWaitSeconds = std::max(
             0.0, std::chrono::duration<double>(WorkClock::now() - ready.admitted).count());
         const auto inserted =
-            active_.emplace(activeKey(lease.file), Active{lease, timeout, scheduler_ != nullptr}).second;
+            active_.emplace(activeKey(lease.file), Active{lease, timeout, false, false}).second;
         if (!inserted) return common::Status::runtimeError("duplicate active work item");
         ++credits_[owner.workerId];
         leasesIssued_ = true;
@@ -418,7 +449,14 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
         if (scheduler_) {
             const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
             readyBytes_ -= bytes;
-            auto observed = scheduler_->linkManager().addInflightBytes(schedulerLinkId(lease.owner), bytes);
+            auto active = active_.find(activeKey(lease.file));
+            if (active == active_.end()) return mismatch();
+            auto observed = reserveLinkSetLease(active->second);
+            if (observed.isOk()) {
+                observed = scheduler_->linkManager().addInflightBytes(
+                    schedulerLinkId(lease.owner), bytes);
+                if (observed.isOk()) active->second.schedulerInflight = true;
+            }
             if (observed.isOk()) observed = schedulerEvent(lease, "workitem_dispatch");
             if (observed.isOk()) observed = schedulerFeedback();
             if (!observed.isOk()) {
@@ -439,14 +477,21 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
     lease.deadline = now + timeout;
     // Admission uses wall-monotonic time even when a test supplies a logical deadline clock.
     lease.queueWaitSeconds = std::max(0.0, std::chrono::duration<double>(WorkClock::now() - ready.admitted).count());
-    const auto inserted = active_.emplace(activeKey(lease.file), Active{lease, timeout, scheduler_ != nullptr}).second;
+    const auto inserted = active_.emplace(activeKey(lease.file), Active{lease, timeout, false, false}).second;
     if (!inserted) return common::Status::runtimeError("duplicate active work item");
     ++credits_[owner.workerId];
     leasesIssued_ = true;
     if (scheduler_) {
         const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
         readyBytes_ -= bytes;
-        auto observed = scheduler_->linkManager().addInflightBytes(schedulerLinkId(lease.owner), bytes);
+        auto active = active_.find(activeKey(lease.file));
+        if (active == active_.end()) return mismatch();
+        auto observed = reserveLinkSetLease(active->second);
+        if (observed.isOk()) {
+            observed = scheduler_->linkManager().addInflightBytes(
+                schedulerLinkId(lease.owner), bytes);
+            if (observed.isOk()) active->second.schedulerInflight = true;
+        }
         if (observed.isOk()) observed = schedulerEvent(lease, "workitem_dispatch");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) { status_ = observed; changed_.notify_all(); return observed; }
@@ -486,13 +531,20 @@ common::Result<WorkLease> DynamicFileQueue::claimIncoming(const WorkerContext& o
     lease.leaseId = leaseId;
     lease.owner = owner;
     lease.deadline = now + timeout;
-    if (!active_.emplace(activeKey(lease.file), Active{lease, timeout, scheduler_ != nullptr}).second)
+    if (!active_.emplace(activeKey(lease.file), Active{lease, timeout, false, false}).second)
         return common::Status::runtimeError("duplicate active work item");
     ++credits_[owner.workerId];
     leasesIssued_ = true;
     if (scheduler_) {
         const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
-        auto observed = scheduler_->linkManager().addInflightBytes(schedulerLinkId(lease.owner), bytes);
+        auto active = active_.find(activeKey(lease.file));
+        if (active == active_.end()) return mismatch();
+        auto observed = reserveLinkSetLease(active->second);
+        if (observed.isOk()) {
+            observed = scheduler_->linkManager().addInflightBytes(
+                schedulerLinkId(lease.owner), bytes);
+            if (observed.isOk()) active->second.schedulerInflight = true;
+        }
         if (observed.isOk()) observed = schedulerEvent(lease, "workitem_dispatch");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) {
@@ -581,11 +633,13 @@ common::Status DynamicFileQueue::commit(const WorkLease& lease, WorkClock::time_
         current.inflightFrames || current.inflightBytes) return mismatch();
     if (scheduler_ && found.value()->schedulerInflight) {
         const auto bytes = current.file.rangeId ? current.file.rangeLength : current.file.totalSize;
-        auto observed = scheduler_->linkManager().releaseInflightBytes(schedulerLinkId(current.owner), bytes);
+        auto observed = scheduler_->linkManager().releaseInflightBytes(
+            schedulerLinkId(current.owner), bytes);
+        if (observed.isOk()) found.value()->schedulerInflight = false;
+        if (observed.isOk()) observed = releaseLinkSetLease(*found.value());
         if (observed.isOk()) observed = schedulerEvent(current, "executor_complete");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) { status_ = observed; changed_.notify_all(); return observed; }
-        found.value()->schedulerInflight = false;
     }
     current.state = WorkLeaseState::Completed;
     --credits_[current.owner.workerId]; active_.erase(activeKey(lease.file));
@@ -602,7 +656,10 @@ common::Status DynamicFileQueue::reject(const WorkLease& lease) {
     if (state == WorkerState::Accepting) state = WorkerState::Draining;
     if (scheduler_ && found.value()->schedulerInflight) {
         const auto bytes = current.file.rangeId ? current.file.rangeLength : current.file.totalSize;
-        auto observed = scheduler_->linkManager().releaseInflightBytes(schedulerLinkId(current.owner), bytes);
+        auto observed = scheduler_->linkManager().releaseInflightBytes(
+            schedulerLinkId(current.owner), bytes);
+        if (observed.isOk()) found.value()->schedulerInflight = false;
+        if (observed.isOk()) observed = releaseLinkSetLease(*found.value());
         if (observed.isOk()) observed = schedulerEvent(current, "executor_failed");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) {
@@ -610,7 +667,14 @@ common::Status DynamicFileQueue::reject(const WorkLease& lease) {
             changed_.notify_all();
             return observed;
         }
-        found.value()->schedulerInflight = false;
+    }
+    if (scheduler_ && found.value()->linkSetReserved) {
+        auto observed = releaseLinkSetLease(*found.value());
+        if (!observed.isOk()) {
+            status_ = observed;
+            changed_.notify_all();
+            return observed;
+        }
     }
     changed_.notify_all();
     return common::Status::ok();
@@ -640,6 +704,8 @@ common::Status DynamicFileQueue::failTerminal(
         const auto bytes = current.file.rangeId ? current.file.rangeLength : current.file.totalSize;
         auto observed = scheduler_->linkManager().releaseInflightBytes(
             schedulerLinkId(current.owner), bytes);
+        if (observed.isOk()) active.schedulerInflight = false;
+        if (observed.isOk()) observed = releaseLinkSetLease(active);
         if (observed.isOk()) observed = schedulerEvent(current, "executor_failed");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) {
@@ -647,7 +713,14 @@ common::Status DynamicFileQueue::failTerminal(
             changed_.notify_all();
             return observed;
         }
-        active.schedulerInflight = false;
+    }
+    if (scheduler_ && active.linkSetReserved) {
+        auto observed = releaseLinkSetLease(active);
+        if (!observed.isOk()) {
+            status_ = observed;
+            changed_.notify_all();
+            return observed;
+        }
     }
 
     current.state = WorkLeaseState::Failed;
@@ -670,9 +743,11 @@ common::Status DynamicFileQueue::requeue(const WorkLease& lease, WorkClock::time
     if (scheduler_) {
         auto observed = common::Status::ok();
         if (found.value()->schedulerInflight) {
-            observed = scheduler_->linkManager().releaseInflightBytes(schedulerLinkId(current.owner), bytes);
+            observed = scheduler_->linkManager().releaseInflightBytes(
+                schedulerLinkId(current.owner), bytes);
             if (observed.isOk()) found.value()->schedulerInflight = false;
         }
+        if (observed.isOk()) observed = releaseLinkSetLease(*found.value());
         if (observed.isOk()) observed = scheduler_->linkManager().addReadyBytes(
             schedulerLinkId(current.owner), bytes);
         if (!observed.isOk()) {
@@ -823,6 +898,7 @@ common::Result<WorkerContext> DynamicFileQueue::recover(
                 schedulerLinkId(active.lease.owner), bytes);
             if (observed.isOk()) active.schedulerInflight = false;
         }
+        if (observed.isOk()) observed = releaseLinkSetLease(active);
         if (observed.isOk() && scheduler_ && retry) {
             observed = scheduler_->linkManager().addReadyBytes(
                 schedulerLinkId(active.lease.owner), bytes);
@@ -877,6 +953,16 @@ void DynamicFileQueue::cancel(const common::Status& reason) {
     std::lock_guard lock(mutex_);
     claimsStopped_ = true;
     if (status_.isOk()) status_ = reason.isOk() ? common::Status::runtimeError("dynamic queue cancelled") : reason;
+    for (auto& [key, active] : active_) {
+        (void)key;
+        if (scheduler_ && active.schedulerInflight) {
+            const auto bytes = active.lease.file.rangeId
+                ? active.lease.file.rangeLength : active.lease.file.totalSize;
+            (void)scheduler_->linkManager().releaseInflightBytes(
+                schedulerLinkId(active.lease.owner), bytes);
+        }
+        (void)releaseLinkSetLease(active);
+    }
     for (auto& item : ring_) item.reset();
     size_ = 0; retry_.clear(); active_.clear();
     std::fill(credits_.begin(), credits_.end(), 0);

@@ -954,3 +954,140 @@ TEST(DynamicFileQueueTest, GlobalSchedulerSelectsHealthyLogicalLaneAndPublishesR
     EXPECT_EQ(scheduler.linkSet().runtime("link1")->connectionEpoch,
               recovered.value().epoch.value);
 }
+TEST(DynamicFileQueueTest, GlobalSchedulerTracksLeaseLoadAndChoosesIdleLane) {
+    cpnetflux::core::scheduler::SchedulerConfig config;
+    config.taskId = "lane-load-accounting";
+    config.linkId = "link0";
+    config.capacityGbps = 100.0;
+    config.initialConnections = 2;
+    config.maxConnections = 2;
+    config.linkSetLinks = 2;
+    auto schedulerResult = cpnetflux::core::scheduler::GlobalScheduler::create(config);
+    ASSERT_TRUE(schedulerResult.isOk()) << schedulerResult.status().message();
+    auto scheduler = std::move(schedulerResult.value());
+
+    auto files = tasks(2);
+    for (auto& file : files) file.totalSize = 64;
+    DynamicFileQueue queue(files, 2, 1, 2, true, false,
+                           std::vector<std::string>{"link0", "link1"}, true);
+    ASSERT_TRUE(queue.attachScheduler(&scheduler).isOk());
+    auto laneZero = queue.worker(0);
+    auto laneOne = queue.worker(1);
+    ASSERT_TRUE(laneZero.isOk());
+    ASSERT_TRUE(laneOne.isOk());
+
+    auto first = queue.claim(laneZero.value());
+    ASSERT_TRUE(first.isOk()) << first.status().message();
+    ASSERT_TRUE(first.value());
+    EXPECT_EQ(first.value()->owner.linkId, "link0");
+    EXPECT_EQ(scheduler.linkSet().runtime("link0")->inflightBytes, 64U);
+
+    auto second = queue.claim(laneOne.value());
+    ASSERT_TRUE(second.isOk()) << second.status().message();
+    ASSERT_TRUE(second.value());
+    EXPECT_EQ(second.value()->owner.linkId, "link1");
+    EXPECT_EQ(scheduler.linkSet().runtime("link1")->inflightBytes, 64U);
+
+    for (const auto* lease : {&*first.value(), &*second.value()}) {
+        ASSERT_TRUE(queue.begin(*lease).isOk());
+        ASSERT_TRUE(queue.awaitResult(*lease).isOk());
+        ASSERT_TRUE(queue.commit(*lease).isOk());
+    }
+    EXPECT_EQ(scheduler.linkSet().runtime("link0")->inflightBytes, 0U);
+    EXPECT_EQ(scheduler.linkSet().runtime("link1")->inflightBytes, 0U);
+}
+TEST(DynamicFileQueueTest, DisconnectedLaneRetriesUnfinishedWorkOnHealthyLane) {
+    cpnetflux::core::scheduler::SchedulerConfig config;
+    config.taskId = "lane-failover";
+    config.linkId = "link0";
+    config.capacityGbps = 100.0;
+    config.initialConnections = 2;
+    config.maxConnections = 2;
+    config.linkSetLinks = 2;
+    auto schedulerResult = cpnetflux::core::scheduler::GlobalScheduler::create(config);
+    ASSERT_TRUE(schedulerResult.isOk()) << schedulerResult.status().message();
+    auto scheduler = std::move(schedulerResult.value());
+
+    DynamicFileQueue queue(tasks(3), 2, 1, 3, true, false,
+                           std::vector<std::string>{"link0", "link1"}, true);
+    ASSERT_TRUE(queue.attachScheduler(&scheduler).isOk());
+    const auto failedOwner = queue.worker(0).value();
+    const auto healthyOwner = queue.worker(1).value();
+
+    auto failed = queue.claim(failedOwner);
+    ASSERT_TRUE(failed.isOk());
+    ASSERT_TRUE(failed.value());
+    ASSERT_EQ(failed.value()->owner.linkId, "link0");
+    ASSERT_TRUE(queue.begin(*failed.value()).isOk());
+    ASSERT_TRUE(queue.startIo(*failed.value(), 8).isOk());
+
+    auto committed = queue.claim(healthyOwner);
+    ASSERT_TRUE(committed.isOk());
+    ASSERT_TRUE(committed.value());
+    ASSERT_EQ(committed.value()->owner.linkId, "link1");
+    ASSERT_TRUE(queue.begin(*committed.value()).isOk());
+    ASSERT_TRUE(queue.awaitResult(*committed.value()).isOk());
+    ASSERT_TRUE(queue.commit(*committed.value()).isOk());
+
+    ASSERT_TRUE(queue.disconnect(failedOwner).isOk());
+    EXPECT_FALSE(scheduler.linkSet().runtime("link0")->healthy);
+    ASSERT_TRUE(queue.requeue(*failed.value()).isOk());
+    EXPECT_EQ(scheduler.linkSet().runtime("link0")->inflightBytes, 0U);
+    EXPECT_FALSE(queue.commit(*failed.value()).isOk());
+
+    auto retry = queue.claim(healthyOwner);
+    ASSERT_TRUE(retry.isOk());
+    ASSERT_TRUE(retry.value());
+    EXPECT_EQ(retry.value()->owner.linkId, "link1");
+    EXPECT_EQ(retry.value()->file.fileId, failed.value()->file.fileId);
+    EXPECT_EQ(retry.value()->file.attempt, failed.value()->file.attempt + 1);
+    ASSERT_TRUE(queue.begin(*retry.value()).isOk());
+    ASSERT_TRUE(queue.awaitResult(*retry.value()).isOk());
+    ASSERT_TRUE(queue.commit(*retry.value()).isOk());
+
+    auto recovered = queue.recover(failedOwner, {});
+    ASSERT_TRUE(recovered.isOk()) << recovered.status().message();
+    EXPECT_EQ(recovered.value().epoch.value, failedOwner.epoch.value + 1);
+    EXPECT_TRUE(scheduler.linkSet().runtime("link0")->healthy);
+    EXPECT_EQ(scheduler.linkSet().runtime("link0")->connectionEpoch,
+              recovered.value().epoch.value);
+
+    auto final = queue.claim(recovered.value());
+    ASSERT_TRUE(final.isOk());
+    ASSERT_TRUE(final.value());
+    EXPECT_NE(final.value()->file.fileId, failed.value()->file.fileId);
+    ASSERT_TRUE(queue.begin(*final.value()).isOk());
+    ASSERT_TRUE(queue.awaitResult(*final.value()).isOk());
+    ASSERT_TRUE(queue.commit(*final.value()).isOk());
+    EXPECT_EQ(queue.outstanding(), 0U);
+}
+
+
+TEST(DynamicFileQueueTest, GlobalSchedulerCancellationReleasesLinkSetLeaseLoad) {
+    cpnetflux::core::scheduler::SchedulerConfig config;
+    config.taskId = "lane-cancel-accounting";
+    config.linkId = "link0";
+    config.capacityGbps = 100.0;
+    config.initialConnections = 2;
+    config.maxConnections = 2;
+    config.linkSetLinks = 2;
+    auto schedulerResult = cpnetflux::core::scheduler::GlobalScheduler::create(config);
+    ASSERT_TRUE(schedulerResult.isOk()) << schedulerResult.status().message();
+    auto scheduler = std::move(schedulerResult.value());
+
+    auto files = tasks(1);
+    files.front().totalSize = 64;
+    DynamicFileQueue queue(files, 2, 1, 1, true, false,
+                           std::vector<std::string>{"link0", "link1"}, true);
+    ASSERT_TRUE(queue.attachScheduler(&scheduler).isOk());
+    auto owner = queue.worker(0);
+    ASSERT_TRUE(owner.isOk());
+
+    auto lease = queue.claim(owner.value());
+    ASSERT_TRUE(lease.isOk());
+    ASSERT_TRUE(lease.value());
+    EXPECT_EQ(scheduler.linkSet().runtime("link0")->inflightBytes, 64U);
+
+    queue.cancel(cpnetflux::common::Status::runtimeError("test cancellation"));
+    EXPECT_EQ(scheduler.linkSet().runtime("link0")->inflightBytes, 0U);
+}

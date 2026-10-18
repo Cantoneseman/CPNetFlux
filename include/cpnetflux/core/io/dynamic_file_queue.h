@@ -73,9 +73,11 @@ class DynamicFileQueue {
     enum class WorkerState { Accepting, Draining, Disconnected };
     struct Worker { WorkerContext context; WorkerState state = WorkerState::Accepting; };
     struct Ready { WorkItem item; WorkClock::time_point admitted; };
-    struct Active { WorkLease lease; std::chrono::milliseconds timeout; bool schedulerInflight = false; };
+    struct Active { WorkLease lease; std::chrono::milliseconds timeout; bool schedulerInflight = false; bool linkSetReserved = false; };
     [[nodiscard]] bool matchesWorker(const WorkerContext&) const;
     [[nodiscard]] std::string schedulerLinkId(const WorkerContext&) const;
+    [[nodiscard]] common::Status reserveLinkSetLease(Active&);
+    [[nodiscard]] common::Status releaseLinkSetLease(Active&);
     [[nodiscard]] std::optional<std::size_t> preferredWorker(const WorkItem&) const;
     [[nodiscard]] common::Result<Active*> find(const WorkLease&);
     [[nodiscard]] common::Result<const Active*> find(const WorkLease&) const;
