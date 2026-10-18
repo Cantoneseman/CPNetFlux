@@ -58,8 +58,10 @@ files. The data channel, framed STOR/RETR protocol, checksum behavior, and
 resume semantics stay unchanged. JSON summaries now also record:
 
 - `control_reuse_mode`
-- `control_connect_count`
-- `control_reconnect_count`
+- `control_connect_count`: successful control-session connections, including lane-local reconnects.
+- `control_reconnect_count`: control sessions rebuilt by a whole-batch retry.
+- `lane_control_reconnect_count`: reconnect attempts for one failed persistent lane.
+- `lane_local_recovery_count`: retries confined to one persistent lane, whether its data connection alone or both lane connections failed.
 - `data_transfer_count`
 - `planner_preset`
 

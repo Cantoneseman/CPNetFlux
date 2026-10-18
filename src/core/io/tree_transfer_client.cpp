@@ -961,6 +961,7 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> compressedWireBytes{0};
     std::atomic<std::uint64_t> controlConnectCount{0};
     std::atomic<std::uint64_t> controlReconnectCount{0};
+    std::atomic<std::uint64_t> laneControlReconnectCount{0};
     std::atomic<std::uint64_t> dataTransferCount{0};
     std::atomic<std::uint64_t> laneLocalRecoveryCount{0};
     bool persistentData = false;
@@ -1351,7 +1352,8 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
            << config::controlReuseModeName(options.controlReuseMode) << "\",\n";
     output << "  \"control_connect_count\": " << stats.controlConnectCount.load() << ",\n";
     output << "  \"control_reconnect_count\": " << stats.controlReconnectCount.load() << ",\n";
-    output << "  \"lane_local_recovery_scope\": \"per_lane_data_session\",\n";
+    output << "  \"lane_control_reconnect_count\": " << stats.laneControlReconnectCount.load() << ",\n";
+    output << "  \"lane_local_recovery_scope\": \"per_lane_data_and_control_session\",\n";
     output << "  \"lane_local_recovery_count\": " << stats.laneLocalRecoveryCount.load() << ",\n";
     output << "  \"data_transfer_count\": " << stats.dataTransferCount.load() << ",\n";
     output << "  \"actual_transport\": \"v3\",\n";
@@ -2949,6 +2951,8 @@ common::Status runGlobalTreeScheduler(core::tree::TreeManifest* manifest,
         stats != nullptr ? stats->controlConnectCount.load() : 0;
     const std::uint64_t controlReconnectBase =
         stats != nullptr ? stats->controlReconnectCount.load() : 0;
+    const std::uint64_t laneControlReconnectBase =
+        stats != nullptr ? stats->laneControlReconnectCount.load() : 0;
     const std::uint64_t dataTransferBase =
         stats != nullptr ? stats->dataTransferCount.load() : 0;
     const std::uint64_t wireBase = stats != nullptr ? stats->wireBytes.load() : 0;
@@ -2975,6 +2979,8 @@ common::Status runGlobalTreeScheduler(core::tree::TreeManifest* manifest,
                                              state.stats.controlConnectCount.load());
             stats->controlReconnectCount.store(controlReconnectBase +
                                                state.stats.controlReconnectCount.load());
+            stats->laneControlReconnectCount.store(laneControlReconnectBase +
+                state.stats.laneControlReconnectCount.load());
             stats->dataTransferCount.store(dataTransferBase + state.stats.dataTransferCount.load());
             stats->phaseASecondsNs.store(state.stats.phaseASecondsNs.load());
             stats->phaseBSecondsNs.store(state.stats.phaseBSecondsNs.load());
@@ -3212,6 +3218,8 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
         stats != nullptr ? stats->controlConnectCount.load() : 0;
     const std::uint64_t controlReconnectBase =
         stats != nullptr ? stats->controlReconnectCount.load() : 0;
+    const std::uint64_t laneControlReconnectBase =
+        stats != nullptr ? stats->laneControlReconnectCount.load() : 0;
     const std::uint64_t dataTransferBase =
         stats != nullptr ? stats->dataTransferCount.load() : 0;
     const auto copyStats = [&]() {
@@ -3224,6 +3232,8 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
                                              state.stats.controlConnectCount.load());
             stats->controlReconnectCount.store(controlReconnectBase +
                                                state.stats.controlReconnectCount.load());
+            stats->laneControlReconnectCount.store(laneControlReconnectBase +
+                state.stats.laneControlReconnectCount.load());
             stats->dataTransferCount.store(dataTransferBase + state.stats.dataTransferCount.load());
             stats->phaseASecondsNs.store(state.stats.phaseASecondsNs.load());
             stats->phaseBSecondsNs.store(state.stats.phaseBSecondsNs.load());
@@ -3499,7 +3509,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         std::uint32_t totalFiles = kUnknownPersistentFileCount;
         std::uint32_t expectedFileCount = kUnknownPersistentFileCount;
         std::uint32_t dataConnectCount = 0, localRecoveryAttempts = 0;
-        double controlWaitSeconds = 0, prepareSeconds = 0, connectSeconds = 0, remoteQueueWait = 0, remoteScan = 0;
+        double controlWaitSeconds = 0, prepareSeconds = 0, reconnectControlPrepareSeconds = 0;
+        double connectSeconds = 0, remoteQueueWait = 0, remoteScan = 0;
         bool dataConnected = false;
         std::string linkId;
         std::size_t remoteQueueHigh = 0;
@@ -3870,7 +3881,29 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 if (controlStatus->isOk() && !(sawQueueHigh && sawQueueWait && sawScan))
                     *controlStatus = common::Status::runtimeError("dynamic server omitted directory telemetry");
             };
-            auto reconnectLane = [&]() -> common::Status {
+            auto reconnectLane = [&](bool reconnectControl) -> common::Status {
+                if (reconnectControl) {
+                    const auto controlPreparing = std::chrono::steady_clock::now();
+                    channel.control->reset();
+                    stats->laneControlReconnectCount.fetch_add(1);
+                    const auto connectedStatus = ensureControlReadyWithStats(
+                        channel.control, persistentOptions, stats);
+                    if (!connectedStatus.isOk()) return connectedStatus;
+                    std::uint32_t actualWindow = 1, actualChannels = 1;
+                    auto capability = channel.control->negotiatePersistent(
+                        dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
+                        options.dataTlsMode, &actualWindow, &actualChannels,
+                        options.dynamicFileScheduling, options.linkSetLinks,
+                        options.linkSetCapabilityBits);
+                    if (!capability.isOk()) return capability.status();
+                    if (!capability.value() || actualWindow != dispatchWindow ||
+                        actualChannels != channelCount) {
+                        return common::Status::runtimeError(
+                            "persistent lane control reconnect negotiation failed");
+                    }
+                    channel.reconnectControlPrepareSeconds += std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - controlPreparing).count();
+                }
                 auto port = channel.control->epsv();
                 if (!port.isOk()) return port.status();
                 const auto totalFiles = upload ? logicalFileCount : 0U;
@@ -3914,15 +3947,20 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 auto controlStatus = channel.control->waitTransferComplete({}, &terminal);
                 channel.controlWaitSeconds += std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - waiting).count();
-                const bool canRetry = options.dynamicFileScheduling &&
-                    transferStatus.code() == common::StatusCode::TransportError &&
-                    controlStatus.code() != common::StatusCode::TransportError &&
-                    laneAttempt < options.reconnectAttempts;
+                const bool transferCanResume = transferStatus.isOk() ||
+                    transferStatus.code() == common::StatusCode::TransportError;
+                const bool transportDisconnected =
+                    transferStatus.code() == common::StatusCode::TransportError ||
+                    controlStatus.code() == common::StatusCode::TransportError;
+                const bool canRetry = options.dynamicFileScheduling && transferCanResume &&
+                    transportDisconnected && laneAttempt < options.reconnectAttempts;
                 if (canRetry) {
                     ++laneAttempt;
                     channel.localRecoveryAttempts = laneAttempt;
                     stats->laneLocalRecoveryCount.fetch_add(1);
-                    auto reconnected = reconnectLane();
+                    const bool reconnectControl =
+                        controlStatus.code() == common::StatusCode::TransportError;
+                    auto reconnected = reconnectLane(reconnectControl);
                     if (!reconnected.isOk()) {
                         channel.status = reconnected;
                         recordTransferOutcome(channel.status);
@@ -3939,6 +3977,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         });
     }
     for (auto& worker : workers) worker.join();
+    for (const auto& channel : channels)
+        stats->controlPrepareSeconds += channel->reconnectControlPrepareSeconds;
 
     stats->persistentLaneIds.clear();
     for (std::uint32_t index = 0; index < options.linkSetLinks; ++index) {
@@ -4142,6 +4182,8 @@ common::Status runPipelinedTreeScheduler(core::tree::TreeManifest* manifest,
         stats->wireBytes.fetch_add(state.stats.wireBytes.load());
         stats->controlConnectCount.fetch_add(state.stats.controlConnectCount.load());
         stats->controlReconnectCount.fetch_add(state.stats.controlReconnectCount.load());
+        stats->laneControlReconnectCount.fetch_add(
+            state.stats.laneControlReconnectCount.load());
         stats->dataTransferCount.fetch_add(state.stats.dataTransferCount.load());
         stats->phaseASecondsNs.fetch_add(state.stats.phaseASecondsNs.load());
         stats->phaseBSecondsNs.fetch_add(state.stats.phaseBSecondsNs.load());

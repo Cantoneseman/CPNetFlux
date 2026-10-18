@@ -2,6 +2,7 @@
 """Transparent TCP relay with deterministic, lane-scoped data resets."""
 import argparse
 import json
+import re
 import socket
 import struct
 import threading
@@ -25,6 +26,7 @@ class FaultProxy:
         on_reset=None,
         drop_result=False,
         target_data_connection=None,
+        drop_control_after_data_connection=None,
     ):
         self.listeners = []
         self.connections = set()
@@ -42,8 +44,19 @@ class FaultProxy:
         self.forwarded_by_connection = {}
         self.log = Path(log) if log else None
         self.target_data_connection = target_data_connection
+        self.drop_control_after_data_connection = drop_control_after_data_connection
+        if self.target_data_connection is None and drop_control_after_data_connection is not None:
+            self.target_data_connection = drop_control_after_data_connection
         self.target_connection = None
         self.data_connection_count = 0
+        self.control_connection_count = 0
+        self.control_sockets = {}
+        self.data_port_control_connection = {}
+        self.data_connection_number = {}
+        self.data_connection_control = {}
+        self.control_lane_index = {}
+        self.control_batch_id = {}
+        self.control_reset_done = False
         self.next_connection = 1
 
         for port in [control_port, *range(data_base, data_base + count)]:
@@ -79,6 +92,9 @@ class FaultProxy:
                     target = False
                     if data:
                         self.data_connection_count += 1
+                        self.data_connection_number[connection_id] = self.data_connection_count
+                        control_connection = self.data_port_control_connection.get(port)
+                        self.data_connection_control[connection_id] = control_connection
                         target = (
                             self.target_data_connection is not None
                             and self.data_connection_count == self.target_data_connection
@@ -90,13 +106,24 @@ class FaultProxy:
                             connection=connection_id,
                             data_connection=self.data_connection_count,
                             data_port=port,
+                            control_connection=control_connection,
                             target=target,
                         )
+                    else:
+                        self.control_connection_count += 1
+                        self.control_sockets[connection_id] = (client, backend)
+                        self.event(
+                            event="control_connected",
+                            connection=connection_id,
+                            control_connection=self.control_connection_count,
+                        )
                     self.connections.update((client, backend))
-                for source, target_socket in ((client, backend), (backend, client)):
+                for source, target_socket, from_server in (
+                    (client, backend, False), (backend, client, True)
+                ):
                     thread = threading.Thread(
                         target=self.pump,
-                        args=(source, target_socket, data, connection_id, port),
+                        args=(source, target_socket, data, connection_id, port, from_server),
                         daemon=True,
                     )
                     self.threads.append(thread)
@@ -105,19 +132,54 @@ class FaultProxy:
                 if self.stopped.is_set():
                     return
 
-    def pump(self, source, target, data, connection_id, data_port):
+    def pump(self, source, target, data, connection_id, data_port, from_server):
         try:
             tail = b""
+            control_tail = b""
+            request_tail = b""
             while not self.stopped.is_set():
                 block = source.recv(4096)
                 if not block:
                     break
                 window = tail + block
                 tail = window[-9:]
+                if not data and from_server:
+                    control_window = control_tail + block
+                    control_tail = control_window[-256:]
+                    passive = re.search(rb"229[^\r\n]*\(\|\|\|(\d+)\|\)", control_window)
+                    if passive:
+                        passive_port = int(passive.group(1))
+                        with self.lock:
+                            self.data_port_control_connection[passive_port] = connection_id
+                            self.event(
+                                event="epsv_mapped",
+                                connection=connection_id,
+                                data_port=passive_port,
+                            )
+                elif not data:
+                    request_window = request_tail + block
+                    request_tail = request_window[-512:]
+                    directory = re.search(
+                        rb"XDIRD\s+(?:PUT|GET)\s+([A-Za-z0-9._-]+)\s+(\d+)\s+\d+\s+\d+",
+                        request_window,
+                    )
+                    if directory:
+                        batch_id = directory.group(1).decode("ascii")
+                        lane_index = int(directory.group(2))
+                        with self.lock:
+                            self.control_lane_index[connection_id] = lane_index
+                            self.control_batch_id[connection_id] = batch_id
+                            self.event(
+                                event="directory_channel_mapped",
+                                connection=connection_id,
+                                lane_index=lane_index,
+                                batch_id=batch_id,
+                            )
                 should_fault = data and (
                     self.target_data_connection is None
                     or connection_id == self.target_connection
                 )
+                reset_control_connection = None
                 if data or self.drop_terminal or self.drop_result:
                     reset = False
                     with self.lock:
@@ -127,11 +189,14 @@ class FaultProxy:
                                 self.forwarded_by_connection[connection_id] = (
                                     self.forwarded_by_connection.get(connection_id, 0) + len(block)
                                 )
-                        triggered = (
-                            should_fault
+                        forwarded = self.forwarded_by_connection.get(connection_id, 0)
+                        data_triggered = (
+                            self.drop_control_after_data_connection is None
+                            and should_fault
                             and self.drop_bytes
-                            and self.forwarded_by_connection.get(connection_id, 0) >= self.drop_bytes
-                        ) or (
+                            and forwarded >= self.drop_bytes
+                        )
+                        triggered = data_triggered or (
                             self.drop_terminal
                             and not data
                             and b"226 " in block
@@ -151,6 +216,28 @@ class FaultProxy:
                                 data_port=data_port,
                                 target=should_fault,
                             )
+                        data_number = self.data_connection_number.get(connection_id)
+                        mapped_control = self.data_connection_control.get(connection_id)
+                        if (
+                            data
+                            and not self.control_reset_done
+                            and self.drop_control_after_data_connection == data_number
+                            and mapped_control is not None
+                            and forwarded >= self.drop_bytes
+                        ):
+                            self.control_reset_done = True
+                            reset_control_connection = mapped_control
+                            self.event(
+                                event="reset",
+                                scope="control",
+                                connection=mapped_control,
+                                control_connection=mapped_control,
+                                lane_index=self.control_lane_index.get(mapped_control),
+                                batch_id=self.control_batch_id.get(mapped_control),
+                                trigger_data_connection=data_number,
+                                data_port=data_port,
+                                target=True,
+                            )
                     if reset:
                         if self.on_reset:
                             self.on_reset()
@@ -168,6 +255,19 @@ class FaultProxy:
                     if data and self.delay:
                         time.sleep(self.delay)
                 target.sendall(block)
+                if reset_control_connection is not None:
+                    with self.lock:
+                        control_sockets = self.control_sockets.get(reset_control_connection, ())
+                    for sock in control_sockets:
+                        try:
+                            sock.setsockopt(
+                                socket.SOL_SOCKET,
+                                socket.SO_LINGER,
+                                struct.pack("ii", 1, 0),
+                            )
+                            sock.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass
         except OSError:
             pass
         finally:
@@ -183,6 +283,8 @@ class FaultProxy:
             with self.lock:
                 self.connections.discard(source)
                 self.connections.discard(target)
+                if not data:
+                    self.control_sockets.pop(connection_id, None)
 
     def close(self):
         self.stopped.set()
@@ -212,6 +314,7 @@ if __name__ == "__main__":
     parser.add_argument("--delay", type=float, default=0.001)
     parser.add_argument("--drops", type=int, default=1)
     parser.add_argument("--target-data-connection", type=int)
+    parser.add_argument("--drop-control-after-data-connection", type=int)
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
     proxy = FaultProxy(
@@ -225,6 +328,7 @@ if __name__ == "__main__":
         delay=args.delay,
         log=args.log,
         target_data_connection=args.target_data_connection,
+        drop_control_after_data_connection=args.drop_control_after_data_connection,
     )
     try:
         while True:

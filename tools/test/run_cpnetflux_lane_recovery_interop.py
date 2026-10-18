@@ -21,7 +21,7 @@ SHANGHAI_PUBLIC = "47.116.174.181"
 SHENZHEN_BIND = "192.168.10.22"
 SHANGHAI_BIND = "192.168.10.138"
 REMOTE_ALIAS = "gridflux-beta-shanghai"
-REMOTE_ROOT = Path("/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01")
+REMOTE_ROOT = Path("/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-01")
 
 
 def run_process(command: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
@@ -162,8 +162,9 @@ def parse_proxy_log(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str, remote_bin: Path) -> dict:
-    case = root / f"{server_side}-{transfer}"
+def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
+             fault_kind: str, remote_bin: Path) -> dict:
+    case = root / f"{server_side}-{transfer}-{fault_kind}"
     case.mkdir()
     source = case / "source"
     expected = make_dataset(source)
@@ -205,6 +206,10 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str, re
                 str(remote_log),
             )
             time.sleep(0.4)
+            fault_args = (
+                ["--drop-control-after-data-connection", "2"]
+                if fault_kind == "control" else ["--target-data-connection", "2"]
+            )
             remote_proxy_pid = remote_start(
                 server_alias,
                 [
@@ -217,7 +222,7 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str, re
                     "--delay", "0.0001",
                     "--drop-bytes", str(32768),
                     "--drops", "1",
-                    "--target-data-connection", "2",
+                    *fault_args,
                     "--log", str(remote_proxy_log),
                 ],
                 str(remote_case / "proxy.log"),
@@ -228,10 +233,13 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str, re
             handle = local_server_log.open("w", encoding="utf-8")
             local_server = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT)
             handle.close()
+            fault_options = {"drop_control_after_data_connection": 2} if fault_kind == "control" else {
+                "target_data_connection": 2
+            }
             local_proxy = FaultProxy(
                 SHENZHEN_BIND, "127.0.0.1", control_port, data_base,
                 count=8, drop_bytes=32768, drops=1, delay=0.0001,
-                log=case / "proxy.jsonl", target_data_connection=2,
+                log=case / "proxy.jsonl", **fault_options,
             )
 
         wait_for_tcp(server_host if server_alias else SHENZHEN_BIND, control_port)
@@ -283,8 +291,31 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str, re
         resets = [event for event in proxy_events if event.get("event") == "reset"]
         assert actual == expected, (actual, expected)
         assert len(resets) == 1 and resets[0].get("target") is True, resets
+        assert resets[0].get("scope", "data") == fault_kind, resets
         assert summary["lane_local_recovery_count"] == 1, summary
         assert summary["control_reconnect_count"] == 0, summary
+        if fault_kind == "control":
+            assert summary["lane_control_reconnect_count"] == 1, summary
+            assert summary["reconnect_attempts"] == 0, summary
+            assert summary["control_connect_count"] == 3, summary
+            failed_lane = resets[0].get("lane_index")
+            assert failed_lane in (0, 1), resets
+            healthy_timings = [
+                item for item in summary["file_timings"]
+                if item["channel_index"] != failed_lane
+            ]
+            assert healthy_timings and all(item["attempt"] == 0 for item in healthy_timings), summary
+            lane_events = [event for event in proxy_events
+                           if event.get("event") == "directory_channel_mapped"]
+            failed_lane_events = [event for event in lane_events
+                                  if event.get("lane_index") == failed_lane]
+            healthy_lane_events = [event for event in lane_events
+                                   if event.get("lane_index") != failed_lane]
+            assert len(failed_lane_events) == 2, lane_events
+            assert len({event.get("batch_id") for event in failed_lane_events}) == 1, lane_events
+            assert len(healthy_lane_events) == 1, lane_events
+        else:
+            assert summary["lane_control_reconnect_count"] == 0, summary
         assert summary["data_connect_count"] == 3, summary
         ranges = summary["persistent_lane_range_completed"]
         assert len(ranges) == 2 and all(value > 0 for value in ranges), summary
@@ -292,6 +323,7 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str, re
             "case": case.name,
             "server_side": server_side,
             "transfer": transfer,
+            "fault_kind": fault_kind,
             "seconds": time.monotonic() - started,
             "expected": expected,
             "actual": actual,
@@ -315,7 +347,8 @@ def main() -> int:
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--server-side", choices=("shanghai", "shenzhen", "both"), default="both",
                         help="run only one server side while diagnosing, or both for acceptance")
-    parser.add_argument("--remote-bin", type=Path, default=Path("/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/bin"))
+    parser.add_argument("--fault-kind", choices=("data", "control"), default="data")
+    parser.add_argument("--remote-bin", type=Path, default=Path("/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-01/bin"))
     args = parser.parse_args()
     args.evidence_dir.mkdir(parents=True, exist_ok=True)
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"-{time.time_ns()}"
@@ -328,7 +361,8 @@ def main() -> int:
     server_sides = ("shanghai", "shenzhen") if args.server_side == "both" else (args.server_side,)
     for server_side in server_sides:
         records.append(run_case(args.build_dir, root, server_side=server_side,
-                                transfer="upload", remote_bin=args.remote_bin))
+                                transfer="upload", fault_kind=args.fault_kind,
+                                remote_bin=args.remote_bin))
     input_commit = os.environ.get("CPNETFLUX_INPUT_COMMIT")
     if not input_commit:
         revision = subprocess.run(

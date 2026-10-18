@@ -445,6 +445,14 @@ if(CPNETFLUX_BUILD_TESTS)
                 --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-recovery-interop-evidence
         )
         set_tests_properties(cpnetflux_lane_recovery_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_control_recovery_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-control-recovery-interop-evidence
+                --fault-kind control
+        )
+        set_tests_properties(cpnetflux_lane_control_recovery_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
     endif()
     add_test(
         NAME cpnetflux_tree_download_smoke
