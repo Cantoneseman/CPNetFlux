@@ -83,10 +83,11 @@
 - 边界：已验证 plain TCP 跨云上传控制连接故障；下载控制连接故障、TLS/生产认证互操作、物理 NIC/local bind/不同物理路径、吞吐和生产 readiness 尚未由本阶段证明。
 - 下一阶段：`V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01`，双向验证下载控制连接故障下的 batch/lane 续传、检查点不重复写入、健康 lane 保持和最终 SHA 一致。
 
-## 2026-10-19 V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01 开发计划
+## 2026-10-19 V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01 当前交付
 
-- 状态：in_progress；输入提交 `0f9bf8a28f9df2cfb0567bea998b5a930f9a8732`；隔离 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-control-recovery-download-01`，分支 `codex/V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01`。
-- 实际问题：上一阶段只验证了上传方向；下载端还需要证明控制连接断开后，已写入 range 不重复、剩余 range 能续传，健康 lane 不重做。
-- 本阶段目标：双向跨云运行 download control reset，验证 batch/lane 身份、检查点、文件/range 统计和最终树 SHA；只有测试暴露下载专用状态缺口时才修改生产恢复状态机。
-- 排除：物理 NIC/local bind/不同物理路径、TLS/生产认证互操作、吞吐和 production readiness。
-- 实验根目录：`/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01`；实验前复核两端资源和端口，保留既有服务。
+- 状态：done；输入提交 `0f9bf8a28f9df2cfb0567bea998b5a930f9a8732`；隔离 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-control-recovery-download-01`，分支 `codex/V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01`。
+- 实际解决：补齐下载方向的控制连接故障验收；runner 现在清理远端旧 manifest、从实际下载客户端回收结果，并以独立 CTest 双向验证，不再把旧清单或错误路径误报成传输失败。
+- 提交：规划文档 `3d1977ea5b3b642c68fd6e75c5d7e81f259653cd`；实现 `e8e3985925c5f8c1f494617fc3dd1da9d3dbf741`；均已推送到 origin，并由 `git ls-remote` 回读相同 SHA。
+- 验收：下载控制恢复 CTest 1/1、上传控制恢复回归 1/1、完整单元 342/342；深圳↔上海双向下载均得到树 SHA `5816ca45fdc866157f2c8c9d0097009af11a3132eee66cd2fcdd745ab696c092`，`lane_local_recovery_count=1`、`lane_control_reconnect_count=1`、`control_reconnect_count=0`、`reconnect_attempts=0`、`control_connect_count=3`、`data_connect_count=3`。矩阵见 `/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01/build/cpnetflux-lane-control-recovery-download-interop-evidence/20261018T174234Z-1792345354963629285/matrix.json`。
+- 边界：本阶段未改生产状态机；TLS/生产认证互操作、物理 NIC/local bind/不同物理路径、吞吐和 production readiness 仍未证明。
+- 下一阶段：`V3-LANE-RECOVERY-BUDGET-01`，统一 lane-local 与整批恢复的 `--reconnect-attempts` 总预算，先用连续故障注入建立红测，再实现有界计数和明确耗尽原因。
