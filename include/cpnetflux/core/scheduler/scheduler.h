@@ -21,6 +21,8 @@ struct SchedulerConfig {
     std::string remoteHost;
     std::string dataPortRange;
     std::string localBindAddr;
+    // Logical lane count. Physical endpoint binding is configured in a later slice.
+    std::uint32_t linkSetLinks = 1;
     double capacityGbps = 0.01;
     SchedulerPolicy policy = SchedulerPolicy::Fixed;
     std::uint32_t initialConnections = 1;

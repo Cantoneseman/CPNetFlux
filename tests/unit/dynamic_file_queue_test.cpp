@@ -908,3 +908,49 @@ TEST(DynamicFileQueueTest, RangeAffinityAssignsDistinctLaneIds) {
     EXPECT_EQ(secondLease.value()->file.rangeId, 2U);
     EXPECT_EQ(secondLease.value()->owner.linkId, "link1");
 }
+TEST(DynamicFileQueueTest, GlobalSchedulerSelectsHealthyLogicalLaneAndPublishesRecovery) {
+    cpnetflux::core::scheduler::SchedulerConfig config;
+    config.taskId = "flowcut-queue";
+    config.linkId = "link0";
+    config.capacityGbps = 100.0;
+    config.initialConnections = 2;
+    config.maxConnections = 2;
+    config.linkSetLinks = 2;
+    auto schedulerResult = cpnetflux::core::scheduler::GlobalScheduler::create(config);
+    ASSERT_TRUE(schedulerResult.isOk()) << schedulerResult.status().message();
+    auto scheduler = std::move(schedulerResult.value());
+
+    auto fileSet = tasks(1);
+    fileSet[0].rangeId = 1;
+    fileSet[0].rangeOffset = 0;
+    fileSet[0].rangeLength = fileSet[0].totalSize;
+    fileSet[0].rangeCount = 1;
+    DynamicFileQueue queue(fileSet, 2, 1, 2, true, false,
+                           std::vector<std::string>{"link0", "link1"}, true);
+    ASSERT_TRUE(queue.attachScheduler(&scheduler).isOk());
+    ASSERT_TRUE(scheduler.linkSet().setRuntime("link0", 1000, 10, 100).isOk());
+    ASSERT_TRUE(scheduler.linkSet().setRuntime("link1", 1, 10, 100).isOk());
+
+    auto laneOne = queue.worker(1);
+    ASSERT_TRUE(laneOne.isOk());
+    auto lease = queue.claim(laneOne.value());
+    ASSERT_TRUE(lease.isOk()) << lease.status().message();
+    ASSERT_TRUE(lease.value());
+    EXPECT_EQ(lease.value()->owner.linkId, "link1");
+    ASSERT_TRUE(queue.begin(*lease.value()).isOk());
+    ASSERT_TRUE(queue.awaitResult(*lease.value()).isOk());
+    ASSERT_TRUE(queue.commit(*lease.value()).isOk());
+
+    ASSERT_TRUE(queue.requestDrain(laneOne.value()).isOk());
+    EXPECT_TRUE(scheduler.linkSet().runtime("link1")->draining);
+    ASSERT_TRUE(queue.disconnect(laneOne.value()).isOk());
+    EXPECT_FALSE(scheduler.linkSet().runtime("link1")->healthy);
+
+    auto recovered = queue.recover(laneOne.value(), {});
+    ASSERT_TRUE(recovered.isOk()) << recovered.status().message();
+    EXPECT_EQ(recovered.value().epoch.value, laneOne.value().epoch.value + 1);
+    EXPECT_TRUE(scheduler.linkSet().runtime("link1")->healthy);
+    EXPECT_FALSE(scheduler.linkSet().runtime("link1")->draining);
+    EXPECT_EQ(scheduler.linkSet().runtime("link1")->connectionEpoch,
+              recovered.value().epoch.value);
+}

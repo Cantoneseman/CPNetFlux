@@ -178,3 +178,15 @@ python -B -m unittest tools.experiments.gridftp_compare.test_gridftp_compare too
 - 云端实测：资源复核显示深圳 / 可用 66 GiB、可用内存 2.5 GiB，上海 / 可用 81 GiB、可用内存 2.8 GiB，均为 2 CPU；任务端口在启动前确认空闲。深圳→上海和上海→深圳各传 80 MiB，均 `result=pass`、`data_connect_count=2`、accepted links=2、lane IDs=[link0,link1]、range completions=[2,2]。两方向源/目的 SHA-256 分别为 `b7e162d1c71e675c00834092a22150b1506a7d70837ec7e3d2b88ea8cbe8cd79` 与 `ac20c938f665a81df00c80b06d3169125ce07efa2694139024e425df2e20f5b5`；摘要位于两端 `/tmp/cpnetflux-runs/V3-MULTILINK-RANGE-01-cross/logs/upload-{shenzhen,shanghai}.json`，manifest 均为 `completed_ranges=0-83886080`。
 - 证据边界：当前证明的是两个独立 TCP data session、逻辑 lane/range 亲和和端到端完整性，不是不同物理 NIC/交换路径或性能提升。首次反向尝试使用被过滤端口超时，改用已验证可达的任务端口后通过；临时服务和端口已回收。
 - 下一步：V3-FLOWCUT-01 / 剩余 V3-MULTILINK-RANGE，解决 endpoint/local-bind/path identity、global scheduler 的 LinkSet adapter、weighted runtime selection、lane drain/cut、失败 lane reclaim、stale/duplicate epoch 证据，并运行 1/2/4/8/10-link 双向矩阵后再评估稳定性和性能。
+
+## 2026-10-18 V3-FLOWCUT-01 GlobalScheduler/LinkSet 接入回执
+
+状态：done。输入 46b3bb70bb5acbeeec4f04bd757b15b89d9f2b64；实现分支 codex/V3-FLOWCUT-01，worktree /root/projects/CPNetFlux-worktrees/v3-multilink-range-01。
+
+- 实际解决：persistent tree 原先拒绝 global scheduler + LINKS>1；现在 GlobalScheduler 可创建 N 条逻辑 lane，DynamicFileQueue 由 LinkSet 按健康/负载和范围亲和选择 lane；drain、disconnect、recover 与 connection epoch 更新同步到 LinkSet。
+- 另补等负载范围稳定破平局，避免所有 claim 都落在 link0。单链路仍为默认兼容。
+- 验收：全量 CMake 构建成功；337 个单元测试 336 通过、1 个 io_uring 条件跳过；CTest 378/378，0 失败、1 跳过。日志位于 /tmp/cpnetflux-runs/V3-FLOWCUT-01-build-final.log、V3-FLOWCUT-01-unit-final.log、V3-FLOWCUT-01-ctest-final.log。
+- 深圳→上海与上海→深圳各完成 80 MiB persistent_tree/global/2-link 传输；双方摘要均 LINKS requested/accepted=2/2、逐 lane range=[2,2]，源/目的 SHA-256 一致。云端日志 JSON 位于两端 /tmp/cpnetflux-runs/V3-FLOWCUT-01-cross/logs/。
+- 临时 CPNetFlux 服务、进程及测试端口在两台服务器已停止并核实为空闲。
+- 边界：这是逻辑 lane/调度的端到端验证，不证明不同物理 NIC/路径或物理吞吐提升。
+- 下一步 V3-LANE-FAILOVER-01：补足单 lane 失效后 unfinished range 定向回收、健康 lane 接管、旧 epoch 迟到结果拒绝，以及恢复 lane 递增 epoch 重新加入；通过可控 lane 断连在云端双向复验。用户要求把物理网卡/不同物理链路配置验证留在代码侧工作完成后。

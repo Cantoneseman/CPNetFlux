@@ -175,6 +175,14 @@ common::Status DynamicFileQueue::attachScheduler(scheduler::GlobalScheduler* sch
     if (!status_.isOk()) return status_;
     if (!scheduler || scheduler_ || leasesIssued_ || scheduler->config().maxConnections > workers_.size())
         return mismatch();
+    if (rangeAffinity_) {
+        for (const auto& worker : workers_) {
+            if (scheduler->linkSet().profile(worker.context.linkId) == nullptr) {
+                return common::Status::invalidArgument(
+                    "scheduler LinkSet does not expose queue worker lane: " + worker.context.linkId);
+            }
+        }
+    }
     scheduler_ = scheduler;
     workerLimit_ = scheduler->config().initialConnections;
     readyBytes_ = 0;
@@ -189,8 +197,16 @@ common::Status DynamicFileQueue::attachScheduler(scheduler::GlobalScheduler* sch
         const auto& file = ready->item.file;
         readyBytes_ += file.rangeId ? file.rangeLength : file.totalSize;
     }
-    for (auto& worker : workers_) worker.context.linkId = scheduler->config().linkId;
+    if (!rangeAffinity_ && scheduler->linkSet().size() == 1) {
+        for (auto& worker : workers_) worker.context.linkId = scheduler->config().linkId;
+    }
     return scheduler_->linkManager().setReadyBytes(scheduler_->config().linkId, readyBytes_);
+}
+std::string DynamicFileQueue::schedulerLinkId(const WorkerContext& owner) const {
+    if (scheduler_ != nullptr && scheduler_->linkManager().link(owner.linkId) != nullptr) {
+        return owner.linkId;
+    }
+    return scheduler_ == nullptr ? owner.linkId : scheduler_->config().linkId;
 }
 common::Status DynamicFileQueue::setConnectionEpoch(ConnectionEpoch epoch) {
     std::lock_guard lock(mutex_);
@@ -256,6 +272,20 @@ bool DynamicFileQueue::matchesWorker(const WorkerContext& worker) const {
 }
 std::optional<std::size_t> DynamicFileQueue::preferredWorker(const WorkItem& item) const {
     if (!rangeAffinity_ || workers_.empty()) return std::nullopt;
+    if (scheduler_ != nullptr) {
+        scheduler::WorkItem projection;
+        projection.taskId = item.taskId;
+        projection.fileId = item.file.transferId;
+        projection.relativePath = item.file.relativePath;
+        projection.offset = item.file.rangeId ? item.file.rangeOffset : 0;
+        projection.length = item.file.rangeId ? item.file.rangeLength : item.file.totalSize;
+        auto chosen = scheduler_->linkSet().choose(projection);
+        if (chosen.isOk()) {
+            for (std::size_t index = 0; index < workers_.size(); ++index) {
+                if (workers_[index].context.linkId == chosen.value()) return index;
+            }
+        }
+    }
     const auto key = item.file.rangeId != 0 ? item.file.rangeId - 1 : item.file.fileId - 1;
     return static_cast<std::size_t>(key % workers_.size());
 }
@@ -388,7 +418,7 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
         if (scheduler_) {
             const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
             readyBytes_ -= bytes;
-            auto observed = scheduler_->linkManager().addInflightBytes(scheduler_->config().linkId, bytes);
+            auto observed = scheduler_->linkManager().addInflightBytes(schedulerLinkId(lease.owner), bytes);
             if (observed.isOk()) observed = schedulerEvent(lease, "workitem_dispatch");
             if (observed.isOk()) observed = schedulerFeedback();
             if (!observed.isOk()) {
@@ -416,7 +446,7 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
     if (scheduler_) {
         const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
         readyBytes_ -= bytes;
-        auto observed = scheduler_->linkManager().addInflightBytes(scheduler_->config().linkId, bytes);
+        auto observed = scheduler_->linkManager().addInflightBytes(schedulerLinkId(lease.owner), bytes);
         if (observed.isOk()) observed = schedulerEvent(lease, "workitem_dispatch");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) { status_ = observed; changed_.notify_all(); return observed; }
@@ -462,7 +492,7 @@ common::Result<WorkLease> DynamicFileQueue::claimIncoming(const WorkerContext& o
     leasesIssued_ = true;
     if (scheduler_) {
         const auto bytes = lease.file.rangeId ? lease.file.rangeLength : lease.file.totalSize;
-        auto observed = scheduler_->linkManager().addInflightBytes(scheduler_->config().linkId, bytes);
+        auto observed = scheduler_->linkManager().addInflightBytes(schedulerLinkId(lease.owner), bytes);
         if (observed.isOk()) observed = schedulerEvent(lease, "workitem_dispatch");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) {
@@ -551,7 +581,7 @@ common::Status DynamicFileQueue::commit(const WorkLease& lease, WorkClock::time_
         current.inflightFrames || current.inflightBytes) return mismatch();
     if (scheduler_ && found.value()->schedulerInflight) {
         const auto bytes = current.file.rangeId ? current.file.rangeLength : current.file.totalSize;
-        auto observed = scheduler_->linkManager().releaseInflightBytes(scheduler_->config().linkId, bytes);
+        auto observed = scheduler_->linkManager().releaseInflightBytes(schedulerLinkId(current.owner), bytes);
         if (observed.isOk()) observed = schedulerEvent(current, "executor_complete");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) { status_ = observed; changed_.notify_all(); return observed; }
@@ -572,7 +602,7 @@ common::Status DynamicFileQueue::reject(const WorkLease& lease) {
     if (state == WorkerState::Accepting) state = WorkerState::Draining;
     if (scheduler_ && found.value()->schedulerInflight) {
         const auto bytes = current.file.rangeId ? current.file.rangeLength : current.file.totalSize;
-        auto observed = scheduler_->linkManager().releaseInflightBytes(scheduler_->config().linkId, bytes);
+        auto observed = scheduler_->linkManager().releaseInflightBytes(schedulerLinkId(current.owner), bytes);
         if (observed.isOk()) observed = schedulerEvent(current, "executor_failed");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) {
@@ -609,7 +639,7 @@ common::Status DynamicFileQueue::failTerminal(
     if (scheduler_ && active.schedulerInflight) {
         const auto bytes = current.file.rangeId ? current.file.rangeLength : current.file.totalSize;
         auto observed = scheduler_->linkManager().releaseInflightBytes(
-            scheduler_->config().linkId, bytes);
+            schedulerLinkId(current.owner), bytes);
         if (observed.isOk()) observed = schedulerEvent(current, "executor_failed");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) {
@@ -640,18 +670,18 @@ common::Status DynamicFileQueue::requeue(const WorkLease& lease, WorkClock::time
     if (scheduler_) {
         auto observed = common::Status::ok();
         if (found.value()->schedulerInflight) {
-            observed = scheduler_->linkManager().releaseInflightBytes(scheduler_->config().linkId, bytes);
+            observed = scheduler_->linkManager().releaseInflightBytes(schedulerLinkId(current.owner), bytes);
             if (observed.isOk()) found.value()->schedulerInflight = false;
         }
         if (observed.isOk()) observed = scheduler_->linkManager().addReadyBytes(
-            scheduler_->config().linkId, bytes);
+            schedulerLinkId(current.owner), bytes);
         if (!observed.isOk()) {
             status_ = observed;
             changed_.notify_all();
             return observed;
         }
         readyBytes_ += bytes;
-        observed = scheduler_->linkManager().addRetryCount(scheduler_->config().linkId, 1);
+        observed = scheduler_->linkManager().addRetryCount(schedulerLinkId(current.owner), 1);
         if (observed.isOk()) observed = schedulerEvent(current, "workitem_retry");
         if (observed.isOk()) observed = schedulerFeedback();
         if (!observed.isOk()) {
@@ -690,6 +720,10 @@ common::Status DynamicFileQueue::requestDrain(const WorkerContext& owner) {
     if (!status_.isOk()) return status_;
     if (!matchesWorker(owner) || workers_[owner.workerId].state == WorkerState::Disconnected) return mismatch();
     workers_[owner.workerId].state = WorkerState::Draining;
+    if (scheduler_) {
+        auto observed = scheduler_->linkSet().setDraining(owner.linkId, true);
+        if (!observed.isOk()) return observed;
+    }
     changed_.notify_all();
     return common::Status::ok();
 }
@@ -698,6 +732,11 @@ common::Status DynamicFileQueue::disconnect(const WorkerContext& owner) {
     if (!status_.isOk()) return status_;
     if (!matchesWorker(owner)) return mismatch();
     workers_[owner.workerId].state = WorkerState::Disconnected;
+    if (scheduler_) {
+        auto observed = scheduler_->linkSet().setHealthy(owner.linkId, false);
+        if (observed.isOk()) observed = scheduler_->linkSet().setDraining(owner.linkId, true);
+        if (!observed.isOk()) return observed;
+    }
     for (auto& [key, active] : active_) {
         if (active.lease.owner != owner) continue;
         active.lease.state = WorkLeaseState::Reclaimable;
@@ -721,6 +760,15 @@ common::Result<WorkerContext> DynamicFileQueue::reopen(const WorkerContext& owne
     auto& worker = workers_[owner.workerId];
     ++worker.context.epoch.value;
     worker.state = WorkerState::Accepting;
+    if (scheduler_) {
+        auto observed = scheduler_->linkSet().setConnectionEpoch(
+            worker.context.linkId, worker.context.epoch.value);
+        if (observed.isOk()) observed = scheduler_->linkSet().setHealthy(
+            worker.context.linkId, true);
+        if (observed.isOk()) observed = scheduler_->linkSet().setDraining(
+            worker.context.linkId, false);
+        if (!observed.isOk()) return observed;
+    }
     changed_.notify_all();
     return worker.context;
 }
@@ -772,15 +820,15 @@ common::Result<WorkerContext> DynamicFileQueue::recover(
         auto observed = common::Status::ok();
         if (scheduler_ && active.schedulerInflight) {
             observed = scheduler_->linkManager().releaseInflightBytes(
-                scheduler_->config().linkId, bytes);
+                schedulerLinkId(active.lease.owner), bytes);
             if (observed.isOk()) active.schedulerInflight = false;
         }
         if (observed.isOk() && scheduler_ && retry) {
             observed = scheduler_->linkManager().addReadyBytes(
-                scheduler_->config().linkId, bytes);
+                schedulerLinkId(active.lease.owner), bytes);
             if (observed.isOk()) readyBytes_ += bytes;
             if (observed.isOk()) observed = scheduler_->linkManager().addRetryCount(
-                scheduler_->config().linkId, 1);
+                schedulerLinkId(active.lease.owner), 1);
         }
         if (observed.isOk()) observed = schedulerEvent(active.lease,
             retry ? "workitem_retry" : "workitem_reconciled");
@@ -808,6 +856,19 @@ common::Result<WorkerContext> DynamicFileQueue::recover(
     auto& worker = workers_[owner.workerId];
     ++worker.context.epoch.value;
     worker.state = WorkerState::Accepting;
+    if (scheduler_) {
+        auto linkStatus = scheduler_->linkSet().setConnectionEpoch(
+            worker.context.linkId, worker.context.epoch.value);
+        if (linkStatus.isOk()) linkStatus = scheduler_->linkSet().setHealthy(
+            worker.context.linkId, true);
+        if (linkStatus.isOk()) linkStatus = scheduler_->linkSet().setDraining(
+            worker.context.linkId, false);
+        if (!linkStatus.isOk()) {
+            status_ = linkStatus;
+            changed_.notify_all();
+            return linkStatus;
+        }
+    }
     changed_.notify_all();
     return worker.context;
 }

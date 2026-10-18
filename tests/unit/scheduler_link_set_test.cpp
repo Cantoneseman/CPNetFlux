@@ -153,6 +153,22 @@ TEST(SchedulerLinkSetTest, ChoosesLeastLoadedHealthyLinkDeterministically) {
     EXPECT_FALSE(set.choose(item).isOk());
 }
 
+TEST(SchedulerLinkSetTest, UsesRangeAffinityToBreakEqualLoadTies) {
+    LinkSet set;
+    ASSERT_TRUE(set.add(profile("link0")).isOk());
+    ASSERT_TRUE(set.add(profile("link1")).isOk());
+
+    WorkItem first;
+    first.offset = 0;
+    first.length = 100;
+    EXPECT_EQ(set.choose(first).value(), "link0");
+
+    WorkItem second;
+    second.offset = 100;
+    second.length = 100;
+    EXPECT_EQ(set.choose(second).value(), "link1");
+}
+
 TEST(SchedulerLinkSetTest, ReservesAndReleasesBytesExactlyOnce) {
     LinkSet set;
     auto p = profile("link0");
@@ -183,4 +199,20 @@ TEST(SchedulerLinkSetTest, GlobalSchedulerExposesSingleLinkCompatibilityView) {
     EXPECT_EQ(scheduler.value().linkSet().size(), 1U);
     ASSERT_NE(scheduler.value().linkSet().profile("link0"), nullptr);
     EXPECT_DOUBLE_EQ(scheduler.value().linkSet().profile("link0")->capacityGbps, 100.0);
+}
+TEST(SchedulerLinkSetTest, GlobalSchedulerBuildsLogicalLinkSet) {
+    SchedulerConfig config;
+    config.taskId = "logical-linkset";
+    config.linkId = "link0";
+    config.capacityGbps = 100.0;
+    config.initialConnections = 2;
+    config.maxConnections = 2;
+    config.linkSetLinks = 2;
+    auto scheduler = GlobalScheduler::create(config);
+    ASSERT_TRUE(scheduler.isOk()) << scheduler.status().message();
+    EXPECT_EQ(scheduler.value().linkSet().size(), 2U);
+    EXPECT_EQ(scheduler.value().linkSet().linkIds(),
+              (std::vector<std::string>{"link0", "link1"}));
+    ASSERT_NE(scheduler.value().linkSet().profile("link1"), nullptr);
+    ASSERT_NE(scheduler.value().linkManager().link("link1"), nullptr);
 }

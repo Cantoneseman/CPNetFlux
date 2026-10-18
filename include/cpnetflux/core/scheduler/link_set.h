@@ -75,6 +75,8 @@ class LinkSet {
                                          std::uint64_t bytes);
     [[nodiscard]] common::Status setHealthy(const std::string& linkId, bool healthy);
     [[nodiscard]] common::Status setDraining(const std::string& linkId, bool draining);
+    [[nodiscard]] common::Status setConnectionEpoch(const std::string& linkId,
+                                                     std::uint64_t epoch);
     [[nodiscard]] common::Status setRuntime(const std::string& linkId,
                                             std::uint64_t readyBytes,
                                             std::uint64_t rttMs,

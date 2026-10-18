@@ -39,6 +39,9 @@ common::Result<GlobalScheduler> GlobalScheduler::create(SchedulerConfig config) 
         config.initialConnections > config.maxConnections) {
         return common::Status::invalidArgument("scheduler connection bounds are invalid");
     }
+    if (config.linkSetLinks == 0 || config.linkSetLinks > LinkSet::kMaxLinks) {
+        return common::Status::invalidArgument("scheduler logical link count is out of range");
+    }
     config.taskId = defaultTaskId(config);
     config.initialConnections = std::max<std::uint32_t>(1, config.initialConnections);
     config.maxConnections = std::max<std::uint32_t>(config.initialConnections, config.maxConnections);
@@ -66,14 +69,27 @@ common::Result<GlobalScheduler> GlobalScheduler::create(SchedulerConfig config) 
     WorkItemPlanner planner({config.workItemMinBytes, config.workItemMaxBytes, 0,
                              SchedulerDirection::Upload, config.taskId});
     LinkManager linkManager;
-    const common::Status addStatus = linkManager.addLink(profile);
-    if (!addStatus.isOk()) {
-        return addStatus;
-    }
     LinkSet linkSet;
-    const common::Status linkSetStatus = linkSet.add(profile);
-    if (!linkSetStatus.isOk()) {
-        return linkSetStatus;
+    for (std::uint32_t index = 0; index < config.linkSetLinks; ++index) {
+        LinkProfile lane = profile;
+        if (index != 0) {
+            lane.linkId = "link" + std::to_string(index);
+            // Logical lanes intentionally share no physical endpoint identity yet.
+            // Endpoint/local-bind configuration is a later server deployment slice.
+            lane.remoteHost.clear();
+            lane.dataPortRange.clear();
+            lane.localBindAddr.clear();
+            lane.initialConnections = 1;
+            lane.maxConnections = std::max<std::uint32_t>(1, config.maxConnections);
+        }
+        const common::Status addStatus = linkManager.addLink(lane);
+        if (!addStatus.isOk()) {
+            return addStatus;
+        }
+        const common::Status linkSetStatus = linkSet.add(lane);
+        if (!linkSetStatus.isOk()) {
+            return linkSetStatus;
+        }
     }
     FeedbackController feedbackController(FeedbackControllerConfig{config.policy,
                                                                    config.initialConnections,

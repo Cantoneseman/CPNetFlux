@@ -256,8 +256,13 @@ common::Result<std::string> LinkSet::choose(const WorkItem& item) const {
         return common::Status::runtimeError("cannot choose from an empty link set");
     }
     const LinkEntry* best = nullptr;
+    std::size_t bestIndex = 0;
     long double bestScore = std::numeric_limits<long double>::infinity();
-    for (const auto& candidate : links_) {
+    const auto affinityUnit = std::max<std::uint64_t>(item.length, 1);
+    const auto preferredIndex = static_cast<std::size_t>(
+        (item.offset / affinityUnit) % links_.size());
+    for (std::size_t index = 0; index < links_.size(); ++index) {
+        const auto& candidate = links_[index];
         if (!candidate.runtime.healthy || candidate.runtime.draining) {
             continue;
         }
@@ -265,16 +270,20 @@ common::Result<std::string> LinkSet::choose(const WorkItem& item) const {
         const auto load = static_cast<long double>(
             candidate.runtime.readyBytes + candidate.runtime.inflightBytes);
         const auto score = load / static_cast<long double>(capacity);
+        const auto candidateIsPreferred = index == preferredIndex;
+        const auto bestIsPreferred = best != nullptr && bestIndex == preferredIndex;
         if (best == nullptr || score < bestScore ||
-            (score == bestScore && candidate.profile.linkId < best->profile.linkId)) {
+            (score == bestScore && candidateIsPreferred && !bestIsPreferred) ||
+            (score == bestScore && candidateIsPreferred == bestIsPreferred &&
+             candidate.profile.linkId < best->profile.linkId)) {
             best = &candidate;
+            bestIndex = index;
             bestScore = score;
         }
     }
     if (best == nullptr) {
         return common::Status::runtimeError("no healthy non-draining link is available");
     }
-    (void)item;
     return best->profile.linkId;
 }
 
@@ -338,6 +347,19 @@ common::Status LinkSet::setDraining(const std::string& linkId, bool draining) {
         return unknownLink(linkId);
     }
     item->runtime.draining = draining;
+    return common::Status::ok();
+}
+
+common::Status LinkSet::setConnectionEpoch(const std::string& linkId,
+                                             std::uint64_t epoch) {
+    auto* item = entry(linkId);
+    if (item == nullptr) {
+        return unknownLink(linkId);
+    }
+    if (epoch == 0 || epoch < item->runtime.connectionEpoch) {
+        return common::Status::invalidArgument("connection epoch must not move backwards");
+    }
+    item->runtime.connectionEpoch = epoch;
     return common::Status::ok();
 }
 

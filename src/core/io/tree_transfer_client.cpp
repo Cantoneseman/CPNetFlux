@@ -3365,10 +3365,6 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         return common::Status::invalidArgument(
             "persistent multi-link requests above the safe 8-channel limit are unsupported");
     }
-    if (options.schedulerMode == config::TreeSchedulerMode::Global && options.linkSetLinks > 1) {
-        return common::Status::invalidArgument(
-            "persistent multi-link requests require scheduler off until the LinkSet adapter is complete");
-    }
     const std::uint32_t channelCount = std::max(options.fileParallelism, options.linkSetLinks);
     std::vector<std::string> laneLinkIds;
     laneLinkIds.reserve(channelCount);
@@ -3418,7 +3414,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         core::scheduler::SchedulerConfig schedulerConfig;
         schedulerConfig.taskId = std::string("persistent-") + (upload ? "upload-" : "download-") +
             std::to_string(manifest->updatedAtUnixNanos) + "-" + generateTransferId();
-        schedulerConfig.linkId = options.schedulerLinkId;
+        schedulerConfig.linkId = options.linkSetLinks > 1 ? "link0" : options.schedulerLinkId;
+        schedulerConfig.linkSetLinks = options.linkSetLinks;
         schedulerConfig.remoteHost = options.host;
         schedulerConfig.capacityGbps = options.schedulerCapacityGbps;
         schedulerConfig.policy = options.schedulerPolicy;
