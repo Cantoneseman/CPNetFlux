@@ -26,7 +26,10 @@ class PersistentDirectoryBatch {
     void cancel(const common::Status& status);
     [[nodiscard]] common::Status status();
  private:
-    struct Channel { bool attached = false, ready = false, done = false; int control = -1, data = -1; };
+    struct Channel {
+        bool attached = false, ready = false, done = false, failed = false;
+        int control = -1, data = -1;
+    };
     struct File {
         PersistentFileIdentity id;
         std::uint32_t owner;

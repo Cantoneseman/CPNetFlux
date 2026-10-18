@@ -6,7 +6,8 @@
 - V3-LANE-FAILOVER-01：done。DynamicFileQueue 的 lease/lane 计数、断线接管和 epoch fencing 已有行为测试；提交 c571de0150037a43346cfe12050a1db783ed10f6 已推送到 origin 分支 codex/V3-LANE-FAILOVER-01。
 - V3-LANE-LOCAL-RECOVERY-01：done。本轮将 persistent tree 的单 data TransportError 限定在失败 lane：按 channel fail/re-attach，保留健康控制/数据会话，retry attempt 重建 range slot 并复用 checkpoint；全量单元 341/341，定向 CTest 10/10，深圳→上海与上海→深圳各有正常/单 data socket reset 互传，四次均 2/2 且 SHA-256 一致。故障场景均 `lane_local_recovery_count=1`、`data_connect_count=3`、`control_reconnect_count=0`。详情见 docs/tasks/2026-10-18-v3-lane-local-recovery-01.md。
 - 完整 CTest 为 379/382；3 个失败均为当前 2 CPU/长连接 30 秒环境型超时（reconnect、stability TLS、pipeline sidecar），已记录原始错误，不据此宣称全量 CTest 全绿。
-- 下一阶段：V3-LANE-RECOVERY-COVERAGE-01。先把单 data socket reset 固化成可重复 harness，补 2-lane 多 range、download、TLS/pipeline 组合的 lane-local 断言，并复查上述 3 项环境超时；软件覆盖完成后再单独做物理 NIC/local bind/不同物理链路验证。
+- V3-LANE-RECOVERY-COVERAGE-01：done。loopback harness 已覆盖 2 lane/多 range、upload/download、TLS+control pipeline；三场景均证明目标 lane 单次恢复、健康 lane 保持、控制连接不重连、树摘要一致。全量 CTest 382/384，剩余 reconnect 与稳定性 TLS 两项仍是 30 秒环境型失败。
+- 下一阶段：V3-LANE-RECOVERY-INTEROP-01。用固定提交在深圳→上海、上海→深圳执行同一恢复断言，先解决真实跨机链路上的软件恢复证据；物理 NIC/local bind/不同物理链路验证继续后置。
 - 本轮深圳仍是唯一权威 Git 工作区，上海只作传输对端；临时服务/端口已停止并释放，既有服务未改动，证据负载保留在 /tmp，不进入 Git。
 - 03 实现与 04 独立复核专用派单此前因 429/active-writer 锁不可用，本轮未冒称已收到角色回执或独立审查结论。
 
@@ -55,3 +56,12 @@
 - 验收：334 个单元测试 333 通过、1 个 io_uring 条件跳过；CTest 375/375，0 失败；深圳↔上海双向 80 MiB、2 lane、每 lane 2 个 range 完成，源/目的 SHA-256 一致。证据详见 `docs/tasks/2026-10-18-v3-multilink-range-01.md`。
 - 边界：本轮只证明两个独立 TCP data session 和逻辑 lane/range 绑定，不证明不同物理网卡/交换路径、吞吐提升、全局调度多链路、故障 drain/cut 或十链路稳定性。
 - 后续：V3-FLOWCUT-01 已完成 GlobalScheduler/逻辑 LinkSet 接入；V3-LANE-FAILOVER-01 将验证单 lane 故障回收与 epoch 保护。endpoint/local-bind/物理路径配置和不同物理链路验证依用户要求暂缓到代码侧故障切换完成后。
+
+## 2026-10-18 V3-LANE-RECOVERY-COVERAGE-01 当前交付
+
+- 状态：done。输入提交 `bd3a1b02d3dc4d16346dd8bf30d455274c295fc7`；独立 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-recovery-coverage-01`，分支 `codex/V3-LANE-RECOVERY-COVERAGE-01`。
+- 实际解决：把单 data socket reset 从一次性手工注入固化为可重复 fault harness；补齐 2 lane/多 range、upload/download、TLS+control pipeline 的 lane-local 恢复断言；同时修复失败 lane 重挂接时阻塞健康 lane 完成的 persistent directory batch 竞态。
+- 验收：构建退出码 0；单元 342/342；新增 `cpnetflux_lane_recovery_smoke` 1/1；手工 harness upload、download、TLS+pipeline 3/3。三场景均为 `lane_local_recovery_count=1`、`control_reconnect_count=0`、`data_connect_count=3`，两个 lane 有 range 完成记录且树 SHA 一致。
+- 全量回归：382/384 通过；`cpnetflux_reconnect_smoke` 与 `cpnetflux_v3_stability_matrix` 仍分别因 30 秒 transfer deadline/TLS peer closed 失败，按环境型长连接问题保留原始证据；`cpnetflux_tree_pipeline_sidecar_smoke` 已通过。
+- 边界：本轮只验证软件 lane-local 恢复和 loopback 故障注入，不验证吞吐、生产 readiness、物理 NIC、local bind、源地址或不同物理链路。
+- 下一阶段：`V3-LANE-RECOVERY-INTEROP-01`，先做深圳↔上海双向真实链路上的同一恢复断言，随后再单独安排物理链路验证。

@@ -32,6 +32,7 @@ common::Status PersistentDirectoryBatch::attach(std::uint32_t channel) {
     channels_[channel].attached = true;
     channels_[channel].ready = false;
     channels_[channel].done = false;
+    channels_[channel].failed = false;
     return common::Status::ok();
 }
 void PersistentDirectoryBatch::bind(std::uint32_t channel, int controlFd, int dataFd, bool ready) {
@@ -64,6 +65,7 @@ void PersistentDirectoryBatch::failChannelLocked(std::uint32_t channel, const co
     const int dataFd = state.data;
     state.ready = false;
     state.done = false;
+    state.failed = true;
     state.control = state.data = -1;
     // A control-side disconnect must interrupt the paired data accept/worker.
     // A data-side failure keeps the control session alive for the lane retry.
@@ -209,15 +211,25 @@ common::Status PersistentDirectoryBatch::fileEvent(std::uint32_t channel,
 }
 
 common::Status PersistentDirectoryBatch::finish(std::uint32_t channel, std::chrono::milliseconds timeout) {
-    {
-        std::lock_guard lock(mutex_);
-        if (!status_.isOk()) return status_;
-        if (channel >= channels_.size() || !channels_[channel].ready || channels_[channel].done)
-            return common::Status::invalidArgument("invalid/duplicate batch finish");
-        channels_[channel].done = true;
-        changed_.notify_all();
+    (void)timeout;
+    std::lock_guard lock(mutex_);
+    if (!status_.isOk()) return status_;
+    if (channel >= channels_.size() || !channels_[channel].ready || channels_[channel].done)
+        return common::Status::invalidArgument("invalid/duplicate batch finish");
+    channels_[channel].done = true;
+    const bool allChannelsDone = std::all_of(channels_.begin(), channels_.end(),
+        [](const auto& state) {
+            return state.done || (!state.attached && !state.failed);
+        });
+    if (allChannelsDone) {
+        if (completed_ != total_ || files_.size() != total_) {
+            failLocked(common::Status::invalidArgument("dynamic batch file count mismatch"));
+        } else {
+            finished_ = true;
+        }
     }
-    return wait(true, timeout);
+    changed_.notify_all();
+    return status_;
 }
 common::Status PersistentDirectoryBatch::status() {
     std::lock_guard lock(mutex_);

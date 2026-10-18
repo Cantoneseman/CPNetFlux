@@ -951,4 +951,40 @@ TEST(PersistentDirectoryBatchTest, ReattachesOnlyFailedChannelAndKeepsCommittedR
     EXPECT_TRUE(batch.status().isOk());
 }
 
+TEST(PersistentDirectoryBatchTest, HealthyLaneFinishesBeforeFailedLaneReattach) {
+    PersistentDirectoryBatch batch(1, 2);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    ASSERT_TRUE(batch.attach(1).isOk());
+    batch.bind(0, -1, -1, true);
+    batch.bind(1, -1, -1, true);
+
+    PersistentFileIdentity first{1, 1, 8, "ranges.bin", "ranges-transfer", 4};
+    first.rangeId = 1;
+    first.rangeOffset = 0;
+    first.rangeLength = 4;
+    first.rangeCount = 2;
+    auto second = first;
+    second.rangeId = 2;
+    second.rangeOffset = 4;
+
+    ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(1, second, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(1, second, cpnetflux::common::Status::ok(), true).isOk());
+    ASSERT_TRUE(batch.failChannel(
+        0, cpnetflux::common::Status::transportError("data reset")).isOk());
+    batch.unbind(0);
+
+    // The healthy lane must not wait for the failed lane's 30-second batch timeout.
+    ASSERT_TRUE(batch.finish(1, std::chrono::seconds(1)).isOk());
+    batch.unbind(1);
+
+    ASSERT_TRUE(batch.attach(0).isOk());
+    batch.bind(0, -1, -1, true);
+    first.attempt = 1;
+    ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), true).isOk());
+    EXPECT_TRUE(batch.finish(0, std::chrono::seconds(1)).isOk());
+    EXPECT_TRUE(batch.status().isOk());
+}
+
 INSTANTIATE_TEST_SUITE_P(UploadDownload, PersistentMultiRangeRecoveryTest, ::testing::Bool());
