@@ -171,10 +171,17 @@ def parse_proxy_log(path: Path) -> list[dict]:
 def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
              fault_kind: str, remote_bin: Path, reconnect_attempts: int = 2,
              control_reset_data_connections: list[int] | None = None,
+             data_reset_connections: list[int] | None = None,
+             remote_root: Path = REMOTE_ROOT,
              expect_budget_exhausted: bool = False,
              expect_no_recovery: bool = False, scheduler: str = "off",
              transfer_timeout_ms: int = 120000) -> dict:
-    case = root / f"{server_side}-{transfer}-{fault_kind}"
+    if data_reset_connections is None:
+        data_reset_connections = [1, 2] if fault_kind == "multi-data" else [2]
+    multi_data_fault = fault_kind == "multi-data"
+    case_suffix = (f"{server_side}-{transfer}-{fault_kind}-budget-{reconnect_attempts}"
+                   if multi_data_fault else f"{server_side}-{transfer}-{fault_kind}")
+    case = root / case_suffix
     case.mkdir()
     source = case / "source"
     expected = make_dataset(source)
@@ -185,7 +192,7 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
     server_host = SHANGHAI_PUBLIC if server_side == "shanghai" else SHENZHEN_PUBLIC
     control_port = 24600 if server_side == "shanghai" else 24700
     data_base = clamp_passive_data_port_base(24610 if server_side == "shanghai" else 24710)
-    remote_case = REMOTE_ROOT / root.name / case.name
+    remote_case = remote_root / root.name / case.name
     remote_server_root = remote_case / "server-root"
     remote_source = remote_case / "source"
     remote_downloaded = remote_case / "downloaded"
@@ -236,6 +243,10 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
                 control_targets = control_reset_data_connections or [2]
                 fault_args = [item for target in control_targets
                               for item in ("--drop-control-after-data-connection", str(target))]
+            elif multi_data_fault:
+                fault_args = [item for target in data_reset_connections
+                              for item in ("--target-data-connection", str(target))]
+                fault_args.append("--synchronize-data-resets")
             else:
                 fault_args = ["--target-data-connection", "2"]
             remote_proxy_pid = remote_start(
@@ -249,7 +260,7 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
                     "--count", "8",
                     "--delay", "0.0001",
                     "--drop-bytes", str(32768),
-                    "--drops", "1",
+                    "--drops", str(len(data_reset_connections) if multi_data_fault else 1),
                     *fault_args,
                     "--log", str(remote_proxy_log),
                 ],
@@ -261,15 +272,23 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             handle = local_server_log.open("w", encoding="utf-8")
             local_server = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT)
             handle.close()
-            fault_options = ({"drop_control_after_data_connection": (
-                control_reset_data_connections[0] if control_reset_data_connections and len(control_reset_data_connections) == 1
-                else (control_reset_data_connections or [2]))} if fault_kind == "control" else {
-                "target_data_connection": 2
-            })
+            if fault_kind == "control":
+                fault_options = {"drop_control_after_data_connection": (
+                    control_reset_data_connections[0]
+                    if control_reset_data_connections and len(control_reset_data_connections) == 1
+                    else (control_reset_data_connections or [2]))}
+            elif multi_data_fault:
+                fault_options = {
+                    "target_data_connections": data_reset_connections,
+                    "synchronize_data_resets": True,
+                }
+            else:
+                fault_options = {"target_data_connection": 2}
             local_proxy = FaultProxy(
                 SHENZHEN_BIND, "127.0.0.1", control_port, data_base,
-                count=8, drop_bytes=32768, drops=1, delay=0.0001,
-                log=case / "proxy.jsonl", **fault_options,
+                count=8, drop_bytes=32768,
+                drops=len(data_reset_connections) if multi_data_fault else 1,
+                delay=0.0001, log=case / "proxy.jsonl", **fault_options,
             )
 
         wait_for_tcp(server_host if server_alias else SHENZHEN_BIND, control_port)
@@ -313,6 +332,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             scp_from(server_alias, str(remote_log), case / "server.log")
             if transfer == "download" and not client_alias:
                 actual_root = case / "downloaded"
+            elif expect_budget_exhausted or expect_no_recovery:
+                actual_root = None
             else:
                 remote_result_root = remote_server_root / "uploaded" if transfer == "upload" else remote_downloaded
                 scp_from(server_alias, str(remote_result_root), case / "result", recursive=True)
@@ -329,12 +350,19 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
         summary = json.loads((case / "summary.json").read_text(encoding="utf-8"))
         proxy_events = parse_proxy_log(case / "proxy.jsonl")
         resets = [event for event in proxy_events if event.get("event") == "reset"]
+        if multi_data_fault:
+            assert len(resets) == len(data_reset_connections), resets
+            assert all(event.get("target") is True for event in resets), resets
+            assert {event.get("data_connection") for event in resets} == set(data_reset_connections), resets
+            reset_times = sorted(event["time"] for event in resets)
+            assert reset_times[-1] - reset_times[0] <= 0.5, resets
         if expect_budget_exhausted or expect_no_recovery:
             assert result.returncode != 0, result.stdout + result.stderr
             recovery_used = summary.get("recovery_attempts_used", 0)
             if expect_budget_exhausted:
-                assert recovery_used == reconnect_attempts, summary
-                assert summary.get("lane_local_recovery_count", 0) == reconnect_attempts, summary
+                expected_recoveries = min(reconnect_attempts, len(data_reset_connections)) if multi_data_fault else reconnect_attempts
+                assert recovery_used == expected_recoveries, summary
+                assert summary.get("lane_local_recovery_count", 0) == expected_recoveries, summary
             else:
                 assert reconnect_attempts == 0, reconnect_attempts
                 assert recovery_used == 0, summary
@@ -351,10 +379,12 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             }
         actual = tree_hash(actual_root)
         assert actual == expected, (actual, expected)
-        assert len(resets) == 1 and resets[0].get("target") is True, resets
-        assert resets[0].get("scope", "data") == fault_kind, resets
-        assert summary["lane_local_recovery_count"] == 1, summary
-        assert summary["recovery_attempts_used"] == 1, summary
+        expected_faults = len(data_reset_connections) if multi_data_fault else 1
+        assert len(resets) == expected_faults and all(event.get("target") is True for event in resets), resets
+        if not multi_data_fault:
+            assert resets[0].get("scope", "data") == fault_kind, resets
+        assert summary["lane_local_recovery_count"] == expected_faults, summary
+        assert summary["recovery_attempts_used"] == expected_faults, summary
         assert summary["reconnect_attempts"] == 0, summary
         if scheduler == "global":
             assert summary["scheduler_mode"] == "global", summary
@@ -381,7 +411,7 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             assert len(healthy_lane_events) == 1, lane_events
         else:
             assert summary["lane_control_reconnect_count"] == 0, summary
-        assert summary["data_connect_count"] == 3, summary
+        assert summary["data_connect_count"] == 2 + expected_faults, summary
         ranges = summary["persistent_lane_range_completed"]
         assert len(ranges) == 2 and all(value > 0 for value in ranges), summary
         return {
@@ -393,7 +423,7 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             "expected": expected,
             "actual": actual,
             "summary": summary,
-            "proxy_reset": resets[0],
+            "proxy_resets": resets,
         }
     finally:
         if local_proxy is not None:
@@ -412,9 +442,12 @@ def main() -> int:
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--server-side", choices=("shanghai", "shenzhen", "both"), default="both",
                         help="run only one server side while diagnosing, or both for acceptance")
-    parser.add_argument("--fault-kind", choices=("data", "control"), default="data")
+    parser.add_argument("--fault-kind", choices=("data", "control", "multi-data"), default="data")
     parser.add_argument("--reconnect-attempts", type=int, default=2)
     parser.add_argument("--control-reset-data-connection", type=int, action="append")
+    parser.add_argument("--data-reset-connection", type=int, action="append")
+    parser.add_argument("--multi-fault-budget-matrix", action="store_true")
+    parser.add_argument("--remote-root", type=Path, default=REMOTE_ROOT)
     parser.add_argument("--expect-budget-exhausted", action="store_true")
     parser.add_argument("--expect-no-recovery", action="store_true")
     parser.add_argument("--transfer", choices=("upload", "download", "both"), default="upload")
@@ -431,20 +464,27 @@ def main() -> int:
     args.remote_bin = Path(args.remote_bin)
     ssh_run(REMOTE_ALIAS, ["mkdir", "-p", str(args.remote_bin)], timeout=30)
     scp_to(REMOTE_ALIAS, Path(__file__).with_name("cpnetflux_fault_proxy.py"), str(args.remote_bin / "cpnetflux_fault_proxy.py"))
+    if args.multi_fault_budget_matrix and args.fault_kind != "multi-data":
+        parser.error("--multi-fault-budget-matrix requires --fault-kind multi-data")
     records = []
     server_sides = ("shanghai", "shenzhen") if args.server_side == "both" else (args.server_side,)
     transfers = ("upload", "download") if args.transfer == "both" else (args.transfer,)
+    budgets = (0, 1, 2) if args.multi_fault_budget_matrix else (args.reconnect_attempts,)
     for server_side in server_sides:
         for transfer in transfers:
-            records.append(run_case(args.build_dir, root, server_side=server_side,
-                                    transfer=transfer, fault_kind=args.fault_kind,
-                                    remote_bin=args.remote_bin,
-                                    reconnect_attempts=args.reconnect_attempts,
-                                    control_reset_data_connections=args.control_reset_data_connection,
-                                    expect_budget_exhausted=args.expect_budget_exhausted,
-                                    expect_no_recovery=args.expect_no_recovery,
-                                    scheduler=args.scheduler,
-                                    transfer_timeout_ms=args.transfer_timeout_ms))
+            for budget in budgets:
+                records.append(run_case(
+                    args.build_dir, root, server_side=server_side,
+                    transfer=transfer, fault_kind=args.fault_kind,
+                    remote_bin=args.remote_bin, reconnect_attempts=budget,
+                    control_reset_data_connections=args.control_reset_data_connection,
+                    data_reset_connections=args.data_reset_connection,
+                    remote_root=args.remote_root,
+                    expect_budget_exhausted=(args.expect_budget_exhausted or
+                                             (args.multi_fault_budget_matrix and budget < 2)),
+                    expect_no_recovery=args.expect_no_recovery,
+                    scheduler=args.scheduler,
+                    transfer_timeout_ms=args.transfer_timeout_ms))
     input_commit = os.environ.get("CPNETFLUX_INPUT_COMMIT")
     if not input_commit:
         revision = subprocess.run(

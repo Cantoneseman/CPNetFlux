@@ -10,6 +10,42 @@ import time
 from pathlib import Path
 
 
+class SynchronizedResetGate:
+    """Wait until every targeted data connection is ready, then allow one reset per connection."""
+
+    def __init__(self, target_connections, timeout=10.0):
+        self.target_connections = frozenset(int(value) for value in target_connections)
+        if len(self.target_connections) < 2:
+            raise ValueError("synchronized reset requires at least two target connections")
+        self.timeout = timeout
+        self._condition = threading.Condition()
+        self._ready_connections = set()
+        self.reset_connections = set()
+        self._failed = False
+
+    def wait_and_claim(self, data_connection):
+        if data_connection not in self.target_connections:
+            return False
+        deadline = time.monotonic() + self.timeout
+        with self._condition:
+            if self._failed:
+                return False
+            self._ready_connections.add(data_connection)
+            self._condition.notify_all()
+            while self.target_connections - self._ready_connections and not self._failed:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._failed = True
+                    self._condition.notify_all()
+                    return False
+                self._condition.wait(remaining)
+            if self._failed or data_connection in self.reset_connections:
+                return False
+            self.reset_connections.add(data_connection)
+            self._condition.notify_all()
+            return True
+
+
 class FaultProxy:
     def __init__(
         self,
@@ -26,6 +62,8 @@ class FaultProxy:
         on_reset=None,
         drop_result=False,
         target_data_connection=None,
+        target_data_connections=None,
+        synchronize_data_resets=False,
         drop_control_after_data_connection=None,
     ):
         self.listeners = []
@@ -51,13 +89,27 @@ class FaultProxy:
             self.control_reset_targets = {int(value) for value in drop_control_after_data_connection}
         self.drop_control_after_data_connection = self.control_reset_targets
         self.target_data_connection = target_data_connection
-        self.target_data_connections = set()
+        self.target_data_connections = {
+            int(value) for value in (target_data_connections or ())
+        }
         if target_data_connection is not None:
             self.target_data_connections.add(int(target_data_connection))
         self.target_data_connections.update(self.control_reset_targets)
         if self.target_data_connection is None and self.control_reset_targets:
             self.target_data_connection = min(self.control_reset_targets)
+        self.explicit_data_targets = bool(self.target_data_connections)
         self.target_connection = None
+        self.target_connections = set()
+        self.synchronize_data_resets = bool(
+            synchronize_data_resets and len(self.target_data_connections) > 1
+            and not self.control_reset_targets
+        )
+        self.data_reset_gate = (
+            SynchronizedResetGate(self.target_data_connections)
+            if self.synchronize_data_resets else None
+        )
+        self.data_reset_ready_logged = set()
+        self.data_reset_done = set()
         self.data_connection_count = 0
         self.control_connection_count = 0
         self.control_sockets = {}
@@ -106,11 +158,13 @@ class FaultProxy:
                         control_connection = self.data_port_control_connection.get(port)
                         self.data_connection_control[connection_id] = control_connection
                         target = (
-                            self.target_data_connection is not None
+                            self.explicit_data_targets
                             and self.data_connection_count in self.target_data_connections
                         )
                         if target:
-                            self.target_connection = connection_id
+                            self.target_connections.add(connection_id)
+                            if self.target_connection is None:
+                                self.target_connection = connection_id
                         self.event(
                             event="data_connected",
                             connection=connection_id,
@@ -186,10 +240,11 @@ class FaultProxy:
                                 batch_id=batch_id,
                             )
                 should_fault = data and (
-                    self.target_data_connection is None
-                    or connection_id == self.target_connection
+                    not self.explicit_data_targets
+                    or connection_id in self.target_connections
                 )
                 reset_control_connection = None
+                synchronize_data_connection = None
                 if data or self.drop_terminal or self.drop_result:
                     reset = False
                     with self.lock:
@@ -200,8 +255,28 @@ class FaultProxy:
                                     self.forwarded_by_connection.get(connection_id, 0) + len(block)
                                 )
                         forwarded = self.forwarded_by_connection.get(connection_id, 0)
+                        data_number = self.data_connection_number.get(connection_id)
+                        if (
+                            self.synchronize_data_resets
+                            and data
+                            and should_fault
+                            and data_number in self.target_data_connections
+                            and self.drop_bytes
+                            and forwarded >= self.drop_bytes
+                        ):
+                            synchronize_data_connection = data_number
+                            if data_number not in self.data_reset_ready_logged:
+                                self.data_reset_ready_logged.add(data_number)
+                                self.event(
+                                    event="data_reset_ready",
+                                    connection=connection_id,
+                                    data_connection=data_number,
+                                    data_port=data_port,
+                                    target=True,
+                                )
                         data_triggered = (
                             not self.control_reset_targets
+                            and not self.synchronize_data_resets
                             and should_fault
                             and self.drop_bytes
                             and forwarded >= self.drop_bytes
@@ -223,10 +298,10 @@ class FaultProxy:
                                 event="reset",
                                 count=self.dropped,
                                 connection=connection_id,
+                                data_connection=data_number,
                                 data_port=data_port,
                                 target=should_fault,
                             )
-                        data_number = self.data_connection_number.get(connection_id)
                         mapped_control = self.data_connection_control.get(connection_id)
                         if (
                             data
@@ -248,6 +323,28 @@ class FaultProxy:
                                 data_port=data_port,
                                 target=True,
                             )
+                    if (
+                        synchronize_data_connection is not None
+                        and self.data_reset_gate is not None
+                        and self.data_reset_gate.wait_and_claim(synchronize_data_connection)
+                    ):
+                        with self.lock:
+                            if (
+                                connection_id not in self.data_reset_done
+                                and self.remaining
+                            ):
+                                self.data_reset_done.add(connection_id)
+                                self.remaining -= 1
+                                self.dropped += 1
+                                reset = True
+                                self.event(
+                                    event="reset",
+                                    count=self.dropped,
+                                    connection=connection_id,
+                                    data_connection=synchronize_data_connection,
+                                    data_port=data_port,
+                                    target=True,
+                                )
                     if reset:
                         if self.on_reset:
                             self.on_reset()
@@ -323,7 +420,8 @@ if __name__ == "__main__":
     parser.add_argument("--drop-bytes", type=int, default=262144)
     parser.add_argument("--delay", type=float, default=0.001)
     parser.add_argument("--drops", type=int, default=1)
-    parser.add_argument("--target-data-connection", type=int)
+    parser.add_argument("--target-data-connection", type=int, action="append")
+    parser.add_argument("--synchronize-data-resets", action="store_true")
     parser.add_argument("--drop-control-after-data-connection", type=int, action="append")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
@@ -337,7 +435,8 @@ if __name__ == "__main__":
         drops=args.drops,
         delay=args.delay,
         log=args.log,
-        target_data_connection=args.target_data_connection,
+        target_data_connections=args.target_data_connection,
+        synchronize_data_resets=args.synchronize_data_resets,
         drop_control_after_data_connection=args.drop_control_after_data_connection,
     )
     try:

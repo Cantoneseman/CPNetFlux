@@ -465,6 +465,11 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     set_tests_properties(cpnetflux_lane_recovery_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_fault_proxy_unit
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/test_cpnetflux_fault_proxy.py
+    )
+    set_tests_properties(cpnetflux_fault_proxy_unit PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
     if(CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS)
         add_test(
             NAME cpnetflux_lane_recovery_interop
@@ -547,6 +552,19 @@ if(CPNETFLUX_BUILD_TESTS)
                 --remote-bin /tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/bin
         )
         set_tests_properties(cpnetflux_zero_recovery_budget_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_multi_fault_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-multi-fault-budget-interop-evidence
+                --fault-kind multi-data
+                --server-side both
+                --transfer both
+                --multi-fault-budget-matrix
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-MULTI-FAULT-BUDGET-01/bin
+                --remote-root /tmp/cpnetflux-runs/V3-LANE-MULTI-FAULT-BUDGET-01/interop
+        )
+        set_tests_properties(cpnetflux_lane_multi_fault_budget_interop PROPERTIES TIMEOUT 1200 RUN_SERIAL TRUE)
     endif()
     add_test(
         NAME cpnetflux_tree_download_smoke
