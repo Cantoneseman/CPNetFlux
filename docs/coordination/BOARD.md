@@ -1,12 +1,12 @@
 # 当前执行（2026-10-19；R2026-10-16-V3-UNIFIED-MULTILINK）
 
-本节优先于下方历史路线和旧任务快照。深圳为权威 Git 工作区；本轮在深圳任务 worktree 完成，上海仅作传输对端。
+本节优先于下方历史路线和旧任务快照。深圳为权威 Git 工作区；上海只作传输对端。
 
-- V3-LANE-MULTI-FAULT-BUDGET-01：已完成。两条数据 lane 近同时断开时，深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个跨机场景全部通过；N=0 消耗 0 次并明确报错，N=1 恢复 1 次后明确失败，N=2 恢复 2 次并成功，上传/下载树校验值一致。未发现共享预算超额；实际修复了 N=0 上传/下载错误未统一说明预算耗尽的问题。实现与验收记录见 docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md。
-- 固定测试提交：c2031d221a94186057e4317f75db955b4de30ae5；矩阵 CTest 1/1、相关回归 CTest 8/8、Python 代理单测 3/3、完整 C++ 单元 343 通过/1 个 io_uring 条件跳过。
-- 下一计划：V3-LANE-MIXED-FAULT-BUDGET-01。用容易理解的话说，是同时让一条 lane 的数据连接和另一条 lane 的控制连接出故障，检查这两种恢复是否也共同消耗同一个 reconnect-attempts 总预算。先做同步故障注入和 N=0/1/2 跨机验收，只有红测证明行为错误才改生产逻辑。
-- 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求在软件故障恢复开发完成后再配置服务器验证。
-- 环境边界：深圳与上海生产端口 2121 只读观察，未停止或改配；本次测试端口范围结束后无任务监听或遗留 runner/代理进程。
+- V3-LANE-MULTI-FAULT-BUDGET-01：已完成。深圳/上海服务端 × 上传/下载 × N=0/1/2 两数据 lane 同时故障共 12 个 case 通过；N=0 清楚失败且恢复 0 次，N=1 恢复 1 次后清楚失败，N=2 恢复 2 次并成功。相关回归 CTest 8/8、Python 代理单测 3/3；完整 C++ 单元 343 通过、1 项 io_uring 条件跳过。详情见 docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md。
+- V3-LANE-MIXED-FAULT-BUDGET-01：规划中；输入 5ffb0827c11fe27727539d4026501b486756ceb8；独立 worktree /root/projects/CPNetFlux-worktrees/v3-lane-mixed-fault-budget-01，分支 codex/V3-LANE-MIXED-FAULT-BUDGET-01。目标是验证一个数据连接故障与另一 lane 的控制连接故障同时发生时，两种恢复仍严格共用 reconnect-attempts 预算。任务单 docs/tasks/2026-10-19-v3-lane-mixed-fault-budget-01.md。
+- 计划验收：深圳/上海服务端 × 上传/下载 × N=0/1/2，共 12 个跨机 case；先建同步混合故障门控，确认不同 lane 的 data/control reset 都真实发生，再核对恢复计数和最终树校验。
+- 非目标：物理 NIC、local bind、不同物理链路、吞吐、TLS/生产认证与 readiness；物理链路按用户要求待软件恢复开发完成后再做。
+- 生产端口 2121 只读检查，不停止或改配；实验端口使用 24600–24799，运行前重验空间/内存/端口并在结束后确认清理。
 
 ## 历史执行快照
 
