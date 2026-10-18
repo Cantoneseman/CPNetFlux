@@ -91,3 +91,11 @@
 - 验收：下载控制恢复 CTest 1/1、上传控制恢复回归 1/1、完整单元 342/342；深圳↔上海双向下载均得到树 SHA `5816ca45fdc866157f2c8c9d0097009af11a3132eee66cd2fcdd745ab696c092`，`lane_local_recovery_count=1`、`lane_control_reconnect_count=1`、`control_reconnect_count=0`、`reconnect_attempts=0`、`control_connect_count=3`、`data_connect_count=3`。矩阵见 `/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01/build/cpnetflux-lane-control-recovery-download-interop-evidence/20261018T174234Z-1792345354963629285/matrix.json`。
 - 边界：本阶段未改生产状态机；TLS/生产认证互操作、物理 NIC/local bind/不同物理路径、吞吐和 production readiness 仍未证明。
 - 下一阶段：`V3-LANE-RECOVERY-BUDGET-01`，统一 lane-local 与整批恢复的 `--reconnect-attempts` 总预算，先用连续故障注入建立红测，再实现有界计数和明确耗尽原因。
+
+## 2026-10-19 V3-LANE-RECOVERY-BUDGET-01 开发计划
+
+- 状态：in_progress；输入提交 `6d1e11cf31cafb6bd316f1bc6754096439ec7e6b`；隔离 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-recovery-budget-01`，分支 `codex/V3-LANE-RECOVERY-BUDGET-01`。
+- 实际问题：`--reconnect-attempts N` 当前分别限制 lane-local 和整批恢复，持续故障时可能实际消耗超过 N 次。
+- 本阶段目标：局部和整批恢复共用一个线程安全总预算；耗尽后返回明确原因，N=0 默认行为不变。
+- 排除：物理 NIC/local bind/不同物理路径、TLS/生产认证互操作、吞吐和 production readiness、static/per-file 自动重连。
+- 实验根目录：`/tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01`；先运行红测，再决定是否需要双云连续故障验收。
