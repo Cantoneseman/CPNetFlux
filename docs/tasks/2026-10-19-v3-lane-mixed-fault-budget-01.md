@@ -1,6 +1,6 @@
 # V3-LANE-MIXED-FAULT-BUDGET-01：数据与控制通道并发故障预算验收
 
-- 状态：planning；先锁定范围与验收标准，提交后再改测试工具或产品代码。
+- 状态：done；12 组混合故障跨机矩阵与 8 项相关回归全部通过。
 - 路线：R2026-10-16-V3-UNIFIED-MULTILINK。
 - 执行位置：深圳独立 worktree /root/projects/CPNetFlux-worktrees/v3-lane-mixed-fault-budget-01；分支 codex/V3-LANE-MIXED-FAULT-BUDGET-01；上海仅作传输对端。
 - 输入提交：5ffb0827c11fe27727539d4026501b486756ceb8。
@@ -53,3 +53,25 @@
 ## 交接记录
 
 本阶段计划须先独立提交并推送，读取 origin 分支 SHA 确认一致，再开始测试工具/产品代码修改。每个阶段结束时记录 commit、CTest/单测结果、跨机证据目录、资源前后状态及下一步计划。
+
+## 实际解决的问题
+
+这一阶段补上了上一阶段没有覆盖的故障组合：一条 lane 的数据连接和另一条 lane 的控制连接同时断开。测试代理现在会等两类故障都准备好后再近同时注入，并记录故障所属 lane、连接和时间；runner 会同时检查数据恢复、控制重连和共享预算，而不是只看退出码。
+
+跨机实测没有发现预算被两种恢复分支重复消费。实际确认 N=0 不恢复并明确失败，N=1 只使用一次恢复预算后失败，N=2 使用两次预算完成数据恢复和控制重连并成功传输。过程中没有修改生产状态机。
+
+## 最终验收结果
+
+- 代码提交：6182067f2dc88ccf7ddae49bc27b9ff13d0ed53f，已推送到 origin/codex/V3-LANE-MIXED-FAULT-BUDGET-01，远端 SHA 回读一致。
+- 构建：Release、TLS 开启、跨机测试开启、io_uring 关闭；构建成功。源码归档 /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/source.tar SHA-256：b151ce888bf507dcd47acb2b4d653a30f5e87c2e8dfde9216a341f1822c77eb7。服务端二进制 SHA-256：3c49230d1290c6aa6bcfe15e1cb7bd479e030c0d26a795b30c1704af69d1fb98；上传客户端：afd66df74853e920d3226079a41cccea963ace941b8888ee13dd9c1658829190；下载客户端：e08221936020d524dfd01056889b048fef7981da5e40d0e67dc5588377e76f7c。
+- Python 门禁：代理/runner py_compile 通过；混合门控单元测试共 6/6 通过。
+- 跨机矩阵 CTest cpnetflux_lane_mixed_fault_budget_interop：1/1 通过，167.04 秒，实际包含深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个 case。证据目录：/tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/build/cpnetflux-lane-mixed-fault-budget-interop-evidence/20261018T212313Z-1792358593470296053/。
+- 12 个 case 的结果：N=0 的恢复使用数为 0；N=1 的恢复使用数为 1 并明确失败；N=2 的恢复使用数为 2 并成功。N=2 每个成功 case 的树校验值为 crc32c:f6f80ad4；控制重连计数为 1，数据连接重建也计入同一总预算。代理日志证明数据 lane 与控制 lane 不同，并且两次 reset 间隔小于 500 ms。
+- 既有回归 CTest：单数据恢复、控制恢复、N=1/N=2/N=0 预算共 8/8 通过，用时 218.59 秒，日志 /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/regression-ctest.log。完整 C++ 单元测试为 344 项中 343 通过、1 项 io_uring 条件跳过；代理 CTest 1/1 通过。
+- 资源和清理：测试前深圳可用磁盘约 44 GiB、上海约 77 GiB，可用内存约 2.5/2.8 GiB；结束后 24600–24799 无本任务监听，runner/代理已退出；两端生产端口 2121 仍在监听且未停止或改配。
+
+## 边界与下一步计划
+
+本阶段只证明软件层数据/控制双故障注入下的共享预算和恢复计数；没有证明物理网卡、不同物理链路、local bind、吞吐、TLS/生产认证或生产 readiness。
+
+下一步 V3-LANE-FAULT-STORM-BUDGET-01 要解决的问题是：现在只验证了同一时刻的两种故障，还没有验证故障连续到来时预算是否仍然严格受限。例如先断一条数据 lane，恢复过程中再断另一条数据 lane 或控制连接。下一阶段将按时间顺序注入 3 个故障，覆盖 N=0/1/2/3，确认每次恢复都只消耗一个预算单位，预算用完后立即清楚失败；只有红测证明状态机或错误摘要有问题才修改生产代码。物理 NIC、local bind 和不同物理链路继续按用户要求暂缓。
