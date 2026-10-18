@@ -9,6 +9,7 @@
 - 深圳→上海及上海→深圳各传输 256 MiB，单 data TCP session 故障注入后均 result=pass、2/2 lane、range completion=[2,2]、SHA-256 一致。两方向分别为 a8c1906883db8da9d1f1378873e230cf647157d9c8bfd7ce2837ad5d1e1e5836 与 ff81afe80419ec7442cda8ece2d35eb64c1844a25a81cc9105508ed36c56810a。但各方向 control_reconnect_count=2、data_connect_count=4，表明当前恢复会重建整批控制/数据会话；健康 lane 连续性尚未证明。
 - 下一项 V3-LANE-LOCAL-RECOVERY-01（planned，输入提交 c571de0150037a43346cfe12050a1db783ed10f6）：单 lane TransportError 不再 cancel/rebuild 整个 batch，只回收失败 lane 的未提交 lease 并恢复该 lane，保持健康 lane 的 data session 与 epoch；详见 docs/tasks/2026-10-18-v3-lane-local-recovery-01.md。
 - 物理 NIC、local bind、不同物理路径的配置与验证按用户要求暂缓；lane-local recovery 完成后再在服务器上配置验证。深圳为唯一权威开发端，上海仅作传输对端。测试服务/端口已停止并核实空闲，证据负载和日志保留在 /tmp，不纳入 Git。
+- 协作/审查状态：03 实现回执与 04 独立复核尚未完成；本轮专用派单调用返回 429，按 DISPATCH 尝试 codex exec resume 被 active-writer 锁拒绝；app-server daemon control socket 核验也失败（os error 10050）。未强制清锁或重复重试，不冒称角色回执/独立审查已完成。
 
 # 当前执行（2026-10-14）
 
