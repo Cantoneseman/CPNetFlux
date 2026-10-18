@@ -207,7 +207,9 @@ if __name__ == "__main__":
     parser.add_argument("--backend-host", default="127.0.0.1")
     parser.add_argument("--control-port", type=int, required=True)
     parser.add_argument("--data-base", type=int, required=True)
+    parser.add_argument("--count", type=int, default=16)
     parser.add_argument("--drop-bytes", type=int, default=262144)
+    parser.add_argument("--delay", type=float, default=0.001)
     parser.add_argument("--drops", type=int, default=1)
     parser.add_argument("--target-data-connection", type=int)
     parser.add_argument("--log", type=Path)
@@ -217,8 +219,10 @@ if __name__ == "__main__":
         args.backend_host,
         args.control_port,
         args.data_base,
+        count=args.count,
         drop_bytes=args.drop_bytes,
         drops=args.drops,
+        delay=args.delay,
         log=args.log,
         target_data_connection=args.target_data_connection,
     )

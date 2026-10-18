@@ -964,13 +964,14 @@ struct DynamicDirectoryGuard {
     std::shared_ptr<DynamicDirectory> directory;
     std::uint32_t channel = 0;
     bool attached = false, success = false, handled = false;
+    int controlFd = -1;
     ~DynamicDirectoryGuard() {
         if (!directory || !attached) return;
         if (!success && !handled) {
             auto error = common::Status::runtimeError("dynamic directory channel failed/cancelled");
             (void)directory->batch->failChannel(channel, error);
         }
-        directory->batch->unbind(channel);
+        directory->batch->unbind(channel, controlFd);
     }
 };
 
@@ -1019,6 +1020,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         if (!attached.isOk()) return sendLine(control, formatReply(550, attached.message()));
         guard.attached = true;
         guard.directory->batch->bind(channelIndex, control->fd(), -1, false);
+        guard.controlFd = control->fd();
     }
     std::vector<core::io::PersistentFileIdentity> files;
     std::uint32_t totalFiles = guard.directory ? guard.directory->total : requestedTotalFiles;
@@ -1072,7 +1074,11 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     if (guard.directory) {
         guard.directory->batch->bind(channelIndex, control->fd(), data.fd());
         status = guard.directory->batch->waitReady(std::chrono::seconds(30));
-        if (!status.isOk()) return status;
+        if (!status.isOk()) {
+            std::osyncstream(std::cerr) << "CPNETFLUX_DYNAMIC_BATCH_WAIT_READY_FAILED batch="
+                << batchId << " channel=" << channelIndex << " status=" << status.message() << "\n";
+            return status;
+        }
     }
     core::io::PersistentTreeStats stats;
     stats.phaseTiming = guard.directory != nullptr;

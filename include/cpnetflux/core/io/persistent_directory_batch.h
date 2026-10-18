@@ -15,7 +15,7 @@ class PersistentDirectoryBatch {
     ~PersistentDirectoryBatch();
     [[nodiscard]] common::Status attach(std::uint32_t channel);
     void bind(std::uint32_t channel, int controlFd, int dataFd, bool ready = true);
-    void unbind(std::uint32_t channel);
+    void unbind(std::uint32_t channel, int expectedControlFd = -1);
     // Mark one channel transport-dead while preserving healthy channels and
     // committed ranges. The same channel may attach again to resume missing work.
     [[nodiscard]] common::Status failChannel(std::uint32_t channel, const common::Status& status);

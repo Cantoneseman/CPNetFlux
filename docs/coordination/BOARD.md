@@ -65,3 +65,11 @@
 - 全量回归：382/384 通过；`cpnetflux_reconnect_smoke` 与 `cpnetflux_v3_stability_matrix` 仍分别因 30 秒 transfer deadline/TLS peer closed 失败，按环境型长连接问题保留原始证据；`cpnetflux_tree_pipeline_sidecar_smoke` 已通过。
 - 边界：本轮只验证软件 lane-local 恢复和 loopback 故障注入，不验证吞吐、生产 readiness、物理 NIC、local bind、源地址或不同物理链路。
 - 下一阶段：`V3-LANE-RECOVERY-INTEROP-01`，先做深圳↔上海双向真实链路上的同一恢复断言，随后再单独安排物理链路验证。
+
+## 2026-10-19 V3-LANE-RECOVERY-INTEROP-01 当前交付
+
+- 状态：双向验收通过，待提交与 GitHub SHA 回读；输入提交 `92bc148d2d0aeacdd0cb021abba918018af40699`；worktree `/root/projects/CPNetFlux-worktrees/v3-lane-recovery-interop-01`，分支 `codex/V3-LANE-RECOVERY-INTEROP-01`。
+- 实际解决：健康 lane 完成后，其 done 状态不再被清理抹掉；失败 lane 重连不再误等健康 lane 重新上线。跨机 runner 固化 2-lane/多-range TCP reset 测试。
+- 验收：单元 7/7、loopback 恢复 CTest 1/1；真实深圳→上海、上海→深圳均 tree hash 相等，lane-local recovery=1、control reconnect=0、data connect=3、ranges=[2,2]；跨机 CTest 1/1。证据详见 `docs/tasks/2026-10-19-v3-lane-recovery-interop-01.md` 和 `/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/bidirectional-final1/`。
+- 边界：只证明 plain TCP 数据通道 reset 的软件恢复；控制通道断开、TLS/认证互操作、物理 NIC/local bind/不同物理路径、吞吐和生产 readiness 未验证。
+- 下一阶段：`V3-LANE-CONTROL-RECOVERY-01`，解决 lane 控制连接断开时升级成整批重连、扰动健康 lane 的问题；按原批次身份只重建故障 lane 的控制与数据连接。物理链路验证继续后置。

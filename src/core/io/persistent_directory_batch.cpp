@@ -1,6 +1,7 @@
 #include "cpnetflux/core/io/persistent_directory_batch.h"
 #include <algorithm>
 #include <poll.h>
+#include <sstream>
 #include <sys/socket.h>
 #include "cpnetflux/core/tree/tree_scan.h"
 namespace cpnetflux::core::io {
@@ -46,12 +47,14 @@ void PersistentDirectoryBatch::bind(std::uint32_t channel, int controlFd, int da
     }
     changed_.notify_all();
 }
-void PersistentDirectoryBatch::unbind(std::uint32_t channel) {
+void PersistentDirectoryBatch::unbind(std::uint32_t channel, int expectedControlFd) {
     std::lock_guard lock(mutex_);
     auto& state = channels_.at(channel);
+    if (expectedControlFd >= 0 && state.control != expectedControlFd) return;
     state.control = state.data = -1;
     state.ready = false;
-    state.done = false;
+    // Preserve done=true for a healthy lane that finished before a sibling
+    // retries. The retry must wait only for the failed lane to reattach.
     state.attached = false;
     changed_.notify_all();
 }
@@ -66,6 +69,7 @@ void PersistentDirectoryBatch::failChannelLocked(std::uint32_t channel, const co
     state.ready = false;
     state.done = false;
     state.failed = true;
+    state.attached = false;
     state.control = state.data = -1;
     // A control-side disconnect must interrupt the paired data accept/worker.
     // A data-side failure keeps the control session alive for the lane retry.
@@ -121,7 +125,7 @@ common::Status PersistentDirectoryBatch::wait(bool finishing, std::chrono::milli
     for (;;) {
         if (!status_.isOk()) return status_;
         bool all = std::all_of(channels_.begin(), channels_.end(), [&](const auto& c) {
-            return finishing ? c.done : c.ready;
+            return finishing ? c.done : (c.ready || c.done);
         });
         if (all) {
             if (finishing && (completed_ != total_ || files_.size() != total_))
@@ -132,7 +136,16 @@ common::Status PersistentDirectoryBatch::wait(bool finishing, std::chrono::milli
         checkControlsLocked();
         if (!status_.isOk()) return status_;
         if (std::chrono::steady_clock::now() >= deadline) {
-            failLocked(common::Status::transportError("dynamic batch channel timeout"));
+            std::ostringstream detail;
+            detail << "dynamic batch channel timeout completed=" << completed_ << "/" << total_ << " channels=";
+            for (std::size_t index = 0; index < channels_.size(); ++index) {
+                const auto& channel = channels_[index];
+                if (index) detail << ",";
+                detail << index << "{ready=" << channel.ready << ",done=" << channel.done
+                       << ",attached=" << channel.attached << ",failed=" << channel.failed
+                       << ",control=" << channel.control << ",data=" << channel.data << "}";
+            }
+            failLocked(common::Status::transportError(detail.str()));
             return status_;
         }
         changed_.wait_until(lock, std::min(deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(50)));

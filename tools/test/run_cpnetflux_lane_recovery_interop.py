@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+"""Run deterministic lane-local recovery cases across Shenzhen and Shanghai."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shlex
+import socket
+import subprocess
+import time
+from pathlib import Path
+
+from cpnetflux_fault_proxy import FaultProxy
+from gridftp_port_window import clamp_passive_data_port_base
+from tree_smoke_common import stop_server, tree_hash
+
+SSH_OPTIONS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+SHENZHEN_PUBLIC = "120.25.121.51"
+SHANGHAI_PUBLIC = "47.116.174.181"
+SHENZHEN_BIND = "192.168.10.22"
+SHANGHAI_BIND = "192.168.10.138"
+REMOTE_ALIAS = "gridflux-beta-shanghai"
+REMOTE_ROOT = Path("/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01")
+
+
+def run_process(command: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, text=True, capture_output=True, timeout=timeout, check=False)
+
+
+def ssh_command(alias: str, argv: list[str]) -> list[str]:
+    return ["ssh", *SSH_OPTIONS, alias, shlex.join(argv)]
+
+
+def ssh_run(alias: str, argv: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    return run_process(ssh_command(alias, argv), timeout=timeout)
+
+
+def scp_to(alias: str, source: Path, destination: str, *, recursive: bool = False) -> None:
+    command = ["scp", *SSH_OPTIONS]
+    if recursive:
+        command.append("-r")
+    command += [str(source), f"{alias}:{destination}"]
+    result = run_process(command, timeout=180)
+    if result.returncode:
+        raise RuntimeError(f"scp to {alias} failed:\n{result.stdout}{result.stderr}")
+
+
+def scp_from(alias: str, source: str, destination: Path, *, recursive: bool = False) -> None:
+    command = ["scp", *SSH_OPTIONS]
+    if recursive:
+        command.append("-r")
+    command += [f"{alias}:{source}", str(destination)]
+    result = run_process(command, timeout=180)
+    if result.returncode:
+        raise RuntimeError(f"scp from {alias} failed:\n{result.stdout}{result.stderr}")
+
+
+def remote_start(alias: str, argv: list[str], log: str) -> int:
+    command = f"nohup {shlex.join(argv)} > {shlex.quote(log)} 2>&1 </dev/null & echo $!"
+    result = run_process(["ssh", *SSH_OPTIONS, alias, command], timeout=30)
+    if result.returncode:
+        raise RuntimeError(f"remote start failed:\n{result.stdout}{result.stderr}")
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not lines or not lines[-1].isdigit():
+        raise RuntimeError(f"remote start returned no pid: {result.stdout}{result.stderr}")
+    return int(lines[-1])
+
+
+def remote_stop(alias: str, pid: int) -> None:
+    result = ssh_run(alias, ["kill", "-TERM", str(pid)], timeout=20)
+    if result.returncode not in (0, 1):
+        raise RuntimeError(f"remote stop failed for {pid}: {result.stdout}{result.stderr}")
+    for _ in range(20):
+        probe = ssh_run(alias, ["kill", "-0", str(pid)], timeout=20)
+        if probe.returncode:
+            return
+        time.sleep(0.1)
+
+
+def wait_for_tcp(host: str, port: int, timeout: float = 15.0) -> None:
+    deadline = time.monotonic() + timeout
+    last: OSError | None = None
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1.0):
+                return
+        except OSError as error:
+            last = error
+            time.sleep(0.1)
+    raise RuntimeError(f"{host}:{port} did not accept TCP: {last}")
+
+
+def make_dataset(root: Path) -> tuple[str, int, int]:
+    root.mkdir(parents=True, exist_ok=False)
+    block = bytes(range(256)) * 4096
+    with (root / "large-ranges.bin").open("wb") as output:
+        for _ in range(64):
+            output.write(block)
+    (root / "small-a.bin").write_bytes(b"lane-a\n" * 8192)
+    (root / "nested").mkdir()
+    (root / "nested" / "small-b.bin").write_bytes(bytes(range(251)) * 257)
+    return tree_hash(root)
+
+
+def copy_tree_for_server(source: Path, alias: str | None, destination: Path) -> None:
+    if alias is None:
+        destination.mkdir(parents=True, exist_ok=True)
+        for path in source.rglob("*"):
+            target = destination / path.relative_to(source)
+            if path.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.write_bytes(path.read_bytes())
+        return
+    ssh_run(alias, ["mkdir", "-p", str(destination.parent)], timeout=30)
+    scp_to(alias, source, str(destination), recursive=True)
+
+
+def client_command(binary: str, host: str, port: int, source: str, destination: str, summary: str) -> list[str]:
+    return [
+        binary,
+        "--host", host,
+        "--port", str(port),
+        "--source-dir", source,
+        "--dest-dir", destination,
+        "--connections", "2",
+        "--file-parallelism", "2",
+        "--chunk-size", "65536",
+        "--buffer-size", "32768",
+        "--checksum", "crc32c",
+        "--control-reuse", "worker",
+        "--data-session-reuse", "tree",
+        "--file-scheduling", "dynamic",
+        "--link-set-links", "2",
+        "--data-pending-window", "2",
+        "--scheduler", "off",
+        "--reconnect-attempts", "2",
+        "--transfer-timeout-ms", "120000",
+        "--phase-timing", "on",
+        "--json-summary", summary,
+    ]
+
+
+def server_command(binary: str, root: str, port: int, data_base: int) -> list[str]:
+    return [
+        binary,
+        "--host", "127.0.0.1",
+        "--port", str(port),
+        "--data-port-base", str(data_base),
+        "--root", root,
+        "--connections", "2",
+        "--chunk-size", "65536",
+        "--buffer-size", "32768",
+        "--checksum", "crc32c",
+        "--link-set-max-links", "2",
+        "--link-set-capabilities", "0",
+    ]
+
+
+def parse_proxy_log(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str, remote_bin: Path) -> dict:
+    case = root / f"{server_side}-{transfer}"
+    case.mkdir()
+    source = case / "source"
+    expected = make_dataset(source)
+    server_root = case / "server-root"
+    server_root.mkdir()
+    server_alias = REMOTE_ALIAS if server_side == "shanghai" else None
+    client_alias = REMOTE_ALIAS if server_side == "shenzhen" else None
+    server_host = SHANGHAI_PUBLIC if server_side == "shanghai" else SHENZHEN_PUBLIC
+    control_port = 24600 if server_side == "shanghai" else 24700
+    data_base = clamp_passive_data_port_base(24610 if server_side == "shanghai" else 24710)
+    remote_case = REMOTE_ROOT / case.name
+    remote_server_root = remote_case / "server-root"
+    remote_source = remote_case / "source"
+    remote_downloaded = remote_case / "downloaded"
+    remote_log = remote_case / "server.log"
+    remote_proxy_log = remote_case / "proxy.jsonl"
+    remote_server_pid: int | None = None
+    remote_proxy_pid: int | None = None
+    local_server: subprocess.Popen[str] | None = None
+    local_proxy: FaultProxy | None = None
+    try:
+        if server_alias:
+            ssh_run(server_alias, ["rm", "-rf", str(remote_case)], timeout=30)
+            ssh_run(server_alias, ["mkdir", "-p", str(remote_server_root)], timeout=30)
+        if transfer == "download":
+            server_dataset = remote_server_root / "dataset" if server_alias else server_root / "dataset"
+            copy_tree_for_server(source, server_alias, server_dataset)
+        elif client_alias:
+            ssh_run(client_alias, ["mkdir", "-p", str(remote_case)], timeout=30)
+            scp_to(client_alias, source, str(remote_case), recursive=True)
+
+        if server_alias:
+            scp_to(server_alias, build_dir / "cpnetflux-gridftp-server", str(remote_bin / "cpnetflux-gridftp-server"))
+            scp_to(server_alias, build_dir / "cpnetflux-tree-upload-client", str(remote_bin / "cpnetflux-tree-upload-client"))
+            scp_to(server_alias, build_dir / "cpnetflux-tree-download-client", str(remote_bin / "cpnetflux-tree-download-client"))
+            remote_server_pid = remote_start(
+                server_alias,
+                server_command(str(remote_bin / "cpnetflux-gridftp-server"), str(remote_server_root), control_port, data_base),
+                str(remote_log),
+            )
+            time.sleep(0.4)
+            remote_proxy_pid = remote_start(
+                server_alias,
+                [
+                    "python3", str(remote_bin / "cpnetflux_fault_proxy.py"),
+                    "--listen-host", SHANGHAI_BIND if server_side == "shanghai" else SHENZHEN_BIND,
+                    "--backend-host", "127.0.0.1",
+                    "--control-port", str(control_port),
+                    "--data-base", str(data_base),
+                    "--count", "8",
+                    "--delay", "0.0001",
+                    "--drop-bytes", str(32768),
+                    "--drops", "1",
+                    "--target-data-connection", "2",
+                    "--log", str(remote_proxy_log),
+                ],
+                str(remote_case / "proxy.log"),
+            )
+        else:
+            local_server_log = case / "server.log"
+            command = server_command(str(build_dir / "cpnetflux-gridftp-server"), str(server_root), control_port, data_base)
+            handle = local_server_log.open("w", encoding="utf-8")
+            local_server = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT)
+            handle.close()
+            local_proxy = FaultProxy(
+                SHENZHEN_BIND, "127.0.0.1", control_port, data_base,
+                count=8, drop_bytes=32768, drops=1, delay=0.0001,
+                log=case / "proxy.jsonl", target_data_connection=2,
+            )
+
+        wait_for_tcp(server_host if server_alias else SHENZHEN_BIND, control_port)
+        client_binary_name = f"cpnetflux-tree-{transfer}-client"
+        if transfer == "upload":
+            source_arg = str(remote_source) if client_alias else str(source)
+            destination_arg = "uploaded"
+        else:
+            source_arg = "dataset"
+            destination_arg = str(remote_downloaded) if client_alias else str(case / "downloaded")
+        summary_name = str(remote_case / "summary.json") if client_alias else str(case / "summary.json")
+        command = client_command(
+            str(remote_bin / client_binary_name) if client_alias else str(build_dir / client_binary_name),
+            server_host, control_port, source_arg, destination_arg, summary_name,
+        )
+        started = time.monotonic()
+        if client_alias:
+            result = ssh_run(client_alias, command, timeout=180)
+            (case / "client.log").write_text(result.stdout + result.stderr, encoding="utf-8")
+            if result.returncode:
+                raise AssertionError(result.stdout + result.stderr)
+            scp_from(client_alias, str(remote_case / "summary.json"), case / "summary.json")
+        else:
+            result = run_process(command, timeout=180)
+            (case / "client.log").write_text(result.stdout + result.stderr, encoding="utf-8")
+            if result.returncode:
+                raise AssertionError(result.stdout + result.stderr)
+        if server_alias:
+            remote_stop(server_alias, remote_proxy_pid)
+            remote_proxy_pid = None
+            remote_stop(server_alias, remote_server_pid)
+            remote_server_pid = None
+            scp_from(server_alias, str(remote_proxy_log), case / "proxy.jsonl")
+            scp_from(server_alias, str(remote_log), case / "server.log")
+            remote_result_root = remote_server_root / "uploaded" if transfer == "upload" else remote_downloaded
+            scp_from(server_alias, str(remote_result_root), case / "result", recursive=True)
+            actual_root = case / "result"
+        else:
+            assert local_server is not None
+            stop_server(local_server, case / "server.log")
+            local_server = None
+            assert local_proxy is not None
+            local_proxy.close()
+            local_proxy = None
+            actual_root = server_root / "uploaded" if transfer == "upload" else case / "downloaded"
+        summary = json.loads((case / "summary.json").read_text(encoding="utf-8"))
+        actual = tree_hash(actual_root)
+        proxy_events = parse_proxy_log(case / "proxy.jsonl")
+        resets = [event for event in proxy_events if event.get("event") == "reset"]
+        assert actual == expected, (actual, expected)
+        assert len(resets) == 1 and resets[0].get("target") is True, resets
+        assert summary["lane_local_recovery_count"] == 1, summary
+        assert summary["control_reconnect_count"] == 0, summary
+        assert summary["data_connect_count"] == 3, summary
+        ranges = summary["persistent_lane_range_completed"]
+        assert len(ranges) == 2 and all(value > 0 for value in ranges), summary
+        return {
+            "case": case.name,
+            "server_side": server_side,
+            "transfer": transfer,
+            "seconds": time.monotonic() - started,
+            "expected": expected,
+            "actual": actual,
+            "summary": summary,
+            "proxy_reset": resets[0],
+        }
+    finally:
+        if local_proxy is not None:
+            local_proxy.close()
+        if local_server is not None:
+            stop_server(local_server, case / "server.log")
+        if remote_proxy_pid is not None:
+            remote_stop(REMOTE_ALIAS, remote_proxy_pid)
+        if remote_server_pid is not None:
+            remote_stop(REMOTE_ALIAS, remote_server_pid)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--build-dir", type=Path, required=True)
+    parser.add_argument("--evidence-dir", type=Path, required=True)
+    parser.add_argument("--server-side", choices=("shanghai", "shenzhen", "both"), default="both",
+                        help="run only one server side while diagnosing, or both for acceptance")
+    parser.add_argument("--remote-bin", type=Path, default=Path("/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/bin"))
+    args = parser.parse_args()
+    args.evidence_dir.mkdir(parents=True, exist_ok=True)
+    run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"-{time.time_ns()}"
+    root = args.evidence_dir / run_id
+    root.mkdir(parents=True, exist_ok=False)
+    args.remote_bin = Path(args.remote_bin)
+    ssh_run(REMOTE_ALIAS, ["mkdir", "-p", str(args.remote_bin)], timeout=30)
+    scp_to(REMOTE_ALIAS, Path(__file__).with_name("cpnetflux_fault_proxy.py"), str(args.remote_bin / "cpnetflux_fault_proxy.py"))
+    records = []
+    server_sides = ("shanghai", "shenzhen") if args.server_side == "both" else (args.server_side,)
+    for server_side in server_sides:
+        records.append(run_case(args.build_dir, root, server_side=server_side,
+                                transfer="upload", remote_bin=args.remote_bin))
+    input_commit = os.environ.get("CPNETFLUX_INPUT_COMMIT")
+    if not input_commit:
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        input_commit = revision.stdout.strip() if revision.returncode == 0 else "unknown"
+    output = {"cases": records, "server_side_selection": args.server_side,
+              "input_commit": input_commit, "evidence_run_id": run_id}
+    (root / "matrix.json").write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(output, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

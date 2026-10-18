@@ -16,6 +16,7 @@ option(CPNETFLUX_BUILD_DESKTOP "Build and package the Qt desktop and local agent
 option(CPNETFLUX_BUILD_TESTS "Build CPNetFlux tests" ON)
 option(CPNETFLUX_ENABLE_IO_URING "Enable optional file-IO-only io_uring backend" OFF)
 option(CPNETFLUX_ENABLE_TLS "Enable optional OpenSSL control-plane TLS alpha support when available" ON)
+option(CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS "Enable SSH-driven Shenzhen/Shanghai interoperability tests" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -436,6 +437,15 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     set_tests_properties(cpnetflux_lane_recovery_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    if(CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS)
+        add_test(
+            NAME cpnetflux_lane_recovery_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-recovery-interop-evidence
+        )
+        set_tests_properties(cpnetflux_lane_recovery_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+    endif()
     add_test(
         NAME cpnetflux_tree_download_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_download_smoke.py --build-dir ${CMAKE_BINARY_DIR}

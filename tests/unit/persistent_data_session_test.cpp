@@ -952,11 +952,19 @@ TEST(PersistentDirectoryBatchTest, ReattachesOnlyFailedChannelAndKeepsCommittedR
 }
 
 TEST(PersistentDirectoryBatchTest, HealthyLaneFinishesBeforeFailedLaneReattach) {
+    int oldControlFds[2], retryControlFds[2], healthyControlFds[2];
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, oldControlFds), 0);
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, retryControlFds), 0);
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, healthyControlFds), 0);
+    UniqueFd oldControl(oldControlFds[0]), oldControlPeer(oldControlFds[1]);
+    UniqueFd retryControl(retryControlFds[0]), retryControlPeer(retryControlFds[1]);
+    UniqueFd healthyControl(healthyControlFds[0]), healthyControlPeer(healthyControlFds[1]);
+
     PersistentDirectoryBatch batch(1, 2);
     ASSERT_TRUE(batch.attach(0).isOk());
     ASSERT_TRUE(batch.attach(1).isOk());
-    batch.bind(0, -1, -1, true);
-    batch.bind(1, -1, -1, true);
+    batch.bind(0, oldControl.get(), -1, true);
+    batch.bind(1, healthyControl.get(), -1, true);
 
     PersistentFileIdentity first{1, 1, 8, "ranges.bin", "ranges-transfer", 4};
     first.rangeId = 1;
@@ -972,14 +980,17 @@ TEST(PersistentDirectoryBatchTest, HealthyLaneFinishesBeforeFailedLaneReattach) 
     ASSERT_TRUE(batch.fileEvent(1, second, cpnetflux::common::Status::ok(), true).isOk());
     ASSERT_TRUE(batch.failChannel(
         0, cpnetflux::common::Status::transportError("data reset")).isOk());
-    batch.unbind(0);
+    // A retry may attach before the failed control thread finishes cleanup.
+    ASSERT_TRUE(batch.attach(0).isOk());
+    batch.bind(0, retryControl.get(), -1, true);
+    // Cleanup from the old control handler must not erase the newly attached lane.
+    batch.unbind(0, oldControl.get());
 
     // The healthy lane must not wait for the failed lane's 30-second batch timeout.
     ASSERT_TRUE(batch.finish(1, std::chrono::seconds(1)).isOk());
-    batch.unbind(1);
+    batch.unbind(1, healthyControl.get());
 
-    ASSERT_TRUE(batch.attach(0).isOk());
-    batch.bind(0, -1, -1, true);
+    ASSERT_TRUE(batch.waitReady(std::chrono::milliseconds(50)).isOk());
     first.attempt = 1;
     ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), false).isOk());
     ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), true).isOk());
