@@ -2,14 +2,13 @@
 
 本节为当前生效状态。下方历史路线保留供追溯；历史测试数、资源阻塞和已被替代的下一步不覆盖本轮结论。
 
-- V3-FLOWCUT-01：done。GlobalScheduler 已驱动 N 条逻辑 LinkSet lane；persistent global + LINKS>1 可用，队列 lane 选择与 drain/disconnect/recover/epoch 同步通过。337 单元（336 通过、1 项 io_uring 条件跳过）、378/378 CTest，深圳↔上海双向各 80 MiB 哈希一致。实现提交 edf92bf4081347ea9ad60f196d741499f99b222e 已推送并回读；详情见 docs/tasks/2026-10-18-v3-flowcut-01.md。
-- V3-LANE-FAILOVER-01：done。修复 DynamicFileQueue 活跃 lease 未记入 LinkSet inflightBytes，补齐 commit/fail/reject/retry/recovery/cancel 的对称释放；低负载 lane 选择、断线后健康 lane 接管、旧 lease 拒绝和恢复 epoch 已有行为测试。
-- 本阶段实现提交 c571de0150037a43346cfe12050a1db783ed10f6，分支 codex/V3-LANE-FAILOVER-01 已推送到 origin；refs/heads/codex/V3-LANE-FAILOVER-01 回读同 SHA。结果见 docs/tasks/2026-10-18-v3-lane-failover-01.md。
-- 最终全量构建成功；340 单元测试 339 通过、1 项 io_uring 条件跳过；CTest 381/381、0 失败、1 项条件跳过。token-auth/event-log 在 CTest 进程内注入临时随机测试值。日志位于 /tmp/cpnetflux-runs/V3-LANE-FAILOVER-01-{build-final,unit-final,ctest-final}.log。
-- 深圳→上海及上海→深圳各传输 256 MiB，单 data TCP session 故障注入后均 result=pass、2/2 lane、range completion=[2,2]、SHA-256 一致。两方向分别为 a8c1906883db8da9d1f1378873e230cf647157d9c8bfd7ce2837ad5d1e1e5836 与 ff81afe80419ec7442cda8ece2d35eb64c1844a25a81cc9105508ed36c56810a。但各方向 control_reconnect_count=2、data_connect_count=4，表明当前恢复会重建整批控制/数据会话；健康 lane 连续性尚未证明。
-- 下一项 V3-LANE-LOCAL-RECOVERY-01（planned，输入提交 c571de0150037a43346cfe12050a1db783ed10f6）：单 lane TransportError 不再 cancel/rebuild 整个 batch，只回收失败 lane 的未提交 lease 并恢复该 lane，保持健康 lane 的 data session 与 epoch；详见 docs/tasks/2026-10-18-v3-lane-local-recovery-01.md。
-- 物理 NIC、local bind、不同物理路径的配置与验证按用户要求暂缓；lane-local recovery 完成后再在服务器上配置验证。深圳为唯一权威开发端，上海仅作传输对端。测试服务/端口已停止并核实空闲，证据负载和日志保留在 /tmp，不纳入 Git。
-- 协作/审查状态：03 实现回执与 04 独立复核尚未完成；本轮专用派单调用返回 429，按 DISPATCH 尝试 codex exec resume 被 active-writer 锁拒绝；app-server daemon control socket 核验也失败（os error 10050）。未强制清锁或重复重试，不冒称角色回执/独立审查已完成。
+- V3-FLOWCUT-01：done。GlobalScheduler 已驱动 N 条逻辑 LinkSet lane；persistent global + LINKS>1 可用，队列 lane 选择与 drain/disconnect/recover/epoch 同步通过。实现提交 edf92bf4081347ea9ad60f196d741499f99b222e 已推送并回读；详情见 docs/tasks/2026-10-18-v3-flowcut-01.md。
+- V3-LANE-FAILOVER-01：done。DynamicFileQueue 的 lease/lane 计数、断线接管和 epoch fencing 已有行为测试；提交 c571de0150037a43346cfe12050a1db783ed10f6 已推送到 origin 分支 codex/V3-LANE-FAILOVER-01。
+- V3-LANE-LOCAL-RECOVERY-01：done。本轮将 persistent tree 的单 data TransportError 限定在失败 lane：按 channel fail/re-attach，保留健康控制/数据会话，retry attempt 重建 range slot 并复用 checkpoint；全量单元 341/341，定向 CTest 10/10，深圳→上海与上海→深圳各有正常/单 data socket reset 互传，四次均 2/2 且 SHA-256 一致。故障场景均 `lane_local_recovery_count=1`、`data_connect_count=3`、`control_reconnect_count=0`。详情见 docs/tasks/2026-10-18-v3-lane-local-recovery-01.md。
+- 完整 CTest 为 379/382；3 个失败均为当前 2 CPU/长连接 30 秒环境型超时（reconnect、stability TLS、pipeline sidecar），已记录原始错误，不据此宣称全量 CTest 全绿。
+- 下一阶段：V3-LANE-RECOVERY-COVERAGE-01。先把单 data socket reset 固化成可重复 harness，补 2-lane 多 range、download、TLS/pipeline 组合的 lane-local 断言，并复查上述 3 项环境超时；软件覆盖完成后再单独做物理 NIC/local bind/不同物理链路验证。
+- 本轮深圳仍是唯一权威 Git 工作区，上海只作传输对端；临时服务/端口已停止并释放，既有服务未改动，证据负载保留在 /tmp，不进入 Git。
+- 03 实现与 04 独立复核专用派单此前因 429/active-writer 锁不可用，本轮未冒称已收到角色回执或独立审查结论。
 
 # 当前执行（2026-10-14）
 

@@ -415,15 +415,30 @@ class RangeFileCoordinator {
         if (!samePersistentIdentity(entry->base,base) || entry->rangeCount != id.rangeCount)
             return Status::invalidArgument("range coordinator identity mismatch or replay");
         auto found = entry->slots.find(id.rangeId);
-        if (found != entry->slots.end())
-            return Status::invalidArgument("range slot already claimed");
-        for (const auto& [rangeId, slot] : entry->slots) {
-            if (slot.id.rangeOffset < id.rangeOffset+id.rangeLength &&
-                id.rangeOffset < slot.id.rangeOffset+slot.id.rangeLength)
-                return Status::invalidArgument("overlapping range claim");
+        if (found == entry->slots.end()) {
+            for (const auto& [rangeId, slot] : entry->slots) {
+                if (slot.id.rangeOffset < id.rangeOffset+id.rangeLength &&
+                    id.rangeOffset < slot.id.rangeOffset+slot.id.rangeLength)
+                    return Status::invalidArgument("overlapping range claim");
+            }
+            found = entry->slots.emplace(id.rangeId, Slot{}).first;
+        } else {
+            auto& previous = found->second;
+            if (id.attempt <= previous.id.attempt)
+                return Status::invalidArgument("range slot already claimed");
+            // A data reset leaves the receiver's slot in the batch context. A
+            // later lane attempt may reclaim it; checkpointed bytes remain in the
+            // transaction and are excluded when the missing set is rebuilt.
+            if (entry->committed && previous.completed) {
+                previous.id = id;
+                return entry;
+            }
+            if (previous.completed && entry->completed != 0) --entry->completed;
         }
-        Slot slot;
-        slot.id=id;slot.checksum=checksum::ChecksumComputer(id.checksumAlgorithm);
+        auto& slot = found->second;
+        slot = Slot{};
+        slot.id = id;
+        slot.checksum = checksum::ChecksumComputer(id.checksumAlgorithm);
         for (const auto& missing:entry->transaction->missingRanges()) {
             const auto begin=std::max(missing.begin,id.rangeOffset);
             const auto end=std::min(missing.end,id.rangeOffset+id.rangeLength);
@@ -435,7 +450,6 @@ class RangeFileCoordinator {
             }
         }
         slot.position=slot.missing.empty() ? id.rangeOffset+id.rangeLength : slot.missing[0].begin;
-        entry->slots.emplace(id.rangeId,std::move(slot));
         return entry;
     }
     static Status write(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
@@ -485,9 +499,16 @@ class RangeFileCoordinator {
                            checksum::ChecksumValue checksum, bool skipped) {
         std::lock_guard lock(entry->mutex);
         const auto slot = entry->slots.find(id.rangeId);
-        if (slot == entry->slots.end() || !slot->second.active ||
-            slot->second.completed || !samePersistentIdentity(slot->second.id,id) ||
-            (entry->committed && !skipped))
+        if (slot == entry->slots.end() || !samePersistentIdentity(slot->second.id,id))
+            return Status::invalidArgument("invalid or duplicate range completion");
+        if (slot->second.completed) {
+            // A retry can replay FILE_END after the receiver committed the
+            // checkpoint before the data socket reset. The empty resume mask
+            // makes this completion idempotent.
+            if (entry->committed && skipped) return Status::ok();
+            return Status::invalidArgument("invalid or duplicate range completion");
+        }
+        if (!slot->second.active || (entry->committed && !skipped))
             return Status::invalidArgument("invalid or duplicate range completion");
         if (skipped && !entry->committed &&
             !entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength))
@@ -590,7 +611,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     const std::vector<PersistentFileIdentity>& files, PersistentTreeStats* stats,
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
     std::uint32_t channelIndex, std::uint32_t channelCount, DynamicFileQueue* ready,
-    const config::FileTransferOptions* transferOptions, bool continueAfterFileFailure) {
+    const config::FileTransferOptions* transferOptions, bool continueAfterFileFailure,
+    std::uint32_t maxRetries) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -626,7 +648,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     bool awaitingResume = false;
     bool abort = false;
     auto requestAbort = [&](const Status& failure) {
-        if (ready) ready->cancel(failure);
+        // A transport fault is reconciled after both IO threads have stopped.
+        // Cancelling the shared queue here would destroy healthy lanes.
         std::lock_guard<std::mutex> lock(mutex);
         if (readerStatus.isOk()) readerStatus = failure;
         abort = true;
@@ -744,6 +767,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             timing.queueWaitSeconds = next.value()->queueWaitSeconds;
             stats->queueWaitSeconds += next.value()->queueWaitSeconds;
         }
+        if (transferOptions && transferOptions->reconnectAttempt != UINT32_MAX)
+            id.attempt = transferOptions->reconnectAttempt;
         timing.file = id; timing.channel = channelIndex; timing.sender = true;
         const auto fileStarted = Clock::now();
         status = tree::validateTreeRelativePath(id.relativePath);
@@ -978,6 +1003,23 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (!status.isOk()) finalStatus = status;
     }
     stats->wireBytes += writerWireBytes + readerWireBytes;
+    if (!finalStatus.isOk() && ready) {
+        const auto owner = executor->owner();
+        auto leases = ready->active(owner);
+        if (!leases.isOk()) return leases.status();
+        if (finalStatus.code() == common::StatusCode::TransportError) {
+            auto disconnected = ready->disconnect(owner);
+            if (!disconnected.isOk()) return disconnected;
+            std::vector<WorkRecoveryDecision> decisions;
+            decisions.reserve(leases.value().size());
+            for (const auto& lease : leases.value())
+                decisions.push_back({lease, WorkRecoveryDisposition::Missing});
+            auto recovered = executor->recover(decisions, maxRetries);
+            if (!recovered.isOk()) return recovered.status();
+        } else {
+            ready->cancel(finalStatus);
+        }
+    }
     if (!finalStatus.isOk()) return finalStatus;
     return overall;
 }
@@ -986,7 +1028,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     bool download, const std::string& remoteRoot, PersistentTreeStats* stats,
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
     std::uint32_t channelIndex, std::uint32_t channelCount,
-    std::uint32_t expectedFileCount, bool dynamic, bool resume, std::shared_ptr<PersistentTransferContext> context, DynamicFileQueue* ready) {
+    std::uint32_t expectedFileCount, bool dynamic, bool resume,
+    std::shared_ptr<PersistentTransferContext> context, DynamicFileQueue* ready,
+    std::uint32_t maxRetries) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -1006,9 +1050,29 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         executor.emplace(*ready, owner.value());
     }
     Status overall = Status::ok();
+    bool transportFailure = false;
+    bool transportReconciled = false;
+    auto finishTransport = [&](Status result) -> Status {
+        if (result.code() != common::StatusCode::TransportError || !ready || !executor ||
+            transportReconciled) return result;
+        transportFailure = true;
+        transportReconciled = true;
+        const auto owner = executor->owner();
+        auto leases = ready->active(owner);
+        if (!leases.isOk()) return leases.status();
+        auto disconnected = ready->disconnect(owner);
+        if (!disconnected.isOk()) return disconnected;
+        std::vector<WorkRecoveryDecision> decisions;
+        decisions.reserve(leases.value().size());
+        for (const auto& lease : leases.value())
+            decisions.push_back({lease, WorkRecoveryDisposition::Missing});
+        auto recovered = executor->recover(decisions, maxRetries);
+        if (!recovered.isOk()) return recovered.status();
+        return result;
+    };
     for (;;) {
         auto frame = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
-        if (!frame.isOk()) return frame.status();
+        if (!frame.isOk()) return finishTransport(frame.status());
         stats->wireBytes += protocol::kFrameHeaderSize + frame.value().payload.size();
         if (frame.value().header.type == FrameType::DirectoryEnd) {
             if (frame.value().header.totalSize != stats->files)
@@ -1016,7 +1080,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             if (expectedFileCount != kUnknownPersistentFileCount &&
                 expectedFileCount != stats->files)
                 return Status::invalidArgument("persistent channel file count mismatch");
-            return overall;
+            return finishTransport(overall);
         }
         auto decoded = PersistentDataSession::decodeBegin(frame.value());
         if (!decoded.isOk()) return decoded.status();
@@ -1026,8 +1090,11 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             WorkExecutor* executor = nullptr;
             std::optional<WorkLease>* lease = nullptr;
             bool finished = false;
+            bool* transportFailure = nullptr;
             ~IncomingLeaseGuard() {
-                if (executor && lease && lease->has_value() && !finished) (void)executor->reject(**lease);
+                if (executor && lease && lease->has_value() && !finished &&
+                    !(transportFailure && *transportFailure))
+                    (void)executor->reject(**lease);
             }
         } leaseGuard;
         if (ready) {
@@ -1036,8 +1103,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             lease = claimed.value();
             leaseGuard.executor = &*executor;
             leaseGuard.lease = &lease;
+            leaseGuard.transportFailure = &transportFailure;
             status = executor->begin(*lease);
-            if (!status.isOk()) return status;
+            if (!status.isOk()) return finishTransport(status);
         }
         const auto assignedChannel = id.rangeId != 0
             ? static_cast<std::uint32_t>((id.rangeId - 1) % channelCount)
@@ -1045,14 +1113,14 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (!dynamic && assignedChannel != channelIndex)
             return Status::invalidArgument("persistent file arrived on wrong channel");
         status = state.begin(frame.value().header, id);
-        if (!status.isOk()) return status;
+        if (!status.isOk()) return finishTransport(status);
         PersistentFileTiming timing;
         timing.file = id; timing.channel = channelIndex;
         const auto fileStarted = Clock::now();
         const auto manifestStarted = Clock::now();
         status = notify(callback, id, Status::ok(), false);
         timing.manifestSeconds += secondsSince(manifestStarted);
-        if (!status.isOk()) return status;
+        if (!status.isOk()) return finishTransport(status);
         std::shared_ptr<RangeFileCoordinator::Entry> rangeEntry;
         std::unique_ptr<FileTransaction> transaction;
         Status fileStatus = Status::ok();
@@ -1062,7 +1130,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 // Write the semantic rejection before callbacks can cancel sibling sockets.
                 auto rejected = PersistentDataSession::writeResumeResponse(socket,id,{},FrameStatusCode::WriteFailed);
                 (void)notify(callback,id,started.status(),true);
-                return rejected.isOk() ? started.status() : rejected;
+                return finishTransport(rejected.isOk() ? started.status() : rejected);
             } else {
                 rangeEntry = std::move(started.value());
                 const auto rangeStats = RangeFileCoordinator::takeStats(rangeEntry);
@@ -1073,7 +1141,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 for (const auto& range : missing) missingBytes += range.end - range.begin;
                 stats->skippedBytes += id.rangeLength - missingBytes;
                 status=state.setMissingRanges(missing);
-                if (!status.isOk()) return status;
+                if (!status.isOk()) return finishTransport(status);
                 status = PersistentDataSession::writeResumeResponse(socket, id, missing);
                 if (!status.isOk()) fileStatus = status;
             }
@@ -1095,9 +1163,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 for (const auto& range : missing) missingBytes += range.end - range.begin;
                 stats->skippedBytes += id.totalSize - missingBytes;
                 status = state.setMissingRanges(missing);
-                if (!status.isOk()) return status;
+                if (!status.isOk()) return finishTransport(status);
                 status = PersistentDataSession::writeResumeResponse(socket,id,missing);
-                if (!status.isOk()) return status;
+                if (!status.isOk()) return finishTransport(status);
             }
         }
         for (;;) {
@@ -1105,7 +1173,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             auto data = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
             if (!data.isOk()) {
                 (void)notify(callback, id, data.status(), true);
-                return data.status();
+                return finishTransport(data.status());
             }
             stats->wireBytes += protocol::kFrameHeaderSize + data.value().payload.size();
             if (data.value().header.type == FrameType::FileEnd) {
@@ -1155,7 +1223,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             logicalHeader.flags=0;logicalHeader.payloadSize=logical.size();
             status = state.data(logicalHeader, logical.size(), logical.data());
             timing.checksumSeconds += secondsSince(checksumStarted);
-            if (!status.isOk()) return status;
+            if (!status.isOk()) return finishTransport(status);
             if (fileStatus.isOk()) {
                 Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
                 fileStatus = rangeEntry ? RangeFileCoordinator::write(rangeEntry, id, data.value().header.offset,
@@ -1181,16 +1249,16 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         status = notify(callback, id, fileStatus, true);
         if (fileStatus.isOk() && id.rangeId != 0) ++stats->rangeCompletions;
         timing.manifestSeconds += secondsSince(completedStarted);
-        if (!status.isOk()) return status;
+        if (!status.isOk()) return finishTransport(status);
         const auto resultStarted = Clock::now();
         status = PersistentDataSession::writeResult(socket, id,
             fileStatus.isOk() ? FrameStatusCode::Ok : FrameStatusCode::WriteFailed);
-        if (!status.isOk()) return status;
+        if (!status.isOk()) return finishTransport(status);
         if (ready) {
             status = !fileStatus.isOk() && !dynamic
                 ? executor->failTerminal(*lease, fileStatus)
                 : executor->finalize(*lease, fileStatus);
-            if (!status.isOk()) return status;
+            if (!status.isOk()) return finishTransport(status);
             leaseGuard.finished = true;
         }
         stats->wireBytes += protocol::kFrameHeaderSize;

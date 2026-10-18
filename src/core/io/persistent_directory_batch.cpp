@@ -25,11 +25,13 @@ PersistentDirectoryBatch::~PersistentDirectoryBatch() {
 common::Status PersistentDirectoryBatch::attach(std::uint32_t channel) {
     std::lock_guard lock(mutex_);
     if (!status_.isOk()) return status_;
-    if (channel >= channels_.size() || channels_[channel].attached) {
+    if (channel >= channels_.size() || channels_[channel].attached || finished_) {
         auto error = common::Status::invalidArgument("duplicate or invalid batch channel");
         failLocked(error); return error;
     }
     channels_[channel].attached = true;
+    channels_[channel].ready = false;
+    channels_[channel].done = false;
     return common::Status::ok();
 }
 void PersistentDirectoryBatch::bind(std::uint32_t channel, int controlFd, int dataFd, bool ready) {
@@ -45,7 +47,46 @@ void PersistentDirectoryBatch::bind(std::uint32_t channel, int controlFd, int da
 }
 void PersistentDirectoryBatch::unbind(std::uint32_t channel) {
     std::lock_guard lock(mutex_);
-    channels_.at(channel).control = channels_.at(channel).data = -1;
+    auto& state = channels_.at(channel);
+    state.control = state.data = -1;
+    state.ready = false;
+    state.done = false;
+    state.attached = false;
+    changed_.notify_all();
+}
+void PersistentDirectoryBatch::failChannelLocked(std::uint32_t channel, const common::Status& status) {
+    if (channel >= channels_.size()) {
+        failLocked(common::Status::invalidArgument("invalid batch channel"));
+        return;
+    }
+    auto& state = channels_[channel];
+    const int controlFd = state.control;
+    const int dataFd = state.data;
+    state.ready = false;
+    state.done = false;
+    state.control = state.data = -1;
+    // A control-side disconnect must interrupt the paired data accept/worker.
+    // A data-side failure keeps the control session alive for the lane retry.
+    if (status.message().find("control") != std::string::npos && dataFd >= 0)
+        (void)::shutdown(dataFd, SHUT_RDWR);
+    (void)controlFd;
+    for (auto& [fileId, file] : files_) {
+        (void)fileId;
+        for (auto lease = file.leases.begin(); lease != file.leases.end();) {
+            if (lease->second.owner == channel) lease = file.leases.erase(lease);
+            else ++lease;
+        }
+    }
+    changed_.notify_all();
+    (void)status;
+}
+common::Status PersistentDirectoryBatch::failChannel(
+    std::uint32_t channel, const common::Status& status) {
+    std::lock_guard lock(mutex_);
+    if (!status_.isOk()) return status_;
+    if (channel >= channels_.size()) return common::Status::invalidArgument("invalid batch channel");
+    failChannelLocked(channel, status);
+    return common::Status::ok();
 }
 void PersistentDirectoryBatch::failLocked(const common::Status& status) {
     if (status_.isOk()) status_ = status.isOk() ? common::Status::runtimeError("directory batch cancelled") : status;
@@ -61,11 +102,14 @@ void PersistentDirectoryBatch::cancel(const common::Status& status) {
 void PersistentDirectoryBatch::checkControlsLocked() {
     if (finished_) return;
     // No pipelined commands are allowed while a directory batch owns these controls.
-    for (const auto& c : channels_) if (c.control >= 0) {
-        pollfd descriptor{c.control,POLLIN,0};
-        if (::poll(&descriptor,1,0) > 0 && descriptor.revents != 0) {
-            failLocked(common::Status::transportError("dynamic batch control disconnected/cancelled"));
-            return;
+    for (std::uint32_t index = 0; index < channels_.size(); ++index) {
+        const auto& c = channels_[index];
+        if (c.control >= 0) {
+            pollfd descriptor{c.control,POLLIN,0};
+            if (::poll(&descriptor,1,0) > 0 && descriptor.revents != 0) {
+                failChannelLocked(index, common::Status::transportError(
+                    "dynamic batch channel control disconnected/cancelled"));
+            }
         }
     }
 }
@@ -111,9 +155,16 @@ common::Status PersistentDirectoryBatch::fileEvent(std::uint32_t channel,
                 return common::Status::invalidArgument("duplicate dynamic batch file identity/path");
             paths_.insert(id.relativePath); transfers_.insert(id.transferId);
             found = files_.emplace(id.fileId,File{base,channel,id.rangeCount,{},false,{}}).first;
-        } else if (found->second.done || !samePersistentIdentity(found->second.id,base) ||
+        } else if (!samePersistentIdentity(found->second.id,base) ||
                    found->second.rangeCount != id.rangeCount) {
             return common::Status::invalidArgument("stale dynamic file begin");
+        } else if (found->second.done) {
+            // A sender may retry after the receiver committed the range but before
+            // the sender observed FILE_RESULT. Resume validation makes this replay
+            // idempotent; the completion path below will not increment the batch twice.
+            if (id.attempt == 0 || !found->second.ranges.contains(id.rangeId))
+                return common::Status::invalidArgument("stale dynamic file begin");
+            return common::Status::ok();
         }
         auto& file = found->second;
         if (file.leases.contains(id.rangeId) || file.ranges.contains(id.rangeId))
@@ -125,15 +176,28 @@ common::Status PersistentDirectoryBatch::fileEvent(std::uint32_t channel,
         }
         file.leases.emplace(id.rangeId,File::Lease{channel,id});
     } else {
-        if (found == files_.end() || found->second.done ||
-            !samePersistentIdentity(found->second.id,base))
+        if (found == files_.end() || !samePersistentIdentity(found->second.id,base))
             return common::Status::invalidArgument("stale dynamic file completion");
         auto& file = found->second;
+        if (file.done) {
+            if (id.attempt == 0 || !file.ranges.contains(id.rangeId))
+                return common::Status::invalidArgument("stale dynamic file completion");
+            if (!status.isOk()) {
+                if (status.code() == common::StatusCode::TransportError) failChannelLocked(channel, status);
+                else failLocked(status);
+                return status;
+            }
+            return common::Status::ok();
+        }
         auto lease = file.leases.find(id.rangeId);
         if (lease == file.leases.end() || lease->second.owner != channel ||
             !samePersistentIdentity(lease->second.id,id))
             return common::Status::invalidArgument("foreign or stale range completion");
-        if (!status.isOk()) { failLocked(status); return status; }
+        if (!status.isOk()) {
+            if (status.code() == common::StatusCode::TransportError) failChannelLocked(channel, status);
+            else failLocked(status);
+            return status;
+        }
         file.leases.erase(lease);
         file.ranges.insert(id.rangeId);
         if (id.rangeId == 0 || file.ranges.size() == file.rangeCount) {

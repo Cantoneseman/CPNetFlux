@@ -57,6 +57,9 @@ class DynamicFileQueue {
     [[nodiscard]] common::Status requestDrain(const WorkerContext&);
     // Caller must have shut down the transport and stopped its IO before disconnect.
     [[nodiscard]] common::Status disconnect(const WorkerContext&);
+    // Snapshot the leases owned by one worker after transport teardown. The
+    // caller must reconcile these leases before invoking recover().
+    [[nodiscard]] common::Result<std::vector<WorkLease>> active(const WorkerContext&) const;
     [[nodiscard]] common::Result<bool> cutReady(const WorkerContext&) const;
     [[nodiscard]] common::Result<WorkerContext> reopen(const WorkerContext&);
     // Caller confirms teardown via disconnect, then supplies an explicit authoritative verdict

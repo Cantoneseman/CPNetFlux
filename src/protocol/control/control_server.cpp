@@ -963,13 +963,12 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
 struct DynamicDirectoryGuard {
     std::shared_ptr<DynamicDirectory> directory;
     std::uint32_t channel = 0;
-    bool attached = false, success = false;
+    bool attached = false, success = false, handled = false;
     ~DynamicDirectoryGuard() {
         if (!directory || !attached) return;
-        if (!success) {
+        if (!success && !handled) {
             auto error = common::Status::runtimeError("dynamic directory channel failed/cancelled");
-            directory->batch->cancel(error);
-            if (directory->queue) directory->queue->cancel(error);
+            (void)directory->batch->failChannel(channel, error);
         }
         directory->batch->unbind(channel);
     }
@@ -1094,8 +1093,23 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         if (original.isOk()) original = status;
         if (!original.isOk() && original.code() != common::StatusCode::TransportError)
             guard.directory->lifetime->terminalError.store(true, std::memory_order_release);
-        if (!status.isOk()) guard.directory->batch->cancel(status);
-        else status = guard.directory->batch->finish(channelIndex,std::chrono::seconds(30));
+        if (!status.isOk()) {
+            if (status.code() == common::StatusCode::TransportError) {
+                (void)guard.directory->batch->failChannel(channelIndex, status);
+            } else {
+                guard.directory->batch->cancel(status);
+            }
+            guard.handled = true;
+        } else {
+            status = guard.directory->batch->finish(channelIndex,std::chrono::seconds(30));
+            if (!status.isOk()) {
+                if (status.code() == common::StatusCode::TransportError)
+                    (void)guard.directory->batch->failChannel(channelIndex, status);
+                else
+                    guard.directory->batch->cancel(status);
+                guard.handled = true;
+            }
+        }
         double queueWait = 0;
         for (const auto& timing : stats.fileTimings) queueWait += timing.queueWaitSeconds.value_or(0);
         std::ostringstream extra;

@@ -53,6 +53,8 @@ struct FileTransferOptions {
     bool resume = false;
     bool hasCorruptChunk = false;
     bool hasDuplicateCorruptChunk = false;
+    // Internal persistent-lane retry generation; not exposed as a CLI option.
+    std::uint32_t reconnectAttempt = UINT32_MAX;
 };
 
 common::Result<FileTransferOptions> parseFileTransferOptions(int argc, const char* const* argv,

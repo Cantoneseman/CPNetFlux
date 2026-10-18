@@ -962,6 +962,7 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> controlConnectCount{0};
     std::atomic<std::uint64_t> controlReconnectCount{0};
     std::atomic<std::uint64_t> dataTransferCount{0};
+    std::atomic<std::uint64_t> laneLocalRecoveryCount{0};
     bool persistentData = false;
     bool perFileStarted = false;
     std::uint64_t persistentDataConnectCount = 0;
@@ -1350,6 +1351,8 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
            << config::controlReuseModeName(options.controlReuseMode) << "\",\n";
     output << "  \"control_connect_count\": " << stats.controlConnectCount.load() << ",\n";
     output << "  \"control_reconnect_count\": " << stats.controlReconnectCount.load() << ",\n";
+    output << "  \"lane_local_recovery_scope\": \"per_lane_data_session\",\n";
+    output << "  \"lane_local_recovery_count\": " << stats.laneLocalRecoveryCount.load() << ",\n";
     output << "  \"data_transfer_count\": " << stats.dataTransferCount.load() << ",\n";
     output << "  \"actual_transport\": \"v3\",\n";
     output << "  \"requested_mode\": \"" << (options.requestedReuseDataSession ? "persistent_tree" : "per_file") << "\",\n";
@@ -3495,6 +3498,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         PersistentTreeStats observed;
         std::uint32_t totalFiles = kUnknownPersistentFileCount;
         std::uint32_t expectedFileCount = kUnknownPersistentFileCount;
+        std::uint32_t dataConnectCount = 0, localRecoveryAttempts = 0;
         double controlWaitSeconds = 0, prepareSeconds = 0, connectSeconds = 0, remoteQueueWait = 0, remoteScan = 0;
         bool dataConnected = false;
         std::string linkId;
@@ -3654,13 +3658,14 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             std::lock_guard<std::mutex> lock(channel.dataMutex);
             channel.data = std::move(data.value());
             channel.dataConnected = true;
+            channel.dataConnectCount = 1;
         });
     }
     for (auto& worker : workers) worker.join();
     for (const auto& channel : channels) {
         stats->controlPrepareSeconds += channel->prepareSeconds;
         stats->dataConnectSeconds += channel->connectSeconds;
-        if (channel->dataConnected) ++stats->persistentDataConnectCount;
+        stats->persistentDataConnectCount += channel->dataConnectCount;
     }
     if (!firstFailure.isOk()) return firstFailure;
 
@@ -3712,13 +3717,13 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             if (!options.dynamicFileScheduling) recordFileFailure(fileStatus);
         }
         if (complete && fileStatus.code() == common::StatusCode::TransportError) {
-            // Publish transport teardown before sibling callbacks alter the ledger.
-            // Ordinary file rejection keeps the existing per-file continuation contract.
-            recordFailure(fileStatus);
+            // Dynamic workers reconcile only their own leases after both IO threads
+            // stop. Static V2 keeps the historical whole-batch cancellation.
+            if (!options.dynamicFileScheduling) recordFailure(fileStatus);
             return fileStatus;
         }
         auto base = id;
-        base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = 0;
+        base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
         auto active = activeIdentities.find(id.fileId);
         bool logicalComplete = id.rangeId == 0;
         if (!complete) {
@@ -3730,8 +3735,19 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                        active->second.rangeCount != id.rangeCount) {
                 return common::Status::invalidArgument("persistent file begin identity mismatch");
             }
-            if (id.rangeId != 0 && !active->second.started.insert(id.rangeId).second)
-                return common::Status::invalidArgument("duplicate persistent range begin");
+            if (id.rangeId != 0) {
+                const bool inserted = active->second.started.insert(id.rangeId).second;
+                if (!inserted) {
+                    // A local lane retry can replay a begin that the sender already
+                    // emitted before the data socket reset. Keep the callback
+                    // idempotent for retry attempts; the batch validates the same
+                    // identity and range before accepting the replay.
+                    if (id.attempt == 0)
+                        return common::Status::invalidArgument("duplicate persistent range begin");
+                    if (active->second.completed.contains(id.rangeId))
+                        return common::Status::ok();
+                }
+            }
         } else {
             if (active == activeIdentities.end() || !samePersistentIdentity(active->second.base, base))
                 return common::Status::invalidArgument("persistent completion identity mismatch");
@@ -3809,20 +3825,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         workers.emplace_back([&, index]() {
             auto& channel = *channels[index];
             channel.observed.phaseTiming = options.phaseTiming;
-            auto transferStatus = upload
-                ? sendPersistentTree(&channel.data, options.sourceDir, channel.files,
-                    &channel.observed, callback, dispatchWindow, index, channelCount, ready.get(),
-                    &transferOptions, !options.dynamicFileScheduling)
-                : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
-                    &channel.observed, callback, dispatchWindow, index, channelCount,
-                    channel.expectedFileCount, options.dynamicFileScheduling, options.resume, transactions,
-                    ready.get());
-            {
-                std::lock_guard<std::mutex> lock(channel.dataMutex);
-                channel.data = FramedDataSocket{};
-            }
-            const auto waiting = std::chrono::steady_clock::now();
-            const auto recordTransferOutcome = [&](const common::Status& outcome) {
+            std::uint32_t laneAttempt = 0;
+            auto recordTransferOutcome = [&](const common::Status& outcome) {
                 if (outcome.isOk()) return;
                 {
                     std::lock_guard<std::mutex> lock(failureMutex);
@@ -3834,11 +3838,9 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 }
                 recordFailure(outcome);
             };
-            recordTransferOutcome(transferStatus);
-            std::string terminal;
-            auto controlStatus = channel.control->waitTransferComplete({}, &terminal);
-            recordTransferOutcome(controlStatus);
-            if (options.dynamicFileScheduling && controlStatus.isOk()) {
+            auto parseTerminalTelemetry = [&](const std::string& terminal,
+                                               common::Status* controlStatus) {
+                if (!options.dynamicFileScheduling || !controlStatus->isOk()) return;
                 std::istringstream fields(terminal);
                 std::string field;
                 bool sawQueueHigh = false, sawQueueWait = false, sawScan = false;
@@ -3851,7 +3853,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                         std::size_t parsed = 0;
                         auto result = std::from_chars(value.data(),value.data()+value.size(),parsed);
                         if (result.ec != std::errc() || result.ptr != value.data()+value.size() || parsed > 256) {
-                            controlStatus = common::Status::runtimeError("invalid remote queue telemetry"); break;
+                            *controlStatus = common::Status::runtimeError("invalid remote queue telemetry"); break;
                         }
                         channel.remoteQueueHigh = parsed;
                         sawQueueHigh = true;
@@ -3859,20 +3861,81 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                         double parsed = 0;
                         auto result = std::from_chars(value.data(),value.data()+value.size(),parsed);
                         if (result.ec != std::errc() || result.ptr != value.data()+value.size() || !std::isfinite(parsed) || parsed < 0) {
-                            controlStatus = common::Status::runtimeError("invalid remote duration telemetry"); break;
+                            *controlStatus = common::Status::runtimeError("invalid remote duration telemetry"); break;
                         }
                         if (name == "queue_wait_seconds") { channel.remoteQueueWait = parsed; sawQueueWait = true; }
                         else { channel.remoteScan = parsed; sawScan = true; }
                     }
                 }
-                if (controlStatus.isOk() && !(sawQueueHigh && sawQueueWait && sawScan))
-                    controlStatus = common::Status::runtimeError("dynamic server omitted directory telemetry");
+                if (controlStatus->isOk() && !(sawQueueHigh && sawQueueWait && sawScan))
+                    *controlStatus = common::Status::runtimeError("dynamic server omitted directory telemetry");
+            };
+            auto reconnectLane = [&]() -> common::Status {
+                auto port = channel.control->epsv();
+                if (!port.isOk()) return port.status();
+                const auto totalFiles = upload ? logicalFileCount : 0U;
+                auto started = channel.control->startDirectory(upload,
+                    upload ? options.destDir : options.sourceDir, index, channelCount, totalFiles,
+                    &channel.totalFiles, &channel.expectedFileCount, batchId);
+                if (!started.isOk()) return started;
+                const auto connecting = std::chrono::steady_clock::now();
+                auto data = connectFramedDataSocket(options.host.c_str(), port.value(), options.dataTlsMode,
+                    options.tls, options.tlsServerName.empty() ? nullptr : options.tlsServerName.c_str(),
+                    options.transferDeadline);
+                channel.connectSeconds += std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - connecting).count();
+                if (!data.isOk()) return data.status();
+                {
+                    std::lock_guard<std::mutex> lock(channel.dataMutex);
+                    channel.data = std::move(data.value());
+                }
+                channel.dataConnected = true;
+                ++channel.dataConnectCount;
+                return common::Status::ok();
+            };
+            for (;;) {
+                config::FileTransferOptions attemptOptions = transferOptions;
+                attemptOptions.resume = options.resume || laneAttempt != 0;
+                attemptOptions.reconnectAttempt = laneAttempt;
+                common::Status transferStatus = upload
+                    ? sendPersistentTree(&channel.data, options.sourceDir, channel.files,
+                        &channel.observed, callback, dispatchWindow, index, channelCount, ready.get(),
+                        &attemptOptions, !options.dynamicFileScheduling, options.reconnectAttempts)
+                    : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
+                        &channel.observed, callback, dispatchWindow, index, channelCount,
+                        channel.expectedFileCount, options.dynamicFileScheduling,
+                        attemptOptions.resume, transactions, ready.get(), options.reconnectAttempts);
+                {
+                    std::lock_guard<std::mutex> lock(channel.dataMutex);
+                    channel.data = FramedDataSocket{};
+                }
+                const auto waiting = std::chrono::steady_clock::now();
+                std::string terminal;
+                auto controlStatus = channel.control->waitTransferComplete({}, &terminal);
+                channel.controlWaitSeconds += std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - waiting).count();
+                const bool canRetry = options.dynamicFileScheduling &&
+                    transferStatus.code() == common::StatusCode::TransportError &&
+                    controlStatus.code() != common::StatusCode::TransportError &&
+                    laneAttempt < options.reconnectAttempts;
+                if (canRetry) {
+                    ++laneAttempt;
+                    channel.localRecoveryAttempts = laneAttempt;
+                    stats->laneLocalRecoveryCount.fetch_add(1);
+                    auto reconnected = reconnectLane();
+                    if (!reconnected.isOk()) {
+                        channel.status = reconnected;
+                        recordTransferOutcome(channel.status);
+                        break;
+                    }
+                    continue;
+                }
+                parseTerminalTelemetry(terminal, &controlStatus);
+                channel.status = transferStatus.isOk() ? controlStatus : transferStatus;
+                if (channel.status.isOk() && !controlStatus.isOk()) channel.status = controlStatus;
+                if (!channel.status.isOk()) recordTransferOutcome(channel.status);
+                break;
             }
-            channel.controlWaitSeconds = std::chrono::duration<double>(
-                std::chrono::steady_clock::now() - waiting).count();
-            channel.status = transferStatus.isOk() ? controlStatus : transferStatus;
-            if (channel.status.isOk() && !controlStatus.isOk()) channel.status = controlStatus;
-            if (!channel.status.isOk()) recordFailure(channel.status);
         });
     }
     for (auto& worker : workers) worker.join();
@@ -3883,10 +3946,13 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     }
     stats->persistentLaneRangeCompletions.assign(options.linkSetLinks, 0);
     std::uint64_t transferredBytes = 0, wireBytes = 0;
+    // Recompute after workers finish so lane-local reconnects are included.
+    stats->persistentDataConnectCount = 0;
     double completeWaitSeconds = 0;
     std::uint32_t pendingHighWatermark = 0;
     for (std::size_t index = 0; index < channels.size(); ++index) {
         const auto& channel = channels[index];
+        stats->persistentDataConnectCount += channel->dataConnectCount;
         stats->resumeSkippedBytes += channel->observed.skippedBytes;
         stats->queueWaitSeconds += upload ? channel->observed.queueWaitSeconds : channel->remoteQueueWait;
         if (!upload && options.dynamicFileScheduling)

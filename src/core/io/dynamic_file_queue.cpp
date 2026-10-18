@@ -821,6 +821,22 @@ common::Status DynamicFileQueue::disconnect(const WorkerContext& owner) {
     changed_.notify_all();
     return common::Status::ok();
 }
+common::Result<std::vector<WorkLease>> DynamicFileQueue::active(
+    const WorkerContext& owner) const {
+    std::lock_guard lock(mutex_);
+    if (!status_.isOk()) return status_;
+    if (!matchesWorker(owner)) return mismatch();
+    std::vector<WorkLease> leases;
+    for (const auto& [key, active] : active_) {
+        (void)key;
+        if (active.lease.owner == owner) leases.push_back(active.lease);
+    }
+    std::sort(leases.begin(), leases.end(),
+              [](const WorkLease& left, const WorkLease& right) {
+                  return left.leaseId < right.leaseId;
+              });
+    return leases;
+}
 common::Result<bool> DynamicFileQueue::cutReady(const WorkerContext& owner) const {
     std::lock_guard lock(mutex_);
     if (!status_.isOk()) return status_;

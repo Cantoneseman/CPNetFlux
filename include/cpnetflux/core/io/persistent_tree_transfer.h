@@ -69,7 +69,7 @@ using PersistentFileCallback = std::function<common::Status(
     std::uint32_t pendingWindow = 1, std::uint32_t channelIndex = 0,
     std::uint32_t channelCount = 1, DynamicFileQueue* ready = nullptr,
     const config::FileTransferOptions* options = nullptr,
-    bool continueAfterFileFailure = false);
+    bool continueAfterFileFailure = false, std::uint32_t maxRetries = 3);
 [[nodiscard]] common::Status receivePersistentTree(FramedDataSocket* socket,
     const std::string& root, bool download, const std::string& remoteRoot,
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},
@@ -77,5 +77,5 @@ using PersistentFileCallback = std::function<common::Status(
     std::uint32_t channelCount = 1,
     std::uint32_t expectedFileCount = kUnknownPersistentFileCount, bool dynamic = false,
     bool resume = false, std::shared_ptr<PersistentTransferContext> context = {},
-    DynamicFileQueue* ready = nullptr);
+    DynamicFileQueue* ready = nullptr, std::uint32_t maxRetries = 3);
 }  // namespace cpnetflux::core::io

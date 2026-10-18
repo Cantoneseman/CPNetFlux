@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/persistent_directory_batch.h"
 #include "cpnetflux/core/io/work_executor.h"
 #include <tuple>
 #include "cpnetflux/checkpoint/transfer_manifest.h"
@@ -911,6 +912,43 @@ TEST_P(PersistentMultiRangeRecoveryTest, ReplaysVerifiedPartitionAfterFirstSkipP
     ASSERT_TRUE(replayReceiverStatus.isOk()) << replayReceiverStatus.message();
     EXPECT_EQ(skipped.payloadBytes, 0U); EXPECT_EQ(skipped.skippedBytes, 16U);
     EXPECT_EQ(validated.payloadBytes, 0U);
+}
+
+
+TEST(PersistentDirectoryBatchTest, ReattachesOnlyFailedChannelAndKeepsCommittedRanges) {
+    PersistentDirectoryBatch batch(2, 2);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    ASSERT_TRUE(batch.attach(1).isOk());
+    batch.bind(0, -1, -1, true);
+    batch.bind(1, -1, -1, true);
+    ASSERT_TRUE(batch.waitReady(std::chrono::milliseconds(50)).isOk());
+
+    PersistentFileIdentity failed{1, 1, 1, "failed.bin", "failed-transfer"};
+    PersistentFileIdentity healthy{2, 1, 1, "healthy.bin", "healthy-transfer"};
+    ASSERT_TRUE(batch.fileEvent(0, failed, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(1, healthy, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(1, healthy, cpnetflux::common::Status::ok(), true).isOk());
+
+    ASSERT_TRUE(batch.failChannel(0, cpnetflux::common::Status::transportError("data reset")).isOk());
+    batch.unbind(0);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    batch.bind(0, -1, -1, true);
+    ASSERT_TRUE(batch.waitReady(std::chrono::milliseconds(50)).isOk());
+
+    failed.attempt = 1;
+    ASSERT_TRUE(batch.fileEvent(0, failed, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(0, failed, cpnetflux::common::Status::ok(), true).isOk());
+
+    cpnetflux::common::Status healthyFinish, failedFinish;
+    std::jthread healthyThread([&] {
+        healthyFinish = batch.finish(1, std::chrono::seconds(1));
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    failedFinish = batch.finish(0, std::chrono::seconds(1));
+    healthyThread.join();
+    EXPECT_TRUE(failedFinish.isOk()) << failedFinish.message();
+    EXPECT_TRUE(healthyFinish.isOk()) << healthyFinish.message();
+    EXPECT_TRUE(batch.status().isOk());
 }
 
 INSTANTIATE_TEST_SUITE_P(UploadDownload, PersistentMultiRangeRecoveryTest, ::testing::Bool());

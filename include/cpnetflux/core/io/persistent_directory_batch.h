@@ -16,6 +16,9 @@ class PersistentDirectoryBatch {
     [[nodiscard]] common::Status attach(std::uint32_t channel);
     void bind(std::uint32_t channel, int controlFd, int dataFd, bool ready = true);
     void unbind(std::uint32_t channel);
+    // Mark one channel transport-dead while preserving healthy channels and
+    // committed ranges. The same channel may attach again to resume missing work.
+    [[nodiscard]] common::Status failChannel(std::uint32_t channel, const common::Status& status);
     [[nodiscard]] common::Status waitReady(std::chrono::milliseconds timeout);
     [[nodiscard]] common::Status fileEvent(std::uint32_t channel, const PersistentFileIdentity& id,
                                           const common::Status& status, bool complete);
@@ -35,6 +38,7 @@ class PersistentDirectoryBatch {
     };
     common::Status wait(bool finishing, std::chrono::milliseconds timeout);
     void failLocked(const common::Status& status);
+    void failChannelLocked(std::uint32_t channel, const common::Status& status);
     void checkControlsLocked();
     std::mutex mutex_;
     std::condition_variable changed_;
