@@ -1,16 +1,16 @@
-# 当前执行（2026-10-18；R2026-10-16-V3-UNIFIED-MULTILINK）
+# 当前执行（2026-10-19；R2026-10-16-V3-UNIFIED-MULTILINK）
 
-本节为当前生效状态。下方历史路线保留供追溯；历史测试数、资源阻塞和已被替代的下一步不覆盖本轮结论。
+本节优先于下方历史路线和旧任务快照。深圳为权威 Git 工作区；本轮按用户提供的协作指示在深圳任务 worktree 内串行修改，上海只作传输对端。
 
-- V3-FLOWCUT-01：done。GlobalScheduler 已驱动 N 条逻辑 LinkSet lane；persistent global + LINKS>1 可用，队列 lane 选择与 drain/disconnect/recover/epoch 同步通过。实现提交 edf92bf4081347ea9ad60f196d741499f99b222e 已推送并回读；详情见 docs/tasks/2026-10-18-v3-flowcut-01.md。
-- V3-LANE-FAILOVER-01：done。DynamicFileQueue 的 lease/lane 计数、断线接管和 epoch fencing 已有行为测试；提交 c571de0150037a43346cfe12050a1db783ed10f6 已推送到 origin 分支 codex/V3-LANE-FAILOVER-01。
-- V3-LANE-LOCAL-RECOVERY-01：done。本轮将 persistent tree 的单 data TransportError 限定在失败 lane：按 channel fail/re-attach，保留健康控制/数据会话，retry attempt 重建 range slot 并复用 checkpoint；全量单元 341/341，定向 CTest 10/10，深圳→上海与上海→深圳各有正常/单 data socket reset 互传，四次均 2/2 且 SHA-256 一致。故障场景均 `lane_local_recovery_count=1`、`data_connect_count=3`、`control_reconnect_count=0`。详情见 docs/tasks/2026-10-18-v3-lane-local-recovery-01.md。
-- 完整 CTest 为 379/382；3 个失败均为当前 2 CPU/长连接 30 秒环境型超时（reconnect、stability TLS、pipeline sidecar），已记录原始错误，不据此宣称全量 CTest 全绿。
-- V3-LANE-RECOVERY-COVERAGE-01：done。loopback harness 已覆盖 2 lane/多 range、upload/download、TLS+control pipeline；三场景均证明目标 lane 单次恢复、健康 lane 保持、控制连接不重连、树摘要一致。全量 CTest 382/384，剩余 reconnect 与稳定性 TLS 两项仍是 30 秒环境型失败。
-- 下一阶段：V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01。验证下载方向的控制连接断开也能只恢复故障 lane；物理 NIC/local bind/不同物理链路验证继续后置。
-- 本轮深圳仍是唯一权威 Git 工作区，上海只作传输对端；临时服务/端口已停止并释放，既有服务未改动，证据负载保留在 /tmp，不进入 Git。
-- 03 实现与 04 独立复核专用派单此前因 429/active-writer 锁不可用，本轮未冒称已收到角色回执或独立审查结论。
+- V3-LANE-DATA-FAULT-RECOVERY-01：实现与双云验收已完成，独立质量复核尚未取得回执；结果和边界见 `docs/tasks/2026-10-19-v3-lane-data-fault-recovery-01.md`。
+- V3-LANE-MULTI-FAULT-BUDGET-01：in_progress。输入 `73b1fc2dcf78860536769b8c245d35ad80e662f7`；任务 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-multi-fault-budget-01`，分支 `codex/V3-LANE-MULTI-FAULT-BUDGET-01`。目标是实测两条数据 lane 近同时断开时 `--reconnect-attempts` 的共享预算是否在 N=0/1/2 下严格生效；先修故障代理/矩阵，不预设生产代码有错。计划见 `docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md`。
+- 计划验收：深圳/上海作服务端 × 上传/下载 × N=0/1/2 共 12 个实际互传 case；双 reset 需由代理日志证明不同连接且时间差小于 500 ms。N=0/1 失败边界和预算消耗须清楚，N=2 成功并以最终树 SHA 相等验收。
+- 非目标：物理 NIC、local bind、不同物理路径、吞吐优化、TLS/生产认证和 readiness 均不在本轮范围；物理链路按用户要求后置。
+- 资源边界：运行前重查两端空间、内存和 24600–24799 实验端口；每端 `/` 与 `/tmp` 至少保留 10 GiB 及本次 payload/build 预算。只停本轮自启 PID；生产端口 2121 只读，不改服务。
 
+## 历史执行快照
+
+V3-FLOWCUT、V3-LANE-FAILOVER、V3-LANE-LOCAL-RECOVERY 与更早路线记录见下文历史部分；其旧“下一阶段”文字已被上方当前任务替代。最近完整状态以各自 `docs/tasks/` 记录为准。
 # 当前执行（2026-10-14）
 
 当前主线：V3-COMPOSITION-01 组合稳定性回归 -> V3-WORKER-STATE-01 统一 scheduler/pipeline/持久连接 worker 生命周期 -> V3-RELEASE-STABILITY-01 稳定候选验收。V3-WORKER-STATE-01A 状态报告修复已通过；下一步继续实现共同 worker/lease 生命周期，不据此宣称所有策略组合或生产 readiness 已验证。
