@@ -4008,7 +4008,6 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 const common::Status transferOrControlStatus = committedOutputIntegrityFailure
                     ? controlStatus : (transferStatus.isOk() ? controlStatus : transferStatus);
                 if (recoveryBudget && recoveryBudget->exhausted() &&
-                    recoveryBudget->used() != 0 &&
                     transferStatus.message() == "work retry limit exceeded") {
                     channel.status = reconnectBudgetExhausted(transferOrControlStatus);
                     recordTransferOutcome(channel.status);

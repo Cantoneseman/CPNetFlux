@@ -17,7 +17,7 @@
 - N=0：两条目标连接都确实被重置；传输快速、明确失败；预算消耗 0，恢复计数为 0。
 - N=1：两条目标连接都确实被重置；传输明确因预算耗尽而失败；恢复预算和实际恢复最多为 1，且摘要字段与客户端错误一致。
 - N=2：两条目标连接都确实被重置；两次 lane 恢复后传输成功；预算消耗恰为 2，下载/上传结果树 SHA-256 与预期相同。
-- 六个失败/成功边界均不能被“仅看退出码”误判；代理日志需记录数据连接编号及重置时刻，证明确有两个不同的初始连接在小于 500 ms 窗口内重置。
+- 全部 12 个失败/成功场景均不能被“仅看退出码”误判；代理日志需记录数据连接编号及重置时刻，证明确有两个不同的初始连接在小于 500 ms 窗口内重置。
 - 运行结束要停止本任务启动的服务/代理，核对端口/PID；证据保存在 `/tmp/cpnetflux-runs/V3-LANE-MULTI-FAULT-BUDGET-01/`，Git 只提交任务记录和脚本/配置，不提交 payload 或构建目录。
 
 非目标：不改多 lane 调度策略；不做吞吐优化、TLS/生产认证验收、生产 readiness 结论；不验证物理 NIC、local bind 或不同物理链路（按用户要求继续暂缓）；不触碰历史 `/root/projects/GridFlux-Beta`、`/root/projects/CPSS(DCC)` 或现有生产服务。
@@ -30,7 +30,7 @@
 - `tools/test/run_cpnetflux_lane_recovery_interop.py`
 - 新增 `tools/test/test_cpnetflux_fault_proxy.py`
 - `CMakeLists.txt`
-- 仅当跨机红测证明产品行为有错时，才允许在相应 client/recovery 代码与行为测试中做最小修复；修改前更新本任务单的受影响文件与验收说明。
+- 已授权的最小产品修复范围：`src/core/io/tree_transfer_client.cpp` 及其必要的行为验收；仅在跨机红测证明错误时修改，并先更新任务单影响范围。本轮首个红测已证明 N=0 错误原因没有说明预算耗尽。
 
 禁止改动其他工作树、主仓库共享 index、凭据、生产服务配置或历史实验目录；不使用 `git add .`。
 
@@ -46,13 +46,15 @@
 ## 当前初步排查与待解决点
 
 - 现有 `RecoveryBudget::tryConsume()` 使用互斥锁，共享对象传给 lane 与整批重试；尚无证据显示本身会超额消费。
+- 首个真实双云 N=0 用例已在 10.24 秒内失败并确认代理同时重置数据连接 1/2，时间差约 53 微秒；摘要显示预算 0、消耗 0、lane 恢复 0，但客户端/摘要只写 `work retry limit exceeded`。代码原因是状态转换额外要求 `used()!=0`，因此零预算未使用 `reconnect attempt budget exhausted`。这是实际确认的错误提示问题；已按红测移除该状态映射对 `used()>0` 的多余要求，仍待固定提交重建和回归验收。
 - 现有代理只支持单一 `--target-data-connection`。即使重复写相同选项，argparse 默认也只保留最后一个；代理还有一个单连接目标字段，无法证明两条 lane 都被重置。这是本轮首要测试工具缺口。
 - 需要确认两条连接是否都已达到数据阈值再放行故障，避免把先后两个独立故障误称为“几乎同时”；需防同一连接的双向 pump 对故障计数重复触发。
 - 需要确认双 reset 时客户端 N=0/1/2 的实际错误字段、连接重建次数与 lane 恢复计数关系；这是实测未知项。
 
 ## 执行记录与下一步交接
 
-- 任务阶段提交：待计划文档/BOARD 更新后记录。
-- 代码提交、push 状态和 GitHub ref SHA 回读：待实现/测试完成后记录。
-- 证据矩阵、构建/测试结果、资源复查与清理：待执行后记录。
-- 下一步：先用一个最小单元测试锁定“目标双连接需要同时到位、每条连接只重置一次”的代理规则；随后扩展跨机 runner 并先跑一组诊断用例，再跑完整 12 项验收。若结果证明预算实现已有正确行为，生产源码不做无依据修改。
+- 任务计划提交：`e0fb8a57de12c7f2d758cdfcd799582e851fc2e7`，已推送并回读 origin 同 SHA。
+- 测试代理/runner 实现提交：`c0361322f9c5c950e0883388a0cb745ae4e2b21f`，已推送并回读 origin 同 SHA；固定输入构建成功。
+- 代理同步门控 RED→GREEN：`python3 tools/test/test_cpnetflux_fault_proxy.py`，先因缺少门控类失败，实现后 3/3 通过；`cpnetflux_lane_recovery_smoke` 与 `cpnetflux_fault_proxy_unit` CTest 2/2 通过。
+- 跨机矩阵首次红测：CTest `cpnetflux_lane_multi_fault_budget_interop` 在首个用例按预期中止；证据目录 `/tmp/cpnetflux-runs/V3-LANE-MULTI-FAULT-BUDGET-01/build/cpnetflux-lane-multi-fault-budget-interop-evidence/20261018T204324Z-1792356204499525037/shanghai-upload-multi-data-budget-0/`。`proxy.jsonl` 确认两个独立目标连接均重置，间隔约 0.000052 秒；`summary.json` 确认预算 0 / 使用 0 / 恢复 0 / 失败，但错误消息不够清楚。
+- 下一步：在固定修复提交上重建；确认 N=0 的 summary 与客户端输出都写明 `reconnect attempt budget exhausted`；重跑 12 项矩阵及代理/恢复回归，再更新最终验收记录。
