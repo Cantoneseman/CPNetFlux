@@ -5,6 +5,7 @@
 - 权威开发端：深圳 gridflux-beta-shenzhen；上海仅作传输对端。
 - 任务输入提交：4af82db824d7d4a7c02accb4f63a40b62e3caa9a；本次最终双云测试输入：7d0787b984e164abe4087713c08847bfde2795c9。
 - 实现 worktree/分支：/root/projects/CPNetFlux-worktrees/v3-lane-data-fault-recovery-01 / codex/V3-LANE-DATA-FAULT-RECOVERY-01。
+- GitHub 阶段提交：e2598016d55bd66ebc2ec809a07dec9f4b189638；push 退出码 0，refs/heads/codex/V3-LANE-DATA-FAULT-RECOVERY-01 回读 SHA 与提交一致。
 
 ## 这次解决了什么（易懂版）
 

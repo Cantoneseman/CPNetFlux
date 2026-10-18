@@ -105,6 +105,7 @@
 ## 2026-10-19 V3-LANE-DATA-FAULT-RECOVERY-01 验收完成（待独立复核）
 
 - 任务输入提交 4af82db824d7d4a7c02accb4f63a40b62e3caa9a；实现 worktree /root/projects/CPNetFlux-worktrees/v3-lane-data-fault-recovery-01，分支 codex/V3-LANE-DATA-FAULT-RECOVERY-01。
+- GitHub 阶段提交 e2598016d55bd66ebc2ec809a07dec9f4b189638 已推送；远端分支 SHA 回读一致。
 - 修复 data socket 在所有 lane ready 前断开后服务端仍等满 30 秒的问题；完整性审计现在会在重试前执行，已提交文件损坏时明确失败。
 - 验收：单元 344/344；三项定向 CTest 3/3；本地故障矩阵 17/17；深圳/上海作服务端 × 上传/下载双云矩阵 4/4，四项树摘要一致、每项恢复一次且不超过预算。详细命令和证据见 docs/tasks/2026-10-19-v3-lane-data-fault-recovery-01.md。
 - 独立质量复核派单遇到 429；CLI 续接报告 active writer，未获得审查回执。当前只记录实现和测试结果，不声称独立审查通过。
