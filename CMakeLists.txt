@@ -565,6 +565,19 @@ if(CPNETFLUX_BUILD_TESTS)
                 --remote-root /tmp/cpnetflux-runs/V3-LANE-MULTI-FAULT-BUDGET-01/interop
         )
         set_tests_properties(cpnetflux_lane_multi_fault_budget_interop PROPERTIES TIMEOUT 1200 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_mixed_fault_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-mixed-fault-budget-interop-evidence
+                --fault-kind mixed
+                --server-side both
+                --transfer both
+                --mixed-fault-budget-matrix
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/bin
+                --remote-root /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/interop
+        )
+        set_tests_properties(cpnetflux_lane_mixed_fault_budget_interop PROPERTIES TIMEOUT 1200 RUN_SERIAL TRUE)
     endif()
     add_test(
         NAME cpnetflux_tree_download_smoke

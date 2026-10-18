@@ -46,6 +46,44 @@ class SynchronizedResetGate:
             return True
 
 
+class SynchronizedMixedResetGate:
+    """Release one data fault and one control fault only after both are ready."""
+
+    def __init__(self, participants, timeout=10.0):
+        self.participants = frozenset((str(kind), int(number)) for kind, number in participants)
+        kinds = {kind for kind, _ in self.participants}
+        if len(self.participants) != 2 or kinds != {"data", "control"}:
+            raise ValueError("mixed reset requires one data and one control participant")
+        self.timeout = timeout
+        self._condition = threading.Condition()
+        self.ready_participants = set()
+        self.reset_participants = set()
+        self._failed = False
+
+    def wait_and_claim(self, participant):
+        participant = (str(participant[0]), int(participant[1]))
+        if participant not in self.participants:
+            return False
+        deadline = time.monotonic() + self.timeout
+        with self._condition:
+            if self._failed:
+                return False
+            self.ready_participants.add(participant)
+            self._condition.notify_all()
+            while self.participants - self.ready_participants and not self._failed:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._failed = True
+                    self._condition.notify_all()
+                    return False
+                self._condition.wait(remaining)
+            if self._failed or participant in self.reset_participants:
+                return False
+            self.reset_participants.add(participant)
+            self._condition.notify_all()
+            return True
+
+
 class FaultProxy:
     def __init__(
         self,
@@ -64,6 +102,7 @@ class FaultProxy:
         target_data_connection=None,
         target_data_connections=None,
         synchronize_data_resets=False,
+        synchronize_mixed_resets=False,
         drop_control_after_data_connection=None,
     ):
         self.listeners = []
@@ -89,17 +128,32 @@ class FaultProxy:
             self.control_reset_targets = {int(value) for value in drop_control_after_data_connection}
         self.drop_control_after_data_connection = self.control_reset_targets
         self.target_data_connection = target_data_connection
-        self.target_data_connections = {
+        self.data_fault_targets = {
             int(value) for value in (target_data_connections or ())
         }
         if target_data_connection is not None:
-            self.target_data_connections.add(int(target_data_connection))
+            self.data_fault_targets.add(int(target_data_connection))
+        self.target_data_connections = set(self.data_fault_targets)
         self.target_data_connections.update(self.control_reset_targets)
         if self.target_data_connection is None and self.control_reset_targets:
             self.target_data_connection = min(self.control_reset_targets)
         self.explicit_data_targets = bool(self.target_data_connections)
         self.target_connection = None
         self.target_connections = set()
+        self.synchronize_mixed_resets = bool(synchronize_mixed_resets)
+        if self.synchronize_mixed_resets and (
+            len(self.data_fault_targets) != 1
+            or len(self.control_reset_targets) != 1
+            or self.data_fault_targets & self.control_reset_targets
+        ):
+            raise ValueError("mixed reset requires different data and control lane targets")
+        self.mixed_reset_gate = (
+            SynchronizedMixedResetGate({
+                ("data", next(iter(self.data_fault_targets))),
+                ("control", next(iter(self.control_reset_targets))),
+            })
+            if self.synchronize_mixed_resets else None
+        )
         self.synchronize_data_resets = bool(
             synchronize_data_resets and len(self.target_data_connections) > 1
             and not self.control_reset_targets
@@ -109,6 +163,7 @@ class FaultProxy:
             if self.synchronize_data_resets else None
         )
         self.data_reset_ready_logged = set()
+        self.mixed_reset_ready_logged = set()
         self.data_reset_done = set()
         self.data_connection_count = 0
         self.control_connection_count = 0
@@ -245,6 +300,7 @@ class FaultProxy:
                 )
                 reset_control_connection = None
                 synchronize_data_connection = None
+                mixed_fault_participant = None
                 if data or self.drop_terminal or self.drop_result:
                     reset = False
                     with self.lock:
@@ -256,6 +312,7 @@ class FaultProxy:
                                 )
                         forwarded = self.forwarded_by_connection.get(connection_id, 0)
                         data_number = self.data_connection_number.get(connection_id)
+                        mapped_control = self.data_connection_control.get(connection_id)
                         if (
                             self.synchronize_data_resets
                             and data
@@ -271,12 +328,41 @@ class FaultProxy:
                                     event="data_reset_ready",
                                     connection=connection_id,
                                     data_connection=data_number,
+                                    lane_index=self.control_lane_index.get(mapped_control),
+                                    data_port=data_port,
+                                    target=True,
+                                )
+                        if (
+                            self.synchronize_mixed_resets
+                            and data
+                            and should_fault
+                            and self.drop_bytes
+                            and forwarded >= self.drop_bytes
+                        ):
+                            if data_number in self.data_fault_targets:
+                                mixed_fault_participant = ("data", data_number)
+                            elif data_number in self.control_reset_targets and mapped_control is not None:
+                                mixed_fault_participant = ("control", data_number)
+                            if (
+                                mixed_fault_participant is not None
+                                and mixed_fault_participant not in self.mixed_reset_ready_logged
+                            ):
+                                self.mixed_reset_ready_logged.add(mixed_fault_participant)
+                                self.event(
+                                    event="mixed_reset_ready",
+                                    scope=mixed_fault_participant[0],
+                                    connection=connection_id,
+                                    data_connection=data_number,
+                                    control_connection=mapped_control,
+                                    lane_index=self.control_lane_index.get(mapped_control),
+                                    batch_id=self.control_batch_id.get(mapped_control),
                                     data_port=data_port,
                                     target=True,
                                 )
                         data_triggered = (
                             not self.control_reset_targets
                             and not self.synchronize_data_resets
+                            and not self.synchronize_mixed_resets
                             and should_fault
                             and self.drop_bytes
                             and forwarded >= self.drop_bytes
@@ -302,9 +388,9 @@ class FaultProxy:
                                 data_port=data_port,
                                 target=should_fault,
                             )
-                        mapped_control = self.data_connection_control.get(connection_id)
                         if (
                             data
+                            and not self.synchronize_mixed_resets
                             and data_number in self.control_reset_targets
                             and data_number not in self.control_reset_done
                             and mapped_control is not None
@@ -323,6 +409,51 @@ class FaultProxy:
                                 data_port=data_port,
                                 target=True,
                             )
+                    if (
+                        mixed_fault_participant is not None
+                        and self.mixed_reset_gate is not None
+                        and self.mixed_reset_gate.wait_and_claim(mixed_fault_participant)
+                    ):
+                        with self.lock:
+                            fault_kind, fault_data_number = mixed_fault_participant
+                            if fault_kind == "data" and connection_id not in self.data_reset_done and self.remaining:
+                                self.data_reset_done.add(connection_id)
+                                self.remaining -= 1
+                                self.dropped += 1
+                                reset = True
+                                self.event(
+                                    event="reset",
+                                    count=self.dropped,
+                                    scope="data",
+                                    connection=connection_id,
+                                    data_connection=fault_data_number,
+                                    lane_index=self.control_lane_index.get(mapped_control),
+                                    batch_id=self.control_batch_id.get(mapped_control),
+                                    data_port=data_port,
+                                    target=True,
+                                )
+                            elif (
+                                fault_kind == "control"
+                                and fault_data_number not in self.control_reset_done
+                                and mapped_control is not None
+                                and self.remaining
+                            ):
+                                self.control_reset_done.add(fault_data_number)
+                                self.remaining -= 1
+                                self.dropped += 1
+                                reset_control_connection = mapped_control
+                                self.event(
+                                    event="reset",
+                                    count=self.dropped,
+                                    scope="control",
+                                    connection=mapped_control,
+                                    control_connection=mapped_control,
+                                    lane_index=self.control_lane_index.get(mapped_control),
+                                    batch_id=self.control_batch_id.get(mapped_control),
+                                    trigger_data_connection=fault_data_number,
+                                    data_port=data_port,
+                                    target=True,
+                                )
                     if (
                         synchronize_data_connection is not None
                         and self.data_reset_gate is not None
@@ -422,6 +553,7 @@ if __name__ == "__main__":
     parser.add_argument("--drops", type=int, default=1)
     parser.add_argument("--target-data-connection", type=int, action="append")
     parser.add_argument("--synchronize-data-resets", action="store_true")
+    parser.add_argument("--synchronize-mixed-resets", action="store_true")
     parser.add_argument("--drop-control-after-data-connection", type=int, action="append")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
@@ -437,6 +569,7 @@ if __name__ == "__main__":
         log=args.log,
         target_data_connections=args.target_data_connection,
         synchronize_data_resets=args.synchronize_data_resets,
+        synchronize_mixed_resets=args.synchronize_mixed_resets,
         drop_control_after_data_connection=args.drop_control_after_data_connection,
     )
     try:
