@@ -387,6 +387,35 @@ TEST(PersistentSessionTest, SkipsAlreadyCompletedRangeWithoutPayload) {
 }
 
 
+TEST(PersistentTreeRecoveryTest, DirectoryEndCountsFilesOnCurrentConnectionAfterReconnect) {
+    SocketPair pair;
+    TempRoot source;
+    TempRoot destination;
+    const std::string content = "retry payload";
+    {
+        std::ofstream output(source.path / "retry.bin", std::ios::binary);
+        output << content;
+    }
+    struct stat sourceStat{};
+    ASSERT_EQ(::stat((source.path / "retry.bin").c_str(), &sourceStat), 0);
+    PersistentFileIdentity file{1, 2, content.size(), "retry.bin", "retry-count",
+        65536, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None};
+    PersistentTreeStats receivedStats;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &receivedStats);
+    });
+    PersistentTreeStats sentStats;
+    sentStats.files = 1;  // The previous data connection completed one file.
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {file}, &sentStats);
+    receiver.join();
+    EXPECT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    EXPECT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(sentStats.files, 2U);  // Cumulative reporting remains intact.
+    EXPECT_EQ(receivedStats.files, 1U);  // This connection carried one file.
+}
+
 TEST(PersistentTreeRangeTest, LoopbackTransfersTwoRangesAndPublishesAfterFinalRange) {
     SocketPair pair;
     TempRoot source;
@@ -915,13 +944,35 @@ TEST_P(PersistentMultiRangeRecoveryTest, ReplaysVerifiedPartitionAfterFirstSkipP
 }
 
 
+TEST(PersistentDirectoryBatchTest, DetectsDataResetDuringPeerReadyWaitAndAllowsReattach) {
+    PersistentDirectoryBatch batch(1,2);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    ASSERT_TRUE(batch.attach(1).isOk());
+    SocketPair failedLane;
+    batch.bind(0,-1,failedLane.sender.fd(),true);
+
+    const auto started=std::chrono::steady_clock::now();
+    failedLane.receiver=FramedDataSocket{};
+    const auto failed=batch.waitReady(0,std::chrono::seconds(1));
+    const auto elapsed=std::chrono::steady_clock::now()-started;
+    ASSERT_EQ(failed.code(),cpnetflux::common::StatusCode::TransportError) << failed.message();
+    EXPECT_LT(elapsed,std::chrono::milliseconds(500));
+    EXPECT_TRUE(batch.status().isOk());
+
+    SocketPair reattachedLane;
+    ASSERT_TRUE(batch.attach(0).isOk());
+    batch.bind(0,-1,reattachedLane.sender.fd(),true);
+    batch.bind(1,-1,-1,true);
+    EXPECT_TRUE(batch.waitReady(0,std::chrono::milliseconds(50)).isOk());
+}
+
 TEST(PersistentDirectoryBatchTest, ReattachesOnlyFailedChannelAndKeepsCommittedRanges) {
     PersistentDirectoryBatch batch(2, 2);
     ASSERT_TRUE(batch.attach(0).isOk());
     ASSERT_TRUE(batch.attach(1).isOk());
     batch.bind(0, -1, -1, true);
     batch.bind(1, -1, -1, true);
-    ASSERT_TRUE(batch.waitReady(std::chrono::milliseconds(50)).isOk());
+    ASSERT_TRUE(batch.waitReady(0,std::chrono::milliseconds(50)).isOk());
 
     PersistentFileIdentity failed{1, 1, 1, "failed.bin", "failed-transfer"};
     PersistentFileIdentity healthy{2, 1, 1, "healthy.bin", "healthy-transfer"};
@@ -933,7 +984,7 @@ TEST(PersistentDirectoryBatchTest, ReattachesOnlyFailedChannelAndKeepsCommittedR
     batch.unbind(0);
     ASSERT_TRUE(batch.attach(0).isOk());
     batch.bind(0, -1, -1, true);
-    ASSERT_TRUE(batch.waitReady(std::chrono::milliseconds(50)).isOk());
+    ASSERT_TRUE(batch.waitReady(0,std::chrono::milliseconds(50)).isOk());
 
     failed.attempt = 1;
     ASSERT_TRUE(batch.fileEvent(0, failed, cpnetflux::common::Status::ok(), false).isOk());
@@ -990,7 +1041,7 @@ TEST(PersistentDirectoryBatchTest, HealthyLaneFinishesBeforeFailedLaneReattach) 
     ASSERT_TRUE(batch.finish(1, std::chrono::seconds(1)).isOk());
     batch.unbind(1, healthyControl.get());
 
-    ASSERT_TRUE(batch.waitReady(std::chrono::milliseconds(50)).isOk());
+    ASSERT_TRUE(batch.waitReady(0,std::chrono::milliseconds(50)).isOk());
     first.attempt = 1;
     ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), false).isOk());
     ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), true).isOk());

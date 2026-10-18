@@ -896,26 +896,48 @@ struct DynamicDirectory {
     std::shared_ptr<core::io::PersistentTransferContext> transactions = core::io::makePersistentTransferContext();
 };
 struct DirectoryRegistration {
-    std::weak_ptr<DynamicDirectory> directory;
+    std::shared_ptr<DynamicDirectory> directory;
     std::shared_ptr<DirectoryLifetime> lifetime;
 };
 std::mutex directoryRegistryMutex;
 std::unordered_map<std::string, DirectoryRegistration> directoryRegistry;
-bool directoryTerminalError(const std::string& key) {
+struct DirectoryDrainResult { bool drained = true; bool terminal = false; };
+DirectoryDrainResult drainDynamicDirectory(const std::string& key) {
     std::lock_guard lock(directoryRegistryMutex);
     const auto found = directoryRegistry.find(key);
-    return found != directoryRegistry.end() && found->second.lifetime->terminalError.load(std::memory_order_acquire);
+    if (found == directoryRegistry.end()) return {};
+    auto& registration = found->second;
+    const bool terminal = registration.lifetime->terminalError.load(std::memory_order_acquire);
+    if (registration.lifetime->released.load(std::memory_order_acquire))
+        return {true, terminal};
+    if (!registration.directory) {
+        registration.lifetime->released.store(true, std::memory_order_release);
+        return {true, terminal};
+    }
+    if (!registration.directory->batch->allChannelsDetached()) return {false, false};
+    registration.lifetime->released.store(true, std::memory_order_release);
+    registration.directory.reset();
+    return {true, terminal};
 }
-bool directoryReleased(const std::string& key) {
+void releaseCompletedDynamicDirectory(
+    const std::string& key, const std::shared_ptr<DynamicDirectory>& directory) {
+    if (key.empty() || !directory) return;
     std::lock_guard lock(directoryRegistryMutex);
     const auto found = directoryRegistry.find(key);
-    return found == directoryRegistry.end() ||
-        found->second.lifetime->released.load(std::memory_order_acquire);
+    if (found == directoryRegistry.end() || found->second.directory != directory) return;
+    const bool complete = directory->batch->completeAndDetached();
+    const bool terminalAndDetached =
+        found->second.lifetime->terminalError.load(std::memory_order_acquire) &&
+        directory->batch->allChannelsDetached();
+    if (!complete && !terminalAndDetached) return;
+    found->second.lifetime->released.store(true, std::memory_order_release);
+    found->second.directory.reset();
 }
 common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     const std::string& key, const std::string& destination, bool upload,
     std::uint32_t channels, std::uint32_t window, std::uint32_t requestedTotal,
-    std::uint64_t chunkSize, checksum::ChecksumAlgorithm checksumAlgorithm,
+    std::uint32_t channelIndex, std::uint64_t chunkSize,
+    checksum::ChecksumAlgorithm checksumAlgorithm,
     const ControlServerOptions& policyOptions) {
     std::lock_guard lock(directoryRegistryMutex);
     for (auto i = directoryRegistry.begin(); i != directoryRegistry.end();)
@@ -923,15 +945,19 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
             i = directoryRegistry.erase(i);
         else ++i;
     const auto found = directoryRegistry.find(key);
-    if (found != directoryRegistry.end()) if (auto existing = found->second.directory.lock()) {
+    if (found != directoryRegistry.end() && found->second.directory) {
+        auto existing = found->second.directory;
         if (existing->destination != destination || existing->upload != upload ||
             existing->channels != channels || existing->window != window ||
             (upload && existing->total != requestedTotal)) {
             existing->batch->cancel(common::Status::invalidArgument("dynamic batch parameters changed"));
             return common::Status::invalidArgument("dynamic batch parameters changed");
         }
+        auto attached = existing->batch->attach(channelIndex);
+        if (!attached.isOk()) return attached;
         return existing;
     }
+    if (found != directoryRegistry.end()) directoryRegistry.erase(found);
     if (directoryRegistry.size() >= 64) return common::Status::runtimeError("dynamic batch capacity exhausted");
     auto created = std::make_shared<DynamicDirectory>();
     created->transactions=core::io::makePersistentTransferContext(persistentPolicy(policyOptions));
@@ -957,21 +983,34 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
             std::move(expanded.value()),channels,window,channels*window*2);
     }
     created->batch = std::make_shared<core::io::PersistentDirectoryBatch>(created->total,channels);
+    auto attached = created->batch->attach(channelIndex);
+    if (!attached.isOk()) return attached;
     directoryRegistry[key] = {created, created->lifetime};
     return created;
 }
 struct DynamicDirectoryGuard {
     std::shared_ptr<DynamicDirectory> directory;
+    std::string key;
     std::uint32_t channel = 0;
     bool attached = false, success = false, handled = false;
     int controlFd = -1;
+    void detach() {
+        if (!directory || !attached) return;
+        directory->batch->unbind(channel, controlFd);
+        attached = false;
+        releaseCompletedDynamicDirectory(key, directory);
+    }
     ~DynamicDirectoryGuard() {
         if (!directory || !attached) return;
         if (!success && !handled) {
+            const auto batchStatus = directory->batch->status();
+            if (batchStatus.code() != common::StatusCode::Ok &&
+                batchStatus.code() != common::StatusCode::TransportError)
+                directory->lifetime->terminalError.store(true, std::memory_order_release);
             auto error = common::Status::runtimeError("dynamic directory channel failed/cancelled");
             (void)directory->batch->failChannel(channel, error);
         }
-        directory->batch->unbind(channel, controlFd);
+        detach();
     }
 };
 
@@ -1010,14 +1049,13 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     DynamicDirectoryGuard guard;
     guard.channel = channelIndex;
     if (!batchId.empty()) {
-        auto group = acquireDynamicDirectory(options.host + ":" + std::to_string(options.port) + ":" +
-            root.value().fullPath + "/" + batchId, destination.string(),
-            upload, channelCount, pendingWindow, requestedTotalFiles, options.chunkSize,
+        guard.key = options.host + ":" + std::to_string(options.port) + ":" +
+            root.value().fullPath + "/" + batchId;
+        auto group = acquireDynamicDirectory(guard.key, destination.string(),
+            upload, channelCount, pendingWindow, requestedTotalFiles, channelIndex, options.chunkSize,
             options.checksumAlgorithm, options);
         if (!group.isOk()) return sendLine(control, formatReply(550, group.status().message()));
         guard.directory = group.value();
-        auto attached = guard.directory->batch->attach(channelIndex);
-        if (!attached.isOk()) return sendLine(control, formatReply(550, attached.message()));
         guard.attached = true;
         guard.directory->batch->bind(channelIndex, control->fd(), -1, false);
         guard.controlFd = control->fd();
@@ -1073,11 +1111,24 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     data = std::move(acceptedData.value());
     if (guard.directory) {
         guard.directory->batch->bind(channelIndex, control->fd(), data.fd());
-        status = guard.directory->batch->waitReady(std::chrono::seconds(30));
+        status = guard.directory->batch->waitReady(channelIndex,std::chrono::seconds(30));
         if (!status.isOk()) {
             std::osyncstream(std::cerr) << "CPNETFLUX_DYNAMIC_BATCH_WAIT_READY_FAILED batch="
                 << batchId << " channel=" << channelIndex << " status=" << status.message() << "\n";
-            return status;
+            const auto integrity = core::io::verifyCommittedPersistentOutputs(guard.directory->transactions);
+            if (!integrity.isOk()) {
+                guard.directory->lifetime->terminalError.store(true,std::memory_order_release);
+                guard.handled = true;
+                const auto reply = sendLine(control,formatReply(550,integrity.message()));
+                guard.directory->batch->cancel(integrity);
+                guard.detach();
+                return reply;
+            }
+            (void)guard.directory->batch->failChannel(channelIndex,status);
+            guard.handled = true;
+            guard.detach();
+            const auto reply = sendLine(control,formatReply(550,status.message()));
+            return reply.isOk() ? common::Status::ok() : reply;
         }
     }
     core::io::PersistentTreeStats stats;
@@ -1130,6 +1181,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         observation << "}\n";
         std::osyncstream(std::cout) << observation.str();
         guard.success = status.isOk();
+        guard.detach();
     }
     return sendLine(control, formatReply(status.isOk() ? 226 : 550,
         status.isOk() ? "Persistent directory complete" + details : status.message()));
@@ -1191,8 +1243,9 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             auto root = resolveControlPath(options.root, "/", "", ControlPathKind::ExistingDirectory, "XDIR");
             if (!root.isOk()) { (void)sendLine(&control, formatReply(550, "Invalid batch root")); continue; }
             const auto key = options.host + ":" + std::to_string(options.port) + ":" + root.value().fullPath + "/" + id;
-            const bool drained = directoryReleased(key);
-            const bool terminal = drained && directoryTerminalError(key);
+            const auto drain = drainDynamicDirectory(key);
+            const bool drained = drain.drained;
+            const bool terminal = drained && drain.terminal;
             (void)sendLine(&control, formatReply(terminal ? 550 : (drained ? 200 : 450),
                 terminal ? "CPNetFlux prior batch has a non-retryable error" :
                 (drained ? "CPNetFlux batch drained" : "CPNetFlux batch still active")));

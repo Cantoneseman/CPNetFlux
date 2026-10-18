@@ -421,6 +421,34 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_reconnect_smoke PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
     add_test(
+        NAME cpnetflux_data_fault_recovery_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --case upload-fixed-reset
+            --case download-adaptive-reset
+            --expect-lane-recovery
+            --transfer-timeout-ms 10000
+    )
+    set_tests_properties(cpnetflux_data_fault_recovery_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_committed_output_integrity_audit_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --case upload-fixed-corrupt
+            --transfer-timeout-ms 10000
+    )
+    set_tests_properties(cpnetflux_committed_output_integrity_audit_smoke PROPERTIES TIMEOUT 20 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_terminal_reply_recovery_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --case upload-fixed-terminal
+            --case download-adaptive-terminal
+            --expect-global-recovery
+            --transfer-timeout-ms 10000
+    )
+    set_tests_properties(cpnetflux_terminal_reply_recovery_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(
         NAME cpnetflux_v3_stability_matrix
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_stability_matrix.py --build-dir ${CMAKE_BINARY_DIR} --rounds 8
     )

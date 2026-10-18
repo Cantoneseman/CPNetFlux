@@ -143,7 +143,7 @@ TEST(PersistentDirectoryBatchTest, RejectsDuplicatePathsForeignAndStaleCompletio
 TEST(PersistentDirectoryBatchTest, MissingParticipantTimesOutAndReleasesSockets) {
     int fds[2]; ASSERT_EQ(::socketpair(AF_UNIX,SOCK_STREAM,0,fds),0);
     PersistentDirectoryBatch batch(0,2);ASSERT_TRUE(batch.attach(0).isOk());batch.bind(0,fds[0],-1);
-    EXPECT_FALSE(batch.waitReady(std::chrono::milliseconds(10)).isOk());
+    EXPECT_FALSE(batch.waitReady(0,std::chrono::milliseconds(10)).isOk());
     char byte; EXPECT_EQ(::recv(fds[1],&byte,1,0),0);
     batch.unbind(0);::close(fds[0]);::close(fds[1]);
 }
@@ -167,7 +167,7 @@ TEST(PersistentDirectoryBatchTest, ActiveControlDisconnectReclaimsIdleDataSocket
     PersistentDirectoryBatch batch(1,1);
     ASSERT_TRUE(batch.attach(0).isOk());
     batch.bind(0,control[0],data[0]);
-    ASSERT_TRUE(batch.waitReady(std::chrono::seconds(1)).isOk());
+    ASSERT_TRUE(batch.waitReady(0,std::chrono::seconds(1)).isOk());
     ::close(control[1]);
     pollfd descriptor{data[1],POLLIN,0};
     EXPECT_GT(::poll(&descriptor,1,1000),0) << "control disconnect must interrupt data without waiting for payload timeout";

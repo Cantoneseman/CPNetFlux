@@ -13,7 +13,7 @@ PersistentDirectoryBatch::PersistentDirectoryBatch(std::uint32_t total, std::uin
         monitor_ = std::thread([this] {
             std::unique_lock lock(mutex_);
             while (!stopped_ && status_.isOk() && !finished_) {
-                checkControlsLocked();
+                checkConnectionsLocked();
                 changed_.wait_for(lock,std::chrono::milliseconds(50));
             }
         });
@@ -105,25 +105,47 @@ void PersistentDirectoryBatch::failLocked(const common::Status& status) {
 void PersistentDirectoryBatch::cancel(const common::Status& status) {
     std::lock_guard lock(mutex_); failLocked(status);
 }
-void PersistentDirectoryBatch::checkControlsLocked() {
+void PersistentDirectoryBatch::checkConnectionsLocked() {
     if (finished_) return;
     // No pipelined commands are allowed while a directory batch owns these controls.
     for (std::uint32_t index = 0; index < channels_.size(); ++index) {
-        const auto& c = channels_[index];
-        if (c.control >= 0) {
-            pollfd descriptor{c.control,POLLIN,0};
+        auto& channel = channels_[index];
+        if (channel.failed) continue;
+        if (channel.control >= 0) {
+            pollfd descriptor{channel.control,POLLIN,0};
             if (::poll(&descriptor,1,0) > 0 && descriptor.revents != 0) {
                 failChannelLocked(index, common::Status::transportError(
                     "dynamic batch channel control disconnected/cancelled"));
+                continue;
+            }
+        }
+        if (channel.data >= 0) {
+            pollfd descriptor{channel.data,POLLIN,0};
+            if (::poll(&descriptor,1,0) <= 0 || descriptor.revents == 0) continue;
+            // A positive peek means the peer may already have sent its first frame;
+            // leave it queued for receivePersistentTree. EOF/reset is safe to detect
+            // without consuming application data.
+            std::uint8_t byte = 0;
+            const auto received = ::recv(channel.data,&byte,sizeof(byte),MSG_PEEK|MSG_DONTWAIT);
+            if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+                failChannelLocked(index, common::Status::transportError(
+                    "dynamic batch channel data disconnected/cancelled"));
             }
         }
     }
 }
-common::Status PersistentDirectoryBatch::wait(bool finishing, std::chrono::milliseconds timeout) {
+common::Status PersistentDirectoryBatch::wait(
+    bool finishing, std::chrono::milliseconds timeout, std::uint32_t observingChannel) {
     std::unique_lock lock(mutex_);
+    if (observingChannel >= channels_.size())
+        return common::Status::invalidArgument("invalid batch wait channel");
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     for (;;) {
         if (!status_.isOk()) return status_;
+        checkConnectionsLocked();
+        if (!status_.isOk()) return status_;
+        if (channels_[observingChannel].failed)
+            return common::Status::transportError("dynamic batch channel disconnected/cancelled");
         bool all = std::all_of(channels_.begin(), channels_.end(), [&](const auto& c) {
             return finishing ? c.done : (c.ready || c.done);
         });
@@ -133,8 +155,6 @@ common::Status PersistentDirectoryBatch::wait(bool finishing, std::chrono::milli
             if (finishing && status_.isOk()) { finished_ = true; changed_.notify_all(); }
             return status_;
         }
-        checkControlsLocked();
-        if (!status_.isOk()) return status_;
         if (std::chrono::steady_clock::now() >= deadline) {
             std::ostringstream detail;
             detail << "dynamic batch channel timeout completed=" << completed_ << "/" << total_ << " channels=";
@@ -151,7 +171,10 @@ common::Status PersistentDirectoryBatch::wait(bool finishing, std::chrono::milli
         changed_.wait_until(lock, std::min(deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(50)));
     }
 }
-common::Status PersistentDirectoryBatch::waitReady(std::chrono::milliseconds timeout) { return wait(false, timeout); }
+common::Status PersistentDirectoryBatch::waitReady(
+    std::uint32_t channel, std::chrono::milliseconds timeout) {
+    return wait(false, timeout, channel);
+}
 common::Status PersistentDirectoryBatch::fileEvent(std::uint32_t channel,
     const PersistentFileIdentity& id, const common::Status& status, bool complete) {
     std::lock_guard lock(mutex_);
@@ -247,5 +270,15 @@ common::Status PersistentDirectoryBatch::finish(std::uint32_t channel, std::chro
 common::Status PersistentDirectoryBatch::status() {
     std::lock_guard lock(mutex_);
     return status_;
+}
+bool PersistentDirectoryBatch::allChannelsDetached() {
+    std::lock_guard lock(mutex_);
+    return std::all_of(channels_.begin(), channels_.end(),
+        [](const auto& channel) { return !channel.attached; });
+}
+bool PersistentDirectoryBatch::completeAndDetached() {
+    std::lock_guard lock(mutex_);
+    return finished_ && std::all_of(channels_.begin(), channels_.end(),
+        [](const auto& channel) { return !channel.attached; });
 }
 }  // namespace cpnetflux::core::io

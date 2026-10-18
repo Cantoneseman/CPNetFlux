@@ -21,7 +21,7 @@ SHANGHAI_PUBLIC = "47.116.174.181"
 SHENZHEN_BIND = "192.168.10.22"
 SHANGHAI_BIND = "192.168.10.138"
 REMOTE_ALIAS = "gridflux-beta-shanghai"
-REMOTE_ROOT = Path("/tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/remote")
+REMOTE_ROOT = Path("/tmp/cpnetflux-runs/V3-LANE-DATA-FAULT-RECOVERY-01/interop")
 
 
 def run_process(command: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
@@ -118,8 +118,9 @@ def copy_tree_for_server(source: Path, alias: str | None, destination: Path) -> 
 
 
 def client_command(binary: str, host: str, port: int, source: str, destination: str, summary: str,
-                   reconnect_attempts: int = 2) -> list[str]:
-    return [
+                   reconnect_attempts: int = 2, scheduler: str = "off",
+                   transfer_timeout_ms: int = 120000) -> list[str]:
+    command = [
         binary,
         "--host", host,
         "--port", str(port),
@@ -135,12 +136,16 @@ def client_command(binary: str, host: str, port: int, source: str, destination: 
         "--file-scheduling", "dynamic",
         "--link-set-links", "2",
         "--data-pending-window", "2",
-        "--scheduler", "off",
+        "--scheduler", scheduler,
         "--reconnect-attempts", str(reconnect_attempts),
-        "--transfer-timeout-ms", "120000",
+        "--transfer-timeout-ms", str(transfer_timeout_ms),
         "--phase-timing", "on",
         "--json-summary", summary,
     ]
+    if scheduler == "global":
+        command += ["--scheduler-policy", "fixed",
+                    "--scheduler-metrics-dir", str(Path(summary).parent / "metrics")]
+    return command
 
 
 def server_command(binary: str, root: str, port: int, data_base: int) -> list[str]:
@@ -167,7 +172,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
              fault_kind: str, remote_bin: Path, reconnect_attempts: int = 2,
              control_reset_data_connections: list[int] | None = None,
              expect_budget_exhausted: bool = False,
-             expect_no_recovery: bool = False) -> dict:
+             expect_no_recovery: bool = False, scheduler: str = "off",
+             transfer_timeout_ms: int = 120000) -> dict:
     case = root / f"{server_side}-{transfer}-{fault_kind}"
     case.mkdir()
     source = case / "source"
@@ -179,7 +185,7 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
     server_host = SHANGHAI_PUBLIC if server_side == "shanghai" else SHENZHEN_PUBLIC
     control_port = 24600 if server_side == "shanghai" else 24700
     data_base = clamp_passive_data_port_base(24610 if server_side == "shanghai" else 24710)
-    remote_case = REMOTE_ROOT / case.name
+    remote_case = REMOTE_ROOT / root.name / case.name
     remote_server_root = remote_case / "server-root"
     remote_source = remote_case / "source"
     remote_downloaded = remote_case / "downloaded"
@@ -191,9 +197,17 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
     local_proxy: FaultProxy | None = None
     try:
         if server_alias or client_alias:
-            ssh_run(REMOTE_ALIAS, ["rm", "-rf", str(remote_case)], timeout=30)
+            parent = ssh_run(REMOTE_ALIAS, ["mkdir", "-p", str(remote_case.parent)], timeout=30)
+            if parent.returncode:
+                raise RuntimeError(f"remote evidence directory creation failed: {parent.stdout}{parent.stderr}")
+            created = ssh_run(REMOTE_ALIAS, ["mkdir", str(remote_case)], timeout=30)
+            if created.returncode:
+                raise RuntimeError(f"remote case path already exists or cannot be created: {remote_case}: "
+                                   f"{created.stdout}{created.stderr}")
         if server_alias:
-            ssh_run(server_alias, ["mkdir", "-p", str(remote_server_root)], timeout=30)
+            created = ssh_run(server_alias, ["mkdir", "-p", str(remote_server_root)], timeout=30)
+            if created.returncode:
+                raise RuntimeError(f"remote server root creation failed: {created.stdout}{created.stderr}")
         if transfer == "download":
             server_dataset = remote_server_root / "dataset" if server_alias else server_root / "dataset"
             copy_tree_for_server(source, server_alias, server_dataset)
@@ -271,6 +285,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             str(remote_bin / client_binary_name) if client_alias else str(build_dir / client_binary_name),
             server_host, control_port, source_arg, destination_arg, summary_name,
             reconnect_attempts=reconnect_attempts,
+            scheduler=scheduler,
+            transfer_timeout_ms=transfer_timeout_ms,
         )
         started = time.monotonic()
         if client_alias:
@@ -281,6 +297,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             scp_from(client_alias, str(remote_case / "summary.json"), case / "summary.json")
             if transfer == "download":
                 scp_from(client_alias, str(remote_downloaded), case / "result", recursive=True)
+            if scheduler == "global":
+                scp_from(client_alias, str(remote_case / "metrics"), case / "metrics", recursive=True)
         else:
             result = run_process(command, timeout=180)
             (case / "client.log").write_text(result.stdout + result.stderr, encoding="utf-8")
@@ -336,6 +354,10 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
         assert len(resets) == 1 and resets[0].get("target") is True, resets
         assert resets[0].get("scope", "data") == fault_kind, resets
         assert summary["lane_local_recovery_count"] == 1, summary
+        assert summary["recovery_attempts_used"] == 1, summary
+        assert summary["reconnect_attempts"] == 0, summary
+        if scheduler == "global":
+            assert summary["scheduler_mode"] == "global", summary
         assert summary["control_reconnect_count"] == 0, summary
         if fault_kind == "control":
             assert summary["lane_control_reconnect_count"] == 1, summary
@@ -395,9 +417,13 @@ def main() -> int:
     parser.add_argument("--control-reset-data-connection", type=int, action="append")
     parser.add_argument("--expect-budget-exhausted", action="store_true")
     parser.add_argument("--expect-no-recovery", action="store_true")
-    parser.add_argument("--transfer", choices=("upload", "download"), default="upload")
-    parser.add_argument("--remote-bin", type=Path, default=Path("/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01/bin"))
+    parser.add_argument("--transfer", choices=("upload", "download", "both"), default="upload")
+    parser.add_argument("--scheduler", choices=("off", "global"), default="off")
+    parser.add_argument("--transfer-timeout-ms", type=int, default=120000)
+    parser.add_argument("--remote-bin", type=Path, default=Path("/tmp/cpnetflux-runs/V3-LANE-DATA-FAULT-RECOVERY-01/bin"))
     args = parser.parse_args()
+    if args.transfer_timeout_ms <= 0:
+        parser.error("--transfer-timeout-ms must be positive")
     args.evidence_dir.mkdir(parents=True, exist_ok=True)
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"-{time.time_ns()}"
     root = args.evidence_dir / run_id
@@ -407,14 +433,18 @@ def main() -> int:
     scp_to(REMOTE_ALIAS, Path(__file__).with_name("cpnetflux_fault_proxy.py"), str(args.remote_bin / "cpnetflux_fault_proxy.py"))
     records = []
     server_sides = ("shanghai", "shenzhen") if args.server_side == "both" else (args.server_side,)
+    transfers = ("upload", "download") if args.transfer == "both" else (args.transfer,)
     for server_side in server_sides:
-        records.append(run_case(args.build_dir, root, server_side=server_side,
-                                transfer=args.transfer, fault_kind=args.fault_kind,
-                                remote_bin=args.remote_bin,
-                                reconnect_attempts=args.reconnect_attempts,
-                                control_reset_data_connections=args.control_reset_data_connection,
-                                expect_budget_exhausted=args.expect_budget_exhausted,
-                                expect_no_recovery=args.expect_no_recovery))
+        for transfer in transfers:
+            records.append(run_case(args.build_dir, root, server_side=server_side,
+                                    transfer=transfer, fault_kind=args.fault_kind,
+                                    remote_bin=args.remote_bin,
+                                    reconnect_attempts=args.reconnect_attempts,
+                                    control_reset_data_connections=args.control_reset_data_connection,
+                                    expect_budget_exhausted=args.expect_budget_exhausted,
+                                    expect_no_recovery=args.expect_no_recovery,
+                                    scheduler=args.scheduler,
+                                    transfer_timeout_ms=args.transfer_timeout_ms))
     input_commit = os.environ.get("CPNETFLUX_INPUT_COMMIT")
     if not input_commit:
         revision = subprocess.run(

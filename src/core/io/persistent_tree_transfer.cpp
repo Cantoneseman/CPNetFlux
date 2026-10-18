@@ -18,6 +18,7 @@
 #include <thread>
 #include <ostream>
 #include <iomanip>
+#include <functional>
 #include "cpnetflux/checkpoint/manifest_store.h"
 #include "cpnetflux/checkpoint/download_manifest.h"
 #include "cpnetflux/core/session/transfer_session.h"
@@ -31,6 +32,7 @@ namespace cpnetflux::core::io {
 struct PersistentTransferContext {
     std::mutex mutex;
     std::unordered_map<std::string, std::shared_ptr<void>> files;
+    std::vector<std::function<common::Status()>> integrityChecks;
     PersistentTransferPolicy policy;
 };
 std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(const PersistentTransferPolicy& policy) {
@@ -58,6 +60,8 @@ class FileTransaction {
         : timing_(timing), policy_(policy), ioContext_(policy.options.fileIo), ioStats_(ioStats) {}
     Status begin(const std::string& root, const PersistentFileIdentity& id,
                  bool download, const std::string& remoteRoot, bool resume) {
+        std::lock_guard publicationLock(publicationMutex_);
+        download_ = download;
         auto valid = tree::validateTreeRelativePath(id.relativePath);
         if (!valid.isOk()) return valid;
         std::error_code error;
@@ -244,6 +248,7 @@ class FileTransaction {
         return Status::ok();
     }
     Status commit() {
+        std::lock_guard publicationLock(publicationMutex_);
         if (skipped_) { active_ = false; return Status::ok(); }
         auto flushed = writer_->flush();
         if (!flushed.isOk()) return flushed;
@@ -290,6 +295,57 @@ class FileTransaction {
     }
     std::uint64_t removedCorruptChunks() const {
         return skipped_ ? 0 : std::visit([](const auto& s) { return s.stats().removedCorruptChunks; },session_);
+    }
+    Status verifyPublished() const {
+        std::lock_guard publicationLock(publicationMutex_);
+        if (!published_ && !skipped_) return Status::ok();
+        auto verify = [&](const auto& manifest) -> Status {
+            if (manifest.state != checkpoint::ManifestState::Committed ||
+                manifest.totalSize != identity_.totalSize ||
+                manifest.chunkSize != identity_.chunkSize ||
+                manifest.checksumAlgorithm != identity_.checksumAlgorithm)
+                return Status::invalidArgument("committed output identity mismatch: " + identity_.relativePath);
+            std::error_code error;
+            const auto type = fs::symlink_status(output_, error);
+            if (error || !fs::is_regular_file(type) || fs::is_symlink(type))
+                return Status::invalidArgument("committed output is not a safe regular file: " + identity_.relativePath);
+            auto file = storage::PosixFile::openReadOnly(output_);
+            if (!file.isOk()) return file.status();
+            struct stat metadata{};
+            if (::fstat(file.value().fd(), &metadata) != 0 || !S_ISREG(metadata.st_mode) ||
+                metadata.st_size < 0 || static_cast<std::uint64_t>(metadata.st_size) != identity_.totalSize ||
+                metadata.st_mtim.tv_sec != identity_.mtimeUnixSeconds)
+                return Status::invalidArgument("committed output metadata mismatch: " + identity_.relativePath);
+            chunk::RangeList coverage;
+            std::vector<std::uint8_t> buffer(65536);
+            for (const auto& record : manifest.verifiedChunks) {
+                checksum::ChecksumComputer computer(identity_.checksumAlgorithm,policy_.options.checksumBackend);
+                for (std::uint64_t position = 0; position < record.length;) {
+                    const auto count = static_cast<std::size_t>(
+                        std::min<std::uint64_t>(buffer.size(),record.length-position));
+                    auto read = file.value().readAtAll(record.offset+position,buffer.data(),count);
+                    if (!read.isOk()) return read;
+                    computer.update(buffer.data(),count);
+                    position += count;
+                }
+                if (computer.finalize().value != record.checksum.value)
+                    return Status::invalidArgument("committed output checksum mismatch: " + identity_.relativePath);
+                auto inserted = coverage.insert(record.offset,record.length,identity_.totalSize);
+                if (!inserted.isOk()) return inserted;
+            }
+            if (!coverage.missingRanges(identity_.totalSize).empty())
+                return Status::invalidArgument("committed output coverage mismatch: " + identity_.relativePath);
+            return Status::ok();
+        };
+        if (download_) {
+            auto manifest = checkpoint::loadDownloadManifest(
+                checkpoint::downloadManifestPathForOutput(output_));
+            if (!manifest.isOk()) return manifest.status();
+            return verify(manifest.value());
+        }
+        auto manifest = checkpoint::ManifestStore::load(checkpoint::manifestPathForOutput(output_));
+        if (!manifest.isOk()) return manifest.status();
+        return verify(manifest.value());
     }
     std::vector<chunk::CompletedRange> missingRanges() const {
         return skipped_ ? std::vector<chunk::CompletedRange>{} :
@@ -342,6 +398,7 @@ class FileTransaction {
         if (active_ && !published_ && !skipped_) (void)std::visit([](auto& s) { return s.markFailed(); }, session_);
     }
  private:
+    mutable std::mutex publicationMutex_;
     PersistentFileTiming* timing_;
     PersistentTransferPolicy policy_;
     storage::FileIoContext ioContext_;
@@ -354,8 +411,21 @@ class FileTransaction {
     std::string output_, temp_;
     std::uint64_t recorded_ = 0;
     std::uint64_t chunkBytes_ = 0;
-    bool active_ = false, published_ = false, skipped_ = false;
+    bool active_ = false, published_ = false, skipped_ = false, download_ = false;
 };
+
+Status verifyCommittedFilesInternal(const std::shared_ptr<PersistentTransferContext>& context) {
+    std::vector<std::function<Status()>> checks;
+    {
+        std::lock_guard lock(context->mutex);
+        checks = context->integrityChecks;
+    }
+    for (const auto& check : checks) {
+        const auto status = check();
+        if (!status.isOk()) return status;
+    }
+    return Status::ok();
+}
 
 class RangeFileCoordinator {
  public:
@@ -404,6 +474,13 @@ class RangeFileCoordinator {
                 entry->loadedVerifiedChunks = entry->transaction->loadedVerifiedChunks();
                 entry->removedCorruptChunks = entry->transaction->removedCorruptChunks();
                 context.files.emplace(key,entry);
+                std::weak_ptr<Entry> weakEntry = entry;
+                context.integrityChecks.emplace_back([weakEntry] {
+                    auto current = weakEntry.lock();
+                    if (!current) return Status::ok();
+                    std::lock_guard entryLock(current->mutex);
+                    return current->transaction->verifyPublished();
+                });
             }
         }
         std::lock_guard lock(entry->mutex);
@@ -544,6 +621,11 @@ bool sourceMatches(const struct stat& st, const PersistentFileIdentity& id) {
 }
 }  // namespace
 
+common::Status verifyCommittedPersistentOutputs(
+    const std::shared_ptr<PersistentTransferContext>& context) {
+    return verifyCommittedFilesInternal(context);
+}
+
 common::Result<std::vector<PersistentFileIdentity>> expandPersistentFileRanges(
     const std::vector<PersistentFileIdentity>& files, std::uint32_t channelCount) {
     if (channelCount == 0 || channelCount > kUnifiedFileMaxChannels)
@@ -621,6 +703,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         channelIndex >= channelCount)
         return Status::invalidArgument("persistent channel index/count is invalid");
     stats->pendingWindow = pendingWindow;
+    const std::uint64_t filesAtConnectionStart = stats->files;
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
     std::vector<std::uint8_t> buffer(PersistentDataSession::kMaxPayload);
@@ -998,7 +1081,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             finalStatus = Status::runtimeError("persistent pending result queue not drained");
     }
     if (socket->valid() && finalStatus.isOk()) {
-        status = PersistentDataSession::writeDirectoryEnd(socket, stats->files);
+        status = PersistentDataSession::writeDirectoryEnd(
+            socket, stats->files - filesAtConnectionStart);
         addWire(protocol::kFrameHeaderSize);
         if (!status.isOk()) finalStatus = status;
     }
@@ -1039,6 +1123,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         channelIndex >= channelCount)
         return Status::invalidArgument("persistent channel index/count is invalid");
     stats->pendingWindow = pendingWindow; // Receiver stays serial; report negotiated sender credit.
+    const std::uint64_t filesAtConnectionStart = stats->files;
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
     if (!context) context = makePersistentTransferContext();
@@ -1053,8 +1138,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     bool transportFailure = false;
     bool transportReconciled = false;
     auto finishTransport = [&](Status result) -> Status {
-        if (result.code() != common::StatusCode::TransportError || !ready || !executor ||
-            transportReconciled) return result;
+        if (result.code() != common::StatusCode::TransportError) return result;
+        const auto integrity = verifyCommittedPersistentOutputs(context);
+        if (!integrity.isOk()) return integrity;
+        if (!ready || !executor || transportReconciled) return result;
         transportFailure = true;
         transportReconciled = true;
         const auto owner = executor->owner();
@@ -1075,10 +1162,11 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (!frame.isOk()) return finishTransport(frame.status());
         stats->wireBytes += protocol::kFrameHeaderSize + frame.value().payload.size();
         if (frame.value().header.type == FrameType::DirectoryEnd) {
-            if (frame.value().header.totalSize != stats->files)
+            const auto filesOnConnection = stats->files - filesAtConnectionStart;
+            if (frame.value().header.totalSize != filesOnConnection)
                 return Status::invalidArgument("persistent directory file count mismatch");
             if (expectedFileCount != kUnknownPersistentFileCount &&
-                expectedFileCount != stats->files)
+                expectedFileCount != filesOnConnection)
                 return Status::invalidArgument("persistent channel file count mismatch");
             return finishTransport(overall);
         }
@@ -1122,7 +1210,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) return finishTransport(status);
         std::shared_ptr<RangeFileCoordinator::Entry> rangeEntry;
-        std::unique_ptr<FileTransaction> transaction;
+        std::shared_ptr<FileTransaction> transaction;
         Status fileStatus = Status::ok();
         if (id.rangeId != 0) {
             auto started = RangeFileCoordinator::begin(*context, root, id, download, remoteRoot, resume);
@@ -1146,7 +1234,13 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 if (!status.isOk()) fileStatus = status;
             }
         } else {
-            transaction = std::make_unique<FileTransaction>(stats->phaseTiming ? &timing : nullptr,context->policy,&stats->fileIoStats);
+            transaction = std::make_shared<FileTransaction>(stats->phaseTiming ? &timing : nullptr,context->policy,&stats->fileIoStats);
+            {
+                std::lock_guard lock(context->mutex);
+                context->integrityChecks.emplace_back([transaction] {
+                    return transaction->verifyPublished();
+                });
+            }
             const bool requestedResume = resume || (frame.value().header.flags & protocol::kFileResume);
             fileStatus = transaction->begin(root, id, download, remoteRoot, requestedResume);
             if (fileStatus.isOk()) {

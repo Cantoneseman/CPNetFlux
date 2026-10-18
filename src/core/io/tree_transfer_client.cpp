@@ -3824,23 +3824,33 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             record = &manifest->files[id.fileId - 1];
         } else if (!complete && (id.rangeId == 0 || active->second.started.size() == 1)) {
             if (id.fileId == 0 ||
-                (expectedTotalFiles != kUnknownPersistentFileCount && id.fileId > expectedTotalFiles) ||
-                downloadRecords.contains(id.fileId) || !downloadPaths.insert(id.relativePath).second)
+                (expectedTotalFiles != kUnknownPersistentFileCount && id.fileId > expectedTotalFiles))
                 return common::Status::invalidArgument("duplicate or out-of-range persistent file ID");
-            const auto prior = priorDownloadRecords.find(id.relativePath);
-            if (prior != priorDownloadRecords.end()) {
-                if (prior->second >= manifest->files.size())
-                    return common::Status::invalidArgument("tree download manifest index is invalid");
-                record = &manifest->files[prior->second];
-                if (record->size != id.totalSize || record->mtimeUnixSeconds != id.mtimeUnixSeconds)
-                    return common::Status::invalidArgument("persistent download source identity changed");
-                record->transferId = id.transferId;
-                downloadRecords.emplace(id.fileId, prior->second);
+            const auto existing = downloadRecords.find(id.fileId);
+            if (existing != downloadRecords.end()) {
+                if (id.attempt == 0 || existing->second >= manifest->files.size())
+                    return common::Status::invalidArgument("duplicate or out-of-range persistent file ID");
+                // A local lane retry can begin the same file again on a new data
+                // connection. Reuse its manifest record after identity validation below.
+                record = &manifest->files[existing->second];
             } else {
-                downloadRecords.emplace(id.fileId, manifest->files.size());
-                manifest->files.push_back({id.relativePath, id.totalSize, id.mtimeUnixSeconds,
-                    id.transferId, core::tree::TreeFileStatus::Pending, ""});
-                record = &manifest->files.back();
+                if (!downloadPaths.insert(id.relativePath).second)
+                    return common::Status::invalidArgument("duplicate or out-of-range persistent file ID");
+                const auto prior = priorDownloadRecords.find(id.relativePath);
+                if (prior != priorDownloadRecords.end()) {
+                    if (prior->second >= manifest->files.size())
+                        return common::Status::invalidArgument("tree download manifest index is invalid");
+                    record = &manifest->files[prior->second];
+                    if (record->size != id.totalSize || record->mtimeUnixSeconds != id.mtimeUnixSeconds)
+                        return common::Status::invalidArgument("persistent download source identity changed");
+                    record->transferId = id.transferId;
+                    downloadRecords.emplace(id.fileId, prior->second);
+                } else {
+                    downloadRecords.emplace(id.fileId, manifest->files.size());
+                    manifest->files.push_back({id.relativePath, id.totalSize, id.mtimeUnixSeconds,
+                        id.transferId, core::tree::TreeFileStatus::Pending, ""});
+                    record = &manifest->files.back();
+                }
             }
         } else {
             const auto found = downloadRecords.find(id.fileId);
@@ -3993,8 +4003,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 const bool transportDisconnected =
                     transferStatus.code() == common::StatusCode::TransportError ||
                     controlStatus.code() == common::StatusCode::TransportError;
-                const common::Status transferOrControlStatus =
-                    transferStatus.isOk() ? controlStatus : transferStatus;
+                const bool committedOutputIntegrityFailure = !controlStatus.isOk() &&
+                    controlStatus.message().find("committed output ") != std::string::npos;
+                const common::Status transferOrControlStatus = committedOutputIntegrityFailure
+                    ? controlStatus : (transferStatus.isOk() ? controlStatus : transferStatus);
                 if (recoveryBudget && recoveryBudget->exhausted() &&
                     recoveryBudget->used() != 0 &&
                     transferStatus.message() == "work retry limit exceeded") {
@@ -4002,8 +4014,12 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     recordTransferOutcome(channel.status);
                     break;
                 }
+                // Reattaching a lane is safe only when the data operation itself
+                // failed. If data completed but its final control reply was lost,
+                // use the outer retry with a fresh batch identity.
                 const bool retryEligible = options.dynamicFileScheduling && transferCanResume &&
-                    transportDisconnected;
+                    transportDisconnected && !committedOutputIntegrityFailure &&
+                    transferStatus.code() == common::StatusCode::TransportError;
                 const bool canRetryWithoutBudget =
                     !recoveryBudget && laneAttempt < options.reconnectAttempts;
                 if (retryEligible && (recoveryBudget || canRetryWithoutBudget)) {
@@ -4026,7 +4042,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     continue;
                 }
                 parseTerminalTelemetry(terminal, &controlStatus);
-                channel.status = transferStatus.isOk() ? controlStatus : transferStatus;
+                channel.status = committedOutputIntegrityFailure ? controlStatus :
+                    (transferStatus.isOk() ? controlStatus : transferStatus);
                 if (channel.status.isOk() && !controlStatus.isOk()) channel.status = controlStatus;
                 if (!channel.status.isOk()) recordTransferOutcome(channel.status);
                 break;

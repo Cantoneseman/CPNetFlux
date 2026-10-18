@@ -19,12 +19,14 @@ class PersistentDirectoryBatch {
     // Mark one channel transport-dead while preserving healthy channels and
     // committed ranges. The same channel may attach again to resume missing work.
     [[nodiscard]] common::Status failChannel(std::uint32_t channel, const common::Status& status);
-    [[nodiscard]] common::Status waitReady(std::chrono::milliseconds timeout);
+    [[nodiscard]] common::Status waitReady(std::uint32_t channel, std::chrono::milliseconds timeout);
     [[nodiscard]] common::Status fileEvent(std::uint32_t channel, const PersistentFileIdentity& id,
                                           const common::Status& status, bool complete);
     [[nodiscard]] common::Status finish(std::uint32_t channel, std::chrono::milliseconds timeout);
     void cancel(const common::Status& status);
     [[nodiscard]] common::Status status();
+    [[nodiscard]] bool allChannelsDetached();
+    [[nodiscard]] bool completeAndDetached();
  private:
     struct Channel {
         bool attached = false, ready = false, done = false, failed = false;
@@ -39,10 +41,10 @@ class PersistentDirectoryBatch {
         struct Lease { std::uint32_t owner; PersistentFileIdentity id; };
         std::unordered_map<std::uint64_t, Lease> leases;
     };
-    common::Status wait(bool finishing, std::chrono::milliseconds timeout);
+    common::Status wait(bool finishing, std::chrono::milliseconds timeout, std::uint32_t observingChannel);
     void failLocked(const common::Status& status);
     void failChannelLocked(std::uint32_t channel, const common::Status& status);
-    void checkControlsLocked();
+    void checkConnectionsLocked();
     std::mutex mutex_;
     std::condition_variable changed_;
     std::thread monitor_;
