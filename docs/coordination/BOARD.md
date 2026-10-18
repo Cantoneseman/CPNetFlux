@@ -73,3 +73,12 @@
 - 验收：单元 7/7、loopback 恢复 CTest 1/1；真实深圳→上海、上海→深圳均 tree hash 相等，lane-local recovery=1、control reconnect=0、data connect=3、ranges=[2,2]；跨机 CTest 1/1（36.20 秒，矩阵 `/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/build/cpnetflux-lane-recovery-interop-evidence/20261018T165743Z-1792342663694352372/matrix.json`）。证据详见 `docs/tasks/2026-10-19-v3-lane-recovery-interop-01.md` 和 `/tmp/cpnetflux-runs/V3-LANE-RECOVERY-INTEROP-01/bidirectional-final1/`。
 - 边界：只证明 plain TCP 数据通道 reset 的软件恢复；控制通道断开、TLS/认证互操作、物理 NIC/local bind/不同物理路径、吞吐和生产 readiness 未验证。
 - 下一阶段：`V3-LANE-CONTROL-RECOVERY-01`，解决 lane 控制连接断开时升级成整批重连、扰动健康 lane 的问题；按原批次身份只重建故障 lane 的控制与数据连接。物理链路验证继续后置。
+
+## 2026-10-19 V3-LANE-CONTROL-RECOVERY-01 开发计划
+
+- 状态：in_progress；输入提交 `5aa0396d3b47bb2fc6d6d403b28ced62b2cd98ab`；隔离 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-control-recovery-01`，分支 `codex/V3-LANE-CONTROL-RECOVERY-01`。
+- 实际问题：当前 data socket reset 可在 control 活着时只恢复对应 lane；control 同时断开后会整批 reconnect，健康 lane 也受影响。
+- 本阶段目标：只重建故障 lane 的 control/data 连接，沿用原 batch ID、lane 编号和已完成检查点；局部重试失败时才走现有整批兜底。
+- 验收：先运行控制连接 RST 测试确认现状会触发整批 reconnect，再实现后于深圳↔上海双向验证 tree SHA 一致、健康 lane 完成记录保留、lane-local 控制连接仅新增一次且批次级重连为零；执行受影响构建、单元测试与 CTest；核验 GitHub push 和远端 SHA。
+- 排除：物理 NIC/local bind/不同物理链路、TLS/生产认证互操作、性能和 production readiness。
+- 实验根目录：`/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-01`；实验前复核两端资源和端口，保留既有 GridFTP/CPNetFlux 服务。
