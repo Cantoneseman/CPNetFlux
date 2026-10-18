@@ -65,7 +65,7 @@
 - 代码提交：6182067f2dc88ccf7ddae49bc27b9ff13d0ed53f，已推送到 origin/codex/V3-LANE-MIXED-FAULT-BUDGET-01，远端 SHA 回读一致。
 - 构建：Release、TLS 开启、跨机测试开启、io_uring 关闭；构建成功。源码归档 /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/source.tar SHA-256：b151ce888bf507dcd47acb2b4d653a30f5e87c2e8dfde9216a341f1822c77eb7。服务端二进制 SHA-256：3c49230d1290c6aa6bcfe15e1cb7bd479e030c0d26a795b30c1704af69d1fb98；上传客户端：afd66df74853e920d3226079a41cccea963ace941b8888ee13dd9c1658829190；下载客户端：e08221936020d524dfd01056889b048fef7981da5e40d0e67dc5588377e76f7c。
 - Python 门禁：代理/runner py_compile 通过；混合门控单元测试共 6/6 通过。
-- 跨机矩阵 CTest cpnetflux_lane_mixed_fault_budget_interop：1/1 通过，167.04 秒，实际包含深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个 case。证据目录：/tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/build/cpnetflux-lane-mixed-fault-budget-interop-evidence/20261018T212313Z-1792358593470296053/。
+- 跨机矩阵 CTest cpnetflux_lane_mixed_fault_budget_interop：1/1 通过，168.24 秒，实际包含深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个 case。证据目录：/tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/build/cpnetflux-lane-mixed-fault-budget-interop-evidence/20261018T213519Z-1792359319975794049/。
 - 12 个 case 的结果：N=0 的恢复使用数为 0；N=1 的恢复使用数为 1 并明确失败；N=2 的恢复使用数为 2 并成功。N=2 每个成功 case 的树校验值为 crc32c:f6f80ad4；控制重连计数为 1，数据连接重建也计入同一总预算。代理日志证明数据 lane 与控制 lane 不同，并且两次 reset 间隔小于 500 ms。
 - 既有回归 CTest：单数据恢复、控制恢复、N=1/N=2/N=0 预算共 8/8 通过，用时 218.59 秒，日志 /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/regression-ctest.log。完整 C++ 单元测试为 344 项中 343 通过、1 项 io_uring 条件跳过；代理 CTest 1/1 通过。
 - 资源和清理：测试前深圳可用磁盘约 44 GiB、上海约 77 GiB，可用内存约 2.5/2.8 GiB；结束后 24600–24799 无本任务监听，runner/代理已退出；两端生产端口 2121 仍在监听且未停止或改配。
