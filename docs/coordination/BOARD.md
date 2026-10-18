@@ -7,7 +7,7 @@
 - V3-LANE-LOCAL-RECOVERY-01：done。本轮将 persistent tree 的单 data TransportError 限定在失败 lane：按 channel fail/re-attach，保留健康控制/数据会话，retry attempt 重建 range slot 并复用 checkpoint；全量单元 341/341，定向 CTest 10/10，深圳→上海与上海→深圳各有正常/单 data socket reset 互传，四次均 2/2 且 SHA-256 一致。故障场景均 `lane_local_recovery_count=1`、`data_connect_count=3`、`control_reconnect_count=0`。详情见 docs/tasks/2026-10-18-v3-lane-local-recovery-01.md。
 - 完整 CTest 为 379/382；3 个失败均为当前 2 CPU/长连接 30 秒环境型超时（reconnect、stability TLS、pipeline sidecar），已记录原始错误，不据此宣称全量 CTest 全绿。
 - V3-LANE-RECOVERY-COVERAGE-01：done。loopback harness 已覆盖 2 lane/多 range、upload/download、TLS+control pipeline；三场景均证明目标 lane 单次恢复、健康 lane 保持、控制连接不重连、树摘要一致。全量 CTest 382/384，剩余 reconnect 与稳定性 TLS 两项仍是 30 秒环境型失败。
-- 下一阶段：V3-LANE-RECOVERY-INTEROP-01。用固定提交在深圳→上海、上海→深圳执行同一恢复断言，先解决真实跨机链路上的软件恢复证据；物理 NIC/local bind/不同物理链路验证继续后置。
+- 下一阶段：V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01。验证下载方向的控制连接断开也能只恢复故障 lane；物理 NIC/local bind/不同物理链路验证继续后置。
 - 本轮深圳仍是唯一权威 Git 工作区，上海只作传输对端；临时服务/端口已停止并释放，既有服务未改动，证据负载保留在 /tmp，不进入 Git。
 - 03 实现与 04 独立复核专用派单此前因 429/active-writer 锁不可用，本轮未冒称已收到角色回执或独立审查结论。
 
@@ -74,11 +74,11 @@
 - 边界：只证明 plain TCP 数据通道 reset 的软件恢复；控制通道断开、TLS/认证互操作、物理 NIC/local bind/不同物理路径、吞吐和生产 readiness 未验证。
 - 下一阶段：`V3-LANE-CONTROL-RECOVERY-01`，解决 lane 控制连接断开时升级成整批重连、扰动健康 lane 的问题；按原批次身份只重建故障 lane 的控制与数据连接。物理链路验证继续后置。
 
-## 2026-10-19 V3-LANE-CONTROL-RECOVERY-01 开发计划
+## 2026-10-19 V3-LANE-CONTROL-RECOVERY-01 当前交付
 
-- 状态：in_progress；输入提交 `5aa0396d3b47bb2fc6d6d403b28ced62b2cd98ab`；隔离 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-control-recovery-01`，分支 `codex/V3-LANE-CONTROL-RECOVERY-01`。
-- 实际问题：当前 data socket reset 可在 control 活着时只恢复对应 lane；control 同时断开后会整批 reconnect，健康 lane 也受影响。
-- 本阶段目标：只重建故障 lane 的 control/data 连接，沿用原 batch ID、lane 编号和已完成检查点；局部重试失败时才走现有整批兜底。
-- 验收：先运行控制连接 RST 测试确认现状会触发整批 reconnect，再实现后于深圳↔上海双向验证 tree SHA 一致、健康 lane 完成记录保留、lane-local 控制连接仅新增一次且批次级重连为零；执行受影响构建、单元测试与 CTest；核验 GitHub push 和远端 SHA。
-- 排除：物理 NIC/local bind/不同物理链路、TLS/生产认证互操作、性能和 production readiness。
-- 实验根目录：`/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-01`；实验前复核两端资源和端口，保留既有 GridFTP/CPNetFlux 服务。
+- 状态：done；输入提交 `5aa0396d3b47bb2fc6d6d403b28ced62b2cd98ab`；隔离 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-control-recovery-01`，分支 `codex/V3-LANE-CONTROL-RECOVERY-01`。
+- 实际解决：控制和数据连接同时断开时，不再默认整批重连；先只重建故障 lane 的控制/数据会话，沿用原 batch ID、lane 编号和检查点，健康 lane 保持原完成状态。
+- 提交：规划文档 `3feb706d85a28a3be87fe344efa955df58e80f3e`；实现 `c5352189ef15c6d1f65a09a281b19ef799e92c95`；均已推送到 origin，并由 `git ls-remote` 回读相同 SHA。
+- 验收：相关 CTest 3/3、完整单元 342/342；深圳↔上海双向控制 RST 均得到同一树 SHA，`lane_local_recovery_count=1`、`lane_control_reconnect_count=1`、`control_reconnect_count=0`、`reconnect_attempts=0`、`control_connect_count=3`、`data_connect_count=3`、`persistent_lane_range_completed=[2,2]`。矩阵见 `/tmp/cpnetflux-runs/V3-LANE-CONTROL-RECOVERY-01/build/cpnetflux-lane-control-recovery-interop-evidence/20261018T172309Z-1792344189085800644/matrix.json`。
+- 边界：已验证 plain TCP 跨云上传控制连接故障；下载控制连接故障、TLS/生产认证互操作、物理 NIC/local bind/不同物理路径、吞吐和生产 readiness 尚未由本阶段证明。
+- 下一阶段：`V3-LANE-CONTROL-RECOVERY-DOWNLOAD-01`，双向验证下载控制连接故障下的 batch/lane 续传、检查点不重复写入、健康 lane 保持和最终 SHA 一致。
