@@ -92,10 +92,11 @@
 - 边界：本阶段未改生产状态机；TLS/生产认证互操作、物理 NIC/local bind/不同物理路径、吞吐和 production readiness 仍未证明。
 - 下一阶段：`V3-LANE-RECOVERY-BUDGET-01`，统一 lane-local 与整批恢复的 `--reconnect-attempts` 总预算，先用连续故障注入建立红测，再实现有界计数和明确耗尽原因。
 
-## 2026-10-19 V3-LANE-RECOVERY-BUDGET-01 开发计划
+## 2026-10-19 V3-LANE-RECOVERY-BUDGET-01 交付结果
 
-- 状态：in_progress；输入提交 `6d1e11cf31cafb6bd316f1bc6754096439ec7e6b`；隔离 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-recovery-budget-01`，分支 `codex/V3-LANE-RECOVERY-BUDGET-01`。
-- 实际问题：`--reconnect-attempts N` 当前分别限制 lane-local 和整批恢复，持续故障时可能实际消耗超过 N 次。
-- 本阶段目标：局部和整批恢复共用一个线程安全总预算；耗尽后返回明确原因，N=0 默认行为不变。
-- 排除：物理 NIC/local bind/不同物理路径、TLS/生产认证互操作、吞吐和 production readiness、static/per-file 自动重连。
-- 实验根目录：`/tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01`；先运行红测，再决定是否需要双云连续故障验收。
+- 状态：done；输入提交 `6d1e11cf31cafb6bd316f1bc6754096439ec7e6b`；隔离 worktree `/root/projects/CPNetFlux-worktrees/v3-lane-recovery-budget-01`，分支 `codex/V3-LANE-RECOVERY-BUDGET-01`。
+- 实际解决：lane 局部恢复和整批恢复共用 `--reconnect-attempts N` 一个预算；JSON 增加配置预算和实际消耗字段；耗尽时报可读原因，N=0 不恢复。
+- 实现提交：`0cc1696dffda995b078516ffece8a7e47834cbd3` 已推送，GitHub ref 回读同 SHA。
+- 验收：单元 342/342、lane recovery smoke 1/1；原有上传/下载控制故障 CTest 通过；双云注入 N=1 上传/下载及 N=2 上传时，深圳和上海各自为服务端的结果都精确消费 1/1/2 次；N=0 双向保持 0 次恢复。测试矩阵和边界见 `docs/tasks/2026-10-19-v3-lane-recovery-budget-01.md`。
+- 额外发现：`cpnetflux_reconnect_smoke` 的 data-only reset 测试在 30 秒 deadline 超时；同样失败可在输入提交旧二进制中复现，已确认是任务前存在的问题，不是预算改动引入。
+- 下一阶段：`V3-LANE-DATA-FAULT-RECOVERY-01`，定位 data-only fault 后旧任务/队列/FINAL 的等待关系，修复并双向验收；物理 NIC/local bind 与真实不同物理路径继续暂缓。计划见 `docs/tasks/2026-10-19-v3-lane-data-fault-recovery-01.md`。
