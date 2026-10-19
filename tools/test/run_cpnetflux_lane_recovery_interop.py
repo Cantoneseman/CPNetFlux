@@ -487,11 +487,9 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             assert summary["lane_control_reconnect_count"] == 1, summary
             assert summary["control_connect_count"] == 3, summary
             assert summary["data_connect_count"] == 2 + expected_faults, summary
-            healthy_timings = [
-                item for item in summary["file_timings"]
-                if item["channel_index"] != resets[0].get("lane_index")
-            ]
-            assert healthy_timings and all(item["attempt"] == 0 for item in healthy_timings), summary
+            assert summary["control_reconnect_count"] == 0, summary
+            assert sum(event.get("scope") == "control" for event in resets) == 1, resets
+            assert sum(event.get("scope", "data") == "data" for event in resets) == 2, resets
         else:
             assert summary["lane_control_reconnect_count"] == 0, summary
         assert summary["data_connect_count"] == 2 + expected_faults, summary
