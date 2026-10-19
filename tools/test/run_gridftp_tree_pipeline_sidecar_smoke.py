@@ -146,9 +146,8 @@ def run_depth(build_dir: Path, temp: Path, depth: int, parallelism: int) -> None
                 f"depth={depth}, file_parallelism={parallelism} downloaded raw file set mismatch: "
                 f"{sorted(actual_download_paths)}"
             )
-        # Download tree discovery uses one control session before the file
-        # worker pool starts; the pipeline pool then adds depth+1 slots.
-        download_connections = parallelism + (1 if depth == 0 else 0)
+        # V3 discovery and transfer share the persistent control worker pool.
+        download_connections = parallelism
         assert_counts(download_summary, len(expected), "download", download_connections)
     finally:
         stop_server(server, server_log)

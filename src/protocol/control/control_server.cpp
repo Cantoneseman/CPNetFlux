@@ -1130,6 +1130,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
             const auto reply = sendLine(control,formatReply(550,status.message()));
             return reply.isOk() ? common::Status::ok() : reply;
         }
+        guard.directory->batch->markDataActive(channelIndex);
     }
     core::io::PersistentTreeStats stats;
     stats.phaseTiming = guard.directory != nullptr;

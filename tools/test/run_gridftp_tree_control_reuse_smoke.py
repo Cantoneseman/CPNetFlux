@@ -84,10 +84,12 @@ def main() -> int:
         file_count = int(worker["file_count"])
         off_connects = int(off.get("control_connect_count", 0))
         worker_connects = int(worker.get("control_connect_count", 0))
-        if off_connects < file_count:
-            raise RuntimeError("off mode should open at least one control connection per file")
-        if worker_connects >= file_count:
-            raise RuntimeError("worker mode should reuse control connections across files")
+        if off.get("actual_mode") != "persistent_tree" or worker.get("actual_mode") != "persistent_tree":
+            raise RuntimeError("control-reuse options must both run through the V3 executor")
+        if off_connects != worker_connects or off_connects > 8:
+            raise RuntimeError(
+                "V3 control channels should be bounded by the executor, independent of the old per-file mode"
+            )
         print(
             "tree control reuse smoke passed "
             f"files={file_count} off_connects={off_connects} worker_connects={worker_connects}"

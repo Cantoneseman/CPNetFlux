@@ -243,7 +243,7 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         } else if (option == "--data-session-reuse") {
             if (value != "off" && value != "tree")
                 return common::Status::invalidArgument("--data-session-reuse must be off or tree");
-            options.reuseDataSession = value == "tree";
+            options.reuseDataSession = true;
         } else if (option == "--file-scheduling") {
             if (value != "static" && value != "dynamic")
                 return common::Status::invalidArgument("--file-scheduling must be static or dynamic");
@@ -311,14 +311,8 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             }
             options.checksumBackend = parsed.value();
         } else if (option == "--max-files") {
-            auto parsed = parseUnsigned(value, "--max-files");
-            if (!parsed.isOk()) {
-                return parsed.status();
-            }
-            if (parsed.value() == 0) {
-                return common::Status::invalidArgument("--max-files must be greater than zero");
-            }
-            options.maxFiles = parsed.value();
+            return common::Status::invalidArgument(
+                "--max-files is not supported by the V3 tree executor");
         } else if (option == "--auth-mode") {
             auto parsed = protocol::control::parseAuthMode(value);
             if (!parsed.isOk()) {
@@ -513,22 +507,11 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             // control-pipeline state machine is created.
             if (options.maxFiles != 0 || !options.dynamicFileScheduling) {
                 return common::Status::invalidArgument(
-                    "persistent control pipeline requires dynamic scheduling, "
-                    "and no --max-files");
+                    "persistent control pipeline requires dynamic scheduling");
             }
         } else {
-            // Keep the legacy per-file pipeline available when persistent sessions
-            // are explicitly disabled.
-            if (options.controlReuseMode != ControlReuseMode::Worker ||
-                options.schedulerMode != TreeSchedulerMode::Off || options.resume) {
-                return common::Status::invalidArgument(
-                    "--control-pipeline-depth with --data-session-reuse off requires "
-                    "worker control reuse, scheduler off, and no resume");
-            }
-            if (options.maxFiles != 0) {
-                return common::Status::invalidArgument(
-                    "--control-pipeline-depth does not support --max-files");
-            }
+            return common::Status::invalidArgument(
+                "V3 control pipeline requires persistent tree execution");
         }
     }
     if (!options.authProbe && role == TreeTransferRole::Upload) {
@@ -576,8 +559,8 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     if (options.reconnectAttempts > 0) {
         if (options.checksumAlgorithm == checksum::ChecksumAlgorithm::None)
             return common::Status::invalidArgument("automatic reconnect requires verified checksums");
-        if (!options.reuseDataSession || !options.dynamicFileScheduling || options.maxFiles != 0)
-            return common::Status::invalidArgument("automatic reconnect requires persistent dynamic scheduling without --max-files");
+        if (!options.reuseDataSession || !options.dynamicFileScheduling)
+            return common::Status::invalidArgument("automatic reconnect requires persistent dynamic scheduling");
         if (options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     }
     return options;
@@ -591,7 +574,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            destText +
            " [--connections <N>] [--file-parallelism <N>] [--chunk-size <bytes>] "
            "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
-           "[--checksum-backend <auto|software|hardware>] [--reconnect-attempts 0..10] [--transfer-timeout-ms N] [--resume] [--max-files <N>] "
+           "[--checksum-backend <auto|software|hardware>] [--reconnect-attempts 0..10] [--transfer-timeout-ms N] [--resume] "
            "[--auth-probe] "
            "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window 1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "

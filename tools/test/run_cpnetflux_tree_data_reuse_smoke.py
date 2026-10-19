@@ -4,7 +4,9 @@ import json
 import os
 import re
 import socket
+import socketserver
 import struct
+import threading
 import subprocess
 import tempfile
 import time
@@ -12,6 +14,24 @@ from pathlib import Path
 
 from tree_smoke_common import free_port, make_tree, tree_hash, wait_for_control, stop_server
 from gridftp_port_window import clamp_passive_data_port_base
+
+
+class RejectV3Handler(socketserver.StreamRequestHandler):
+    def handle(self):
+        self.wfile.write(b'220 test peer ready\r\n')
+        while line := self.rfile.readline():
+            command = line.strip().upper()
+            if command.startswith(b'USER '):
+                reply = b'331 password required\r\n'
+            elif command.startswith(b'PASS '):
+                reply = b'230 logged in\r\n'
+            elif command == b'TYPE I' or command.startswith(b'OPTS PARALLELISM='):
+                reply = b'200 accepted\r\n'
+            elif command.startswith(b'XCPNETFLUX '):
+                reply = b'502 V3 tree capability unavailable\r\n'
+            else:
+                reply = b'500 unsupported command\r\n'
+            self.wfile.write(reply)
 
 
 def unique_json_object(pairs):
@@ -159,11 +179,11 @@ def main():
             assert parallel_failed['data_connect_count'] == 4
             assert (parallel_collision / 'alpha.txt').read_bytes() == b'keep-existing'
             baseline = run('upload', source, 'baseline', 'baseline', ['--data-session-reuse', 'off'])
-            assert baseline['data_session_reuse_mode'] == 'off'
+            assert baseline['data_session_reuse_mode'] == 'tree'
             assert tree_hash(server_root / 'baseline') == expected
             resumed = run('download', 'uploaded', downloaded, 'resume',
-                          ['--resume', '--data-session-reuse', 'off'])
-            assert resumed['data_session_reuse_mode'] == 'off'
+                          ['--resume', '--data-session-reuse', 'off', '--file-scheduling', 'dynamic'])
+            assert resumed['data_session_reuse_mode'] == 'tree'
             assert tree_hash(downloaded) == expected
 
             collision = server_root / 'collision'
@@ -261,22 +281,26 @@ def main():
         finally:
             stop_server(server, log)
 
-        # Explicit capability rejection must take the original path before payload.
-        port = free_port()
-        with log.open('w') as output:
-            server = subprocess.Popen([
-                str(args.build_dir / 'cpnetflux-gridftp-server'), '--host', '127.0.0.1',
-                '--port', str(port), '--data-port-base', str(data_port),
-                '--root', str(server_root), '--checksum', 'none', '--commit-sync-policy', 'fsync_file',
-            ], stdout=output, stderr=subprocess.STDOUT)
+        # An explicit capability rejection must fail before payload transfer.
+        class RejectV3Server(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+            daemon_threads = True
+
+        peer = RejectV3Server(('127.0.0.1', 0), RejectV3Handler)
+        port = peer.server_address[1]
+        peer_thread = threading.Thread(target=peer.serve_forever, daemon=True)
+        peer_thread.start()
         try:
             wait_for_control(port)
-            fallback = run('upload', source, 'unsupported-fallback', 'unsupported-fallback',
-                           ['--data-session-reuse', 'off'])
-            assert fallback['data_session_reuse_mode'] == 'off'
-            assert tree_hash(server_root / 'unsupported-fallback') == expected
+            rejected = run('upload', source, 'unsupported-v3', 'unsupported-v3',
+                           ['--data-session-reuse', 'off'], success=False)
+            assert rejected['result'] == 'fail'
+            assert rejected['actual_mode'] == 'unknown'
+            assert not (server_root / 'unsupported-v3').exists()
         finally:
-            stop_server(server, log)
+            peer.shutdown()
+            peer.server_close()
+            peer_thread.join(timeout=3)
 
 
 if __name__ == '__main__':

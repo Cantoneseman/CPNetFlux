@@ -225,14 +225,10 @@ def main() -> int:
             args.checksum,
             "--checksum-backend",
             args.checksum_backend,
-            "--max-files",
-            "1",
         ]
         if args.auth_mode == "token":
             resume_upload_cmd.extend(["--auth-mode", "token", "--auth-token-file", args.auth_token_file])
-        run_remote(args.remote, " ".join(shlex.quote(part) for part in resume_upload_cmd), check=False)
-        resume_upload_cmd.remove("--max-files")
-        resume_upload_cmd.remove("1")
+        run_remote(args.remote, " ".join(shlex.quote(part) for part in resume_upload_cmd))
         resume_upload_cmd.append("--resume")
         run_remote(args.remote, " ".join(shlex.quote(part) for part in resume_upload_cmd))
         local_resume_hash, _, _ = tree_hash(Path(local_root) / "dataset-resume")
@@ -255,14 +251,10 @@ def main() -> int:
             args.checksum,
             "--checksum-backend",
             args.checksum_backend,
-            "--max-files",
-            "1",
         ]
         if args.auth_mode == "token":
             resume_download_cmd.extend(["--auth-mode", "token", "--auth-token-file", args.auth_token_file])
-        run_remote(args.remote, " ".join(shlex.quote(part) for part in resume_download_cmd), check=False)
-        resume_download_cmd.remove("--max-files")
-        resume_download_cmd.remove("1")
+        run_remote(args.remote, " ".join(shlex.quote(part) for part in resume_download_cmd))
         resume_download_cmd.append("--resume")
         run_remote(args.remote, " ".join(shlex.quote(part) for part in resume_download_cmd))
         resume_download_hash, _, _ = remote_tree_hash(args.remote, remote_resume_download)

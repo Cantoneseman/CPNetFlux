@@ -34,6 +34,7 @@ common::Status PersistentDirectoryBatch::attach(std::uint32_t channel) {
     channels_[channel].ready = false;
     channels_[channel].done = false;
     channels_[channel].failed = false;
+    channels_[channel].dataDisconnected = false;
     return common::Status::ok();
 }
 void PersistentDirectoryBatch::bind(std::uint32_t channel, int controlFd, int dataFd, bool ready) {
@@ -41,11 +42,17 @@ void PersistentDirectoryBatch::bind(std::uint32_t channel, int controlFd, int da
     channels_.at(channel).control = controlFd;
     channels_.at(channel).data = dataFd;
     channels_.at(channel).ready = ready;
+    channels_.at(channel).dataDisconnected = false;
+    channels_.at(channel).dataActive = false;
     if (!status_.isOk()) {
         if (controlFd >= 0) (void)::shutdown(controlFd, SHUT_RDWR);
         if (dataFd >= 0) (void)::shutdown(dataFd, SHUT_RDWR);
     }
     changed_.notify_all();
+}
+void PersistentDirectoryBatch::markDataActive(std::uint32_t channel) {
+    std::lock_guard lock(mutex_);
+    channels_.at(channel).dataActive = true;
 }
 void PersistentDirectoryBatch::unbind(std::uint32_t channel, int expectedControlFd) {
     std::lock_guard lock(mutex_);
@@ -110,16 +117,26 @@ void PersistentDirectoryBatch::checkConnectionsLocked() {
     // No pipelined commands are allowed while a directory batch owns these controls.
     for (std::uint32_t index = 0; index < channels_.size(); ++index) {
         auto& channel = channels_[index];
-        if (channel.failed) continue;
+        // A completed lane may close its control connection after receiving its
+        // terminal reply while sibling lanes are still draining. Its done state
+        // remains part of the batch barrier and must not be reclaimed as a fault.
+        if (channel.failed || channel.done) continue;
         if (channel.control >= 0) {
             pollfd descriptor{channel.control,POLLIN,0};
             if (::poll(&descriptor,1,0) > 0 && descriptor.revents != 0) {
-                failChannelLocked(index, common::Status::transportError(
-                    "dynamic batch channel control disconnected/cancelled"));
-                continue;
+                // POLLIN means a normal control reply may be queued. Inspect the
+                // socket without consuming it; only EOF or a fatal read error is
+                // a control disconnect.
+                std::uint8_t byte = 0;
+                const auto received = ::recv(channel.control,&byte,sizeof(byte),MSG_PEEK|MSG_DONTWAIT);
+                if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+                    failChannelLocked(index, common::Status::transportError(
+                        "dynamic batch channel control disconnected/cancelled"));
+                    continue;
+                }
             }
         }
-        if (channel.data >= 0) {
+        if (channel.data >= 0 && !channel.dataDisconnected) {
             pollfd descriptor{channel.data,POLLIN,0};
             if (::poll(&descriptor,1,0) <= 0 || descriptor.revents == 0) continue;
             // A positive peek means the peer may already have sent its first frame;
@@ -128,8 +145,14 @@ void PersistentDirectoryBatch::checkConnectionsLocked() {
             std::uint8_t byte = 0;
             const auto received = ::recv(channel.data,&byte,sizeof(byte),MSG_PEEK|MSG_DONTWAIT);
             if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
-                failChannelLocked(index, common::Status::transportError(
-                    "dynamic batch channel data disconnected/cancelled"));
+                // Once data receive has started, let the protocol receiver
+                // distinguish DirectoryEnd from a truncated stream. Before that,
+                // EOF is a lane failure and must trigger reattachment promptly.
+                if (channel.dataActive)
+                    channel.dataDisconnected = true;
+                else
+                    failChannelLocked(index, common::Status::transportError(
+                        "dynamic batch channel data disconnected/cancelled"));
             }
         }
     }
@@ -250,8 +273,9 @@ common::Status PersistentDirectoryBatch::finish(std::uint32_t channel, std::chro
     (void)timeout;
     std::lock_guard lock(mutex_);
     if (!status_.isOk()) return status_;
-    if (channel >= channels_.size() || !channels_[channel].ready || channels_[channel].done)
+    if (channel >= channels_.size() || !channels_[channel].ready)
         return common::Status::invalidArgument("invalid/duplicate batch finish");
+    if (channels_[channel].done) return common::Status::ok();
     channels_[channel].done = true;
     const bool allChannelsDone = std::all_of(channels_.begin(), channels_.end(),
         [](const auto& state) {

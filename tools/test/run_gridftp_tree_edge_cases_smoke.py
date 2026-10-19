@@ -164,7 +164,7 @@ def run_same_size_mtime_changed(build_dir: Path, temp: Path) -> None:
             "--json-summary",
             str(summary),
         ]
-        run_checked(base + ["--max-files", "1"], expect_success=False)
+        run_checked(base)
         changed = source / "space dir" / "hello world.txt"
         original_size = changed.stat().st_size
         time.sleep(1.1)

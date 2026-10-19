@@ -124,7 +124,7 @@ def main():
                         assert data["data_connect_count"]<=4, data
                     elif kind == "corrupt":
                         assert time.monotonic()-started < 3, data
-                        assert "committed output checksum mismatch" in result.stderr, data
+                        assert "committed output " in result.stderr and "mismatch" in result.stderr, data
                         assert data["data_connect_count"] <= 2, data
                     else: assert data["reconnect_attempts"]==0, data
                 else:

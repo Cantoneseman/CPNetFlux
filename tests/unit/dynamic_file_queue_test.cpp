@@ -156,8 +156,34 @@ TEST(PersistentDirectoryBatchTest, WholeBatchCompletionRequiresEveryFileAndChann
     Status left;
     std::thread t([&]{left=batch.finish(0,std::chrono::seconds(1));});
     EXPECT_TRUE(batch.finish(1,std::chrono::seconds(1)).isOk());t.join();EXPECT_TRUE(left.isOk());
+    EXPECT_TRUE(batch.finish(1,std::chrono::seconds(1)).isOk());
     PersistentDirectoryBatch missing(1,1);ASSERT_TRUE(missing.attach(0).isOk());missing.bind(0,-1,-1);
     EXPECT_FALSE(missing.finish(0,std::chrono::milliseconds(1)).isOk());
+}
+
+TEST(PersistentDirectoryBatchTest, CompletedLaneMayDisconnectBeforeSiblingFinishes) {
+    int control[2], data[2];
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, control), 0);
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, data), 0);
+    PersistentDirectoryBatch batch(1, 2);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    ASSERT_TRUE(batch.attach(1).isOk());
+    batch.bind(0, control[0], data[0]);
+    batch.bind(1, -1, -1);
+    batch.markDataActive(0);
+    auto file = tasks(1)[0];
+    ASSERT_TRUE(batch.fileEvent(0, file, Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(0, file, Status::ok(), true).isOk());
+    ::close(data[1]);
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    ASSERT_TRUE(batch.status().isOk());
+    ASSERT_TRUE(batch.finish(0, std::chrono::seconds(1)).isOk());
+    ::close(control[1]);
+    ASSERT_TRUE(batch.status().isOk());
+    EXPECT_TRUE(batch.finish(1, std::chrono::seconds(1)).isOk());
+    EXPECT_TRUE(batch.status().isOk());
+    batch.unbind(0);
+    ::close(control[0]);::close(data[0]);
 }
 
 TEST(PersistentDirectoryBatchTest, ActiveControlDisconnectReclaimsIdleDataSocket) {

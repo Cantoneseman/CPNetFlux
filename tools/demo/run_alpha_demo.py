@@ -736,15 +736,11 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
                 "2",
                 "--file-parallelism",
                 "2",
-                "--data-session-reuse",
-                "off",
             ] + demo.auth_args() + demo.tls_args() + demo.data_tls_args()
-            partial_upload = run_command(
-                upload_base + (["--event-log", event_log] if event_log else []) + ["--max-files", "1"],
-                results_dir / "alpha_demo_tree_resume_partial_upload.log",
+            upload_initial = demo.run_tree_command(
+                "tree_resume_upload_initial",
+                upload_base + (["--event-log", event_log] if event_log else []),
             )
-            if partial_upload.returncode == 0:
-                raise RuntimeError("tree upload partial unexpectedly succeeded")
             demo.run_tree_command("tree_resume_upload", upload_base + ["--resume"])
             download_dest = work_dir / "tree-download-resume"
             download_base = [
@@ -761,20 +757,16 @@ def run_local_demo(args: argparse.Namespace, output_json: Path, timestamp: str) 
                 "2",
                 "--file-parallelism",
                 "2",
-                "--data-session-reuse",
-                "off",
             ] + demo.auth_args() + demo.tls_args() + demo.data_tls_args()
-            partial_download = run_command(
-                download_base + (["--event-log", event_log] if event_log else []) + ["--max-files", "1"],
-                results_dir / "alpha_demo_tree_resume_partial_download.log",
+            download_initial = demo.run_tree_command(
+                "tree_resume_download_initial",
+                download_base + (["--event-log", event_log] if event_log else []),
             )
-            if partial_download.returncode == 0:
-                raise RuntimeError("tree download partial unexpectedly succeeded")
             demo.run_tree_command("tree_resume_download", download_base + ["--resume"])
             dest_hash, _, _ = make_demo_dataset.tree_hash(download_dest)
             if dest_hash != mixed_hash:
                 raise RuntimeError("tree resume hash mismatch")
-            return finish_case("tree_resume", start, bytes=mixed_bytes, source_hash=mixed_hash, dest_hash=dest_hash, file_count=mixed_count, logs=[str(results_dir / "alpha_demo_tree_resume_partial_upload.log"), str(results_dir / "alpha_demo_tree_resume_partial_download.log")])
+            return finish_case("tree_resume", start, bytes=mixed_bytes, source_hash=mixed_hash, dest_hash=dest_hash, file_count=mixed_count, logs=[upload_initial["log"], download_initial["log"]])
 
         case("tree_resume", tree_resume)
 

@@ -1397,14 +1397,14 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"lane_local_recovery_count\": " << stats.laneLocalRecoveryCount.load() << ",\n";
     output << "  \"data_transfer_count\": " << stats.dataTransferCount.load() << ",\n";
     output << "  \"actual_transport\": \"v3\",\n";
-    output << "  \"requested_mode\": \"" << (options.requestedReuseDataSession ? "persistent_tree" : "per_file") << "\",\n";
-    output << "  \"actual_mode\": \"" << (stats.persistentData ? "persistent_tree" : (stats.perFileStarted ? "per_file" : "unknown")) << "\",\n";
+    output << "  \"requested_mode\": \"persistent_tree\",\n";
+    output << "  \"actual_mode\": \"" << (stats.persistentData ? "persistent_tree" : "unknown") << "\",\n";
     output << "  \"requested_file_scheduling\": \"" << (options.dynamicFileScheduling ? "dynamic" : "static") << "\",\n";
-    output << "  \"actual_file_scheduling\": \"" << (stats.persistentData ? (stats.dynamicScheduling ? "dynamic" : "static") : (stats.perFileStarted ? "per_file" : "unknown")) << "\",\n";
+    output << "  \"actual_file_scheduling\": \"" << (stats.persistentData ? (stats.dynamicScheduling ? "dynamic" : "static") : "unknown") << "\",\n";
     output << "  \"fallback_reason\": \"" << jsonEscape(options.modeFallbackReason) << "\",\n";
-    output << "  \"data_session_reuse_mode\": \"" << (stats.persistentData ? "tree" : "off") << "\",\n";
-    output << "  \"data_connect_count\": " << (stats.persistentData ? stats.persistentDataConnectCount : stats.dataTransferCount.load() * options.connections) << ",\n";
-    output << "  \"data_connect_count_source\": \"" << (stats.persistentData ? "observed" : "estimated") << "\",\n";
+    output << "  \"data_session_reuse_mode\": \"tree\",\n";
+    output << "  \"data_connect_count\": " << stats.persistentDataConnectCount << ",\n";
+    output << "  \"data_connect_count_source\": \"observed\",\n";
     output << "  \"link_set_requested_links\": " << options.linkSetLinks << ",\n";
     if (stats.persistentData) {
         output << "  \"link_set_accepted_links\": " << stats.persistentLaneIds.size() << ",\n";
@@ -1459,23 +1459,16 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     if (stats.persistentData || options.controlPipelineDepth != 0) {
         output << "  \"control_pipeline_depth\": " << options.controlPipelineDepth << ",\n";
         output << "  \"control_pipeline_actual_mode\": \""
-               << (stats.persistentData ? "shared_persistent_dispatch" : "per_file")
+               << (stats.persistentData ? "shared_persistent_dispatch" : "unselected")
                << "\",\n";
         output << "  \"control_pipeline_slot_count\": " << stats.pipelineSlotCount.load() << ",\n";
         output << "  \"control_pipeline_pending_high_watermark\": "
                << stats.pipelinePendingHighWatermark.load() << ",\n";
     }
     if (options.phaseTiming && !stats.persistentData) {
-        output << "  \"phase_timing_schema\": \"phase_timing_v1\",\n";
+        output << "  \"phase_timing_schema\": \"persistent_file_timing_v1\",\n";
         output << "  \"phase_timing_units\": \"seconds\",\n";
-        output << "  \"phase_a_count\": " << stats.phaseACount.load() << ",\n";
-        output << "  \"phase_a_seconds\": " << static_cast<double>(stats.phaseASecondsNs.load()) / 1e9 << ",\n";
-        output << "  \"phase_b_count\": " << stats.phaseBCount.load() << ",\n";
-        output << "  \"phase_b_seconds\": " << static_cast<double>(stats.phaseBSecondsNs.load()) / 1e9 << ",\n";
-        output << "  \"phase_c_count\": " << stats.phaseCCount.load() << ",\n";
-        output << "  \"phase_c_seconds\": " << static_cast<double>(stats.phaseCSecondsNs.load()) / 1e9 << ",\n";
-        output << "  \"phase_c_wait_count\": " << stats.phaseCWaitCount.load() << ",\n";
-        output << "  \"phase_c_wait_seconds\": " << static_cast<double>(stats.phaseCWaitSecondsNs.load()) / 1e9 << ",\n";
+        output << "  \"file_timings\": [],\n";
         output << "  \"control_prepare_count\": " << stats.controlPrepareCount.load() << ",\n";
         output << "  \"control_prepare_seconds\": ";
         if (stats.controlPrepareCount.load() == 0) {
@@ -3382,7 +3375,7 @@ common::Status runTreeScheduler(core::tree::TreeManifest* manifest, const std::s
 }
 
 bool persistentEligible(const config::TreeTransferOptions& options) {
-    return options.reuseDataSession && options.maxFiles == 0 &&
+    return options.reuseDataSession &&
         options.fileParallelism >= 1 && options.fileParallelism <= kPersistentTreeMaxChannels &&
         (options.schedulerMode == config::TreeSchedulerMode::Off || options.schedulerMode == config::TreeSchedulerMode::Global) &&
         (options.controlPipelineDepth == 0 || options.controlPipelineDepth == 1 ||
@@ -3395,15 +3388,13 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     RecoveryBudget* recoveryBudget = nullptr) {
     *used = false;
     const auto persistentStarted = std::chrono::steady_clock::now();
-    if (!options.reuseDataSession) return common::Status::ok();
     if (!persistentEligible(options)) {
         return common::Status::invalidArgument(
-            "V2 persistent tree configuration is unsupported; explicitly select "
-            "--data-session-reuse off for per-file V3 orchestration");
+            "V3 persistent tree configuration is unsupported");
     }
     if (options.resume && !options.dynamicFileScheduling) {
         return common::Status::invalidArgument(
-            "V2 resume requires dynamic file scheduling");
+            "V3 resume requires dynamic file scheduling");
     }
 
     std::unordered_map<std::string, std::size_t> priorDownloadRecords;
@@ -3648,8 +3639,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     if (std::any_of(channels.begin(), channels.end(),
                     [](const auto& channel) { return !channel->capable; })) {
         return common::Status::invalidArgument(
-            "server rejected the requested V2 persistent tree capability; explicitly select "
-            "--data-session-reuse off for per-file V3 orchestration");
+            "server does not support the required V3 persistent tree capability");
     }
 
     *used = true;
@@ -4137,6 +4127,8 @@ common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOption
         if (status.code() == common::StatusCode::TransportError ||
             status.message() == "work retry limit exceeded")
             return reconnectBudgetExhausted(status);
+        if (status.isOk() && !*used)
+            return common::Status::invalidArgument("V3 persistent tree executor was not selected");
         return status;
     }
     if (!persistentEligible(options) || !options.dynamicFileScheduling ||
@@ -4619,38 +4611,17 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
 
     TreeRunStats persistentStats;
     persistentStats.scanSeconds = scanSeconds;
+    if (options.resume) {
+        const auto preflight = preflightUploadResume(options, &manifest, manifestPath);
+        if (!preflight.isOk())
+            return emitTreeSummary("tree_upload_complete", "upload", preflight, options,
+                                   manifest, persistentStats, startedAt);
+    }
     bool usedPersistent = false;
     auto persistentStatus = tryRecoveringPersistentDirectory(options, &manifest, manifestPath,
         &persistentStats, true, &usedPersistent);
-    if (usedPersistent || !persistentStatus.isOk())
-        return emitTreeSummary("tree_upload_complete", "upload", persistentStatus, options,
-                               manifest, persistentStats, startedAt);
-    const bool useControlPipeline = options.controlPipelineDepth != 0;
-    config::TreeTransferOptions summaryOptions = options;
-    if (!useControlPipeline) {
-        summaryOptions.controlPipelineDepth = 0;
-    }
-
-    const common::Status preflightStatus =
-        preflightUploadResume(options, &manifest, manifestPath);
-    if (!preflightStatus.isOk()) {
-        TreeRunStats stats;
-        stats.perFileStarted = true;
-        return emitTreeSummary("tree_upload_complete", "upload", preflightStatus, summaryOptions,
-                               manifest, stats, startedAt);
-    }
-
-    TreeRunStats stats;
-    stats.perFileStarted = true;
-    const common::Status status =
-        useControlPipeline
-            ? runPipelinedTreeScheduler(&manifest, manifestPath, options, true, &stats)
-            : (options.schedulerMode == config::TreeSchedulerMode::Global
-                   ? runGlobalTreeScheduler(&manifest, manifestPath, options, processUploadFile,
-                                            &stats, "upload", startedAt)
-                   : runTreeScheduler(&manifest, manifestPath, options, processUploadFile, &stats));
-    return emitTreeSummary("tree_upload_complete", "upload", status, summaryOptions, manifest, stats,
-                           startedAt);
+    return emitTreeSummary("tree_upload_complete", "upload", persistentStatus, options,
+                           manifest, persistentStats, startedAt);
 }
 
 common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOptions) {
@@ -4665,7 +4636,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
     ControlClient control;
     config::TreeTransferOptions controlOptions = options;
     if (options.resume && persistentEligible(options)) controlOptions.connections = 1;
-    const bool needInitialControl = !options.reuseDataSession || !persistentEligible(options) || options.resume;
+    const bool needInitialControl = !persistentEligible(options) || options.resume;
     if (needInitialControl) {
         const common::Status readyStatus = ensureControlReadyWithStats(&control, controlOptions, &stats);
         if (!readyStatus.isOk()) return readyStatus;
@@ -4690,90 +4661,8 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
     bool usedPersistent = false;
     auto persistentStatus = tryRecoveringPersistentDirectory(options, &manifest, manifestPath,
         &stats, false, &usedPersistent, needInitialControl ? &control : nullptr);
-    if (usedPersistent || !persistentStatus.isOk())
-        return emitTreeSummary("tree_download_complete", "download", persistentStatus, options,
-                               manifest, stats, startedAt);
-    stats.perFileStarted = true;
-
-    if (options.resume) {
-        auto loaded = core::tree::loadTreeManifest(manifestPath);
-        if (!loaded.isOk()) {
-            return loaded.status();
-        }
-        manifest = loaded.value();
-        if (manifest.mode != core::tree::TreeTransferMode::Download ||
-            manifest.rootLogicalPath != options.sourceDir ||
-            manifest.checksumAlgorithm != options.checksumAlgorithm) {
-            return common::Status::invalidArgument("tree download manifest does not match request");
-        }
-    } else {
-        std::vector<std::string> stack{options.sourceDir};
-        std::vector<core::tree::TreeFileRecord> records;
-        while (!stack.empty()) {
-            const std::string current = stack.back();
-            stack.pop_back();
-            auto names = control.nlst(current);
-            if (!names.isOk()) {
-                return names.status();
-            }
-            for (const std::string& name : names.value()) {
-                const std::string candidate = joinRemotePath(current, name);
-                auto size = control.size(candidate);
-                if (size.isOk()) {
-                    auto relative = remoteRelativePath(options.sourceDir, candidate);
-                    if (!relative.isOk()) {
-                        return relative.status();
-                    }
-                    auto mtime = control.mdtm(candidate);
-                    if (!mtime.isOk()) {
-                        return mtime.status();
-                    }
-                    records.push_back(core::tree::TreeFileRecord{
-                        relative.value(), size.value(), mtime.value(), generateTransferId(),
-                        core::tree::TreeFileStatus::Pending, ""});
-                } else {
-                    stack.push_back(candidate);
-                }
-            }
-        }
-        std::sort(records.begin(), records.end(),
-                  [](const auto& left, const auto& right) {
-                      return left.relativePath < right.relativePath;
-                  });
-        manifest.mode = core::tree::TreeTransferMode::Download;
-        manifest.rootLogicalPath = options.sourceDir;
-        manifest.checksumAlgorithm = options.checksumAlgorithm;
-        manifest.createdAtUnixNanos = checkpoint::nowUnixNanos();
-        manifest.updatedAtUnixNanos = manifest.createdAtUnixNanos;
-        manifest.files = std::move(records);
-        const common::Status saveStatus = saveManifest(&manifest, manifestPath);
-        if (!saveStatus.isOk()) {
-            return saveStatus;
-        }
-    }
-
-    const bool useControlPipeline = options.controlPipelineDepth != 0;
-    config::TreeTransferOptions summaryOptions = options;
-    if (!useControlPipeline) {
-        summaryOptions.controlPipelineDepth = 0;
-    }
-
-    const common::Status preflightStatus =
-        preflightDownloadResume(options, &manifest, manifestPath, &stats);
-    if (!preflightStatus.isOk()) {
-        return emitTreeSummary("tree_download_complete", "download", preflightStatus, summaryOptions,
-                               manifest, stats, startedAt);
-    }
-
-    const common::Status status =
-        useControlPipeline
-            ? runPipelinedTreeScheduler(&manifest, manifestPath, options, false, &stats)
-            : (options.schedulerMode == config::TreeSchedulerMode::Global
-                   ? runGlobalTreeScheduler(&manifest, manifestPath, options, processDownloadFile,
-                                            &stats, "download", startedAt)
-                   : runTreeScheduler(&manifest, manifestPath, options, processDownloadFile, &stats));
-    return emitTreeSummary("tree_download_complete", "download", status, summaryOptions, manifest, stats,
-                           startedAt);
+    return emitTreeSummary("tree_download_complete", "download", persistentStatus, options,
+                           manifest, stats, startedAt);
 }
 
 TreeAuthProbeResult runTreeAuthProbe(const config::TreeTransferOptions& options) {

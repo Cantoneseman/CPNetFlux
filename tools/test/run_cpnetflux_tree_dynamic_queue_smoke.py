@@ -67,12 +67,9 @@ def manifest_check(root, count, download):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--build-dir', type=Path, required=True)
-    parser.add_argument('--case', choices=['dense', 'mixed', 'large', 'compatibility'], required=True)
+    parser.add_argument('--case', choices=['dense', 'mixed', 'large'], required=True)
     parser.add_argument('--evidence-dir', type=Path, required=True)
-    parser.add_argument('--legacy-build-dir', type=Path)
     args = parser.parse_args()
-    if args.case == 'compatibility' and not args.legacy_build_dir:
-        parser.error('compatibility requires --legacy-build-dir for a fixed pre-dynamic server')
     root = args.evidence_dir.resolve()
     root.mkdir(parents=True, exist_ok=False)
     source, server_root = root / 'source', root / 'server'
@@ -82,8 +79,6 @@ def main():
         sizes = [1048576] * 128
     elif args.case == 'mixed':
         sizes = [0, 1, 19, 65535, 65536, 65537, 1048576, 5 * 1048576, 17 * 1048576] + [31] * 48
-    elif args.case == 'compatibility':
-        sizes = [0, 1, 65537]
     else:
         sizes = [129 * 1048576]  # Exceeds the four-channel adaptive range threshold.
     for index, size in enumerate(sizes):
@@ -99,10 +94,10 @@ def main():
     (root / 'input.json').write_text(json.dumps({'sha256_tree': expected, 'sizes': sizes}))
     port = free_port()
     log = root / 'server.log'
-    checksum = 'none' if args.case == 'compatibility' else 'crc32c'
+    checksum = 'crc32c'
     with log.open('w') as output:
         server = subprocess.Popen([
-            str((args.legacy_build_dir if args.case == 'compatibility' else args.build_dir) / 'cpnetflux-gridftp-server'), '--host', '127.0.0.1',
+            str(args.build_dir / 'cpnetflux-gridftp-server'), '--host', '127.0.0.1',
             '--port', str(port), '--data-port-base', str(clamp_passive_data_port_base(free_port())),
             '--root', str(server_root), '--connections', '1', '--checksum', checksum,
         ], stdout=output, stderr=subprocess.STDOUT)
@@ -110,9 +105,8 @@ def main():
         wait_for_control(port)
         def run(direction, src, dst, name, mode='dynamic', extra=(), success=True):
             summary = root / (name + '.json')
-            reuse = 'off' if args.case == 'compatibility' else 'tree'
-            shared_dispatch = ([] if args.case == 'compatibility' or mode != 'dynamic'
-                               else ['--control-pipeline-depth', '2'])
+            reuse = 'tree'
+            shared_dispatch = ([] if mode != 'dynamic' else ['--control-pipeline-depth', '2'])
             command = [str(args.build_dir / f'cpnetflux-tree-{direction}-client'),
                 '--host', '127.0.0.1', '--port', str(port), '--source-dir', str(src), '--dest-dir', str(dst),
                 '--connections', '1', '--file-parallelism', '4', '--checksum', checksum,
@@ -122,7 +116,7 @@ def main():
             (root / (name + '.log')).write_text(p.stdout + p.stderr)
             assert (p.returncode == 0) == success, (p.returncode, p.stdout, p.stderr)
             return json.loads(summary.read_text(), object_pairs_hook=unique_json_object)
-        modes = [] if args.case == 'compatibility' else (['dynamic', 'static'] if args.case == 'mixed' else ['dynamic'])
+        modes = ['dynamic', 'static'] if args.case == 'mixed' else ['dynamic']
         for mode in modes:
             up = run('upload', source, 'up-' + mode, 'upload-' + mode, mode)
             check_timings(up, len(sizes), True, mode, args.case == 'large')
@@ -135,22 +129,8 @@ def main():
             assert down['completed_files'] == len(sizes) and down['data_connect_count'] == 4
             assert tree_hash(target) == expected
             manifest_check(target, len(sizes), True)
-        if args.case == 'compatibility':
-            for direction, src, dst in (
-                ('upload', source, 'up-compatibility'),
-                ('download', 'up-compatibility', root / 'down-compatibility'),
-            ):
-                fallback = run(direction, src, dst, direction + '-compatibility')
-                assert fallback['requested_mode'] == 'per_file'
-                assert fallback['actual_mode'] == fallback['actual_file_scheduling'] == 'per_file'
-                assert fallback['fallback_reason'] == ''
-                assert fallback['completed_files'] == len(sizes)
-            assert tree_hash(server_root / 'up-compatibility') == expected
-            assert tree_hash(root / 'down-compatibility') == expected
-            manifest_check(server_root / 'up-compatibility', len(sizes), False)
-            manifest_check(root / 'down-compatibility', len(sizes), True)
         if args.case == 'mixed':
-            # V2 resume reuses the persistent tree session and validates the final tree.
+            # V3 resume reuses the persistent tree executor and validates the final tree.
             resumed = run('download', 'up-dynamic', root / 'download-dynamic', 'resume',
                           extra=['--resume'])
             assert resumed['actual_mode'] == 'persistent_tree'

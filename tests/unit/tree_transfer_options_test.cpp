@@ -67,8 +67,6 @@ TEST(TreeTransferOptionsTest, ParsesUploadOptions) {
                           "none",
                           "--checksum-backend",
                           "software",
-                          "--max-files",
-                          "1",
                           "--user",
                           "alice",
                           "--password",
@@ -306,16 +304,19 @@ TEST(TreeTransferOptionsTest, ParsesControlPipelineDepthAndRejectsInvalidCombina
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
     EXPECT_EQ(parsed.value().controlPipelineDepth, 1U);
 
-    const char* tooDeep[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
-                             "--dest-dir", "remote", "--data-session-reuse", "off",
-                             "--control-pipeline-depth", "2"};
-    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
-                     static_cast<int>(std::size(tooDeep)), tooDeep,
-                     cpnetflux::config::TreeTransferRole::Upload)
-                     .isOk());
+    const char* validLegacyAlias[] = {"cpnetflux-tree-upload-client", "--source-dir",
+                                      rootText.c_str(), "--dest-dir", "remote",
+                                      "--data-session-reuse", "off",
+                                      "--control-pipeline-depth", "2"};
+    auto aliasParsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(validLegacyAlias)), validLegacyAlias,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(aliasParsed.isOk()) << aliasParsed.status().message();
+    EXPECT_TRUE(aliasParsed.value().reuseDataSession);
+    EXPECT_EQ(aliasParsed.value().controlPipelineDepth, 2U);
     const char* wrongMode[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
                                "--dest-dir", "remote", "--data-session-reuse", "off",
-                               "--control-pipeline-depth", "1"};
+                               "--file-scheduling", "static", "--control-pipeline-depth", "1"};
     EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
                      static_cast<int>(std::size(wrongMode)), wrongMode,
                      cpnetflux::config::TreeTransferRole::Upload)
@@ -606,6 +607,30 @@ TEST(TreeTransferOptionsTest, DefaultsToV3PersistentDynamicDispatch) {
     EXPECT_EQ(parsed.value().controlPipelineDepth, 0U);
     EXPECT_EQ(parsed.value().schedulerMode, cpnetflux::config::TreeSchedulerMode::Off);
     std::filesystem::remove_all(root);
+}
+
+TEST(TreeTransferOptionsTest, LegacyReuseOffInputMapsToV3PersistentExecutor) {
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", "/tmp",
+                          "--dest-dir", "remote", "--data-session-reuse", "off",
+                          "--file-scheduling", "static"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_TRUE(parsed.value().reuseDataSession);
+    EXPECT_FALSE(parsed.value().dynamicFileScheduling);
+    EXPECT_TRUE(parsed.value().modeFallbackReason.empty());
+}
+
+TEST(TreeTransferOptionsTest, RejectsLegacyPerFileMaxFilesLimit) {
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", "/tmp",
+                          "--dest-dir", "remote", "--max-files", "1"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_FALSE(parsed.isOk());
+    EXPECT_NE(parsed.status().message().find("not supported by the V3 tree executor"),
+              std::string::npos);
 }
 
 TEST(TreeTransferOptionsTest, DefaultsPersistentDataPendingWindowToTwo) {
