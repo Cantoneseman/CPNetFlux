@@ -4,6 +4,7 @@ Date: 2026-10-20 (Asia/Shanghai)
 Status: complete
 Owner: current commander, single serial developer
 Input commit: eb45795f2e3eaca50b4b69fc3a66dd8403184ca5
+Implementation commit: a596970c636b32a05789bb90f663150928e6f897
 Branch: codex/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01
 
 ## 易懂版问题
