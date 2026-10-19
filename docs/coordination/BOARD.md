@@ -4,7 +4,7 @@
 
 - V3-LANE-MULTI-FAULT-BUDGET-01：已完成。两数据 lane 同时故障的 12 个跨机场景和 8 项回归全部通过；N=0/1/2 分别表现为 0 次恢复并明确失败、1 次恢复后明确失败、2 次恢复后成功。详情见 docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md。
 - V3-LANE-MIXED-FAULT-BUDGET-01：已完成。数据连接与另一 lane 控制连接同时故障的深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个 case 全部通过；没有发现数据恢复和控制重连重复消费总预算。实现提交 6182067f2dc88ccf7ddae49bc27b9ff13d0ed53f，已推送并回读 origin 同 SHA；验收记录见 docs/tasks/2026-10-19-v3-lane-mixed-fault-budget-01.md。
-- 下一计划：V3-LANE-FAULT-STORM-BUDGET-01。用容易理解的话说，是连续制造 3 次故障，检查故障一个接一个到来时预算是否仍按 0/1/2/3 严格限制，预算用完就马上清楚失败。
+- 下一计划：V3-LANE-FAULT-STORM-BUDGET-01（in progress）。用容易理解的话说，是连续制造 3 次故障，检查故障一个接一个到来时预算是否仍按 0/1/2/3 严格限制，预算用完就马上清楚失败。任务范围、非目标、验收命令见 `docs/tasks/2026-10-19-v3-lane-fault-storm-budget-01.md`。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
 - 环境边界：深圳与上海生产端口 2121 只读观察，未停止或改配；实验端口 24600–24799 已清理，无任务 runner/代理遗留。
 
