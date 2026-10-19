@@ -322,7 +322,7 @@ std::string downloadTempPathForOutput(const std::string& outputPath,
 }
 
 common::Result<std::string> serializeDownloadManifest(const DownloadManifest& manifest) {
-    if (manifest.version != kDownloadManifestVersion) {
+    if (manifest.version != kDownloadManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported download manifest version");
     }
     if (!isValidTransferId(manifest.transferId)) {
@@ -388,7 +388,7 @@ common::Result<DownloadManifest> parseDownloadManifest(const std::string& text) 
     if (!version.isOk()) {
         return version.status();
     }
-    if (version.value() != kDownloadManifestVersion) {
+    if (version.value() != kDownloadManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported download manifest version");
     }
     auto parsedExpected = parseHex32(expectedBodyChecksum, "manifest_body_crc32c");

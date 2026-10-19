@@ -55,7 +55,7 @@ TEST(FrameTest, RoundTripsValidHeader) {
 
     ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
     EXPECT_EQ(decoded.value().magic, cpnetflux::core::protocol::kFrameMagic);
-    EXPECT_EQ(decoded.value().version, cpnetflux::core::protocol::kFrameVersion);
+    EXPECT_EQ(decoded.value().version, cpnetflux::core::protocol::kFrameSchemaVersion);
     EXPECT_EQ(decoded.value().headerSize, cpnetflux::core::protocol::kFrameHeaderSize);
     EXPECT_EQ(decoded.value().type, cpnetflux::core::protocol::FrameType::Data);
     EXPECT_EQ(decoded.value().streamId, 3U);

@@ -519,7 +519,7 @@ class RangeFileCoordinator {
         for (const auto& missing:entry->transaction->missingRanges()) {
             const auto begin=std::max(missing.begin,id.rangeOffset);
             const auto end=std::min(missing.end,id.rangeOffset+id.rangeLength);
-            // V3 range resumes reuse chunk-sized records from earlier checkpoints.
+            // V3 range resumes reuse chunk-sized records from its own checkpoints.
             for (auto pos=begin;pos<end;) {
                 auto next=std::min(end,(pos/id.chunkSize+1)*id.chunkSize);
                 if (next<=pos) next=end;

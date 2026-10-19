@@ -144,7 +144,7 @@ common::Result<std::vector<TreeFileInfo>> scanLocalTree(const std::string& root,
         }
 
         // Persistent scanning needs the owned manifest to identify its partial file.
-        // Ordinary V1 tree enumeration still excludes only verified sidecars.
+        // Ordinary tree enumeration still excludes only verified sidecars.
         if (!includeTransferSidecars && isInternalTransferSidecar(entry.path().string())) {
             continue;
         }

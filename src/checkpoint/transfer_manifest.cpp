@@ -344,8 +344,8 @@ common::Result<ManifestState> parseManifestState(const std::string& text) {
 }
 
 common::Result<std::string> serializeTransferManifest(const TransferManifest& manifest) {
-    if (manifest.version != kTransferManifestVersion) {
-        return common::Status::invalidArgument("serializer only writes manifest version 2");
+    if (manifest.version != kTransferManifestSchemaVersion) {
+        return common::Status::invalidArgument("serializer only writes the current manifest schema");
     }
     if (!isValidTransferId(manifest.transferId)) {
         return common::Status::invalidArgument("invalid transfer_id");
@@ -403,36 +403,26 @@ common::Result<TransferManifest> parseTransferManifest(const std::string& text) 
     if (!version.isOk()) {
         return version.status();
     }
-    if (version.value() != kTransferManifestVersionV1 &&
-        version.value() != kTransferManifestVersion) {
-        return common::Status::invalidArgument("unsupported manifest version");
+    if (version.value() != kTransferManifestSchemaVersion) {
+        return common::Status::invalidArgument("unsupported manifest schema version");
     }
-
-    const bool isV2 = version.value() == kTransferManifestVersion;
     for (const char* key :
          {"transfer_id", "output_path_hex", "temp_path_hex", "total_size", "chunk_size",
-          "created_at_unix_ns", "updated_at_unix_ns", "state", "completed_ranges"}) {
+          "checksum_algorithm", "created_at_unix_ns", "updated_at_unix_ns", "state",
+          "completed_ranges", "verified_chunks", "manifest_body_crc32c"}) {
         const common::Status status = requireKey(values, key);
         if (!status.isOk()) {
             return status;
         }
     }
-    if (isV2) {
-        for (const char* key : {"checksum_algorithm", "verified_chunks", "manifest_body_crc32c"}) {
-            const common::Status status = requireKey(values, key);
-            if (!status.isOk()) {
-                return status;
-            }
-        }
-        auto parsedExpected = parseHex32(expectedBodyChecksum, "manifest_body_crc32c");
-        if (!parsedExpected.isOk()) {
-            return parsedExpected.status();
-        }
-        const std::uint32_t actual = checksum::crc32c(
-            reinterpret_cast<const std::uint8_t*>(bodyText.data()), bodyText.size());
-        if (actual != parsedExpected.value()) {
-            return common::Status::invalidArgument("manifest body checksum mismatch");
-        }
+    auto parsedExpected = parseHex32(expectedBodyChecksum, "manifest_body_crc32c");
+    if (!parsedExpected.isOk()) {
+        return parsedExpected.status();
+    }
+    const std::uint32_t actual = checksum::crc32c(
+        reinterpret_cast<const std::uint8_t*>(bodyText.data()), bodyText.size());
+    if (actual != parsedExpected.value()) {
+        return common::Status::invalidArgument("manifest body checksum mismatch");
     }
 
     TransferManifest manifest;
@@ -491,12 +481,6 @@ common::Result<TransferManifest> parseTransferManifest(const std::string& text) 
         return ranges.status();
     }
     manifest.completedRanges = std::move(ranges.value());
-
-    if (!isV2) {
-        manifest.checksumAlgorithm = checksum::ChecksumAlgorithm::None;
-        manifest.verifiedChunks.clear();
-        return manifest;
-    }
 
     auto algorithm = checksum::parseChecksumAlgorithm(values["checksum_algorithm"]);
     if (!algorithm.isOk()) {

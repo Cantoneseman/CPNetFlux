@@ -3,7 +3,7 @@
 本节优先于下方历史路线和旧任务快照。深圳为权威 Git 工作区；上海只作传输对端。
 
 - V3-ONLY-PEER-SYNC-01：已完成。提交 `10d05bcdf972faec15d3a19bae6230cf27905099` 已推送；深圳与上海服务运行同 SHA 的 V3 server，完整 CTest 393/393 通过。深圳→上海生产服务上传、上海→深圳下载均通过且树哈希一致；上海客户端→深圳隔离 V3 服务也经 SSH 隧道通过。上海直连深圳 TCP/2121 仍超时，详见任务记录和 evidence.json。
-- V3-ONLY-LEGACY-CODE-AUDIT-01：已完成。移除三个无调用点的旧 tree runners 和仅供其使用的逐文件/pipeline/scheduler 逻辑，共净删 2,052 行；保留 V3 executor、旧参数到 V3 的映射、旧 manifest/checkpoint 读取。提交 a41ee88050eab021a9d286aa514351a29bdb573f 已推送并由 origin 回读一致；两端 clean build 二进制一致，CTest 393/393，深圳↔上海实际上传/下载均通过。详见任务记录和 evidence.json。
+- V3-ONLY-LEGACY-CODE-AUDIT-01：已完成。移除三个无调用点的旧 tree runners 和仅供其使用的逐文件/pipeline/scheduler 逻辑，共净删 2,052 行；保留 V3 executor 和当前 V3 manifest/checkpoint。提交 a41ee88050eab021a9d286aa514351a29bdb573f 已推送并由 origin 回读一致；两端 clean build 二进制一致，CTest 393/393，深圳↔上海实际上传/下载均通过。详见任务记录和 evidence.json。
 - 版本门禁：深圳 commit、两端构建状态、二进制 SHA-256 和服务启动命令必须记录；任一不一致时停止互传，不把旧服务或旧逻辑当作 V3 验收。
 
 - V3-LANE-MULTI-FAULT-BUDGET-01：已完成。两数据 lane 同时故障的 12 个跨机场景和 8 项回归全部通过；N=0/1/2 分别表现为 0 次恢复并明确失败、1 次恢复后明确失败、2 次恢复后成功。详情见 docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md。
@@ -11,7 +11,8 @@
 - V3-LANE-FAULT-STORM-BUDGET-01：已完成。连续注入 3 次 data-lane 故障，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；N=0/1/2 恢复次数严格为 0/1/2 并清楚失败，N=3 恢复 3 次并成功，树哈希一致。实现提交 `19a449868e1650b75214a9db59c692b71ee7f272` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-fault-storm-budget-01.md`。
 - V3-LANE-MIXED-FAULT-STORM-BUDGET-01：已完成。按“数据断开 → 控制断开 → 再次数据断开”顺序注入，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；预算严格为 0/1/2/3，N=3 树哈希一致，batch ID 保持且无全局 control reconnect。最终提交 `3d14b5c27531ade6f9ae9982b28a5dfd4b502f69` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-mixed-fault-storm-budget-01.md`。
 - V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01：已完成。运行协商改为显式 XCPNETFLUX V3 / CPNetFlux V3，服务端拒绝旧 V2 greeting、客户端校验 V3 回执，不再存在这条协商降级歧义；两端同 commit 构建且 CTest 各 393/393。深圳客户端连上海正式服务、上海客户端经 SSH 隧道连深圳回环 V3 服务，双向上传/下载及 SHA-256/树哈希均通过。代码提交 5a2b2e2808f7b5614de6f5988d440a9cb406365a 已推送并回读一致；任务结果见 docs/tasks/2026-10-19-v3-only-residual-runtime-audit-01.md 和 evidence.json。
-- 下一计划 V3-HISTORICAL-CHECKPOINT-INTEROP-01：现有单元/回环测试能读 V1 manifest 与旧 chunk checkpoint，但尚缺真实历史 checkpoint fixture 经 V3 客户端/服务端端到端续传的跨机证明；要求只传缺失范围、最终 SHA-256 一致、摘要明确 V3 且无 fallback，坏 checkpoint 明确失败。
+- V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01：进行中。项目尚未正式部署，本轮删除 transfer manifest V1 兼容读取和恢复分支，并把内部 schema 常量与 V1/V2 运行版本命名分开；范围、非目标和验收记录见 docs/tasks/2026-10-19-v3-only-no-predeployment-compatibility-01.md。
+- 历史 checkpoint 互操作计划已取消：没有已部署用户或生产断点需要迁移，不再为 V1/V2 历史输入保留开发和跨机验收门。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
 - 环境边界：深圳与上海正式服务均 active，运行 SHA 与本轮构建一致，因此无需重启。上海客户端反向验收使用深圳回环匿名临时服务和 SSH 隧道；临时服务、隧道、任务 payload 和上海正式服务下的任务测试目录均已清理，摘要与 manifest archive 保留。上海主动直连深圳 TCP/2121 仍超时，不能把隧道测试说成直连生产端口通过。
 

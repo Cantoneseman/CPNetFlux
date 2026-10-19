@@ -120,7 +120,7 @@ common::Result<DownloadSession> DownloadSession::createNew(
     session.manifestFlushPolicy_ = manifestFlushPolicy;
     session.manifestFlushIntervalChunks_ = manifestFlushIntervalChunks;
     session.manifestPath_ = checkpoint::downloadManifestPathForOutput(targetPath);
-    session.manifest_.version = checkpoint::kDownloadManifestVersion;
+    session.manifest_.version = checkpoint::kDownloadManifestSchemaVersion;
     session.manifest_.transferId = transferId;
     session.manifest_.sourcePath = sourcePath;
     session.manifest_.targetPath = targetPath;

@@ -9,7 +9,7 @@
 
 namespace cpnetflux::core::tree {
 
-inline constexpr std::uint32_t kTreeManifestVersion = 1;
+inline constexpr std::uint32_t kTreeManifestSchemaVersion = 1;
 
 enum class TreeTransferMode {
     Upload,
@@ -34,7 +34,7 @@ struct TreeFileRecord {
 };
 
 struct TreeManifest {
-    std::uint32_t version = kTreeManifestVersion;
+    std::uint32_t version = kTreeManifestSchemaVersion;
     TreeTransferMode mode = TreeTransferMode::Upload;
     std::string rootLogicalPath;
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;

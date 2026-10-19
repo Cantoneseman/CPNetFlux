@@ -15,10 +15,11 @@ ambiguous version check blocks the transfer test.
 
 ## Compatibility boundary
 
-Historical command-line options may remain accepted when they can be mapped to the V3
-executor without changing the wire protocol. Historical manifest/checkpoint readers may
-remain for recovery of existing data. Neither case permits the old per-file scheduler,
-old control pipeline, or legacy wire execution path to run.
+Only options that select V3 behavior are active. Because CPNetFlux has not been deployed,
+the current V3 manifest/checkpoint schema is the only supported persisted input; no
+pre-V3 manifest migration reader is retained. Numeric schema identifiers describe file
+or frame structure and do not select a V1/V2 runtime. No old per-file scheduler, old
+control pipeline, or legacy wire execution path can run.
 
 An endpoint that cannot negotiate V3 is an incompatible endpoint for the main route. It
 must fail before payload transfer; an automatic downgrade is not a V3 result.
@@ -34,8 +35,7 @@ binding, RDMA, production GSI lifecycle, or high-bandwidth readiness.
 1. Shenzhen and Shanghai use the same source commit or an artifact manifest generated
    from that commit.
 2. Both hosts complete the same build configuration and record binary SHA-256.
-3. Legacy option inputs, where retained, report V3 execution and do not enter the old
-   per-file runtime.
+3. Active option inputs report V3 execution and do not enter an older runtime.
 4. V3-to-V3 upload and download pass with matching tree hashes.
 
 

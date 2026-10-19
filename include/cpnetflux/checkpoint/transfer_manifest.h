@@ -10,8 +10,7 @@
 
 namespace cpnetflux::checkpoint {
 
-inline constexpr std::uint32_t kTransferManifestVersionV1 = 1;
-inline constexpr std::uint32_t kTransferManifestVersion = 2;
+inline constexpr std::uint32_t kTransferManifestSchemaVersion = 2;
 
 enum class ManifestState {
     Created,
@@ -28,7 +27,7 @@ struct ChunkChecksumRecord {
 };
 
 struct TransferManifest {
-    std::uint32_t version = kTransferManifestVersion;
+    std::uint32_t version = kTransferManifestSchemaVersion;
     std::string transferId;
     std::string outputPath;
     std::string tempPath;

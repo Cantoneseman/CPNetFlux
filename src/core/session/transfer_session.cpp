@@ -50,12 +50,10 @@ common::Status validateLoadedManifest(const checkpoint::TransferManifest& manife
     if (manifest.state == checkpoint::ManifestState::Committed) {
         return common::Status::invalidArgument("manifest is already committed");
     }
-    if (manifest.version == checkpoint::kTransferManifestVersionV1 &&
-        checksumAlgorithm != checksum::ChecksumAlgorithm::None) {
-        return common::Status::invalidArgument("manifest version 1 lacks chunk checksum records");
+    if (manifest.version != checkpoint::kTransferManifestSchemaVersion) {
+        return common::Status::invalidArgument("manifest schema version is not current");
     }
-    if (manifest.version == checkpoint::kTransferManifestVersion &&
-        manifest.checksumAlgorithm != checksumAlgorithm) {
+    if (manifest.checksumAlgorithm != checksumAlgorithm) {
         return common::Status::invalidArgument(
             "manifest checksum algorithm does not match request");
     }
@@ -122,7 +120,7 @@ common::Result<TransferSession> TransferSession::createNew(
     session.manifestFlushPolicy_ = manifestFlushPolicy;
     session.manifestFlushIntervalChunks_ = manifestFlushIntervalChunks;
     session.manifestPath_ = checkpoint::manifestPathForOutput(outputPath);
-    session.manifest_.version = checkpoint::kTransferManifestVersion;
+    session.manifest_.version = checkpoint::kTransferManifestSchemaVersion;
     session.manifest_.transferId = transferId;
     session.manifest_.outputPath = outputPath;
     session.manifest_.tempPath = checkpoint::tempPathForOutput(outputPath, transferId);
@@ -172,28 +170,11 @@ common::Result<TransferSession> TransferSession::resume(
     session.manifest_ = std::move(loaded.value());
     session.manifest_.checksumAlgorithm = checksumAlgorithm;
 
-    if (session.manifest_.version == checkpoint::kTransferManifestVersionV1) {
-        for (const chunk::CompletedRange& range : session.manifest_.completedRanges) {
-            const std::uint64_t length = range.end - range.begin;
-            const common::Status insertStatus =
-                session.completed_.insert(range.begin, length, totalSize);
-            if (!insertStatus.isOk()) {
-                return insertStatus;
-            }
-            session.manifest_.verifiedChunks.push_back(checkpoint::ChunkChecksumRecord{
-                range.begin,
-                range.begin,
-                length,
-                checksum::ChecksumValue{checksum::ChecksumAlgorithm::None, 0},
-            });
-        }
-    } else {
-        for (const checkpoint::ChunkChecksumRecord& record : session.manifest_.verifiedChunks) {
-            const common::Status insertStatus =
-                session.completed_.insert(record.offset, record.length, totalSize);
-            if (!insertStatus.isOk()) {
-                return insertStatus;
-            }
+    for (const checkpoint::ChunkChecksumRecord& record : session.manifest_.verifiedChunks) {
+        const common::Status insertStatus =
+            session.completed_.insert(record.offset, record.length, totalSize);
+        if (!insertStatus.isOk()) {
+            return insertStatus;
         }
     }
 
@@ -208,7 +189,7 @@ common::Result<TransferSession> TransferSession::resume(
 
 common::Status TransferSession::save() {
     manifest_.updatedAtUnixNanos = checkpoint::nowUnixNanos();
-    manifest_.version = checkpoint::kTransferManifestVersion;
+    manifest_.version = checkpoint::kTransferManifestSchemaVersion;
     manifest_.completedRanges = completed_.ranges();
     sortVerifiedChunks(&manifest_.verifiedChunks);
     metrics::ScopedPhaseTimer timer(phaseStats_, metrics::TransferPhase::ManifestFlush);

@@ -293,7 +293,7 @@ bool isTreeTransferComplete(const TreeManifest& manifest) {
 }
 
 common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest) {
-    if (manifest.version != kTreeManifestVersion) {
+    if (manifest.version != kTreeManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported tree manifest version");
     }
     if (manifest.rootLogicalPath.empty()) {
@@ -367,7 +367,7 @@ common::Result<TreeManifest> parseTreeManifest(const std::string& text) {
     if (!version.isOk()) {
         return version.status();
     }
-    if (version.value() != kTreeManifestVersion) {
+    if (version.value() != kTreeManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported tree manifest version");
     }
     manifest.version = static_cast<std::uint32_t>(version.value());

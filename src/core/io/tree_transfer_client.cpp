@@ -380,7 +380,7 @@ class ControlClient {
     }
     [[nodiscard]] common::Status waitTransferComplete(
         const std::string& expectedTransferId = {}, std::string* directoryReply = nullptr) {
-        // V2 directory completion uses a single untagged control terminal reply.
+        // Persistent directory completion uses a single untagged control terminal reply.
         // Per-file V3/pipeline completion retains transfer_id matching below.
         if (expectedTransferId.empty()) {
             auto reply = readReply();
@@ -1364,7 +1364,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "  \"data_pending_window\": " << stats.pendingWindow << ",\n";
         output << "  \"data_pending_high_watermark\": " << stats.pendingHighWatermark << ",\n";
     }
-    output << "  \"wire_bytes_scope\": \"" << (stats.persistentData ? "application_frames_both_directions" : "legacy_payload_accounting") << "\",\n";
+    output << "  \"wire_bytes_scope\": \"" << (stats.persistentData ? "application_frames_both_directions" : "v3_application_frames") << "\",\n";
     output << "  \"planner_preset\": \"" << jsonEscape(options.plannerPreset) << "\",\n";
     output << "  \"checksum_algorithm\": \""
            << checksum::checksumAlgorithmName(options.checksumAlgorithm) << "\",\n";
@@ -2070,7 +2070,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         }
         if (complete && fileStatus.code() == common::StatusCode::TransportError) {
             // Dynamic workers reconcile only their own leases after both IO threads
-            // stop. Static V2 keeps the historical whole-batch cancellation.
+            // stop. Static scheduling keeps whole-batch cancellation.
             if (!options.dynamicFileScheduling) recordFailure(fileStatus);
             return fileStatus;
         }

@@ -579,7 +579,7 @@ TEST(PersistentTreeRangeTest, UnifiedPolicySupportsCompressionBufferedIoPrealloc
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),content);
 }
 
-TEST(PersistentTreeRangeTest, RangeResumeConsumesLegacyChunkManifestAndSendsOnlyMissingBytes) {
+TEST(PersistentTreeRangeTest, RangeResumeConsumesCurrentChunkManifestAndSendsOnlyMissingBytes) {
     TempRoot source,destination;std::ofstream(source.path/"old.bin")<<"ABCDEFGH";
     struct stat st{};ASSERT_EQ(::stat((source.path/"old.bin").c_str(),&st),0);
     auto session=cpnetflux::core::session::TransferSession::createNew(

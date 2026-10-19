@@ -11,10 +11,10 @@
 
 namespace cpnetflux::checkpoint {
 
-inline constexpr std::uint32_t kDownloadManifestVersion = 1;
+inline constexpr std::uint32_t kDownloadManifestSchemaVersion = 1;
 
 struct DownloadManifest {
-    std::uint32_t version = kDownloadManifestVersion;
+    std::uint32_t version = kDownloadManifestSchemaVersion;
     std::string transferId;
     std::string sourcePath;
     std::string targetPath;

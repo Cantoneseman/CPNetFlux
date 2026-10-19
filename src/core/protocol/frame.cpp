@@ -183,7 +183,7 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
     if (header.magic != kFrameMagic) {
         return common::Status::invalidArgument("invalid frame magic");
     }
-    if (header.version != kFrameVersion) {
+    if (header.version != kFrameSchemaVersion) {
         return common::Status::invalidArgument("invalid frame version");
     }
     if (header.headerSize != kFrameHeaderSize) {

@@ -1,4 +1,4 @@
-> 2026-10-19：单文件 STOR/RETR 与目录都只使用 V3 事务内核。目录控制面只接受 XCPNETFLUX V3 能力协商，旧 V2 greeting 被拒绝；file-transactions/1 是事务格式编号，不会选择旧执行器。旧 CLI --data-session-reuse off 只映射到 V3 编排，旧 checkpoint/manifest 仅作为恢复输入。checksum/resume/TLS/压缩/IO/提交策略保留，历史边界见 docs/tasks/2026-10-11-v1-retire-01.md。
+> 2026-10-19：单文件 STOR/RETR 与目录都只使用 V3 事务内核。目录控制面只接受 XCPNETFLUX V3 能力协商，旧 V2 greeting 被拒绝；file-transactions/1 是事务格式编号，不会选择旧执行器。项目尚未正式部署，当前 V3 只读写自己的 manifest/checkpoint；内部数字 schema 不是 V1/V2 运行版本。checksum/resume/TLS/压缩/IO/提交策略保留。
 
 # CPNetFlux
 
