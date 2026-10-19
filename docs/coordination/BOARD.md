@@ -10,7 +10,7 @@
 - V3-LANE-MIXED-FAULT-BUDGET-01：已完成。数据连接与另一 lane 控制连接同时故障的深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个 case 全部通过；没有发现数据恢复和控制重连重复消费总预算。实现提交 6182067f2dc88ccf7ddae49bc27b9ff13d0ed53f，已推送并回读 origin 同 SHA；验收记录见 docs/tasks/2026-10-19-v3-lane-mixed-fault-budget-01.md。
 - V3-LANE-FAULT-STORM-BUDGET-01：已完成。连续注入 3 次 data-lane 故障，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；N=0/1/2 恢复次数严格为 0/1/2 并清楚失败，N=3 恢复 3 次并成功，树哈希一致。实现提交 `19a449868e1650b75214a9db59c692b71ee7f272` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-fault-storm-budget-01.md`。
 - V3-LANE-MIXED-FAULT-STORM-BUDGET-01：已完成。按“数据断开 → 控制断开 → 再次数据断开”顺序注入，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；预算严格为 0/1/2/3，N=3 树哈希一致，batch ID 保持且无全局 control reconnect。最终提交 `3d14b5c27531ade6f9ae9982b28a5dfd4b502f69` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-mixed-fault-storm-budget-01.md`。
-- 下一计划 V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01：检查目录传输以外公开入口是否仍能选择旧执行器或旧 wire path；旧输入只保留为明确映射到 V3 的入口，旧 checkpoint/manifest 格式只作为读取输入。实施前先记录逐入口审计结果和需要保留/合并/删除的边界。
+- V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01：进行中。单文件 API 已追到 V3 持久执行器；目录协商仍使用 V2 字样。本阶段改为显式 V3 协商并拒绝旧 V2 greeting，随后两端同版本构建并互传验收。任务范围见 docs/tasks/2026-10-19-v3-only-residual-runtime-audit-01.md。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
 - 环境边界：本轮生产 server SHA 已与新构建完全一致，因此没有重启服务；两端生产服务保持 active。反向验收使用深圳回环匿名临时服务和 SSH 隧道，服务、隧道及本轮测试 payload 已清理。上海主动直连深圳 2121 仍超时，不能把隧道测试说成直连生产端口通过。
 

@@ -37,3 +37,8 @@ binding, RDMA, production GSI lifecycle, or high-bandwidth readiness.
 3. Legacy option inputs, where retained, report V3 execution and do not enter the old
    per-file runtime.
 4. V3-to-V3 upload and download pass with matching tree hashes.
+
+
+## 2026-10-19 clarification: V3-only control negotiation
+
+The V3 persistent execution capability must be explicitly negotiated as `XCPNETFLUX V3` and acknowledged as `CPNetFlux V3`. The old `XCPNETFLUX V2` greeting is not an alias and must be rejected before payload transfer. The `file-transactions/1` suffix identifies the transaction schema revision and does not select a V2 executor. This clarification preserves the existing transaction framing while making runtime selection fail closed to V3.
