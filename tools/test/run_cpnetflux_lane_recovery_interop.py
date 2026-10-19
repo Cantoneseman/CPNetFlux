@@ -180,10 +180,14 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
     mixed_fault = fault_kind == "mixed"
     storm_fault = fault_kind == "sequential-data"
     mixed_storm_fault = fault_kind == "sequential-mixed"
-    fault_budget_matrix = multi_data_fault or mixed_fault or storm_fault or mixed_storm_fault
+    mixed_storm_long_fault = fault_kind == "sequential-mixed-long"
+    fault_budget_matrix = (multi_data_fault or mixed_fault or storm_fault
+                           or mixed_storm_fault or mixed_storm_long_fault)
     if data_reset_connections is None:
         data_reset_connections = (
-            [1, 2] if multi_data_fault else [2, 3, 4] if storm_fault or mixed_storm_fault
+            [1, 2] if multi_data_fault else [2, 3, 4, 5]
+            if mixed_storm_long_fault else [2, 3, 4]
+            if storm_fault or mixed_storm_fault
             else ([1] if mixed_fault else [2])
         )
     control_targets = (
@@ -192,7 +196,9 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
     )
     fault_count = (
         len(data_reset_connections) + len(control_targets)
-        if mixed_fault else len(data_reset_connections) if multi_data_fault or storm_fault else 3 if mixed_storm_fault else 1
+        if mixed_fault else len(data_reset_connections)
+        if multi_data_fault or storm_fault else 4 if mixed_storm_long_fault
+        else 3 if mixed_storm_fault else 1
     )
     case_suffix = (f"{server_side}-{transfer}-{fault_kind}-budget-{reconnect_attempts}"
                    if fault_budget_matrix else f"{server_side}-{transfer}-{fault_kind}")
@@ -274,6 +280,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
                 fault_args = ["--sequential-data-resets"]
             elif mixed_storm_fault:
                 fault_args = ["--sequential-mixed-resets"]
+            elif mixed_storm_long_fault:
+                fault_args = ["--sequential-mixed-long-resets"]
             else:
                 fault_args = ["--target-data-connection", "2"]
             remote_proxy_pid = remote_start(
@@ -319,6 +327,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
                 fault_options = {"sequential_data_resets": True}
             elif mixed_storm_fault:
                 fault_options = {"sequential_mixed_resets": True}
+            elif mixed_storm_long_fault:
+                fault_options = {"sequential_mixed_long_resets": True}
             else:
                 fault_options = {"target_data_connection": 2}
             local_proxy = FaultProxy(
@@ -425,6 +435,19 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             assert reset_times == sorted(reset_times) and len(set(reset_times)) == len(reset_times), resets
             batch_ids = [event.get("batch_id") for event in resets]
             assert len(set(batch_ids)) == 1 and batch_ids[0], resets
+        elif mixed_storm_long_fault:
+            expected_resets = min(reconnect_attempts + 1, fault_count)
+            assert len(resets) == expected_resets, resets
+            assert all(event.get("target") is True for event in resets), resets
+            assert [event.get("sequence") for event in resets] == list(range(1, expected_resets + 1)), resets
+            expected_scopes = ["data", "control", "data", "control"][:expected_resets]
+            assert [event.get("scope", "data") for event in resets] == expected_scopes, resets
+            assert [event.get("data_connection", event.get("trigger_data_connection"))
+                    for event in resets] == [2, 3, 4, 5][:expected_resets], resets
+            reset_times = [event["time"] for event in resets]
+            assert reset_times == sorted(reset_times) and len(set(reset_times)) == len(reset_times), resets
+            batch_ids = [event.get("batch_id") for event in resets]
+            assert len(set(batch_ids)) == 1 and batch_ids[0], resets
         if expect_budget_exhausted or expect_no_recovery:
             assert result.returncode != 0, result.stdout + result.stderr
             recovery_used = summary.get("recovery_attempts_used", 0)
@@ -490,6 +513,13 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             assert summary["control_reconnect_count"] == 0, summary
             assert sum(event.get("scope") == "control" for event in resets) == 1, resets
             assert sum(event.get("scope", "data") == "data" for event in resets) == 2, resets
+        elif mixed_storm_long_fault:
+            assert summary["lane_control_reconnect_count"] == 2, summary
+            assert summary["control_connect_count"] == 4, summary
+            assert summary["data_connect_count"] == 2 + expected_faults, summary
+            assert summary["control_reconnect_count"] == 0, summary
+            assert sum(event.get("scope") == "control" for event in resets) == 2, resets
+            assert sum(event.get("scope", "data") == "data" for event in resets) == 2, resets
         else:
             assert summary["lane_control_reconnect_count"] == 0, summary
         assert summary["data_connect_count"] == 2 + expected_faults, summary
@@ -523,7 +553,7 @@ def main() -> int:
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--server-side", choices=("shanghai", "shenzhen", "both"), default="both",
                         help="run only one server side while diagnosing, or both for acceptance")
-    parser.add_argument("--fault-kind", choices=("data", "control", "multi-data", "mixed", "sequential-data", "sequential-mixed"), default="data")
+    parser.add_argument("--fault-kind", choices=("data", "control", "multi-data", "mixed", "sequential-data", "sequential-mixed", "sequential-mixed-long"), default="data")
     parser.add_argument("--reconnect-attempts", type=int, default=2)
     parser.add_argument("--control-reset-data-connection", type=int, action="append")
     parser.add_argument("--data-reset-connection", type=int, action="append")
@@ -531,6 +561,7 @@ def main() -> int:
     parser.add_argument("--mixed-fault-budget-matrix", action="store_true")
     parser.add_argument("--fault-storm-budget-matrix", action="store_true")
     parser.add_argument("--mixed-fault-storm-budget-matrix", action="store_true")
+    parser.add_argument("--mixed-fault-storm-long-budget-matrix", action="store_true")
     parser.add_argument("--remote-root", type=Path, default=REMOTE_ROOT)
     parser.add_argument("--expect-budget-exhausted", action="store_true")
     parser.add_argument("--expect-no-recovery", action="store_true")
@@ -556,12 +587,18 @@ def main() -> int:
         parser.error("--fault-storm-budget-matrix requires --fault-kind sequential-data")
     if args.mixed_fault_storm_budget_matrix and args.fault_kind != "sequential-mixed":
         parser.error("--mixed-fault-storm-budget-matrix requires --fault-kind sequential-mixed")
+    if args.mixed_fault_storm_long_budget_matrix and args.fault_kind != "sequential-mixed-long":
+        parser.error("--mixed-fault-storm-long-budget-matrix requires --fault-kind sequential-mixed-long")
     records = []
     server_sides = ("shanghai", "shenzhen") if args.server_side == "both" else (args.server_side,)
     transfers = ("upload", "download") if args.transfer == "both" else (args.transfer,)
-    fault_storm_matrix = args.fault_storm_budget_matrix or args.mixed_fault_storm_budget_matrix
+    long_fault_storm_matrix = args.mixed_fault_storm_long_budget_matrix
+    fault_storm_matrix = (args.fault_storm_budget_matrix
+                          or args.mixed_fault_storm_budget_matrix)
     fault_budget_matrix = args.multi_fault_budget_matrix or args.mixed_fault_budget_matrix or fault_storm_matrix
-    budgets = (0, 1, 2, 3) if fault_storm_matrix else (0, 1, 2) if fault_budget_matrix else (args.reconnect_attempts,)
+    budgets = ((0, 1, 2, 3, 4) if long_fault_storm_matrix else
+               (0, 1, 2, 3) if fault_storm_matrix else
+               (0, 1, 2) if fault_budget_matrix else (args.reconnect_attempts,))
     for server_side in server_sides:
         for transfer in transfers:
             for budget in budgets:
@@ -573,8 +610,10 @@ def main() -> int:
                     data_reset_connections=args.data_reset_connection,
                     remote_root=args.remote_root,
                     expect_budget_exhausted=(args.expect_budget_exhausted or
+                                             (long_fault_storm_matrix and budget < 4) or
                                              (fault_storm_matrix and budget < 3) or
-                                             (fault_budget_matrix and not fault_storm_matrix and budget < 2)),
+                                             (fault_budget_matrix and not fault_storm_matrix
+                                              and not long_fault_storm_matrix and budget < 2)),
                     expect_no_recovery=args.expect_no_recovery,
                     scheduler=args.scheduler,
                     transfer_timeout_ms=args.transfer_timeout_ms))

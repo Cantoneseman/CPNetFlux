@@ -59,6 +59,16 @@ class SequentialMixedResetPlanTest(unittest.TestCase):
         self.assertFalse(plan.claim("control", 3))
         self.assertEqual(plan.participant_for(2), "data")
 
+    def test_supports_a_longer_data_control_sequence(self):
+        plan = SequentialMixedResetPlan((
+            ("data", 2), ("control", 3), ("data", 4), ("control", 5),
+        ))
+        for participant in plan.participants:
+            self.assertEqual(plan.participant_for(participant[1]), participant[0])
+            self.assertTrue(plan.claim(*participant))
+        self.assertIsNone(plan.participant_for(6))
+        self.assertEqual(plan.reset_participants, list(plan.participants))
+
 
 class SynchronizedResetGateTest(unittest.TestCase):
     def test_waits_for_both_lanes_and_releases_them_together(self):

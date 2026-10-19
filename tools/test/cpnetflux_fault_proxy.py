@@ -158,6 +158,7 @@ class FaultProxy:
         synchronize_mixed_resets=False,
         sequential_data_resets=False,
         sequential_mixed_resets=False,
+        sequential_mixed_long_resets=False,
         drop_control_after_data_connection=None,
     ):
         self.listeners = []
@@ -198,13 +199,19 @@ class FaultProxy:
             SequentialResetPlan(drops) if self.sequential_data_resets else None
         )
         self.sequential_mixed_resets = bool(sequential_mixed_resets)
+        self.sequential_mixed_long_resets = bool(sequential_mixed_long_resets)
         self.sequential_mixed_reset_plan = (
             SequentialMixedResetPlan((
-                ("data", 2), ("control", 3), ("data", 4)
-            )) if self.sequential_mixed_resets else None
+                ("data", 2), ("control", 3), ("data", 4), ("control", 5)
+            )) if self.sequential_mixed_long_resets else (
+                SequentialMixedResetPlan((
+                    ("data", 2), ("control", 3), ("data", 4)
+                )) if self.sequential_mixed_resets else None
+            )
         )
         self.explicit_data_targets = self.explicit_data_targets or self.sequential_data_resets
         self.explicit_data_targets = self.explicit_data_targets or self.sequential_mixed_resets
+        self.explicit_data_targets = self.explicit_data_targets or self.sequential_mixed_long_resets
         self.target_connection = None
         self.target_connections = set()
         self.synchronize_mixed_resets = bool(synchronize_mixed_resets)
@@ -225,7 +232,8 @@ class FaultProxy:
             synchronize_data_resets and len(self.target_data_connections) > 1
             and not self.control_reset_targets
         )
-        if (self.sequential_data_resets or self.sequential_mixed_resets) and (
+        if (self.sequential_data_resets or self.sequential_mixed_resets
+                or self.sequential_mixed_long_resets) and (
             self.control_reset_targets or self.synchronize_data_resets
             or self.synchronize_mixed_resets
         ):
@@ -452,6 +460,7 @@ class FaultProxy:
                             and not self.synchronize_mixed_resets
                             and not self.sequential_data_resets
                             and not self.sequential_mixed_resets
+                            and not self.sequential_mixed_long_resets
                             and should_fault
                             and self.drop_bytes
                             and forwarded >= self.drop_bytes
@@ -718,6 +727,7 @@ if __name__ == "__main__":
     parser.add_argument("--synchronize-mixed-resets", action="store_true")
     parser.add_argument("--sequential-data-resets", action="store_true")
     parser.add_argument("--sequential-mixed-resets", action="store_true")
+    parser.add_argument("--sequential-mixed-long-resets", action="store_true")
     parser.add_argument("--drop-control-after-data-connection", type=int, action="append")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
@@ -736,6 +746,7 @@ if __name__ == "__main__":
         synchronize_mixed_resets=args.synchronize_mixed_resets,
         sequential_data_resets=args.sequential_data_resets,
         sequential_mixed_resets=args.sequential_mixed_resets,
+        sequential_mixed_long_resets=args.sequential_mixed_long_resets,
         drop_control_after_data_connection=args.drop_control_after_data_connection,
     )
     try:
