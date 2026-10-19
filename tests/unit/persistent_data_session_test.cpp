@@ -181,7 +181,7 @@ TEST(PersistentSessionTest, DisconnectRetainsOnlyCompletedCheckpointRanges) {
     EXPECT_EQ(resumed.value().bytesCompleted(), 65536U);
 }
 
-TEST(PersistentSessionTest, InterruptedDownloadCheckpointIsAcceptedByLegacyResume) {
+TEST(PersistentSessionTest, InterruptedDownloadCheckpointIsAcceptedByV3Resume) {
     SocketPair pair;
     TempRoot root;
     PersistentFileIdentity id{1, 1, 131072, "partial", "download-interrupt", 65536};
