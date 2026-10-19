@@ -94,7 +94,10 @@ def main():
                 for command, prefix in (('TYPE I', b'200'), ('OPTS PARALLELISM=1', b'200'),
                                         ('XCPNETFLUX V3 WINDOW=2 CHANNELS=4', b'200')):
                     control.write(command.encode() + b'\r\n')
-                    assert control.readline().startswith(prefix), command
+                    reply = control.readline()
+                    assert reply.startswith(prefix), command
+                    if command.startswith('XCPNETFLUX V3'):
+                        assert reply.startswith(b'200 CPNetFlux V3 file-transactions/1 '), reply
                 control.write(b'EPSV\r\n')
                 passive_reply = control.readline()
                 assert passive_reply.startswith(b'229')

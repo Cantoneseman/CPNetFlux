@@ -305,7 +305,8 @@ class ControlClient {
             const std::string tlsToken = "data_tls=" + std::string(dataTlsModeName(dataTlsMode));
             const std::string linksToken = "links=" + std::to_string(requestedLinks);
             const std::string linkCapsToken = "link_caps=" + std::to_string(requestedLinkCapabilities);
-            if ((dynamic && replyText.find(" scheduling=dynamic") == std::string::npos) ||
+            if (!replyText.starts_with("200 CPNetFlux V3 file-transactions/1 ") ||
+                (dynamic && replyText.find(" scheduling=dynamic") == std::string::npos) ||
                 (linkSetRequested && (replyText.find(linksToken) == std::string::npos ||
                                       replyText.find(linkCapsToken) == std::string::npos)) ||
                 (requestedChannels > 1 &&

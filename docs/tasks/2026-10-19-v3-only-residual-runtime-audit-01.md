@@ -13,7 +13,7 @@ The previous audit removed uncalled pre-V3 directory runners. Remaining public s
 ## Scope
 
 - Audit public single-file and directory entrypoints, confirm their runtime destination, and record any remaining alternate executor or wire selector.
-- Change the active persistent capability request and response label to V3 on both client and server.
+- Change the active persistent capability request and response label to V3 on both client and server; require the client to verify the V3 response label.
 - Reject the old XCPNETFLUX V2 greeting before any directory payload can start; do not downgrade.
 - Update raw-control smoke tools to exercise V3 acceptance and V2 rejection.
 - Update the current architecture decision, README, task board, and this task evidence.
@@ -30,7 +30,7 @@ The previous audit removed uncalled pre-V3 directory runners. Remaining public s
 ## Acceptance
 
 1. Every public single-file and directory transfer API is traced to the V3 persistent executor; no old per-file runner or automatic fallback remains.
-2. The code and smoke suite contain no active XCPNETFLUX V2/CPNetFlux V2 negotiation path; a V2 greeting is rejected, while V3 negotiation and transfers pass.
+2. The code and smoke suite contain no active XCPNETFLUX V2/CPNetFlux V2 negotiation path; a V2 greeting is rejected, a non-V3 success response is refused by the client, while V3 negotiation and transfers pass.
 3. Relevant smoke tests and full CTest pass on the committed source.
 4. Shenzhen and Shanghai build the same source archive/commit with matching server and client executable SHA-256 before test payload is transferred.
 5. V3 upload and download in both client directions complete with matching tree and file hashes; any tunnel-mediated direction is reported as such.
