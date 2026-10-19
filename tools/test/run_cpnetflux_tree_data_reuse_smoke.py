@@ -68,7 +68,7 @@ def main():
             with socket.create_connection(('127.0.0.1', port), timeout=3) as sock:
                 control = sock.makefile('rwb', buffering=0)
                 assert control.readline().startswith(b'220')
-                control.write(b'XCPNETFLUX V2\r\n')
+                control.write(b'XCPNETFLUX V3\r\n')
                 assert control.readline().startswith(b'530'), 'negotiation requires authentication'
                 control.close()
 
@@ -83,9 +83,16 @@ def main():
             with socket.create_connection(('127.0.0.1', port), timeout=3) as sock:
                 control = sock.makefile('rwb', buffering=0)
                 assert control.readline().startswith(b'220')
-                for command, prefix in (('USER cpnetflux', b'331'), ('PASS cpnetflux', b'230'),
-                                        ('TYPE I', b'200'), ('OPTS PARALLELISM=1', b'200'),
-                                        ('XCPNETFLUX V2 WINDOW=2 CHANNELS=4', b'200')):
+                for command, prefix in (('USER cpnetflux', b'331'), ('PASS cpnetflux', b'230')):
+                    control.write(command.encode() + b'\r\n')
+                    assert control.readline().startswith(prefix), command
+                control.write(b'XCPNETFLUX V2\r\n')
+                old_reply = control.readline()
+                assert old_reply.startswith(b'502'), f'old V2 greeting must be rejected: {old_reply!r}'
+                control.write(b'XDIR PUT legacy-request-must-not-run\r\n')
+                assert control.readline().startswith(b'504'), 'old greeting must not enable V3 transfer'
+                for command, prefix in (('TYPE I', b'200'), ('OPTS PARALLELISM=1', b'200'),
+                                        ('XCPNETFLUX V3 WINDOW=2 CHANNELS=4', b'200')):
                     control.write(command.encode() + b'\r\n')
                     assert control.readline().startswith(prefix), command
                 control.write(b'EPSV\r\n')
@@ -205,7 +212,7 @@ def main():
                 assert cmd('PASS cpnetflux').startswith(b'230')
                 assert cmd('TYPE I').startswith(b'200')
                 assert cmd('OPTS PARALLELISM=1').startswith(b'200')
-                assert cmd('XCPNETFLUX V2').startswith(b'200')
+                assert cmd('XCPNETFLUX V3').startswith(b'200')
                 reply = cmd('EPSV')
                 passive = int(re.search(rb'\(\|\|\|(\d+)\|\)', reply)[1])
                 assert cmd('XDIR PUT interrupted').startswith(b'150')

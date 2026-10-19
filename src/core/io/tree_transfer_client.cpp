@@ -279,7 +279,7 @@ class ControlClient {
         if (::setsockopt(control_.fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
             ::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0)
             return common::Status::runtimeError("persistent control timeout configuration failed");
-        std::string request = "XCPNETFLUX V2";
+        std::string request = "XCPNETFLUX V3";
         if (requestedWindow != 1 || requestedChannels != 1 || dynamic || resume ||
             checksumAlgorithm != checksum::ChecksumAlgorithm::None || dataTlsMode != DataTlsMode::Off) {
             request += " WINDOW=" + std::to_string(requestedWindow);

@@ -1,4 +1,4 @@
-> 2026-10-11：单文件 STOR/RETR 与目录已统一使用 V3 事务内核；V1 引擎及 SessionInit/ChunkComplete wire 已删除。旧 CLI --data-session-reuse off 仅选择同一内核的 per-file 编排；旧 wire 明确拒绝，客户端与服务端须同步升级。checksum/resume/TLS/压缩/IO/提交策略保留，功能和实验边界见 docs/tasks/2026-10-11-v1-retire-01.md。
+> 2026-10-19：单文件 STOR/RETR 与目录都只使用 V3 事务内核。目录控制面只接受 XCPNETFLUX V3 能力协商，旧 V2 greeting 被拒绝；file-transactions/1 是事务格式编号，不会选择旧执行器。旧 CLI --data-session-reuse off 只映射到 V3 编排，旧 checkpoint/manifest 仅作为恢复输入。checksum/resume/TLS/压缩/IO/提交策略保留，历史边界见 docs/tasks/2026-10-11-v1-retire-01.md。
 
 # CPNetFlux
 

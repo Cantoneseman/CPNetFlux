@@ -1253,13 +1253,13 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             continue;
         }
 
-        const bool persistentNegotiation = line.value() == "XCPNETFLUX V2" ||
-            line.value().starts_with("XCPNETFLUX V2 ");
+        const bool persistentNegotiation = line.value() == "XCPNETFLUX V3" ||
+            line.value().starts_with("XCPNETFLUX V3 ");
         const bool persistentTreeCommand = line.value().starts_with("XDIR ") ||
             line.value().starts_with("XDIRP ") || line.value().starts_with("XDIRD ");
         if (persistentNegotiation || persistentTreeCommand) {
             if (session.pipelineOptIn() || asyncTransfers.activeCount() > 0) {
-                (void)sendLine(&control, formatReply(503, "V2 cannot share an async control session"));
+                (void)sendLine(&control, formatReply(503, "V3 cannot share an async control session"));
                 continue;
             }
             if (!session.authenticated()) {
@@ -1292,7 +1292,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 auto checksumAlgorithm = checksum::ChecksumAlgorithm::None;
                 bool requestedResume = false;
                 auto requestedDataTls = core::io::DataTlsMode::Off;
-                std::istringstream request(line.value().substr(std::string("XCPNETFLUX V2").size()));
+                std::istringstream request(line.value().substr(std::string("XCPNETFLUX V3").size()));
                 std::string token;
                 bool valid = true;
                 while (request >> token) {
@@ -1362,7 +1362,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     persistentDynamic = requestedDynamic;
                     persistentResume = requestedResume;
                 }
-                const std::string accepted = "CPNetFlux V2 file-transactions/1 window=" +
+                const std::string accepted = "CPNetFlux V3 file-transactions/1 window=" +
                     std::to_string(requestedWindow) + " channels=" + std::to_string(requestedChannels) +
                     " checksum=" + checksum::checksumAlgorithmName(checksumAlgorithm) +
                     " resume=" + std::string(requestedResume ? "1" : "0") +

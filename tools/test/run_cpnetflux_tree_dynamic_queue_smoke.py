@@ -152,7 +152,7 @@ def main():
             with socket.create_connection(('127.0.0.1', port), timeout=3) as sock:
                 control = sock.makefile('rwb', buffering=0)
                 assert control.readline().startswith(b'220')
-                negotiation = ('XCPNETFLUX V2 WINDOW=2 CHANNELS=4 SCHED=dynamic '
+                negotiation = ('XCPNETFLUX V3 WINDOW=2 CHANNELS=4 SCHED=dynamic '
                                'CHECKSUM=crc32c RESUME=0 DATA_TLS=off')
                 for cmd in ('USER cpnetflux', 'PASS cpnetflux', 'TYPE I', 'OPTS PARALLELISM=1',
                             negotiation, 'EPSV'):
