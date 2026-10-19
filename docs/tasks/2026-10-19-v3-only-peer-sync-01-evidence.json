@@ -1,0 +1,104 @@
+{
+  "task": "V3-ONLY-PEER-SYNC-01",
+  "result": "passed",
+  "date": "2026-10-19",
+  "codeCommit": "10d05bcdf972faec15d3a19bae6230cf27905099",
+  "branch": "codex/V3-ONLY-PEER-SYNC-01",
+  "codeCommitRemoteReadback": "10d05bcdf972faec15d3a19bae6230cf27905099",
+  "sourceArchive": {
+    "path": "/tmp/cpnetflux-10d05bc.tar.gz",
+    "sha256": "995fbac8452008feec4c42e8483ad8be938595de6e10ac5cdbbffec7f581b6a8",
+    "shanghaiSourceMarker": "/tmp/cpnetflux-runs/V3-ONLY-PEER-SYNC-01/final-src/.codex-source-revision"
+  },
+  "build": {
+    "configuration": "Release; TLS=ON; IO_URING=ON; DESKTOP=OFF; TESTS=ON; CROSS_DOMAIN_TESTS=OFF; x86_64; GNU 11.4",
+    "shenzhenBuildInfoRevision": "10d05bcdf972faec15d3a19bae6230cf27905099",
+    "shanghaiBuildInfoRevision": "source-archive; exact archive SHA256 above",
+    "cmakeBuildResult": {
+      "shenzhen": "passed",
+      "shanghai": "passed"
+    },
+    "ctest": {
+      "host": "shenzhen",
+      "total": 393,
+      "passed": 393,
+      "failed": 0,
+      "durationSeconds": 88.6,
+      "command": "env CPNETFLUX_TEST_TOKEN=<local-test-only-value> ctest --test-dir <final-shenzhen-build> -j1 --output-on-failure"
+    }
+  },
+  "artifacts": {
+    "cpnetflux-gridftp-server": "25de892e22793dfbfc218dd15967a818abf3f32af0f11dc4765cc169a1403654",
+    "cpnetflux-tree-upload-client": "f6fe317515ccaedc284a6e057d53fc8b269c6206a5c09dc68f6e87161d69ecd9",
+    "cpnetflux-tree-download-client": "a083c3d2575daf833fd2ae6b9b7fbcaf60742b76621a4a7b25f9a5290931759b",
+    "bothHostsMatch": true
+  },
+  "services": {
+    "shenzhen": {
+      "active": true,
+      "controlPort": 2121,
+      "serverBinarySha256": "25de892e22793dfbfc218dd15967a818abf3f32af0f11dc4765cc169a1403654",
+      "priorBinaryBackup": "/var/lib/cpnetflux/cpnetflux-gridftp-server.pre-v3-only-peer-sync-01",
+      "priorBinarySha256": "378cd8108bb2f0ac50fc29c76975a4a4f96b27f1d37ff7f9682e27b5de46a573"
+    },
+    "shanghai": {
+      "active": true,
+      "controlPort": 2121,
+      "serverBinarySha256": "25de892e22793dfbfc218dd15967a818abf3f32af0f11dc4765cc169a1403654",
+      "priorBinaryBackup": "/var/lib/cpnetflux/cpnetflux-gridftp-server.pre-10d05bc",
+      "priorBinarySha256": "01b126b7926abe92079aca45fab85904bb970c93d53db58b6d9d5536b15d87f5"
+    },
+    "configAndCredentialsChanged": false
+  },
+  "crossHostTransfers": [
+    {
+      "test": "Shenzhen client uploads to Shanghai production service",
+      "path": "direct TLS/token",
+      "result": "pass",
+      "files": 3,
+      "bytes": 8388685,
+      "actualTransport": "v3",
+      "actualMode": "persistent_tree",
+      "fallbackReason": "",
+      "treeHash": "crc32c:ed4c0e6d",
+      "fileSha256Match": true,
+      "summary": "/tmp/cpnetflux-runs/V3-ONLY-PEER-SYNC-01/interop-10d05bc/upload-final-summary.json"
+    },
+    {
+      "test": "Shenzhen client downloads the uploaded tree from Shanghai production service",
+      "path": "direct TLS/token",
+      "result": "pass",
+      "files": 3,
+      "bytes": 8388685,
+      "actualTransport": "v3",
+      "actualMode": "persistent_tree",
+      "fallbackReason": "",
+      "treeHash": "crc32c:ed4c0e6d",
+      "fileSha256Match": true,
+      "summary": "/tmp/cpnetflux-runs/V3-ONLY-PEER-SYNC-01/interop-10d05bc/download-final-summary.json"
+    },
+    {
+      "test": "Shanghai client uploads to an isolated Shenzhen V3 server",
+      "path": "loopback-only anonymous test service over temporary SSH tunnels; direct Shanghai-to-Shenzhen TCP/2121 times out",
+      "result": "pass",
+      "files": 3,
+      "bytes": 4194379,
+      "actualTransport": "v3",
+      "actualMode": "persistent_tree",
+      "fallbackReason": "",
+      "treeHash": "crc32c:7af9d865",
+      "fileSha256Match": true,
+      "summary": "/tmp/cpnetflux-runs/V3-ONLY-PEER-SYNC-01/interop-10d05bc/reverse-final-summary.json"
+    }
+  ],
+  "temporaryTestService": {
+    "stopped": true,
+    "sshTunnelsStopped": true,
+    "productionServicesActiveAfterCleanup": true,
+    "ports2122And20300Cleaned": true
+  },
+  "limitations": [
+    "Direct Shanghai-to-Shenzhen TCP/2121 is still blocked by timeout; reverse data transfer passed through SSH tunnels to an isolated, loopback-only V3 test server.",
+    "Physical NIC/local-bind/different-physical-link validation remains deferred."
+  ]
+}

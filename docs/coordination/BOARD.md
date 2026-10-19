@@ -2,16 +2,16 @@
 
 本节优先于下方历史路线和旧任务快照。深圳为权威 Git 工作区；上海只作传输对端。
 
-- V3-ONLY-PEER-SYNC-01：in_progress。先用深圳当前 V3 提交重建上海端，构建和版本 SHA-256 一致后再进行跨端传输；随后把旧的 per-file/legacy runtime 入口收敛到 V3 persistent executor，旧参数只允许作为映射到 V3 的输入。非目标是物理 NIC、local bind、不同物理链路和生产认证。任务单见 docs/tasks/2026-10-19-v3-only-peer-sync-01.md，架构决策见 docs/DECISIONS/2026-10-19-v3-only-peer-sync.md。
+- V3-ONLY-PEER-SYNC-01：已完成。提交 `10d05bcdf972faec15d3a19bae6230cf27905099` 已推送；深圳与上海服务运行同 SHA 的 V3 server，完整 CTest 393/393 通过。深圳→上海生产服务上传、上海→深圳下载均通过且树哈希一致；上海客户端→深圳隔离 V3 服务也经 SSH 隧道通过。上海直连深圳 TCP/2121 仍超时，详见任务记录和 evidence.json。
 - 版本门禁：深圳 commit、两端构建状态、二进制 SHA-256 和服务启动命令必须记录；任一不一致时停止互传，不把旧服务或旧逻辑当作 V3 验收。
 
 - V3-LANE-MULTI-FAULT-BUDGET-01：已完成。两数据 lane 同时故障的 12 个跨机场景和 8 项回归全部通过；N=0/1/2 分别表现为 0 次恢复并明确失败、1 次恢复后明确失败、2 次恢复后成功。详情见 docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md。
 - V3-LANE-MIXED-FAULT-BUDGET-01：已完成。数据连接与另一 lane 控制连接同时故障的深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个 case 全部通过；没有发现数据恢复和控制重连重复消费总预算。实现提交 6182067f2dc88ccf7ddae49bc27b9ff13d0ed53f，已推送并回读 origin 同 SHA；验收记录见 docs/tasks/2026-10-19-v3-lane-mixed-fault-budget-01.md。
 - V3-LANE-FAULT-STORM-BUDGET-01：已完成。连续注入 3 次 data-lane 故障，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；N=0/1/2 恢复次数严格为 0/1/2 并清楚失败，N=3 恢复 3 次并成功，树哈希一致。实现提交 `19a449868e1650b75214a9db59c692b71ee7f272` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-fault-storm-budget-01.md`。
 - V3-LANE-MIXED-FAULT-STORM-BUDGET-01：已完成。按“数据断开 → 控制断开 → 再次数据断开”顺序注入，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；预算严格为 0/1/2/3，N=3 树哈希一致，batch ID 保持且无全局 control reconnect。最终提交 `3d14b5c27531ade6f9ae9982b28a5dfd4b502f69` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-mixed-fault-storm-budget-01.md`。
-- 下一计划：扩展更长的控制连接故障序列和健康 lane 保持断言；物理 NIC、local bind 和不同物理链路仍按用户要求暂缓。
+- 下一计划：V3-ONLY-LEGACY-CODE-AUDIT-01，审计并清理不可达的旧执行代码；旧命令继续映射到 V3，旧 manifest 仅保留恢复读取，增加测试防止旧运行时回流。物理 NIC、local bind 和不同物理链路仍按用户要求暂缓。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
-- 环境边界：深圳与上海生产端口 2121 只读观察，未停止或改配；实验端口 24600–24799 已清理，无任务 runner/代理遗留。
+- 环境边界：两端生产服务仅为部署同 SHA V3 二进制而停止/启动，配置、认证文件和数据目录保持原样；临时回环测试服务与 SSH 隧道已停止。上海主动直连深圳 2121 目前超时，反向传输验收使用 SSH 隧道。
 
 ## 历史执行快照
 
