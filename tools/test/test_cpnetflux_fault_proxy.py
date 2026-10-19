@@ -7,7 +7,33 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cpnetflux_fault_proxy import SynchronizedMixedResetGate, SynchronizedResetGate
+from cpnetflux_fault_proxy import (
+    SequentialResetPlan,
+    SynchronizedMixedResetGate,
+    SynchronizedResetGate,
+)
+
+
+class SequentialResetPlanTest(unittest.TestCase):
+    def test_advances_one_connection_at_a_time(self):
+        plan = SequentialResetPlan(3, first_connection=2)
+        self.assertTrue(plan.is_target(2))
+        self.assertTrue(plan.claim(2, 3))
+        self.assertFalse(plan.is_target(2))
+        self.assertTrue(plan.is_target(3))
+        self.assertTrue(plan.claim(3, 4))
+        self.assertTrue(plan.claim(4, 5))
+        self.assertFalse(plan.is_target(5))
+        self.assertEqual(plan.reset_connections, [2, 3, 4])
+
+    def test_does_not_skip_a_missing_recovery_connection(self):
+        plan = SequentialResetPlan(2, first_connection=2)
+        self.assertFalse(plan.claim(3, 4))
+        self.assertTrue(plan.is_target(2))
+
+    def test_requires_at_least_one_fault(self):
+        with self.assertRaises(ValueError):
+            SequentialResetPlan(0)
 
 
 class SynchronizedResetGateTest(unittest.TestCase):

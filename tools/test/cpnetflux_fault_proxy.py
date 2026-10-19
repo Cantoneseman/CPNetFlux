@@ -84,6 +84,32 @@ class SynchronizedMixedResetGate:
             return True
 
 
+class SequentialResetPlan:
+    """Advance the next data connection target after each completed reset."""
+
+    def __init__(self, fault_count, first_connection=2):
+        if int(fault_count) < 1:
+            raise ValueError("sequential reset requires at least one fault")
+        self.remaining_faults = int(fault_count)
+        self.next_connection = int(first_connection)
+        self.reset_connections = []
+
+    def is_target(self, data_connection):
+        return (
+            self.remaining_faults > 0
+            and int(data_connection) == self.next_connection
+        )
+
+    def claim(self, data_connection, next_connection):
+        data_connection = int(data_connection)
+        if not self.is_target(data_connection):
+            return False
+        self.remaining_faults -= 1
+        self.reset_connections.append(data_connection)
+        self.next_connection = int(next_connection)
+        return True
+
+
 class FaultProxy:
     def __init__(
         self,
@@ -103,6 +129,7 @@ class FaultProxy:
         target_data_connections=None,
         synchronize_data_resets=False,
         synchronize_mixed_resets=False,
+        sequential_data_resets=False,
         drop_control_after_data_connection=None,
     ):
         self.listeners = []
@@ -138,6 +165,11 @@ class FaultProxy:
         if self.target_data_connection is None and self.control_reset_targets:
             self.target_data_connection = min(self.control_reset_targets)
         self.explicit_data_targets = bool(self.target_data_connections)
+        self.sequential_data_resets = bool(sequential_data_resets)
+        self.sequential_reset_plan = (
+            SequentialResetPlan(drops) if self.sequential_data_resets else None
+        )
+        self.explicit_data_targets = self.explicit_data_targets or self.sequential_data_resets
         self.target_connection = None
         self.target_connections = set()
         self.synchronize_mixed_resets = bool(synchronize_mixed_resets)
@@ -158,6 +190,11 @@ class FaultProxy:
             synchronize_data_resets and len(self.target_data_connections) > 1
             and not self.control_reset_targets
         )
+        if self.sequential_data_resets and (
+            self.control_reset_targets or self.synchronize_data_resets
+            or self.synchronize_mixed_resets
+        ):
+            raise ValueError("sequential data reset cannot be combined with another reset mode")
         self.data_reset_gate = (
             SynchronizedResetGate(self.target_data_connections)
             if self.synchronize_data_resets else None
@@ -213,7 +250,11 @@ class FaultProxy:
                         control_connection = self.data_port_control_connection.get(port)
                         self.data_connection_control[connection_id] = control_connection
                         target = (
-                            self.explicit_data_targets
+                            self.sequential_reset_plan is not None
+                            and self.sequential_reset_plan.is_target(self.data_connection_count)
+                        ) or (
+                            self.sequential_reset_plan is None
+                            and self.explicit_data_targets
                             and self.data_connection_count in self.target_data_connections
                         )
                         if target:
@@ -313,6 +354,10 @@ class FaultProxy:
                         forwarded = self.forwarded_by_connection.get(connection_id, 0)
                         data_number = self.data_connection_number.get(connection_id)
                         mapped_control = self.data_connection_control.get(connection_id)
+                        sequential_target = (
+                            self.sequential_reset_plan is not None
+                            and self.sequential_reset_plan.is_target(data_number)
+                        )
                         if (
                             self.synchronize_data_resets
                             and data
@@ -363,7 +408,16 @@ class FaultProxy:
                             not self.control_reset_targets
                             and not self.synchronize_data_resets
                             and not self.synchronize_mixed_resets
+                            and not self.sequential_data_resets
                             and should_fault
+                            and self.drop_bytes
+                            and forwarded >= self.drop_bytes
+                        )
+                        sequential_triggered = (
+                            self.sequential_reset_plan is not None
+                            and data
+                            and should_fault
+                            and sequential_target
                             and self.drop_bytes
                             and forwarded >= self.drop_bytes
                         )
@@ -388,6 +442,25 @@ class FaultProxy:
                                 data_port=data_port,
                                 target=should_fault,
                             )
+                        if sequential_triggered and self.remaining:
+                            if self.sequential_reset_plan.claim(
+                                data_number, data_number + 1
+                            ):
+                                self.remaining -= 1
+                                self.dropped += 1
+                                reset = True
+                                self.event(
+                                    event="reset",
+                                    count=self.dropped,
+                                    scope="data",
+                                    connection=connection_id,
+                                    data_connection=data_number,
+                                    lane_index=self.control_lane_index.get(mapped_control),
+                                    batch_id=self.control_batch_id.get(mapped_control),
+                                    data_port=data_port,
+                                    target=True,
+                                    sequence=len(self.sequential_reset_plan.reset_connections),
+                                )
                         if (
                             data
                             and not self.synchronize_mixed_resets
@@ -554,6 +627,7 @@ if __name__ == "__main__":
     parser.add_argument("--target-data-connection", type=int, action="append")
     parser.add_argument("--synchronize-data-resets", action="store_true")
     parser.add_argument("--synchronize-mixed-resets", action="store_true")
+    parser.add_argument("--sequential-data-resets", action="store_true")
     parser.add_argument("--drop-control-after-data-connection", type=int, action="append")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
@@ -570,6 +644,7 @@ if __name__ == "__main__":
         target_data_connections=args.target_data_connection,
         synchronize_data_resets=args.synchronize_data_resets,
         synchronize_mixed_resets=args.synchronize_mixed_resets,
+        sequential_data_resets=args.sequential_data_resets,
         drop_control_after_data_connection=args.drop_control_after_data_connection,
     )
     try:

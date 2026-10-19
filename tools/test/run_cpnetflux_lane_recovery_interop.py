@@ -178,16 +178,20 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
              transfer_timeout_ms: int = 120000) -> dict:
     multi_data_fault = fault_kind == "multi-data"
     mixed_fault = fault_kind == "mixed"
-    fault_budget_matrix = multi_data_fault or mixed_fault
+    storm_fault = fault_kind == "sequential-data"
+    fault_budget_matrix = multi_data_fault or mixed_fault or storm_fault
     if data_reset_connections is None:
-        data_reset_connections = [1, 2] if multi_data_fault else ([1] if mixed_fault else [2])
+        data_reset_connections = (
+            [1, 2] if multi_data_fault else [2, 3, 4] if storm_fault
+            else ([1] if mixed_fault else [2])
+        )
     control_targets = (
         control_reset_data_connections or [2] if mixed_fault else
         control_reset_data_connections or []
     )
     fault_count = (
         len(data_reset_connections) + len(control_targets)
-        if mixed_fault else len(data_reset_connections) if multi_data_fault else 1
+        if mixed_fault else len(data_reset_connections) if multi_data_fault or storm_fault else 1
     )
     case_suffix = (f"{server_side}-{transfer}-{fault_kind}-budget-{reconnect_attempts}"
                    if fault_budget_matrix else f"{server_side}-{transfer}-{fault_kind}")
@@ -265,6 +269,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
                     for item in ("--drop-control-after-data-connection", str(target))
                 )
                 fault_args.append("--synchronize-mixed-resets")
+            elif storm_fault:
+                fault_args = ["--sequential-data-resets"]
             else:
                 fault_args = ["--target-data-connection", "2"]
             remote_proxy_pid = remote_start(
@@ -306,6 +312,8 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
                     "synchronize_mixed_resets": True,
                     "drop_control_after_data_connection": control_targets,
                 }
+            elif storm_fault:
+                fault_options = {"sequential_data_resets": True}
             else:
                 fault_options = {"target_data_connection": 2}
             local_proxy = FaultProxy(
@@ -392,6 +400,14 @@ def run_case(build_dir: Path, root: Path, *, server_side: str, transfer: str,
             assert data_resets[0].get("lane_index") != control_resets[0].get("lane_index"), resets
             reset_times = sorted(event["time"] for event in resets)
             assert reset_times[-1] - reset_times[0] <= 0.5, resets
+        elif storm_fault:
+            expected_resets = min(reconnect_attempts + 1, fault_count)
+            assert len(resets) == expected_resets, resets
+            assert all(event.get("target") is True for event in resets), resets
+            assert [event.get("data_connection") for event in resets] == data_reset_connections[:expected_resets], resets
+            assert [event.get("sequence") for event in resets] == list(range(1, expected_resets + 1)), resets
+            reset_times = [event["time"] for event in resets]
+            assert reset_times == sorted(reset_times) and len(set(reset_times)) == len(reset_times), resets
         if expect_budget_exhausted or expect_no_recovery:
             assert result.returncode != 0, result.stdout + result.stderr
             recovery_used = summary.get("recovery_attempts_used", 0)
@@ -483,12 +499,13 @@ def main() -> int:
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--server-side", choices=("shanghai", "shenzhen", "both"), default="both",
                         help="run only one server side while diagnosing, or both for acceptance")
-    parser.add_argument("--fault-kind", choices=("data", "control", "multi-data", "mixed"), default="data")
+    parser.add_argument("--fault-kind", choices=("data", "control", "multi-data", "mixed", "sequential-data"), default="data")
     parser.add_argument("--reconnect-attempts", type=int, default=2)
     parser.add_argument("--control-reset-data-connection", type=int, action="append")
     parser.add_argument("--data-reset-connection", type=int, action="append")
     parser.add_argument("--multi-fault-budget-matrix", action="store_true")
     parser.add_argument("--mixed-fault-budget-matrix", action="store_true")
+    parser.add_argument("--fault-storm-budget-matrix", action="store_true")
     parser.add_argument("--remote-root", type=Path, default=REMOTE_ROOT)
     parser.add_argument("--expect-budget-exhausted", action="store_true")
     parser.add_argument("--expect-no-recovery", action="store_true")
@@ -510,11 +527,14 @@ def main() -> int:
         parser.error("--multi-fault-budget-matrix requires --fault-kind multi-data")
     if args.mixed_fault_budget_matrix and args.fault_kind != "mixed":
         parser.error("--mixed-fault-budget-matrix requires --fault-kind mixed")
+    if args.fault_storm_budget_matrix and args.fault_kind != "sequential-data":
+        parser.error("--fault-storm-budget-matrix requires --fault-kind sequential-data")
     records = []
     server_sides = ("shanghai", "shenzhen") if args.server_side == "both" else (args.server_side,)
     transfers = ("upload", "download") if args.transfer == "both" else (args.transfer,)
-    fault_budget_matrix = args.multi_fault_budget_matrix or args.mixed_fault_budget_matrix
-    budgets = (0, 1, 2) if fault_budget_matrix else (args.reconnect_attempts,)
+    fault_storm_matrix = args.fault_storm_budget_matrix
+    fault_budget_matrix = args.multi_fault_budget_matrix or args.mixed_fault_budget_matrix or fault_storm_matrix
+    budgets = (0, 1, 2, 3) if fault_storm_matrix else (0, 1, 2) if fault_budget_matrix else (args.reconnect_attempts,)
     for server_side in server_sides:
         for transfer in transfers:
             for budget in budgets:
@@ -526,7 +546,8 @@ def main() -> int:
                     data_reset_connections=args.data_reset_connection,
                     remote_root=args.remote_root,
                     expect_budget_exhausted=(args.expect_budget_exhausted or
-                                             (fault_budget_matrix and budget < 2)),
+                                             (fault_storm_matrix and budget < 3) or
+                                             (fault_budget_matrix and not fault_storm_matrix and budget < 2)),
                     expect_no_recovery=args.expect_no_recovery,
                     scheduler=args.scheduler,
                     transfer_timeout_ms=args.transfer_timeout_ms))
