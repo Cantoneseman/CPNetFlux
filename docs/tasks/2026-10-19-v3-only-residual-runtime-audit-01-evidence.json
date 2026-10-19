@@ -1,0 +1,153 @@
+{
+  "task_id": "V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01",
+  "status": "complete",
+  "date": "2026-10-19",
+  "input_commit": "9d0595bc45f643399eab90285d5c43e70d11a522",
+  "branch": "codex/V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01",
+  "scope_commit": "78fdfb759f83e77ce82f690023dd17c84057200e",
+  "implementation_commits": [
+    "98b3f8ca8e219950f4be97e6ec33090c07111887",
+    "2efd1391228450445d5563c06dfd8e633e1dfeed",
+    "5a2b2e2808f7b5614de6f5988d440a9cb406365a"
+  ],
+  "pushed_branch_head_and_remote_readback": "5a2b2e2808f7b5614de6f5988d440a9cb406365a",
+  "source_archive": {
+    "path": "/tmp/cpnetflux-runs/V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01/source-5a2b2e2.tar.gz",
+    "sha256": "6124545278e8dc573cd852f8a52732d38f71da420ca49f8901ae0a306669c53d",
+    "shanghai_revision": "5a2b2e2808f7b5614de6f5988d440a9cb406365a"
+  },
+  "build": {
+    "compiler": "GNU 11.4",
+    "cmake": "3.22.1",
+    "config": {
+      "build_type": "Release",
+      "tls": true,
+      "io_uring": true,
+      "desktop": false,
+      "tests": true,
+      "cross_domain_tests": false
+    },
+    "ctest": {
+      "shenzhen": {
+        "passed": 393,
+        "failed": 0,
+        "seconds": 68.99,
+        "log": "/tmp/cpnetflux-runs/V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01/shenzhen-final5a-ctest.log"
+      },
+      "shanghai": {
+        "passed": 393,
+        "failed": 0,
+        "seconds": 71.56,
+        "log": "/tmp/cpnetflux-runs/V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01/shanghai-final5a-ctest.log"
+      }
+    },
+    "executable_sha256": {
+      "server": "d40a3932dffc24f2eff9f82020e3c8ba133a9d7ed7f67953b039000f3c1fea6e",
+      "upload_client": "4566db8daade8b5a05c8a2788e83b2ff4b13bad9f8fe3a39dfe494c56e1e2ae8",
+      "download_client": "9338e4e1871d9785ea682aa859fdc09c4dbe11bac135360d11b5572e70ebe47c"
+    },
+    "production_services": {
+      "shenzhen": {
+        "active": true,
+        "server_sha256": "d40a3932dffc24f2eff9f82020e3c8ba133a9d7ed7f67953b039000f3c1fea6e"
+      },
+      "shanghai": {
+        "active": true,
+        "server_sha256": "d40a3932dffc24f2eff9f82020e3c8ba133a9d7ed7f67953b039000f3c1fea6e"
+      },
+      "restarted": false
+    }
+  },
+  "protocol": {
+    "request": "XCPNETFLUX V3",
+    "acknowledgement": "CPNetFlux V3",
+    "V2_greeting": "rejected before payload",
+    "client": "requires V3 acknowledgement",
+    "transaction_schema": "file-transactions/1 retained; not a runtime selector"
+  },
+  "interop": [
+    {
+      "client": "Shenzhen",
+      "server": "Shanghai production service",
+      "upload": {
+        "files": 3,
+        "bytes": 3670063,
+        "pass": true,
+        "transport": "v3",
+        "mode": "persistent_tree",
+        "fallback": "",
+        "tree_hash": "crc32c:5bf8aabd"
+      },
+      "download": {
+        "files": 3,
+        "bytes": 3670063,
+        "pass": true,
+        "transport": "v3",
+        "mode": "persistent_tree",
+        "fallback": "",
+        "tree_hash": "crc32c:5bf8aabd"
+      },
+      "payload_sha256_match": true,
+      "summaries": [
+        "final5a-shenzhen-to-shanghai-upload.json",
+        "final5a-shanghai-to-shenzhen-download.json"
+      ]
+    },
+    {
+      "client": "Shanghai",
+      "server": "Shenzhen loopback temporary V3 service via SSH tunnels",
+      "upload": {
+        "files": 3,
+        "bytes": 3355469,
+        "pass": true,
+        "transport": "v3",
+        "mode": "persistent_tree",
+        "fallback": "",
+        "tree_hash": "crc32c:3d1dafa7"
+      },
+      "download": {
+        "files": 3,
+        "bytes": 3355469,
+        "pass": true,
+        "transport": "v3",
+        "mode": "persistent_tree",
+        "fallback": "",
+        "tree_hash": "crc32c:3d1dafa7"
+      },
+      "payload_sha256_match": true,
+      "summaries": [
+        "final-shanghai-to-shenzhen-upload.json",
+        "final-shanghai-from-shenzhen-download.json"
+      ]
+    }
+  ],
+  "cleanup": {
+    "temp_server_pid": 2362267,
+    "stopped": true,
+    "tunnels_stopped": true,
+    "task_payload_removed": true,
+    "shanghai_production_test_dir_removed": true,
+    "manifest_archives": {
+      "shenzhen": {
+        "sha256": "ea277e7875877697f06ec2f22b6a99b760d6b11ee729aadae1dbdf4953590381"
+      },
+      "shanghai": {
+        "sha256": "bcbee9fe534624767b4894b3b603047f2b3f76573db17d264438110d8cae3997"
+      }
+    }
+  },
+  "limitations": [
+    "Direct Shanghai TCP/2121 to Shenzhen remains blocked; reverse client test used SSH tunnels to loopback-only test service.",
+    "Physical NIC/local-bind/different physical link deferred."
+  ],
+  "next_plan": {
+    "task_id": "V3-HISTORICAL-CHECKPOINT-INTEROP-01",
+    "gap": "Existing unit/loopback tests cover V1 manifest parsing and an old chunk checkpoint via V3, but no deterministic fixture from an actual earlier committed format has been resumed end-to-end across hosts.",
+    "acceptance": [
+      "V3 upload/download resume sends only missing ranges and matches final SHA-256.",
+      "Summary explicitly reports V3 and no fallback.",
+      "Malformed/corrupt/unsupported checkpoint fails clearly without old executor.",
+      "Same revision built on both hosts before cross-host transfer."
+    ]
+  }
+}

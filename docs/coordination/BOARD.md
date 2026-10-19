@@ -10,9 +10,10 @@
 - V3-LANE-MIXED-FAULT-BUDGET-01：已完成。数据连接与另一 lane 控制连接同时故障的深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个 case 全部通过；没有发现数据恢复和控制重连重复消费总预算。实现提交 6182067f2dc88ccf7ddae49bc27b9ff13d0ed53f，已推送并回读 origin 同 SHA；验收记录见 docs/tasks/2026-10-19-v3-lane-mixed-fault-budget-01.md。
 - V3-LANE-FAULT-STORM-BUDGET-01：已完成。连续注入 3 次 data-lane 故障，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；N=0/1/2 恢复次数严格为 0/1/2 并清楚失败，N=3 恢复 3 次并成功，树哈希一致。实现提交 `19a449868e1650b75214a9db59c692b71ee7f272` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-fault-storm-budget-01.md`。
 - V3-LANE-MIXED-FAULT-STORM-BUDGET-01：已完成。按“数据断开 → 控制断开 → 再次数据断开”顺序注入，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；预算严格为 0/1/2/3，N=3 树哈希一致，batch ID 保持且无全局 control reconnect。最终提交 `3d14b5c27531ade6f9ae9982b28a5dfd4b502f69` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-mixed-fault-storm-budget-01.md`。
-- V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01：进行中。单文件 API 已追到 V3 持久执行器；目录协商仍使用 V2 字样。本阶段改为显式 V3 协商并拒绝旧 V2 greeting，随后两端同版本构建并互传验收。任务范围见 docs/tasks/2026-10-19-v3-only-residual-runtime-audit-01.md。
+- V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01：已完成。运行协商改为显式 XCPNETFLUX V3 / CPNetFlux V3，服务端拒绝旧 V2 greeting、客户端校验 V3 回执，不再存在这条协商降级歧义；两端同 commit 构建且 CTest 各 393/393。深圳客户端连上海正式服务、上海客户端经 SSH 隧道连深圳回环 V3 服务，双向上传/下载及 SHA-256/树哈希均通过。代码提交 5a2b2e2808f7b5614de6f5988d440a9cb406365a 已推送并回读一致；任务结果见 docs/tasks/2026-10-19-v3-only-residual-runtime-audit-01.md 和 evidence.json。
+- 下一计划 V3-HISTORICAL-CHECKPOINT-INTEROP-01：现有单元/回环测试能读 V1 manifest 与旧 chunk checkpoint，但尚缺真实历史 checkpoint fixture 经 V3 客户端/服务端端到端续传的跨机证明；要求只传缺失范围、最终 SHA-256 一致、摘要明确 V3 且无 fallback，坏 checkpoint 明确失败。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
-- 环境边界：本轮生产 server SHA 已与新构建完全一致，因此没有重启服务；两端生产服务保持 active。反向验收使用深圳回环匿名临时服务和 SSH 隧道，服务、隧道及本轮测试 payload 已清理。上海主动直连深圳 2121 仍超时，不能把隧道测试说成直连生产端口通过。
+- 环境边界：深圳与上海正式服务均 active，运行 SHA 与本轮构建一致，因此无需重启。上海客户端反向验收使用深圳回环匿名临时服务和 SSH 隧道；临时服务、隧道、任务 payload 和上海正式服务下的任务测试目录均已清理，摘要与 manifest archive 保留。上海主动直连深圳 TCP/2121 仍超时，不能把隧道测试说成直连生产端口通过。
 
 ## 历史执行快照
 
