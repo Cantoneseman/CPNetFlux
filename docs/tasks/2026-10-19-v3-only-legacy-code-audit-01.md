@@ -1,34 +1,81 @@
 # V3-ONLY-LEGACY-CODE-AUDIT-01
 
-Date: 2026-10-19
-Status: in_progress
+Date: 2026-10-19 (Asia/Shanghai)
+Status: complete
 Owner: current commander, single serial developer
-Input branch: codex/V3-ONLY-PEER-SYNC-01
-Input commit: 49bf0282f4729c9e1e722de312d795d31c9653d3
+Scope commit: 562842ee76a637d7a92564a6037fb268c91c1cf8
+Implementation branch: codex/V3-ONLY-LEGACY-CODE-AUDIT-01
+Implementation commit: a41ee88050eab021a9d286aa514351a29bdb573f
+Push/readback: pushed to origin/codex/V3-ONLY-LEGACY-CODE-AUDIT-01; git ls-remote returned the same full SHA.
 
-## Goal
+## Actual problem solved
 
-Remove the old tree-transfer execution functions that remain compiled but have no callers: `runGlobalTreeScheduler`, `runTreeScheduler`, and `runPipelinedTreeScheduler`. First confirm each is unreachable from the public tree upload/download entry points, then remove the functions and any helpers used only by them. Keep V3 persistent execution, old command-line options that map cleanly to V3, and historical manifest/checkpoint readers used to resume existing data.
+After tree upload and download had been routed through the V3 persistent executor, the source still contained three compiled pre-V3 execution engines with no callers. That left dead transfer behavior in the main file and made it harder for a future change to accidentally revive an older path.
 
-## Non-goals
+This change removed those three runners, their old per-file upload/download processors, the unused pipeline preparation/cancellation state, and their private scheduler dispatch helpers. The public tree APIs still choose V3 and still reject execution if V3 cannot be selected. Old command-line shapes continue to map to V3, and existing manifest/checkpoint preflight remains for resuming earlier data. The V3 global scheduler summary keeps its two needed counters in a small summary-only struct.
 
-- No change to V3 transfer behavior or wire protocol.
-- Do not remove the single-file transfer APIs or shared scheduling, control, and manifest utilities used by V3.
-- No physical NIC, local-bind, RDMA, or different-physical-link work.
-- Do not change production authentication, service configuration, or user data.
+## Scope and non-goals
 
-## Acceptance
+- Confirm there are no production callers for runGlobalTreeScheduler, runTreeScheduler, or runPipelinedTreeScheduler, then remove them and helpers exclusive to them.
+- Preserve V3 persistent tree execution, old-input manifest/checkpoint readers, CLI aliases, and the V3 global-scheduler summary.
+- No wire/protocol behavior change, authentication/configuration change, production data change, or physical NIC/local-bind/different-link work.
+- Shanghai direct TCP/2121 remains blocked; reverse client direction is tested through isolated SSH tunnels.
 
-1. Source call-graph inspection confirms the old runner functions have no production callers; after cleanup, none of the three definitions remain.
-2. Existing alias and unified-executor smokes continue to prove `--data-session-reuse off` and other retained inputs use `actual_mode=persistent_tree` with no fallback. Reuse those tests unless inspection finds a coverage gap.
-3. Clean CMake builds from the same committed source succeed on Shenzhen and Shanghai; server/upload/download binary SHA-256 values match.
-4. Full relevant CTest passes on Shenzhen; final Shenzhen↔Shanghai upload/download transfer summaries report V3 and matching file/tree hashes. Shanghai direct TCP/2121 remains known-blocked; reverse direction may use the isolated loopback SSH-tunnel setup documented by the preceding task.
-5. Update the task board and record source SHA, build/test commands, output evidence, deployment/rollback state, and next handoff. Push each completed code/docs stage to the verified origin.
+## Implementation
 
-## Affected files
+- Source change: src/core/io/tree_transfer_client.cpp; 2,052 lines removed and three lines added (the summary-only counter struct).
+- On the input commit, the only repository matches for the three runner names were their definitions. After the edit, no runner or old per-file execution definitions remain.
+- A source call-graph scan of the edited translation unit found 30 reachable internal functions from the three public tree APIs and zero unreachable internal functions.
+- The persistent executor still calls resume preflight, manifest persistence, and the scheduler summary where appropriate. The summary test/build caught and resolved the one shared data shape by replacing the old runtime struct with TreeSchedulerSummaryCounts.
 
-Expected: `src/core/io/tree_transfer_client.cpp`, this task record, `docs/coordination/BOARD.md`; test files only if the existing smoke coverage is insufficient.
+## Build and test evidence
 
-## Initial inspection
+Source artifact sent from Shenzhen to Shanghai: /tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/source-a41ee88.tar.gz, SHA-256 bf6f22188bfbe6ee6f8fa5c44555cb63332a12f3b0f6abd0e895a65f2c590720. Shanghai extracted that artifact and recorded the same source commit and archive hash in final-src/cpnetflux/.codex-source-revision.
 
-The current code commit has definitions for all three runners inside `tree_transfer_client.cpp`; `git grep` finds no production call sites outside those definitions. Existing `cpnetflux_tree_control_reuse_smoke` passes `--data-session-reuse off` and asserts both retained control-reuse modes report `actual_mode=persistent_tree`; `cpnetflux_v3_unified_executor_smoke` checks upload and download both use V3. Confirm these tests on the input revision before editing.
+Both hosts completed fresh Release builds with TLS ON, io_uring ON, desktop OFF, tests ON, cross-domain tests OFF, GNU 11.4. The server, upload client, and download client hashes matched between hosts:
+
+- cpnetflux-gridftp-server: 25de892e22793dfbfc218dd15967a818abf3f32af0f11dc4765cc169a1403654
+- cpnetflux-tree-upload-client: 5cec250b801735b165266e4b990bff7231b34b89c4bfc56eb53dbc1a5efb6546
+- cpnetflux-tree-download-client: b6155d9823ce98ddc31f5babce5d88558c9eea41cb3d62c9e4cb31ff51272baa
+
+Focused alias/executor/pipeline tests passed on both hosts: 3/3. The full Shenzhen gate passed: 393/393, 0 failed, 70.60 seconds. Persistent log: /tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/final-shenzhen-ctest.log.
+
+Acceptance commands:
+
+    cmake -S <committed-source> -B <fresh-build> -DCMAKE_BUILD_TYPE=Release
+      -DCPNETFLUX_ENABLE_TLS=ON -DCPNETFLUX_ENABLE_IO_URING=ON
+      -DCPNETFLUX_BUILD_DESKTOP=OFF -DCPNETFLUX_BUILD_TESTS=ON
+      -DCPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS=OFF
+    cmake --build <fresh-build> -j2
+    env CPNETFLUX_TEST_TOKEN=<local-test-only-value> ctest
+      --test-dir /tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/final-shenzhen-build
+      -j2 --output-on-failure
+
+The test token was supplied only through the local test environment; no credential value was recorded.
+
+## Cross-host transfer results
+
+Using the new Shenzhen client against the Shanghai production service with TLS and token authentication:
+
+- Upload: 3 files, 8,388,685 bytes, pass, actual_transport=v3, actual_mode=persistent_tree, empty fallback reason, tree hash crc32c:ed4c0e6d.
+- Download: same files/bytes, pass, V3 persistent mode, same tree hash.
+- SHA-256 for all three source, Shanghai destination, and Shenzhen download files matched.
+- Summaries: /tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/interop/upload-final-summary.json and download-final-summary.json.
+
+For the reverse client direction, a temporary anonymous V3 service was bound to Shenzhen loopback only. Two SSH tunnels bridged the Shanghai client to that isolated service; no production service or credential was used:
+
+- Shanghai upload to Shenzhen: 3 files, 8,388,709 bytes, pass, V3 persistent mode, no fallback, tree hash crc32c:55ae0014.
+- Shanghai download from Shenzhen: same files/bytes and tree hash; all file SHA-256 values matched.
+- Summaries: /tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/reverse-upload-summary.json and reverse-download-summary.json.
+
+The production server binary already had the same SHA-256 as the new build on both hosts, so no service restart or replacement was needed. Both cpnetflux-demo.service instances remained active and retained their existing configuration. The temporary server, tunnels, and test payload directories were stopped/removed after summaries and hashes were saved. Direct Shanghai-to-Shenzhen production TCP/2121 is still not verified.
+
+## Next plan
+
+Plan V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01: inspect remaining public transfer entry points outside directory transfer and identify whether any old executor or wire path can still be selected. Keep legacy-shaped inputs only when they map to V3, and retain old checkpoint/manifest formats only as input readers. Record an explicit merge/remove decision for any remaining runtime path before changing it. Physical NIC, local-bind, and different physical-link validation remain deferred.
+
+## Handoff
+
+Input commit: 562842ee76a637d7a92564a6037fb268c91c1cf8.
+Implementation commit: a41ee88050eab021a9d286aa514351a29bdb573f, pushed and verified.
+Evidence index: docs/tasks/2026-10-19-v3-only-legacy-code-audit-01-evidence.json.

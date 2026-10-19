@@ -3,16 +3,16 @@
 本节优先于下方历史路线和旧任务快照。深圳为权威 Git 工作区；上海只作传输对端。
 
 - V3-ONLY-PEER-SYNC-01：已完成。提交 `10d05bcdf972faec15d3a19bae6230cf27905099` 已推送；深圳与上海服务运行同 SHA 的 V3 server，完整 CTest 393/393 通过。深圳→上海生产服务上传、上海→深圳下载均通过且树哈希一致；上海客户端→深圳隔离 V3 服务也经 SSH 隧道通过。上海直连深圳 TCP/2121 仍超时，详见任务记录和 evidence.json。
-- V3-ONLY-LEGACY-CODE-AUDIT-01：in_progress。审计并移除仅定义、无生产调用点的旧 tree runners；保留 V3 executor、旧参数到 V3 的映射、旧 manifest 恢复读取。验收范围见 docs/tasks/2026-10-19-v3-only-legacy-code-audit-01.md。
+- V3-ONLY-LEGACY-CODE-AUDIT-01：已完成。移除三个无调用点的旧 tree runners 和仅供其使用的逐文件/pipeline/scheduler 逻辑，共净删 2,052 行；保留 V3 executor、旧参数到 V3 的映射、旧 manifest/checkpoint 读取。提交 a41ee88050eab021a9d286aa514351a29bdb573f 已推送并由 origin 回读一致；两端 clean build 二进制一致，CTest 393/393，深圳↔上海实际上传/下载均通过。详见任务记录和 evidence.json。
 - 版本门禁：深圳 commit、两端构建状态、二进制 SHA-256 和服务启动命令必须记录；任一不一致时停止互传，不把旧服务或旧逻辑当作 V3 验收。
 
 - V3-LANE-MULTI-FAULT-BUDGET-01：已完成。两数据 lane 同时故障的 12 个跨机场景和 8 项回归全部通过；N=0/1/2 分别表现为 0 次恢复并明确失败、1 次恢复后明确失败、2 次恢复后成功。详情见 docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md。
 - V3-LANE-MIXED-FAULT-BUDGET-01：已完成。数据连接与另一 lane 控制连接同时故障的深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个 case 全部通过；没有发现数据恢复和控制重连重复消费总预算。实现提交 6182067f2dc88ccf7ddae49bc27b9ff13d0ed53f，已推送并回读 origin 同 SHA；验收记录见 docs/tasks/2026-10-19-v3-lane-mixed-fault-budget-01.md。
 - V3-LANE-FAULT-STORM-BUDGET-01：已完成。连续注入 3 次 data-lane 故障，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；N=0/1/2 恢复次数严格为 0/1/2 并清楚失败，N=3 恢复 3 次并成功，树哈希一致。实现提交 `19a449868e1650b75214a9db59c692b71ee7f272` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-fault-storm-budget-01.md`。
 - V3-LANE-MIXED-FAULT-STORM-BUDGET-01：已完成。按“数据断开 → 控制断开 → 再次数据断开”顺序注入，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；预算严格为 0/1/2/3，N=3 树哈希一致，batch ID 保持且无全局 control reconnect。最终提交 `3d14b5c27531ade6f9ae9982b28a5dfd4b502f69` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-mixed-fault-storm-budget-01.md`。
-- 当前任务验收重点：清理旧 tree runners 后，完整构建、CTest 与双端 V3 互传保持通过；物理 NIC、local bind 和不同物理链路仍按用户要求暂缓。
+- 下一计划 V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01：检查目录传输以外公开入口是否仍能选择旧执行器或旧 wire path；旧输入只保留为明确映射到 V3 的入口，旧 checkpoint/manifest 格式只作为读取输入。实施前先记录逐入口审计结果和需要保留/合并/删除的边界。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
-- 环境边界：两端生产服务仅为部署同 SHA V3 二进制而停止/启动，配置、认证文件和数据目录保持原样；临时回环测试服务与 SSH 隧道已停止。上海主动直连深圳 2121 目前超时，反向传输验收使用 SSH 隧道。
+- 环境边界：本轮生产 server SHA 已与新构建完全一致，因此没有重启服务；两端生产服务保持 active。反向验收使用深圳回环匿名临时服务和 SSH 隧道，服务、隧道及本轮测试 payload 已清理。上海主动直连深圳 2121 仍超时，不能把隧道测试说成直连生产端口通过。
 
 ## 历史执行快照
 

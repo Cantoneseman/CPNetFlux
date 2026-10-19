@@ -1,0 +1,151 @@
+{
+  "task": "V3-ONLY-LEGACY-CODE-AUDIT-01",
+  "status": "complete",
+  "date": "2026-10-19",
+  "scopeCommit": "562842ee76a637d7a92564a6037fb268c91c1cf8",
+  "branch": "codex/V3-ONLY-LEGACY-CODE-AUDIT-01",
+  "implementationCommit": "a41ee88050eab021a9d286aa514351a29bdb573f",
+  "push": {
+    "remote": "origin",
+    "ref": "refs/heads/codex/V3-ONLY-LEGACY-CODE-AUDIT-01",
+    "pushed": true,
+    "remoteReadback": "a41ee88050eab021a9d286aa514351a29bdb573f"
+  },
+  "sourceChange": {
+    "file": "src/core/io/tree_transfer_client.cpp",
+    "removedLines": 2052,
+    "addedLines": 3,
+    "removedRunnerDefinitions": [
+      "runGlobalTreeScheduler",
+      "runTreeScheduler",
+      "runPipelinedTreeScheduler"
+    ],
+    "afterEditDefinitionsRemain": false,
+    "callGraph": {
+      "reachableInternalFunctions": 30,
+      "unreachableInternalFunctions": 0
+    },
+    "preserved": [
+      "V3 persistent tree executor",
+      "legacy-shaped CLI inputs mapped to V3",
+      "old manifest/checkpoint resume readers",
+      "V3 global scheduler summary counters"
+    ]
+  },
+  "sourceArtifact": {
+    "path": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/source-a41ee88.tar.gz",
+    "sha256": "bf6f22188bfbe6ee6f8fa5c44555cb63332a12f3b0f6abd0e895a65f2c590720",
+    "commit": "a41ee88050eab021a9d286aa514351a29bdb573f"
+  },
+  "build": {
+    "configuration": "Release; TLS=ON; IO_URING=ON; DESKTOP=OFF; TESTS=ON; CROSS_DOMAIN_TESTS=OFF; x86_64; GNU 11.4",
+    "cleanBuilds": {
+      "shenzhen": "passed",
+      "shanghai": "passed"
+    },
+    "focusedCtest": {
+      "shenzhen": "3/3 passed",
+      "shanghai": "3/3 passed"
+    },
+    "fullCtest": {
+      "host": "shenzhen",
+      "total": 393,
+      "passed": 393,
+      "failed": 0,
+      "durationSeconds": 70.6,
+      "log": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/final-shenzhen-ctest.log"
+    },
+    "artifactSha256": {
+      "cpnetfluxGridftpServer": "25de892e22793dfbfc218dd15967a818abf3f32af0f11dc4765cc169a1403654",
+      "cpnetfluxTreeUploadClient": "5cec250b801735b165266e4b990bff7231b34b89c4bfc56eb53dbc1a5efb6546",
+      "cpnetfluxTreeDownloadClient": "b6155d9823ce98ddc31f5babce5d88558c9eea41cb3d62c9e4cb31ff51272baa"
+    },
+    "bothHostsMatch": true,
+    "logs": {
+      "shenzhenConfigure": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/final-shenzhen-configure.log",
+      "shenzhenBuild": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/final-shenzhen-build.log",
+      "shanghaiConfigure": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/final-shanghai-configure.log",
+      "shanghaiBuild": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/final-shanghai-build.log"
+    }
+  },
+  "interop": [
+    {
+      "test": "Shenzhen client uploads to Shanghai production service",
+      "transportPath": "direct TLS/token",
+      "result": "pass",
+      "files": 3,
+      "bytes": 8388685,
+      "actualTransport": "v3",
+      "actualMode": "persistent_tree",
+      "fallbackReason": "",
+      "treeHash": "crc32c:ed4c0e6d",
+      "allFileSha256Match": true,
+      "summary": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/interop/upload-final-summary.json"
+    },
+    {
+      "test": "Shenzhen client downloads from Shanghai production service",
+      "transportPath": "direct TLS/token",
+      "result": "pass",
+      "files": 3,
+      "bytes": 8388685,
+      "actualTransport": "v3",
+      "actualMode": "persistent_tree",
+      "fallbackReason": "",
+      "treeHash": "crc32c:ed4c0e6d",
+      "allFileSha256Match": true,
+      "summary": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/interop/download-final-summary.json"
+    },
+    {
+      "test": "Shanghai client uploads to isolated Shenzhen loopback V3 service",
+      "transportPath": "two temporary SSH tunnels; anonymous test-only service bound to loopback",
+      "result": "pass",
+      "files": 3,
+      "bytes": 8388709,
+      "actualTransport": "v3",
+      "actualMode": "persistent_tree",
+      "fallbackReason": "",
+      "treeHash": "crc32c:55ae0014",
+      "allFileSha256Match": true,
+      "summary": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/reverse-upload-summary.json"
+    },
+    {
+      "test": "Shanghai client downloads from isolated Shenzhen loopback V3 service",
+      "transportPath": "two temporary SSH tunnels; anonymous test-only service bound to loopback",
+      "result": "pass",
+      "files": 3,
+      "bytes": 8388709,
+      "actualTransport": "v3",
+      "actualMode": "persistent_tree",
+      "fallbackReason": "",
+      "treeHash": "crc32c:55ae0014",
+      "allFileSha256Match": true,
+      "summary": "/tmp/cpnetflux-runs/V3-ONLY-LEGACY-CODE-AUDIT-01/reverse-download-summary.json"
+    }
+  ],
+  "services": {
+    "shenzhen": {
+      "active": true,
+      "service": "cpnetflux-demo.service",
+      "productionServerSha256": "25de892e22793dfbfc218dd15967a818abf3f32af0f11dc4765cc169a1403654",
+      "restartNeeded": false
+    },
+    "shanghai": {
+      "active": true,
+      "service": "cpnetflux-demo.service",
+      "productionServerSha256": "25de892e22793dfbfc218dd15967a818abf3f32af0f11dc4765cc169a1403654",
+      "restartNeeded": false
+    }
+  },
+  "cleanup": {
+    "testServerStopped": true,
+    "sshTunnelsStopped": true,
+    "productionTestPayloadRemoved": true,
+    "localTestPayloadRemoved": true,
+    "testOnlyCredentialsUnchanged": true,
+    "productionConfigurationsChanged": false
+  },
+  "limitations": [
+    "Direct Shanghai-to-Shenzhen production TCP/2121 remains unverified and known to time out; reverse client tests used SSH tunnels to a loopback-only anonymous test service.",
+    "No physical NIC, local-bind, different physical-link, throughput gain, or production-readiness claim."
+  ]
+}
