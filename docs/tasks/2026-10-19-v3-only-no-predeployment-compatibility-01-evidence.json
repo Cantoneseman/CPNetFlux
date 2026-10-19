@@ -1,0 +1,110 @@
+{
+  "task_id": "V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01",
+  "status": "complete",
+  "date": "2026-10-20",
+  "input_commit": "30aaf5d10f70244ea35d911711cc001bf21ba53e",
+  "branch": "codex/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01",
+  "scope_commit": "d9b022900d1ac163f448921246891a99fc035d2d",
+  "implementation_commit": "e545e4b1bd328e6615d5b0bdd0bca1fedd0092db",
+  "source_archive": {
+    "shenzhen_path": "/tmp/cpnetflux-runs/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01/source-e545e4b.tar.gz",
+    "shanghai_path": "/tmp/cpnetflux-runs/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01-source-e545e4b.tar.gz",
+    "sha256": "6cbbad8ed3b19ce0774ddd9d802509c3aa2c91ba141b0a494824cbcb0c0d641c"
+  },
+  "build": {
+    "compiler": "GNU 11.4",
+    "cmake": "3.22.1",
+    "config": {
+      "build_type": "Release",
+      "tls": true,
+      "io_uring": true,
+      "desktop": false,
+      "tests": true,
+      "cross_domain_tests": false
+    },
+    "ctest": {
+      "shenzhen": {
+        "passed": 393,
+        "failed": 0,
+        "log": "/tmp/cpnetflux-runs/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01/shenzhen-ctest-final.log"
+      },
+      "shanghai": {
+        "passed": 393,
+        "failed": 0,
+        "log": "/tmp/cpnetflux-runs/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01/shanghai-ctest.log"
+      }
+    },
+    "executable_sha256": {
+      "cpnetflux-gridftp-server": "e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412",
+      "cpnetflux-tree-upload-client": "19d1bcd167e7e12ed9f2d738b624d2294b2d9a12b26e1b74f598fbd11080e14c",
+      "cpnetflux-tree-download-client": "7e488ecd507aab737b5c29afb4ae9f59503203587fa7d32f0e5479ba23bd3969",
+      "cpnetflux-file-server": "7de068fbe579537b66868601fb3e2ec5d41ae92b141c2a93bf4a36f6b377a9b7",
+      "cpnetflux-file-client": "d90dee2ce76e630e9aba31871fc6014b7561907d8ca4220a1525629936d4f032",
+      "cpnetflux-file-download-client": "1f25e64d126f15f6e7ad83d4ae714bf121f15f98bfbeb66f5349049af10328bd"
+    }
+  },
+  "service_upgrade": {
+    "service": "cpnetflux-demo.service",
+    "hosts": {
+      "shenzhen": {
+        "active": true,
+        "running_server_sha256": "e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412"
+      },
+      "shanghai": {
+        "active": true,
+        "running_server_sha256": "e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412"
+      }
+    },
+    "before_server_sha256": "d40a3932dffc24f2eff9f82020e3c8ba133a9d7ed7f67953b039000f3c1fea6e",
+    "restarted_after_install": true
+  },
+  "interop": [
+    {
+      "client": "Shenzhen",
+      "server": "Shanghai production service",
+      "transport": "v3",
+      "mode": "persistent_tree",
+      "fallback_reason": "",
+      "files": 3,
+      "bytes": 2621488,
+      "tree_hash": "crc32c:d1784ace",
+      "payload_sha256_match": true,
+      "upload_summary": "/tmp/cpnetflux-runs/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01/interop-production/upload-summary.json",
+      "download_summary": "/tmp/cpnetflux-runs/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01/interop-production/download-summary.json"
+    },
+    {
+      "client": "Shanghai",
+      "server": "Shenzhen loopback temporary V3 service via SSH tunnel",
+      "transport": "v3",
+      "mode": "persistent_tree",
+      "fallback_reason": "",
+      "files": 3,
+      "bytes": 1782617,
+      "tree_hash": "crc32c:a0039228",
+      "payload_sha256_match": true,
+      "upload_summary": "/tmp/cpnetflux-runs/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01/interop-reverse/upload-summary.json",
+      "download_summary": "/tmp/cpnetflux-runs/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01/interop-reverse/download-summary.json"
+    }
+  ],
+  "cleanup": {
+    "temporary_server_stopped": true,
+    "ssh_tunnel_stopped": true,
+    "temporary_payload_removed": true,
+    "shanghai_production_test_directory_removed": true,
+    "local_temporary_credentials_removed": true,
+    "summary_and_logs_retained": true
+  },
+  "limitations": [
+    "Direct Shanghai TCP/2121 to Shenzhen remains blocked; reverse direction used an SSH tunnel to a Shenzhen loopback test service.",
+    "Physical NIC, local-bind, different physical links, throughput and production readiness are outside this task."
+  ],
+  "next_plan": {
+    "task_id": "V3-COMPOSITION-STABILITY-01",
+    "problem": "Combine the already-tested lane recovery, control recovery and shared reconnect budget into a V3-only stability matrix.",
+    "acceptance": [
+      "Same source revision is built on Shenzhen and Shanghai before every transfer.",
+      "Combined upload/download fault cases preserve batch identity, lane completion and final tree hash.",
+      "Full CTest and cross-host evidence are recorded before any physical-link validation."
+    ]
+  }
+}

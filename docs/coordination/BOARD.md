@@ -11,10 +11,11 @@
 - V3-LANE-FAULT-STORM-BUDGET-01：已完成。连续注入 3 次 data-lane 故障，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；N=0/1/2 恢复次数严格为 0/1/2 并清楚失败，N=3 恢复 3 次并成功，树哈希一致。实现提交 `19a449868e1650b75214a9db59c692b71ee7f272` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-fault-storm-budget-01.md`。
 - V3-LANE-MIXED-FAULT-STORM-BUDGET-01：已完成。按“数据断开 → 控制断开 → 再次数据断开”顺序注入，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；预算严格为 0/1/2/3，N=3 树哈希一致，batch ID 保持且无全局 control reconnect。最终提交 `3d14b5c27531ade6f9ae9982b28a5dfd4b502f69` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-mixed-fault-storm-budget-01.md`。
 - V3-ONLY-RESIDUAL-RUNTIME-AUDIT-01：已完成。运行协商改为显式 XCPNETFLUX V3 / CPNetFlux V3，服务端拒绝旧 V2 greeting、客户端校验 V3 回执，不再存在这条协商降级歧义；两端同 commit 构建且 CTest 各 393/393。深圳客户端连上海正式服务、上海客户端经 SSH 隧道连深圳回环 V3 服务，双向上传/下载及 SHA-256/树哈希均通过。代码提交 5a2b2e2808f7b5614de6f5988d440a9cb406365a 已推送并回读一致；任务结果见 docs/tasks/2026-10-19-v3-only-residual-runtime-audit-01.md 和 evidence.json。
-- V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01：进行中。项目尚未正式部署，本轮删除 transfer manifest V1 兼容读取和恢复分支，并把内部 schema 常量与 V1/V2 运行版本命名分开；范围、非目标和验收记录见 docs/tasks/2026-10-19-v3-only-no-predeployment-compatibility-01.md。
+- V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01：已完成。项目尚未正式部署，本轮删除 transfer manifest V1 兼容读取和恢复分支，并把内部 schema 常量与 V1/V2 运行版本命名分开；深圳、上海同一提交构建且 CTest 各 393/393，正式服务已运行新 server，深圳→上海生产服务和上海→深圳回环 V3 服务双向互传均通过、无 fallback、源/目的 SHA-256 一致。提交 e545e4b1bd328e6615d5b0bdd0bca1fedd0092db 已推送；任务记录和证据见 docs/tasks/2026-10-19-v3-only-no-predeployment-compatibility-01.md 与 evidence.json。
 - 历史 checkpoint 互操作计划已取消：没有已部署用户或生产断点需要迁移，不再为 V1/V2 历史输入保留开发和跨机验收门。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
 - 环境边界：深圳与上海正式服务均 active，运行 SHA 与本轮构建一致，因此无需重启。上海客户端反向验收使用深圳回环匿名临时服务和 SSH 隧道；临时服务、隧道、任务 payload 和上海正式服务下的任务测试目录均已清理，摘要与 manifest archive 保留。上海主动直连深圳 TCP/2121 仍超时，不能把隧道测试说成直连生产端口通过。
+- 下一步：V3-COMPOSITION-STABILITY-01。把已验证的 lane 恢复、控制连接恢复和共享重试预算组合进 V3-only 稳定矩阵；每次先同步两端源码并完成双端构建，再进行互传验收。V1/V2 运行逻辑和历史 checkpoint 互操作不再作为开发输入。
 
 ## 历史执行快照
 
