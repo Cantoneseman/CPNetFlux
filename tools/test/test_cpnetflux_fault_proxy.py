@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cpnetflux_fault_proxy import (
     SequentialResetPlan,
+    SequentialMixedResetPlan,
     SynchronizedMixedResetGate,
     SynchronizedResetGate,
 )
@@ -34,6 +35,29 @@ class SequentialResetPlanTest(unittest.TestCase):
     def test_requires_at_least_one_fault(self):
         with self.assertRaises(ValueError):
             SequentialResetPlan(0)
+
+
+class SequentialMixedResetPlanTest(unittest.TestCase):
+    def test_advances_data_control_data_in_order(self):
+        plan = SequentialMixedResetPlan((
+            ("data", 2), ("control", 3), ("data", 4),
+        ))
+        self.assertEqual(plan.participant_for(2), "data")
+        self.assertTrue(plan.claim("data", 2))
+        self.assertEqual(plan.participant_for(3), "control")
+        self.assertFalse(plan.claim("data", 3))
+        self.assertTrue(plan.claim("control", 3))
+        self.assertEqual(plan.participant_for(4), "data")
+        self.assertTrue(plan.claim("data", 4))
+        self.assertIsNone(plan.participant_for(5))
+        self.assertEqual(plan.reset_participants, [("data", 2), ("control", 3), ("data", 4)])
+
+    def test_does_not_allow_skipping_the_next_fault_type(self):
+        plan = SequentialMixedResetPlan((
+            ("data", 2), ("control", 3), ("data", 4),
+        ))
+        self.assertFalse(plan.claim("control", 3))
+        self.assertEqual(plan.participant_for(2), "data")
 
 
 class SynchronizedResetGateTest(unittest.TestCase):
