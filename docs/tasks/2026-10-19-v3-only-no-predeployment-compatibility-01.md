@@ -7,7 +7,7 @@ Input commit: 30aaf5d10f70244ea35d911711cc001bf21ba53e
 Branch: codex/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01
 Scope commit: d9b022900d1ac163f448921246891a99fc035d2d
 Implementation commit: e545e4b1bd328e6615d5b0bdd0bca1fedd0092db
-Final documentation commit: pending
+Final documentation commit: 669d3f0eda75e3aa0917781db580373d784e347b
 
 ## 实际问题
 
