@@ -5,7 +5,8 @@
 - V3-LANE-MULTI-FAULT-BUDGET-01：已完成。两数据 lane 同时故障的 12 个跨机场景和 8 项回归全部通过；N=0/1/2 分别表现为 0 次恢复并明确失败、1 次恢复后明确失败、2 次恢复后成功。详情见 docs/tasks/2026-10-19-v3-lane-multi-fault-budget-01.md。
 - V3-LANE-MIXED-FAULT-BUDGET-01：已完成。数据连接与另一 lane 控制连接同时故障的深圳/上海服务端 × 上传/下载 × N=0/1/2 共 12 个 case 全部通过；没有发现数据恢复和控制重连重复消费总预算。实现提交 6182067f2dc88ccf7ddae49bc27b9ff13d0ed53f，已推送并回读 origin 同 SHA；验收记录见 docs/tasks/2026-10-19-v3-lane-mixed-fault-budget-01.md。
 - V3-LANE-FAULT-STORM-BUDGET-01：已完成。连续注入 3 次 data-lane 故障，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；N=0/1/2 恢复次数严格为 0/1/2 并清楚失败，N=3 恢复 3 次并成功，树哈希一致。实现提交 `19a449868e1650b75214a9db59c692b71ee7f272` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-fault-storm-budget-01.md`。
-- 下一计划：`V3-LANE-MIXED-FAULT-STORM-BUDGET-01`（in progress）。按“数据断开 → 控制断开 → 再次数据断开”顺序注入故障，验证数据恢复和控制重连共用 N=0/1/2/3 总预算，且健康 lane 与 batch 身份不受影响。范围和命令见 `docs/tasks/2026-10-19-v3-lane-mixed-fault-storm-budget-01.md`；物理 NIC、local bind 和不同物理链路仍按用户要求暂缓。
+- V3-LANE-MIXED-FAULT-STORM-BUDGET-01：已完成。按“数据断开 → 控制断开 → 再次数据断开”顺序注入，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case 全部通过；预算严格为 0/1/2/3，N=3 树哈希一致，batch ID 保持且无全局 control reconnect。最终提交 `3d14b5c27531ade6f9ae9982b28a5dfd4b502f69` 已推送并回读一致；详情见 `docs/tasks/2026-10-19-v3-lane-mixed-fault-storm-budget-01.md`。
+- 下一计划：扩展更长的控制连接故障序列和健康 lane 保持断言；物理 NIC、local bind 和不同物理链路仍按用户要求暂缓。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
 - 环境边界：深圳与上海生产端口 2121 只读观察，未停止或改配；实验端口 24600–24799 已清理，无任务 runner/代理遗留。
 

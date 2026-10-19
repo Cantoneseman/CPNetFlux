@@ -1,6 +1,6 @@
 # V3-LANE-MIXED-FAULT-STORM-BUDGET-01：连续数据与控制故障预算验收
 
-- 状态：in progress；先登记范围，再扩展测试代理/runner 并做双云矩阵。
+- 状态：done；顺序混合故障代理、预算断言和双云矩阵已通过。
 - 路线：R2026-10-16-V3-UNIFIED-MULTILINK；输入提交 `61cfe1b712aa2b4ae2b3f695d6d52028974b5d2d`。
 - 执行位置：深圳现有 CPNetFlux worktree `/root/projects/CPNetFlux-worktrees/v3-lane-mixed-fault-budget-01`，由当前总指挥单人串行执行；上海只作传输对端。
 
@@ -44,4 +44,22 @@
 
 ## 后续边界
 
-此阶段完成后，根据证据继续软件恢复边界，物理 NIC、local bind 和不同物理链路仍只在软件恢复开发完成后另立服务器验证任务。
+## 实际解决的问题
+
+本阶段验证了此前没有覆盖的故障先后组合：第一条数据连接断开，随后另一条 lane 的控制连接断开，最后再次出现数据连接断开。代理按新建连接顺序记录并注入 `data#2 -> control(trigger data#3) -> data#4`，runner 检查故障类型、顺序、批次身份、恢复计数和最终完整性，而不是只看退出码。
+
+结果证明数据恢复和控制重连仍共用同一个 `--reconnect-attempts N` 总预算。N=0/1/2 分别只恢复 0/1/2 次并明确报 `reconnect attempt budget exhausted`；N=3 完成三次恢复，控制 lane 重连计数为 1、全局 control reconnect 为 0，健康 lane 没有被错误升级为整批重连，上传/下载树哈希均为 `crc32c:f6f80ad4`。没有发现需要修改生产恢复状态机的缺陷。
+
+## 最终验收证据
+
+- 任务计划提交：`9cd64795cfeef0148598f8de664ef36169d138f6`；顺序混合测试实现提交：`b752e7b08545a77e3d97cf91ef3f12769033e407`；断言修正提交：`3d14b5c27531ade6f9ae9982b28a5dfd4b502f69`。实现与文档均已推送，最后提交远端回读同 SHA。
+- Release/TLS/Cross-domain 构建：退出码 0；复用 `/tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-STORM-BUDGET-01/build`，构建二进制用于最终矩阵。
+- Python 语法和代理单测：11/11 通过；lane recovery smoke、fault proxy unit 及既有预算回归 5/5 通过。
+- C++ 单元：344 项中 343 通过，1 项 `FileIoTest.IoUringContextReadWriteSmokeWhenAvailable` 因本构建关闭 io_uring 条件跳过。
+- 顺序混合故障跨机 CTest：`cpnetflux_lane_mixed_fault_storm_budget_interop` 1/1 通过，深圳/上海服务端 × 上传/下载 × N=0/1/2/3 共 16 个 case，耗时 216.36 秒。固定证据目录：`/tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-STORM-BUDGET-01/build/cpnetflux-lane-mixed-fault-storm-budget-interop-evidence/20261019T062046Z-1792390846671280902/`。
+- 证据二次核验：矩阵 `input_commit=3d14b5c27531ade6f9ae9982b28a5dfd4b502f69`；16/16 case 的 reset 顺序、唯一 batch ID、精确预算、耗尽错误和成功树哈希均满足断言。
+- 清理：深圳与上海 `24600–24799` 无本任务监听或 runner/代理遗留；生产端口 `2121` 仍在监听且未停止或改配。收尾时深圳约 33 GiB、上海约 73 GiB 可用。
+
+## 边界与下一步
+
+本阶段只证明 plain TCP 软件层的数据/控制连续故障和共享预算；没有证明 TLS/生产认证、吞吐、production readiness、物理 NIC、local bind 或不同物理链路。下一项开发计划是继续扩展更长的控制连接故障序列和健康 lane 保持断言；物理链路仍待软件恢复路线完成后另立服务器验证任务。
