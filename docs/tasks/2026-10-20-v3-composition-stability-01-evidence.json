@@ -1,0 +1,115 @@
+{
+  "task_id": "V3-COMPOSITION-STABILITY-01",
+  "status": "complete",
+  "date": "2026-10-20",
+  "input_commit": "eb45795f2e3eaca50b4b69fc3a66dd8403184ca5",
+  "implementation_commit": "a596970c636b32a05789bb90f663150928e6f897",
+  "branch": "codex/V3-ONLY-NO-PREDEPLOYMENT-COMPATIBILITY-01",
+  "source_archive": {
+    "shenzhen": "/tmp/cpnetflux-runs/V3-COMPOSITION-STABILITY-01/source-a596970.tar.gz",
+    "shanghai": "/tmp/cpnetflux-runs-V3-COMPOSITION-STABILITY-01-source-a596970.tar.gz",
+    "sha256": "c5a6932e86acb00579b97b4d8366df04e46273e7b8ace1684b318aadeba30212"
+  },
+  "build": {
+    "compiler": "GNU 11.4",
+    "cmake": "3.22.1",
+    "config": {
+      "build_type": "Release",
+      "tls": true,
+      "io_uring": true,
+      "desktop": false,
+      "tests": true,
+      "cross_domain_tests": true
+    },
+    "executable_sha256": {
+      "cpnetflux-gridftp-server": "e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412",
+      "cpnetflux-tree-upload-client": "19d1bcd167e7e12ed9f2d738b624d2294b2d9a12b26e1b74f598fbd11080e14c",
+      "cpnetflux-tree-download-client": "7e488ecd507aab737b5c29afb4ae9f59503203587fa7d32f0e5479ba23bd3969",
+      "cpnetflux-file-server": "7de068fbe579537b66868601fb3e2ec5d41ae92b141c2a93bf4a36f6b377a9b7",
+      "cpnetflux-file-client": "d90dee2ce76e630e9aba31871fc6014b7561907d8ca4220a1525629936d4f032",
+      "cpnetflux-file-download-client": "1f25e64d126f15f6e7ad83d4ae714bf121f15f98bfbeb66f5349049af10328bd"
+    },
+    "python_unit_tests": {
+      "passed": 12,
+      "failed": 0
+    },
+    "full_ctest": {
+      "shenzhen": {
+        "passed": 391,
+        "failed": 2,
+        "total": 393,
+        "log": "/tmp/cpnetflux-runs/V3-COMPOSITION-STABILITY-01/shenzhen-full-ctest.log",
+        "known_environment_failures": [
+          "cpnetflux_gridftp_control_token_smoke: CPNETFLUX_TEST_TOKEN not set",
+          "cpnetflux_event_log_smoke: imports token smoke without CPNETFLUX_TEST_TOKEN"
+        ]
+      },
+      "shanghai": {
+        "passed": 391,
+        "failed": 2,
+        "total": 393,
+        "log": "/tmp/cpnetflux-runs/V3-COMPOSITION-STABILITY-01/shanghai-full-ctest.log",
+        "known_environment_failures": [
+          "cpnetflux_gridftp_control_token_smoke: CPNETFLUX_TEST_TOKEN not set",
+          "cpnetflux_event_log_smoke: imports token smoke without CPNETFLUX_TEST_TOKEN"
+        ]
+      }
+    }
+  },
+  "interop": {
+    "ctest": "cpnetflux_lane_composition_stability_interop",
+    "passed": 1,
+    "failed": 0,
+    "seconds": 267.90,
+    "cases": 20,
+    "matrix": "/tmp/cpnetflux-runs/V3-COMPOSITION-STABILITY-01/shenzhen-cross-build/cpnetflux-lane-composition-stability-interop-evidence/20261019T171927Z-1792430367115390883/matrix.json",
+    "matrix_sha256": "404e43e2bf8ae358a5c90353c961461788263c75f5ea43ed78a66738da9e515f",
+    "directions": [
+      "Shenzhen server x upload/download x N=0..4",
+      "Shanghai server x upload/download x N=0..4"
+    ],
+    "sequence": [
+      "data#2",
+      "control#3",
+      "data#4",
+      "control#5"
+    ],
+    "budget_behavior": {
+      "N0": "0 recoveries, explicit budget exhaustion",
+      "N1": "1 recovery, explicit budget exhaustion",
+      "N2": "2 recoveries, explicit budget exhaustion",
+      "N3": "3 recoveries, explicit budget exhaustion",
+      "N4": "4 recoveries and successful upload/download"
+    },
+    "successful_summary": {
+      "tree_hash": "5816ca45fdc866157f2c8c9d0097009af11a3132eee66cd2fcdd745ab696c092",
+      "files": 3,
+      "bytes": 67230715,
+      "lane_control_reconnect_count": 2,
+      "control_reconnect_count": 0,
+      "data_connect_count": 6,
+      "persistent_lane_range_completed": [2, 2]
+    }
+  },
+  "cleanup": {
+    "temporary_processes_stopped": true,
+    "test_ports_clean": true,
+    "payload_removed": true,
+    "summary_and_logs_retained": true,
+    "production_service_changed": false
+  },
+  "limitations": [
+    "Token-auth smoke remains blocked by missing CPNETFLUX_TEST_TOKEN on both hosts.",
+    "Direct Shanghai TCP/2121 to Shenzhen remains blocked; this task used dedicated test ports.",
+    "Physical NIC, local-bind, different physical links, throughput and production readiness are outside this task."
+  ],
+  "next_plan": {
+    "task_id": "V3-RELEASE-STABILITY-01",
+    "problem": "Combine recovery with cancellation, timeout, restart, checkpoint corruption, target conflict and duplicate submission checks in one V3-only stability gate.",
+    "acceptance": [
+      "Same source commit is built on both hosts and binary hashes match before cross-host tests.",
+      "Each failure is classified as transfer, integrity or evidence failure rather than inferred from exit code alone.",
+      "No V1/V2 runtime compatibility path is added back."
+    ]
+  }
+}
