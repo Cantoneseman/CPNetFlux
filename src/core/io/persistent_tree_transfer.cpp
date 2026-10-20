@@ -47,6 +47,20 @@ using protocol::FrameType;
 namespace fs = std::filesystem;
 using Session = std::variant<session::TransferSession, session::DownloadSession>;
 using Clock = std::chrono::steady_clock;
+
+FrameStatusCode fileFailureCode(const Status& status) {
+    if (status.isOk()) return FrameStatusCode::Ok;
+    if (status.message().find("output already exists") != std::string::npos)
+        return FrameStatusCode::OutputExists;
+    return FrameStatusCode::WriteFailed;
+}
+
+Status receiverFileStatus(FrameStatusCode code, const std::string& relativePath) {
+    if (code == FrameStatusCode::Ok) return Status::ok();
+    if (code == FrameStatusCode::OutputExists)
+        return Status::invalidArgument("persistent output already exists: " + relativePath);
+    return Status::runtimeError("persistent receiver rejected file: " + relativePath);
+}
 double secondsSince(Clock::time_point start) { return std::chrono::duration<double>(Clock::now()-start).count(); }
 struct Timer {
     double* value; Clock::time_point start = Clock::now();
@@ -771,11 +785,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 requestAbort(result.status());
                 return;
             }
-            const auto fileStatus = result.value() == FrameStatusCode::Ok ? Status::ok() :
-                Status::runtimeError("persistent receiver rejected file: " + expected.relativePath);
+            const auto fileStatus = receiverFileStatus(result.value(), expected.relativePath);
             if (ready) {
                 if (!lease) { requestAbort(Status::runtimeError("missing work lease")); return; }
-                auto completed = !fileStatus.isOk() && continueAfterFileFailure
+                auto completed = !fileStatus.isOk() &&
+                    (continueAfterFileFailure || result.value() == FrameStatusCode::OutputExists)
                     ? executor->failTerminal(*lease, fileStatus)
                     : executor->finalize(*lease, fileStatus);
                 if (!completed.isOk()) { requestAbort(completed); return; }
@@ -891,7 +905,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             auto resume = PersistentDataSession::readResumeResponse(socket, id);
             if (!resume.isOk()) { failWriter(resume.status()); break; }
             if (resume.value().statusCode != FrameStatusCode::Ok) {
-                failWriter(Status::runtimeError("persistent range resume rejected")); break;
+                failWriter(resume.value().statusCode == FrameStatusCode::OutputExists
+                    ? receiverFileStatus(resume.value().statusCode, id.relativePath)
+                    : Status::runtimeError("persistent range resume rejected"));
+                break;
             }
             missing = resume.value().missingRanges;
             skipRange = missing.empty();
@@ -1216,7 +1233,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             auto started = RangeFileCoordinator::begin(*context, root, id, download, remoteRoot, resume);
             if (!started.isOk()) {
                 // Write the semantic rejection before callbacks can cancel sibling sockets.
-                auto rejected = PersistentDataSession::writeResumeResponse(socket,id,{},FrameStatusCode::WriteFailed);
+                auto rejected = PersistentDataSession::writeResumeResponse(socket,id,{},fileFailureCode(started.status()));
                 (void)notify(callback,id,started.status(),true);
                 return finishTransport(rejected.isOk() ? started.status() : rejected);
             } else {
@@ -1249,7 +1266,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             }
             if (frame.value().header.flags & protocol::kFileResume) {
                 if (!fileStatus.isOk()) {
-                    (void)PersistentDataSession::writeResumeResponse(socket,id,{},FrameStatusCode::WriteFailed);
+                    (void)PersistentDataSession::writeResumeResponse(socket,id,{},fileFailureCode(fileStatus));
                     return fileStatus;
                 }
                 auto missing = transaction->missingRanges();
@@ -1340,13 +1357,22 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         }
         if (!fileStatus.isOk() && overall.isOk()) overall = fileStatus;
         const auto completedStarted = Clock::now();
+        if (fileFailureCode(fileStatus) == FrameStatusCode::OutputExists) {
+            // The batch callback cancels sibling sockets on terminal failure.
+            // Publish the semantic result before that cancellation can hide it
+            // behind a transport error and trigger recovery-budget accounting.
+            const auto rejected = PersistentDataSession::writeResult(
+                socket, id, FrameStatusCode::OutputExists);
+            (void)notify(callback, id, fileStatus, true);
+            return rejected.isOk() ? fileStatus : rejected;
+        }
         status = notify(callback, id, fileStatus, true);
         if (fileStatus.isOk() && id.rangeId != 0) ++stats->rangeCompletions;
         timing.manifestSeconds += secondsSince(completedStarted);
         if (!status.isOk()) return finishTransport(status);
         const auto resultStarted = Clock::now();
         status = PersistentDataSession::writeResult(socket, id,
-            fileStatus.isOk() ? FrameStatusCode::Ok : FrameStatusCode::WriteFailed);
+            fileFailureCode(fileStatus));
         if (!status.isOk()) return finishTransport(status);
         if (ready) {
             status = !fileStatus.isOk() && !dynamic

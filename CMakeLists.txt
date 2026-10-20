@@ -687,6 +687,13 @@ if(CPNETFLUX_BUILD_TESTS)
     )
     set_tests_properties(cpnetflux_v3_corrupt_partial_checkpoint_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
     add_test(
+        NAME cpnetflux_v3_target_conflict_idempotency_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_target_conflict_idempotency_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-v3-target-conflict-idempotency-evidence
+    )
+    set_tests_properties(cpnetflux_v3_target_conflict_idempotency_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(
         NAME cpnetflux_tree_edge_cases_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_edge_cases_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
