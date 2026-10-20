@@ -1,7 +1,7 @@
 {
   "task": "V3-RELEASE-STABILITY-01",
   "slice": "client interruption followed by V3 resume",
-  "status": "slice_d_complete_parent_in_progress",
+  "status": "slice_e_complete_parent_in_progress",
   "input_commit": "bb6cb2022e813c274387d915e3024a4546ac0549",
   "plan_commit": "2741d8605161052e9886fcf5cf70f202d7689406",
   "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -67,7 +67,7 @@
     "remote_ref": "refs/heads/codex/V3-RELEASE-STABILITY-01",
     "remote_sha_readback": "671cb001dd694709c353f61a4c485a0924ade700"
   },
-  "next": "Slice E: existing-target conflict and duplicate submission safety; then final release candidate audit. Physical NIC/link validation stays deferred.",
+  "next": "V3-LOGICAL-10LINK-01: actual channels remain capped at eight; then resolve EDGE-STREAM software gaps and execute fixed candidate closeout. Physical NIC/path validation remains user-deferred.",
   "implementation_commit": {
     "sha": "671cb001dd694709c353f61a4c485a0924ade700",
     "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -162,9 +162,10 @@
     "A: client interruption resume",
     "B: temporary service process restart resume",
     "C: transfer silence timeout and V3 checkpoint resume",
-    "D: corrupted partial checkpoint fails safely"
+    "D: corrupted partial checkpoint fails safely",
+    "E: target-conflict rejection and repeated committed resume"
   ],
-  "active_slice": "E: existing-target conflict and duplicate submission safety",
+  "active_slice": "A-E accepted; route gaps and candidate closeout remain",
   "slice_b_execution": {
     "input_commit": "3c4f3627c452d9dcc70de667d51e3c31c33d3b5b",
     "code_commits": [
@@ -592,6 +593,363 @@
       "docs/coordination/BOARD.md"
     ],
     "estimate": "2-4 hours for implementation and two-host validation; allow additional time if a production defect is found",
-    "status": "planned"
+    "status": "complete",
+    "actual_affected_files": [
+      "CMakeLists.txt",
+      "tools/test/run_v3_target_conflict_idempotency_smoke.py",
+      "tools/test/run_v3_target_conflict_idempotency_interop.py",
+      "tools/test/run_v3_stability_matrix.py",
+      "src/core/io/persistent_tree_transfer.cpp",
+      "src/core/io/persistent_directory_batch.cpp",
+      "src/core/io/tree_transfer_client.cpp",
+      "src/protocol/control/control_server.cpp",
+      "tests/unit/persistent_data_session_test.cpp",
+      "tests/unit/dynamic_file_queue_test.cpp",
+      "docs/tasks/2026-10-20-v3-release-stability-01.md",
+      "docs/tasks/2026-10-20-v3-release-stability-01-evidence.json",
+      "docs/coordination/BOARD.md"
+    ]
+  },
+  "evidence_scope_note": "Historical root-level smoke/build fields describe earlier slices; the latest accepted code/build/cross-cloud results are under slice_e_execution.",
+  "slice_e_execution": {
+    "implementation_commits": [
+      "0cd2d932a303c40b81f15c03b733abdf61f74e85",
+      "afb912a43e827ceec1515ea5772a465371d2342a",
+      "63e5fcc6f59db60c09b2ccb64d6bb063761ced2d"
+    ],
+    "accepted_implementation_commit": "63e5fcc6f59db60c09b2ccb64d6bb063761ced2d",
+    "github_push": {
+      "remote": "git@github.com:Cantoneseman/CPNetFlux.git",
+      "push_exit_code": 0,
+      "remote_sha_readback": "63e5fcc6f59db60c09b2ccb64d6bb063761ced2d"
+    },
+    "production_code_changed": true,
+    "red_test": "Existing upload destination was not overwritten, but the failure was retried and reported as reconnect/retry budget exhausted. TLS/multichannel then exposed loss of the semantic error during batch socket cancellation.",
+    "root_cause": "Batch cancellation closed control sockets before terminal replies; sibling transport errors could win aggregation. TLS synchronous FILE_RESULT handling also discarded OutputExists.",
+    "fix": "Map OutputExists across result/resume paths, stop terminal work without retry, retain controls only long enough for authoritative target-conflict replies, and preserve that cause over cancellation errors. Static file failure draining remains supported.",
+    "source_archive_sha256_both_hosts": "517e3570fc92b8addf28aca542bdad765d6d7685312cc8505086812dd82db3f4",
+    "configuration": [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DCPNETFLUX_ENABLE_TLS=ON",
+      "-DCPNETFLUX_ENABLE_IO_URING=ON",
+      "-DCPNETFLUX_BUILD_DESKTOP=OFF",
+      "-DCPNETFLUX_BUILD_TESTS=ON",
+      "-DCPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS=OFF"
+    ],
+    "toolchain": "GNU 11.4 / CMake 3.22.1 / Python 3.10",
+    "build_exit_codes": {
+      "shenzhen": 0,
+      "shanghai": 0
+    },
+    "build_logs": {
+      "shenzhen": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/build-shenzhen-accepted.log",
+      "shanghai": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/build-shanghai-accepted.log"
+    },
+    "binary_sha256_equal_on_both_hosts": {
+      "cpnetflux-gridftp-server": "99ed1ea04cfd1ab80a7afa5693a1623ca67e548d13967e68ef320721572cd97d",
+      "cpnetflux-tree-upload-client": "a8b0eb56adf24628bfdbcd9ce81c4bece51c8ac25d240a7749c28c5e8f1936dd",
+      "cpnetflux-tree-download-client": "a5d674a22f53f69bd6431c6580d511fe3f70f6977da23906f3710bedd1c072a2"
+    },
+    "focused_development": {
+      "terminal_batch_unit_and_tls_matrix": "11 selected tests; each repeated until-fail:3; all passed",
+      "elapsed_seconds": 50.9,
+      "new_loopback_smoke": "passed on both final hosts as part of full CTest"
+    },
+    "full_ctest_serial": {
+      "shenzhen": {
+        "side": "shenzhen",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/shenzhen-build",
+          "--output-on-failure",
+          "--timeout",
+          "240"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 125.54,
+        "log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/ctest-shenzhen-accepted-status.log",
+        "source_commit": "63e5fcc6f59db60c09b2ccb64d6bb063761ced2d",
+        "result": "399/399 passed; 0 failed"
+      },
+      "shanghai": {
+        "side": "shanghai",
+        "command": [
+          "ctest",
+          "--test-dir",
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/shanghai-build",
+          "--output-on-failure",
+          "--timeout",
+          "240"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 126.7,
+        "log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/ctest-shanghai-accepted-status.log",
+        "source_commit": "63e5fcc6f59db60c09b2ccb64d6bb063761ced2d",
+        "result": "399/399 passed; 0 failed"
+      }
+    },
+    "cross_cloud": {
+      "command": "python3 tools/test/run_v3_target_conflict_idempotency_interop.py --build-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/shenzhen-build --evidence-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/crosscloud-evidence --remote-alias gridflux-beta-shanghai --remote-build-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/shanghai-build --remote-root /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c-remote/slice-e-final-20261020-01",
+      "exit_code": 0,
+      "topology": "Shenzhen V3 clients to Shanghai temporary V3 server; upload and download",
+      "summary": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/crosscloud-evidence/20261020T102909/summary.json",
+      "payload_bytes_per_file": 8388608,
+      "cases": [
+        {
+          "after": {
+            "inode": 25107,
+            "sha256": "28bb9d2d590d23d25eb982594c5938ee43107a8206887df7098f1c108740b9b7",
+            "size": 27
+          },
+          "before": {
+            "inode": 25107,
+            "sha256": "28bb9d2d590d23d25eb982594c5938ee43107a8206887df7098f1c108740b9b7",
+            "size": 27
+          },
+          "case": "upload-conflict",
+          "exit_code": 1,
+          "log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/crosscloud-evidence/20261020T102909/upload-conflict/conflict.log",
+          "target_unchanged": true,
+          "v3_summary": {
+            "result": "fail",
+            "error": {
+              "error_code": "io_error",
+              "message": "persistent output already exists: payload.bin"
+            },
+            "bytes_transferred": 8388608,
+            "completed_files": 0,
+            "resume_skipped_bytes": 0,
+            "actual_transport": "v3",
+            "actual_mode": "persistent_tree",
+            "fallback_reason": "",
+            "reconnect_attempts": 0,
+            "lane_local_recovery_count": 0
+          }
+        },
+        {
+          "after": {
+            "inode": 2654873,
+            "sha256": "28bb9d2d590d23d25eb982594c5938ee43107a8206887df7098f1c108740b9b7",
+            "size": 27
+          },
+          "before": {
+            "inode": 2654873,
+            "sha256": "28bb9d2d590d23d25eb982594c5938ee43107a8206887df7098f1c108740b9b7",
+            "size": 27
+          },
+          "case": "download-conflict",
+          "exit_code": 1,
+          "log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/crosscloud-evidence/20261020T102909/download-conflict/conflict.log",
+          "target_unchanged": true,
+          "v3_summary": {
+            "result": "fail",
+            "error": {
+              "error_code": "io_error",
+              "message": "persistent output already exists"
+            },
+            "bytes_transferred": 0,
+            "completed_files": 0,
+            "resume_skipped_bytes": 0,
+            "actual_transport": "v3",
+            "actual_mode": "persistent_tree",
+            "fallback_reason": "",
+            "reconnect_attempts": 0,
+            "lane_local_recovery_count": 0
+          }
+        },
+        {
+          "after": {
+            "inode": 25129,
+            "sha256": "e75b80b6816508a650a9526746c8992aaf1f80760d684ac1ba5ab82320b8d0a0",
+            "size": 8388608
+          },
+          "before": {
+            "inode": 25129,
+            "sha256": "e75b80b6816508a650a9526746c8992aaf1f80760d684ac1ba5ab82320b8d0a0",
+            "size": 8388608
+          },
+          "case": "upload-repeat",
+          "checkpoint_state": "committed",
+          "first_log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/crosscloud-evidence/20261020T102909/upload-repeat/initial-submit.log",
+          "initial_exit_code": 0,
+          "repeat_exit_code": 0,
+          "repeat_log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/crosscloud-evidence/20261020T102909/upload-repeat/repeated-resume.log",
+          "target_unchanged": true,
+          "transfer_id_unchanged": true,
+          "v3_summary": {
+            "result": "pass",
+            "error": null,
+            "bytes_transferred": 0,
+            "completed_files": 1,
+            "resume_skipped_bytes": 0,
+            "actual_transport": "v3",
+            "actual_mode": "persistent_tree",
+            "fallback_reason": "",
+            "reconnect_attempts": 0,
+            "lane_local_recovery_count": 0
+          }
+        },
+        {
+          "after": {
+            "inode": 2654887,
+            "sha256": "e75b80b6816508a650a9526746c8992aaf1f80760d684ac1ba5ab82320b8d0a0",
+            "size": 8388608
+          },
+          "before": {
+            "inode": 2654887,
+            "sha256": "e75b80b6816508a650a9526746c8992aaf1f80760d684ac1ba5ab82320b8d0a0",
+            "size": 8388608
+          },
+          "case": "download-repeat",
+          "checkpoint_state": "committed",
+          "first_log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/crosscloud-evidence/20261020T102909/download-repeat/initial-submit.log",
+          "initial_exit_code": 0,
+          "repeat_exit_code": 0,
+          "repeat_log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/crosscloud-evidence/20261020T102909/download-repeat/repeated-resume.log",
+          "target_unchanged": true,
+          "transfer_id_unchanged": true,
+          "v3_summary": {
+            "result": "pass",
+            "error": null,
+            "bytes_transferred": 0,
+            "completed_files": 1,
+            "resume_skipped_bytes": 8388608,
+            "actual_transport": "v3",
+            "actual_mode": "persistent_tree",
+            "fallback_reason": "",
+            "reconnect_attempts": 0,
+            "lane_local_recovery_count": 0
+          }
+        }
+      ],
+      "server_start_commands": {
+        "upload-conflict": [
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/shanghai-build/cpnetflux-gridftp-server",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "24600",
+          "--root",
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c-remote/slice-e-final-20261020-01/upload-conflict/server-root",
+          "--data-port-base",
+          "24610",
+          "--connections",
+          "2",
+          "--chunk-size",
+          "1048576",
+          "--buffer-size",
+          "65536",
+          "--checksum",
+          "crc32c",
+          "--checksum-backend",
+          "auto"
+        ],
+        "download-conflict": [
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/shanghai-build/cpnetflux-gridftp-server",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "24600",
+          "--root",
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c-remote/slice-e-final-20261020-01/download-conflict/server-root",
+          "--data-port-base",
+          "24610",
+          "--connections",
+          "2",
+          "--chunk-size",
+          "1048576",
+          "--buffer-size",
+          "65536",
+          "--checksum",
+          "crc32c",
+          "--checksum-backend",
+          "auto"
+        ],
+        "upload-repeat": [
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/shanghai-build/cpnetflux-gridftp-server",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "24600",
+          "--root",
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c-remote/slice-e-final-20261020-01/upload-repeat/server-root",
+          "--data-port-base",
+          "24610",
+          "--connections",
+          "2",
+          "--chunk-size",
+          "1048576",
+          "--buffer-size",
+          "65536",
+          "--checksum",
+          "crc32c",
+          "--checksum-backend",
+          "auto"
+        ],
+        "download-repeat": [
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/shanghai-build/cpnetflux-gridftp-server",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "24600",
+          "--root",
+          "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c-remote/slice-e-final-20261020-01/download-repeat/server-root",
+          "--data-port-base",
+          "24610",
+          "--connections",
+          "2",
+          "--chunk-size",
+          "1048576",
+          "--buffer-size",
+          "65536",
+          "--checksum",
+          "crc32c",
+          "--checksum-backend",
+          "auto"
+        ]
+      },
+      "test_auth": "CPNETFLUX_TEST_TOKEN set by the committed test harness; no formal credential change"
+    },
+    "intermediate_runs": [
+      "Initial 0cd2d93 full run was interrupted after detecting a static middle-file drain regression. afb912a restored static drain behavior; both hosts then passed 398/398. Those binaries are superseded.",
+      "A new TLS conflict red test still intermittently reported peer closed. One isolated green run did not settle the race; a further matrix rerun failed. The accepted fix keeps controls available for the semantic terminal reply.",
+      "First 63e5fcc full CTest runs passed 399/399 (123.34s Shenzhen; 126.63s Shanghai), but the outer SSH shell exit recorder failed after CTest due quoting. These were not used as exit-code acceptance. A Python subprocess wrapper reran the same serial gate and recorded exit 0 on both hosts."
+    ],
+    "limits": [
+      "Sequential existing-target and committed-resume cases only; no simultaneous duplicate-request race acceptance.",
+      "Whole-file upload conflict can still send payload before rejection (8 MiB observed); this slice fixes terminal error/retry semantics and target safety, not preflight bandwidth avoidance.",
+      "Tree CLI does not expose an explicit overwrite flag; default no-overwrite behavior is accepted.",
+      "TLS conflict evidence is loopback multichannel; cross-cloud four-case acceptance used the plain V3 test endpoint.",
+      "No physical NIC, distinct physical path, throughput or production readiness claim."
+    ],
+    "final_state": {
+      "formal_services": "active on both; not restarted/reconfigured",
+      "task_temporary_service_ports": "24600 and 24610-24619 no longer listening",
+      "shenzhen_unrelated_proxy": "pre-existing TCP/25400 left untouched",
+      "disk_free_gib": {
+        "shenzhen": 31,
+        "shanghai": 72
+      },
+      "memory_available_gib": {
+        "shenzhen": 2.5,
+        "shanghai": 2.8
+      },
+      "crosscloud_payloads": "removed by runner; remote payload search empty; logs/manifests/summaries retained",
+      "development_payload_cleanup": {
+        "owned_roots": [
+          "slice-e-tls-red",
+          "slice-e-tls-green",
+          "slice-e-tls-priority",
+          "slice-e-red-evidence",
+          "slice-e-dev-evidence"
+        ],
+        "removed_payload_files": 23,
+        "removed_bytes": 1925185536,
+        "logs_and_manifests_retained": true
+      },
+      "task_transfer_processes": "none on either host after final gates"
+    },
+    "documentation_push_receipt": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-e/github-documentation-push.json"
   }
 }
