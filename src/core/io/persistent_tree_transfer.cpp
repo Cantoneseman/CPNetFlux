@@ -936,7 +936,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         constexpr std::size_t kPipelineChunks = 2;
         const auto pipelineBudget = pipelineChunkBytes * kPipelineChunks;
         BoundedPayloadPipeline pipeline(pipelineBudget, kPipelineChunks);
-        stats->payloadPipelineBudgetBytes = pipelineBudget;
+        stats->payloadPipelineBudgetBytes = std::max<std::uint64_t>(
+            stats->payloadPipelineBudgetBytes, pipelineBudget);
         std::uint64_t payloadSent = 0;
         std::uint64_t producedBytes = 0;
         double producerReadSeconds = 0;
@@ -1095,9 +1096,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         producer.join();
         timing.readSeconds += producerReadSeconds;
         timing.checksumSeconds += producerChecksumSeconds;
-        stats->payloadPipelineHighWatermarkBytes = pipeline.highWatermarkBytes();
-        stats->payloadPipelineProducerWaits = pipeline.producerWaitCount();
-        stats->payloadPipelineConsumerWaits = pipeline.consumerWaitCount();
+        stats->payloadPipelineHighWatermarkBytes = std::max<std::uint64_t>(
+            stats->payloadPipelineHighWatermarkBytes, pipeline.highWatermarkBytes());
+        stats->payloadPipelineProducerWaits += pipeline.producerWaitCount();
+        stats->payloadPipelineConsumerWaits += pipeline.consumerWaitCount();
         if (!writeFailed && !producerStatus.isOk()) {
             status = producerStatus;
             writeFailed = true;
