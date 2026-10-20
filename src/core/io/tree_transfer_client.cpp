@@ -2060,6 +2060,12 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     auto callback = [&](const PersistentFileIdentity& id, const common::Status& fileStatus,
                         bool complete) {
         std::lock_guard<std::mutex> lock(manifestMutex);
+        // Sibling socket cancellation is a consequence of a terminal target
+        // conflict. Preserve the semantic cause even if that cancellation was
+        // observed first by a different worker.
+        if (complete && !fileStatus.isOk() &&
+            fileStatus.message().find("output already exists") != std::string::npos)
+            recordFileFailure(fileStatus);
         {
             std::lock_guard failureLock(failureMutex);
             if (!firstFailure.isOk()) return firstFailure;
@@ -2190,6 +2196,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             std::uint32_t laneAttempt = 0;
             auto recordTransferOutcome = [&](const common::Status& outcome) {
                 if (outcome.isOk()) return;
+                if (outcome.message().find("output already exists") != std::string::npos)
+                    recordFileFailure(outcome);
                 {
                     std::lock_guard<std::mutex> lock(failureMutex);
                     if (!options.dynamicFileScheduling && !firstFileFailure.isOk() &&
@@ -2298,6 +2306,12 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 auto controlStatus = channel.control->waitTransferComplete({}, &terminal);
                 channel.controlWaitSeconds += std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - waiting).count();
+                if (!controlStatus.isOk() &&
+                    controlStatus.message().find("output already exists") != std::string::npos) {
+                    channel.status = controlStatus;
+                    recordTransferOutcome(channel.status);
+                    break;
+                }
                 const bool transferCanResume = transferStatus.isOk() ||
                     transferStatus.code() == common::StatusCode::TransportError;
                 const bool transportDisconnected =
@@ -2400,7 +2414,9 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     common::Status result;
     {
         std::lock_guard<std::mutex> lock(failureMutex);
-        result = firstFailure.isOk() ? firstFileFailure : firstFailure;
+        const bool targetConflict = !firstFileFailure.isOk() &&
+            firstFileFailure.message().find("output already exists") != std::string::npos;
+        result = targetConflict || firstFailure.isOk() ? firstFileFailure : firstFailure;
     }
     if (!upload) {
         if (result.isOk() && expectedTotalFiles != kUnknownPersistentFileCount &&

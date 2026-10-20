@@ -1048,10 +1048,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             auto result = PersistentDataSession::readResult(socket, id);
             if (!result.isOk()) { failWriter(result.status()); break; }
             const double resultSeconds = secondsSince(resultStarted);
-            const auto rangeStatus = result.value() == FrameStatusCode::Ok ? Status::ok() :
-                Status::runtimeError("persistent receiver rejected range: " + id.relativePath);
+            const auto rangeStatus = receiverFileStatus(result.value(), id.relativePath);
             if (ready) {
-                auto completed = executor->finalize(*lease, rangeStatus);
+                auto completed = result.value() == FrameStatusCode::OutputExists
+                    ? executor->failTerminal(*lease, rangeStatus)
+                    : executor->finalize(*lease, rangeStatus);
                 if (!completed.isOk()) { failWriter(completed); break; }
             }
             stats->completeWaitSeconds += resultSeconds;

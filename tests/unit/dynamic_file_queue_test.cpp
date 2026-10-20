@@ -147,6 +147,29 @@ TEST(PersistentDirectoryBatchTest, MissingParticipantTimesOutAndReleasesSockets)
     char byte; EXPECT_EQ(::recv(fds[1],&byte,1,0),0);
     batch.unbind(0);::close(fds[0]);::close(fds[1]);
 }
+TEST(PersistentDirectoryBatchTest, TargetConflictStopsDataButAllowsTerminalControlReply) {
+    int control[2], data[2];
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, control), 0);
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, data), 0);
+    PersistentDirectoryBatch batch(1, 1);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    batch.bind(0, control[0], data[0]);
+    batch.markDataActive(0);
+    batch.cancel(Status::invalidArgument("persistent output already exists: existing.bin"));
+
+    char byte;
+    EXPECT_EQ(::recv(data[1], &byte, 1, MSG_DONTWAIT), 0);
+    const std::string reply = "550 persistent output already exists\r\n";
+    EXPECT_EQ(::send(control[0], reply.data(), reply.size(), MSG_NOSIGNAL),
+              static_cast<ssize_t>(reply.size()));
+    char received[128]{};
+    const auto count = ::recv(control[1], received, sizeof(received), MSG_DONTWAIT);
+    EXPECT_EQ(count, static_cast<ssize_t>(reply.size()));
+    if (count > 0) EXPECT_EQ(std::string(received, static_cast<std::size_t>(count)), reply);
+    EXPECT_FALSE(batch.status().isOk());
+    batch.unbind(0);
+    ::close(control[0]); ::close(control[1]); ::close(data[0]); ::close(data[1]);
+}
 TEST(PersistentDirectoryBatchTest, WholeBatchCompletionRequiresEveryFileAndChannel) {
     PersistentDirectoryBatch batch(1,2);
     for(unsigned c=0;c<2;++c){ASSERT_TRUE(batch.attach(c).isOk());batch.bind(c,-1,-1);}

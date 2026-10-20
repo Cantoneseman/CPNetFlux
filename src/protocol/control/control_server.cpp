@@ -1149,6 +1149,9 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     if (guard.directory) {
         auto original = guard.directory->batch->status();
         if (original.isOk()) original = status;
+        if (!original.isOk() &&
+            original.message().find("output already exists") != std::string::npos)
+            status = original;
         if (!original.isOk() && original.code() != common::StatusCode::TransportError)
             guard.directory->lifetime->terminalError.store(true, std::memory_order_release);
         if (!status.isOk()) {
