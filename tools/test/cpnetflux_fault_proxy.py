@@ -84,6 +84,24 @@ class SynchronizedMixedResetGate:
             return True
 
 
+class PauseFileGate:
+    """Pause exactly once after a byte threshold until the gate file is removed."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+
+    def pause(self, stopped, connection_id, forwarded_bytes, emit):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.touch(exist_ok=True)
+        emit(event="data_stalled", connection=connection_id,
+             gate=str(self.path), forwarded_bytes=forwarded_bytes)
+        while self.path.exists() and not stopped.wait(0.01):
+            pass
+        if not stopped.is_set():
+            emit(event="data_forwarding_resumed", connection=connection_id,
+                 gate=str(self.path), forwarded_bytes=forwarded_bytes)
+
+
 class SequentialResetPlan:
     """Advance the next data connection target after each completed reset."""
 
@@ -160,6 +178,8 @@ class FaultProxy:
         sequential_mixed_resets=False,
         sequential_mixed_long_resets=False,
         drop_control_after_data_connection=None,
+        pause_file=None,
+        pause_after_bytes=0,
     ):
         self.listeners = []
         self.connections = set()
@@ -172,6 +192,10 @@ class FaultProxy:
         self.drop_bytes = drop_bytes
         self.remaining = drops
         self.delay = delay
+        self.pause_gate = PauseFileGate(pause_file) if pause_file else None
+        self.pause_after_bytes = max(0, int(pause_after_bytes))
+        self.pause_forwarded_bytes = 0
+        self.pause_triggered = False
         self.dropped = 0
         self.forwarded = 0
         self.forwarded_by_connection = {}
@@ -388,11 +412,23 @@ class FaultProxy:
                 reset_control_connection = None
                 synchronize_data_connection = None
                 mixed_fault_participant = None
+                pause_now = False
+                pause_bytes = 0
                 if data or self.drop_terminal or self.drop_result:
                     reset = False
                     with self.lock:
                         if data:
                             self.forwarded += len(block)
+                            if (
+                                self.pause_gate is not None
+                                and self.pause_after_bytes > 0
+                                and not self.pause_triggered
+                            ):
+                                self.pause_forwarded_bytes += len(block)
+                                if self.pause_forwarded_bytes >= self.pause_after_bytes:
+                                    self.pause_triggered = True
+                                    pause_now = True
+                                    pause_bytes = self.pause_forwarded_bytes
                             if should_fault:
                                 self.forwarded_by_connection[connection_id] = (
                                     self.forwarded_by_connection.get(connection_id, 0) + len(block)
@@ -664,6 +700,10 @@ class FaultProxy:
                     if data and self.delay:
                         time.sleep(self.delay)
                 target.sendall(block)
+                if pause_now:
+                    self.pause_gate.pause(
+                        self.stopped, connection_id, pause_bytes, self.event
+                    )
                 if reset_control_connection is not None:
                     with self.lock:
                         control_sockets = self.control_sockets.get(reset_control_connection, ())
@@ -730,6 +770,8 @@ if __name__ == "__main__":
     parser.add_argument("--sequential-mixed-long-resets", action="store_true")
     parser.add_argument("--drop-control-after-data-connection", type=int, action="append")
     parser.add_argument("--log", type=Path)
+    parser.add_argument("--pause-file", type=Path)
+    parser.add_argument("--pause-after-bytes", type=int, default=0)
     args = parser.parse_args()
     proxy = FaultProxy(
         args.listen_host,
@@ -748,6 +790,8 @@ if __name__ == "__main__":
         sequential_mixed_resets=args.sequential_mixed_resets,
         sequential_mixed_long_resets=args.sequential_mixed_long_resets,
         drop_control_after_data_connection=args.drop_control_after_data_connection,
+        pause_file=args.pause_file,
+        pause_after_bytes=args.pause_after_bytes,
     )
     try:
         while True:

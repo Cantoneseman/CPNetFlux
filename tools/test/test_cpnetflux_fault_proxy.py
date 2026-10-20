@@ -9,10 +9,44 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cpnetflux_fault_proxy import (
     SequentialResetPlan,
+    PauseFileGate,
     SequentialMixedResetPlan,
     SynchronizedMixedResetGate,
     SynchronizedResetGate,
 )
+
+
+class PauseFileGateTest(unittest.TestCase):
+    def test_pause_remains_until_gate_is_removed_then_logs_resume(self):
+        import tempfile
+        from threading import Event, Thread
+
+        with tempfile.TemporaryDirectory() as directory:
+            gate_path = Path(directory) / "pause"
+            gate = PauseFileGate(gate_path)
+            stopped = Event()
+            events = []
+            completed = Event()
+
+            def wait():
+                gate.pause(stopped, 7, 16 * 1024 * 1024,
+                           lambda **fields: events.append(fields))
+                completed.set()
+
+            worker = Thread(target=wait)
+            worker.start()
+            deadline = time.monotonic() + 1.0
+            while not events and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertTrue(events, "pause event was not emitted")
+            self.assertEqual(events[0]["event"], "data_stalled")
+            self.assertFalse(completed.wait(0.03))
+            gate_path.unlink()
+            self.assertTrue(completed.wait(1.0))
+            worker.join(timeout=1.0)
+            self.assertEqual([item["event"] for item in events],
+                             ["data_stalled", "data_forwarding_resumed"])
+            self.assertEqual(events[0]["connection"], 7)
 
 
 class SequentialResetPlanTest(unittest.TestCase):
