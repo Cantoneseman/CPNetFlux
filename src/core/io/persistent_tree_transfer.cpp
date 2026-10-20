@@ -1357,10 +1357,11 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         }
         if (!fileStatus.isOk() && overall.isOk()) overall = fileStatus;
         const auto completedStarted = Clock::now();
-        if (fileFailureCode(fileStatus) == FrameStatusCode::OutputExists) {
-            // The batch callback cancels sibling sockets on terminal failure.
-            // Publish the semantic result before that cancellation can hide it
-            // behind a transport error and trigger recovery-budget accounting.
+        const bool terminalConflict = dynamic &&
+            fileFailureCode(fileStatus) == FrameStatusCode::OutputExists;
+        if (terminalConflict) {
+            // Dynamic batches stop on semantic failure. Publish the rejection
+            // before callbacks cancel sockets; static receivers keep draining.
             const auto rejected = PersistentDataSession::writeResult(
                 socket, id, FrameStatusCode::OutputExists);
             (void)notify(callback, id, fileStatus, true);
@@ -1371,8 +1372,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         timing.manifestSeconds += secondsSince(completedStarted);
         if (!status.isOk()) return finishTransport(status);
         const auto resultStarted = Clock::now();
-        status = PersistentDataSession::writeResult(socket, id,
-            fileFailureCode(fileStatus));
+        status = PersistentDataSession::writeResult(socket, id, fileFailureCode(fileStatus));
         if (!status.isOk()) return finishTransport(status);
         if (ready) {
             status = !fileStatus.isOk() && !dynamic

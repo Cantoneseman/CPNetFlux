@@ -248,7 +248,7 @@ TEST(PersistentSessionTest, ReceiverDrainsFailedMiddleFileAndCommitsNext) {
         ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id).isOk());
         auto status = PersistentDataSession::readResult(&pair.sender, id);
         ASSERT_TRUE(status.isOk());
-        EXPECT_EQ(status.value(), i == 2 ? FrameStatusCode::WriteFailed : FrameStatusCode::Ok);
+        EXPECT_EQ(status.value(), i == 2 ? FrameStatusCode::OutputExists : FrameStatusCode::Ok);
     }
     ASSERT_TRUE(PersistentDataSession::writeDirectoryEnd(&pair.sender, 3).isOk());
     receiver.join();
