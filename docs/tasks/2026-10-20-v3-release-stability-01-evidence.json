@@ -1,0 +1,46 @@
+{
+  "task": "V3-RELEASE-STABILITY-01",
+  "slice": "client interruption followed by V3 resume",
+  "status": "in_progress",
+  "input_commit": "bb6cb2022e813c274387d915e3024a4546ac0549",
+  "plan_commit": "2741d8605161052e9886fcf5cf70f202d7689406",
+  "branch": "codex/V3-RELEASE-STABILITY-01",
+  "acceptance_smoke": {
+    "command": "python3 tools/test/run_v3_interrupted_resume_smoke.py --build-dir /tmp/cpnetflux-runs/V3-COMPOSITION-STABILITY-01/shenzhen-cross-build --evidence-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/registered-candidate",
+    "exit_code": 0,
+    "build_commit": "a596970c636b32a05789bb90f663150928e6f897",
+    "note": "Test runner is added in this branch; pre-existing V3 transfer binaries are from the accepted composition-stability commit. The new test is an acceptance-coverage addition; it passed immediately and did not demonstrate a product-code failure.",
+    "payload_bytes": 536870912,
+    "source_file_sha256": "ad2f2f84c6cc1fe087ca4c4ccf19012aa50491eefa1873fcace327c8d33c6d63",
+    "source_tree_sha256": "3e6b8acd5fa38834adb83e70a71eb48108a6e6c6b7c15dd22f1053e653be5af8",
+    "upload": {
+      "interrupted_exit_code": -15,
+      "checkpoint_verified_chunks_before_interrupt": 16,
+      "checkpoint_state_after_interrupt": "transferring",
+      "checkpoint_state_after_resume": "committed",
+      "resume_skipped_bytes": 16777216,
+      "result": "pass",
+      "actual_transport": "v3",
+      "actual_mode": "persistent_tree",
+      "data_session_reuse_mode": "tree",
+      "fallback_reason": ""
+    },
+    "download": {
+      "interrupted_exit_code": -15,
+      "checkpoint_verified_chunks_before_interrupt": 16,
+      "checkpoint_state_after_interrupt": "transferring",
+      "checkpoint_state_after_resume": "committed",
+      "resume_skipped_bytes": 16777216,
+      "result": "pass",
+      "actual_transport": "v3",
+      "actual_mode": "persistent_tree",
+      "data_session_reuse_mode": "tree",
+      "fallback_reason": ""
+    },
+    "evidence_file": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/registered-candidate/summary.json"
+  },
+  "two_host_build": null,
+  "cross_host_transfer": null,
+  "github_push": null,
+  "next": "Build the committed source on Shenzhen and Shanghai, compare server/upload/download binary SHA-256, then run cross-host transfer."
+}
