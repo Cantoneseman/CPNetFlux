@@ -931,9 +931,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         auto advice = storage::applyFileIoAdvice(file,options.fileIo.advice,0,id.totalSize);
         if (!advice.isOk()) { failWriter(advice); break; }
         checksum::ChecksumComputer checksumComputer(id.checksumAlgorithm,options.checksumBackend);
-        const auto pipelineBudget = std::max<std::size_t>(
-            std::max<std::size_t>(options.bufferSize, 1), PersistentDataSession::kMaxPayload) * 2;
+        const auto pipelineChunkBytes = std::min<std::size_t>(
+            std::max<std::size_t>(options.bufferSize, 1), PersistentDataSession::kMaxPayload - 4);
         constexpr std::size_t kPipelineChunks = 2;
+        const auto pipelineBudget = pipelineChunkBytes * kPipelineChunks;
         BoundedPayloadPipeline pipeline(pipelineBudget, kPipelineChunks);
         stats->payloadPipelineBudgetBytes = pipelineBudget;
         std::uint64_t payloadSent = 0;
@@ -946,8 +947,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             for (const auto& piece : missing) {
                 for (std::uint64_t offset = piece.begin; offset < piece.end;) {
                     const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(
-                        std::min<std::size_t>(PersistentDataSession::kMaxPayload - 4,
-                            std::max<std::size_t>(options.bufferSize, 1)),
+                        pipelineChunkBytes,
                         std::min<std::uint64_t>(piece.end - offset,
                             id.chunkSize - offset % id.chunkSize)));
                     if (options.maxChunks && producedBytes >= options.maxChunks * id.chunkSize) {

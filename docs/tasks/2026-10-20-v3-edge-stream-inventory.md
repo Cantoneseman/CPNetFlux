@@ -23,7 +23,7 @@ Ten logical sessions and correct recovery do not prove the host can overlap disk
 
 ## Implemented in this development slice
 
-The sender now uses one V3-only `BoundedPayloadPipeline` per persistent file. A producer thread performs bounded `readAtAll` and checksum preparation; the sending loop performs compression, frame protection and socket writes. The queue is limited to two chunks and a byte budget of `2 * max(kPersistentDataSessionPayload, configured buffer size)`, so a slow network cannot make file-read memory grow without limit. Transport or producer errors cancel the queue and wake both sides before the file result path continues.
+The sender now uses one V3-only `BoundedPayloadPipeline` per persistent file. A producer thread performs bounded `readAtAll` and checksum preparation; the sending loop performs compression, frame protection and socket writes. The queue is limited to two chunks and a byte budget of `two times the actual per-frame read limit (`min(configured buffer size, 65532 bytes)`)`, so a slow network cannot make file-read memory grow without limit. Transport or producer errors cancel the queue and wake both sides before the file result path continues.
 
 The run statistics now expose `payload_pipeline_budget_bytes`, `payload_pipeline_high_watermark_bytes`, `payload_pipeline_producer_waits` and `payload_pipeline_consumer_waits` in V3 summaries. Existing compression, checksum, duplicate/corrupt-chunk, resume-range and work-lease behavior remains in the V3 send path.
 
