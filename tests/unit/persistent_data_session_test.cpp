@@ -1,6 +1,7 @@
 #include "cpnetflux/core/io/persistent_data_session.h"
 
 #include <gtest/gtest.h>
+#include <future>
 #include <string>
 #include <chrono>
 #include <filesystem>
@@ -9,6 +10,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/payload_pipeline.h"
 #include "cpnetflux/core/io/persistent_directory_batch.h"
 #include "cpnetflux/core/io/work_executor.h"
 #include <tuple>
@@ -447,6 +449,9 @@ TEST(PersistentTreeRangeTest, LoopbackTransfersTwoRangesAndPublishesAfterFinalRa
     ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
     EXPECT_EQ(sentStats.files, 1U);
     EXPECT_EQ(receivedStats.files, 1U);
+    EXPECT_GT(sentStats.payloadPipelineBudgetBytes, 0U);
+    EXPECT_GT(sentStats.payloadPipelineHighWatermarkBytes, 0U);
+    EXPECT_LE(sentStats.payloadPipelineHighWatermarkBytes, sentStats.payloadPipelineBudgetBytes);
     std::ifstream input(destination.path / "large.bin", std::ios::binary);
     std::string actual((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     EXPECT_EQ(actual, content);
@@ -1076,4 +1081,57 @@ TEST(PersistentSessionTest, LogicalLinkMatrixRangesPartitionSourceExactlyOnce) {
         EXPECT_EQ(offset, file.totalSize);
         for (auto count : work) EXPECT_GT(count, 0U);
     }
+}
+
+
+TEST(BoundedPayloadPipelineTest, BlocksAtByteBudgetAndWakesWhenConsumerPops) {
+    using cpnetflux::core::io::BoundedPayloadPipeline;
+    using cpnetflux::core::io::PreparedPayload;
+    BoundedPayloadPipeline pipeline(8, 2);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, std::vector<std::uint8_t>(8, 1)}).isOk());
+    auto waiting = std::async(std::launch::async, [&] {
+        return pipeline.push(PreparedPayload{8, std::vector<std::uint8_t>(1, 2)});
+    });
+    EXPECT_EQ(waiting.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    auto first = pipeline.pop();
+    ASSERT_TRUE(first.isOk());
+    ASSERT_TRUE(first.value());
+    EXPECT_EQ(first.value()->bytes.size(), 8U);
+    ASSERT_TRUE(waiting.get().isOk());
+    EXPECT_EQ(pipeline.highWatermarkBytes(), 8U);
+    EXPECT_GT(pipeline.producerWaitCount(), 0U);
+}
+
+TEST(BoundedPayloadPipelineTest, CancellationWakesProducerAndConsumerWithoutLeakingBytes) {
+    using cpnetflux::core::io::BoundedPayloadPipeline;
+    using cpnetflux::core::io::PreparedPayload;
+    BoundedPayloadPipeline pipeline(4, 1);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, std::vector<std::uint8_t>(4, 1)}).isOk());
+    auto waiting = std::async(std::launch::async, [&] {
+        return pipeline.push(PreparedPayload{4, std::vector<std::uint8_t>(1, 2)});
+    });
+    EXPECT_EQ(waiting.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    pipeline.cancel(cpnetflux::common::Status::transportError("pipeline cancelled"));
+    EXPECT_FALSE(waiting.get().isOk());
+    EXPECT_FALSE(pipeline.pop().isOk());
+    EXPECT_EQ(pipeline.queuedBytes(), 0U);
+    EXPECT_EQ(pipeline.status().message(), "pipeline cancelled");
+}
+
+TEST(BoundedPayloadPipelineTest, CloseDrainsQueuedChunksAndThenReturnsEndOfStream) {
+    using cpnetflux::core::io::BoundedPayloadPipeline;
+    using cpnetflux::core::io::PreparedPayload;
+    BoundedPayloadPipeline pipeline(16, 2);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1, 2, 3}}).isOk());
+    ASSERT_TRUE(pipeline.push(PreparedPayload{3, {4}}).isOk());
+    pipeline.close();
+    auto first = pipeline.pop();
+    auto second = pipeline.pop();
+    ASSERT_TRUE(first.isOk());
+    ASSERT_TRUE(second.isOk());
+    ASSERT_TRUE(first.value());
+    ASSERT_TRUE(second.value());
+    auto end = pipeline.pop();
+    ASSERT_TRUE(end.isOk());
+    EXPECT_FALSE(end.value());
 }

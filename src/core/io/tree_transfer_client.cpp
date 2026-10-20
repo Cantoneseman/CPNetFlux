@@ -904,6 +904,10 @@ struct TreeRunStats {
     std::uint32_t reconnectAttempts = 0, connectionEpoch = 1;
     std::uint32_t pendingWindow = 1;
     std::uint32_t pendingHighWatermark = 0;
+    std::uint64_t payloadPipelineBudgetBytes = 0;
+    std::uint64_t payloadPipelineHighWatermarkBytes = 0;
+    std::uint64_t payloadPipelineProducerWaits = 0;
+    std::uint64_t payloadPipelineConsumerWaits = 0;
     double controlPrepareSeconds = 0;
     double completeWaitSeconds = 0;
     bool dynamicScheduling = false;
@@ -1363,6 +1367,10 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "  \"transfer_complete_wait_scope\": \"" << (std::string(direction) == "upload" ? "file_result_plus_control_final" : "control_final_only") << "\",\n";
         output << "  \"data_pending_window\": " << stats.pendingWindow << ",\n";
         output << "  \"data_pending_high_watermark\": " << stats.pendingHighWatermark << ",\n";
+        output << "  \"payload_pipeline_budget_bytes\": " << stats.payloadPipelineBudgetBytes << ",\n";
+        output << "  \"payload_pipeline_high_watermark_bytes\": " << stats.payloadPipelineHighWatermarkBytes << ",\n";
+        output << "  \"payload_pipeline_producer_waits\": " << stats.payloadPipelineProducerWaits << ",\n";
+        output << "  \"payload_pipeline_consumer_waits\": " << stats.payloadPipelineConsumerWaits << ",\n";
     }
     output << "  \"wire_bytes_scope\": \"" << (stats.persistentData ? "application_frames_both_directions" : "v3_application_frames") << "\",\n";
     output << "  \"planner_preset\": \"" << jsonEscape(options.plannerPreset) << "\",\n";
@@ -2379,6 +2387,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     stats->persistentDataConnectCount = 0;
     double completeWaitSeconds = 0;
     std::uint32_t pendingHighWatermark = 0;
+    std::uint64_t payloadPipelineBudgetBytes = 0, payloadPipelineHighWatermarkBytes = 0;
+    std::uint64_t payloadPipelineProducerWaits = 0, payloadPipelineConsumerWaits = 0;
     for (std::size_t index = 0; index < channels.size(); ++index) {
         const auto& channel = channels[index];
         stats->persistentDataConnectCount += channel->dataConnectCount;
@@ -2404,12 +2414,22 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         completeWaitSeconds += channel->observed.completeWaitSeconds + channel->controlWaitSeconds;
         pendingHighWatermark = std::max(pendingHighWatermark,
             channel->observed.pendingHighWatermark);
+        payloadPipelineBudgetBytes = std::max(payloadPipelineBudgetBytes,
+            channel->observed.payloadPipelineBudgetBytes);
+        payloadPipelineHighWatermarkBytes = std::max(payloadPipelineHighWatermarkBytes,
+            channel->observed.payloadPipelineHighWatermarkBytes);
+        payloadPipelineProducerWaits += channel->observed.payloadPipelineProducerWaits;
+        payloadPipelineConsumerWaits += channel->observed.payloadPipelineConsumerWaits;
     }
     stats->transferredBytes.fetch_add(transferredBytes);
     if (options.reconnectAttempt != 0) stats->recoveryPayloadBytes += transferredBytes;
     stats->wireBytes.fetch_add(wireBytes);
     stats->completeWaitSeconds += completeWaitSeconds;
     stats->pendingHighWatermark = pendingHighWatermark;
+    stats->payloadPipelineBudgetBytes = payloadPipelineBudgetBytes;
+    stats->payloadPipelineHighWatermarkBytes = payloadPipelineHighWatermarkBytes;
+    stats->payloadPipelineProducerWaits = payloadPipelineProducerWaits;
+    stats->payloadPipelineConsumerWaits = payloadPipelineConsumerWaits;
     if (ready) stats->queueHighWatermark = ready->highWatermark();
 
     common::Status result;

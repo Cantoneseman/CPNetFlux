@@ -57,6 +57,10 @@ struct PersistentTreeStats {
     double queueWaitSeconds = 0;
     std::uint32_t pendingWindow = 1;
     std::uint32_t pendingHighWatermark = 0;
+    std::uint64_t payloadPipelineBudgetBytes = 0;
+    std::uint64_t payloadPipelineHighWatermarkBytes = 0;
+    std::uint64_t payloadPipelineProducerWaits = 0;
+    std::uint64_t payloadPipelineConsumerWaits = 0;
 };
 using PersistentFileCallback = std::function<common::Status(
     const PersistentFileIdentity&, const common::Status&, bool complete)>;

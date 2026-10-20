@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/payload_pipeline.h"
 #include "cpnetflux/core/io/work_executor.h"
 
 #include <fcntl.h>
@@ -720,7 +721,6 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     const std::uint64_t filesAtConnectionStart = stats->files;
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
-    std::vector<std::uint8_t> buffer(PersistentDataSession::kMaxPayload);
     std::optional<WorkExecutor> executor;
     if (ready) {
         auto context = ready->worker(channelIndex);
@@ -931,98 +931,176 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         auto advice = storage::applyFileIoAdvice(file,options.fileIo.advice,0,id.totalSize);
         if (!advice.isOk()) { failWriter(advice); break; }
         checksum::ChecksumComputer checksumComputer(id.checksumAlgorithm,options.checksumBackend);
+        const auto pipelineBudget = std::max<std::size_t>(
+            std::max<std::size_t>(options.bufferSize, 1), PersistentDataSession::kMaxPayload) * 2;
+        constexpr std::size_t kPipelineChunks = 2;
+        BoundedPayloadPipeline pipeline(pipelineBudget, kPipelineChunks);
+        stats->payloadPipelineBudgetBytes = pipelineBudget;
         std::uint64_t payloadSent = 0;
-        for (const auto& piece : missing) {
-            for (std::uint64_t offset=piece.begin; offset<piece.end;) {
-                const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(
-                    std::min<std::size_t>(buffer.size()-4,options.bufferSize),std::min<std::uint64_t>(
-                        piece.end-offset,id.chunkSize-offset%id.chunkSize)));
-                if (options.maxChunks && payloadSent >= options.maxChunks*id.chunkSize) {
-                    status=Status::runtimeError("transfer interrupted by max-chunks");writeFailed=true;break;
-                }
-                const auto reading=Clock::now();
-                status=storage::readAtAll(file,offset,buffer.data(),length,ioContext,&stats->fileIoStats);
-                timing.readSeconds+=secondsSince(reading);
-                if (!status.isOk()) {writeFailed=true;break;}
-                const auto checksumStarted=Clock::now();
-                checksumComputer.update(buffer.data(),length);
-                checksum::ChecksumComputer frameChecksum(id.checksumAlgorithm,options.checksumBackend);
-                frameChecksum.update(buffer.data(),length);
-                const auto frameDigest=frameChecksum.finalize().value;
-                timing.checksumSeconds+=secondsSince(checksumStarted);
-                const auto chunkIndex=offset/id.chunkSize;
-                if (options.hasCorruptChunk && chunkIndex==options.corruptChunk)
-                    buffer[0]^=0xffU;
-                std::vector<std::uint8_t> compressed;
-                auto* bytes=buffer.data();std::size_t wireLength=length;std::uint16_t flags=0;
-                auto& runtime=stats->runtime;
-                if (options.hotPathCompression.enabled && options.hotPathCompression.candidate &&
-                    !options.hotPathCompression.forceRaw) {
-                    ++runtime.compressionAttempts;
-                    ++timing.compressionAttempts;
-                    auto encoded=options.hotPathCompression.testForceCompressFailure
-                        ? common::Result<std::vector<std::uint8_t>>(Status::runtimeError("compression_failure"))
-                        : protocol::encodeCompressedDataPayload(bytes,length,
-                            options.hotPathCompression.maxPayloadBytes ?
-                            std::min(options.bufferSize,options.hotPathCompression.maxPayloadBytes) : options.bufferSize);
-                    if (encoded.isOk() && encoded.value().size()<length) {
-                        compressed=std::move(encoded.value());bytes=compressed.data();wireLength=compressed.size();
-                        flags=protocol::kDataCompressed;++runtime.compressedFrames;
-                        ++timing.compressedFrames;
-                        runtime.compressedLogicalBytes+=length;runtime.compressedWireBytes+=wireLength;
-                        if (options.hotPathCompression.testCorruptCompressedPayload &&
-                            wireLength>protocol::kCompressedDataPrefixSize)
-                            compressed[protocol::kCompressedDataPrefixSize]^=0xffU;
-                    } else {
-                        ++runtime.rawFallbackFrames;
-                        ++timing.rawFallbackFrames;
-                        runtime.compressionFallbackReason=encoded.isOk() ? "poor_ratio" : "compression_failure";
-                        if (!encoded.isOk()) {
-                            ++runtime.compressionFailures;
-                            ++timing.compressionFailures;
-                        }
+        std::uint64_t producedBytes = 0;
+        double producerReadSeconds = 0;
+        double producerChecksumSeconds = 0;
+        Status producerStatus = Status::ok();
+        std::thread producer([&]() {
+            std::vector<std::uint8_t> producerBuffer;
+            for (const auto& piece : missing) {
+                for (std::uint64_t offset = piece.begin; offset < piece.end;) {
+                    const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(
+                        std::min<std::size_t>(PersistentDataSession::kMaxPayload - 4,
+                            std::max<std::size_t>(options.bufferSize, 1)),
+                        std::min<std::uint64_t>(piece.end - offset,
+                            id.chunkSize - offset % id.chunkSize)));
+                    if (options.maxChunks && producedBytes >= options.maxChunks * id.chunkSize) {
+                        producerStatus = Status::runtimeError("transfer interrupted by max-chunks");
+                        pipeline.cancel(producerStatus);
+                        return;
                     }
-                }
-                std::vector<std::uint8_t> protectedPayload;
-                if (id.checksumAlgorithm != checksum::ChecksumAlgorithm::None) {
-                    protectedPayload={static_cast<std::uint8_t>(frameDigest>>24),
-                        static_cast<std::uint8_t>(frameDigest>>16),static_cast<std::uint8_t>(frameDigest>>8),
-                        static_cast<std::uint8_t>(frameDigest)};
-                    protectedPayload.insert(protectedPayload.end(),bytes,bytes+wireLength);
-                    bytes=protectedPayload.data();wireLength=protectedPayload.size();flags|=protocol::kDataChecksum;
-                }
-                protocol::FrameHeader header;
-                header.type=FrameType::Data;header.streamId=id.fileId;header.chunkId=id.generation;
-                header.rangeId=id.rangeId;header.attempt=id.attempt;header.offset=offset;
-                header.totalSize=id.totalSize;header.payloadSize=wireLength;header.flags=flags;
-                auto encoded=protocol::encodeFrameHeader(header);
-                const auto payloadStarted=Clock::now();
-                // Track locally outstanding synchronous DATA IO. Receiver acceptance remains
-                // a separate CommitPending lease; this is not TCP/NIC in-flight accounting.
-                auto writePayload = [&](const std::uint8_t* payload, std::size_t size) {
-                    const auto frameBytes = encoded.size() + size;
-                    if (ready) {
-                        auto reserved = executor->startIo(*lease, frameBytes);
-                        if (!reserved.isOk()) return reserved;
+                    producerBuffer.resize(length);
+                    const auto reading = Clock::now();
+                    producerStatus = storage::readAtAll(file, offset, producerBuffer.data(), length,
+                        ioContext, &stats->fileIoStats);
+                    producerReadSeconds += secondsSince(reading);
+                    if (!producerStatus.isOk()) {
+                        pipeline.cancel(producerStatus);
+                        return;
                     }
-                    auto written = socket->writeAll(encoded.data(), encoded.size());
-                    if (written.isOk()) written = socket->writeAll(payload, size);
-                    if (written.isOk() && ready) written = executor->finishIo(*lease, frameBytes);
-                    return written;
-                };
-                status = writePayload(bytes, wireLength);
-                if (status.isOk() && options.hasDuplicateCorruptChunk &&
-                    chunkIndex==options.duplicateCorruptChunk) {
-                    buffer[0]^=0xffU;
-                    status = writePayload(buffer.data(), length);
+                    const auto checksumStarted = Clock::now();
+                    checksumComputer.update(producerBuffer.data(), length);
+                    checksum::ChecksumComputer frameChecksum(id.checksumAlgorithm,
+                        options.checksumBackend);
+                    frameChecksum.update(producerBuffer.data(), length);
+                    const auto frameDigest = frameChecksum.finalize().value;
+                    producerChecksumSeconds += secondsSince(checksumStarted);
+                    const auto chunkIndex = offset / id.chunkSize;
+                    if (options.hasCorruptChunk && chunkIndex == options.corruptChunk)
+                        producerBuffer[0] ^= 0xffU;
+                    PreparedPayload prepared;
+                    prepared.offset = offset;
+                    prepared.chunkIndex = chunkIndex;
+                    prepared.frameChecksum = frameDigest;
+                    prepared.bytes = std::move(producerBuffer);
+                    producerStatus = pipeline.push(std::move(prepared));
+                    if (!producerStatus.isOk()) return;
+                    producedBytes += length;
+                    offset += length;
                 }
-                timing.payloadIoSeconds+=secondsSince(payloadStarted);
-                if (status.isOk() && !timing.firstPayloadSeconds) timing.firstPayloadSeconds=secondsSince(fileStarted);
-                if (!status.isOk()) {writeFailed=true;break;}
-                offset+=length;payloadSent+=length;stats->payloadBytes+=length;
-                addWire(protocol::kFrameHeaderSize+wireLength);
+                if (!producerStatus.isOk()) return;
             }
-            if (writeFailed) break;
+            pipeline.close();
+        });
+        for (;;) {
+            auto next = pipeline.pop();
+            if (!next.isOk()) {
+                status = next.status();
+                writeFailed = true;
+                break;
+            }
+            if (!next.value()) break;
+            auto prepared = std::move(*next.value());
+            const auto offset = prepared.offset;
+            const auto length = prepared.bytes.size();
+            const auto frameDigest = prepared.frameChecksum;
+            const auto chunkIndex = prepared.chunkIndex;
+            std::vector<std::uint8_t> compressed;
+            auto* bytes = prepared.bytes.data();
+            std::size_t wireLength = length;
+            std::uint16_t flags = 0;
+            auto& runtime = stats->runtime;
+            if (options.hotPathCompression.enabled && options.hotPathCompression.candidate &&
+                !options.hotPathCompression.forceRaw) {
+                ++runtime.compressionAttempts;
+                ++timing.compressionAttempts;
+                auto encoded = options.hotPathCompression.testForceCompressFailure
+                    ? common::Result<std::vector<std::uint8_t>>(Status::runtimeError("compression_failure"))
+                    : protocol::encodeCompressedDataPayload(bytes, length,
+                        options.hotPathCompression.maxPayloadBytes
+                            ? std::min(options.bufferSize, options.hotPathCompression.maxPayloadBytes)
+                            : options.bufferSize);
+                if (encoded.isOk() && encoded.value().size() < length) {
+                    compressed = std::move(encoded.value());
+                    bytes = compressed.data();
+                    wireLength = compressed.size();
+                    flags = protocol::kDataCompressed;
+                    ++runtime.compressedFrames;
+                    ++timing.compressedFrames;
+                    runtime.compressedLogicalBytes += length;
+                    runtime.compressedWireBytes += wireLength;
+                    if (options.hotPathCompression.testCorruptCompressedPayload &&
+                        wireLength > protocol::kCompressedDataPrefixSize)
+                        compressed[protocol::kCompressedDataPrefixSize] ^= 0xffU;
+                } else {
+                    ++runtime.rawFallbackFrames;
+                    ++timing.rawFallbackFrames;
+                    runtime.compressionFallbackReason = encoded.isOk() ? "poor_ratio" : "compression_failure";
+                    if (!encoded.isOk()) {
+                        ++runtime.compressionFailures;
+                        ++timing.compressionFailures;
+                    }
+                }
+            }
+            std::vector<std::uint8_t> protectedPayload;
+            if (id.checksumAlgorithm != checksum::ChecksumAlgorithm::None) {
+                protectedPayload = {static_cast<std::uint8_t>(frameDigest >> 24),
+                    static_cast<std::uint8_t>(frameDigest >> 16),
+                    static_cast<std::uint8_t>(frameDigest >> 8),
+                    static_cast<std::uint8_t>(frameDigest)};
+                protectedPayload.insert(protectedPayload.end(), bytes, bytes + wireLength);
+                bytes = protectedPayload.data();
+                wireLength = protectedPayload.size();
+                flags |= protocol::kDataChecksum;
+            }
+            protocol::FrameHeader header;
+            header.type = FrameType::Data;
+            header.streamId = id.fileId;
+            header.chunkId = id.generation;
+            header.rangeId = id.rangeId;
+            header.attempt = id.attempt;
+            header.offset = offset;
+            header.totalSize = id.totalSize;
+            header.payloadSize = wireLength;
+            header.flags = flags;
+            auto encoded = protocol::encodeFrameHeader(header);
+            const auto payloadStarted = Clock::now();
+            auto writePayload = [&](const std::uint8_t* payload, std::size_t size) {
+                const auto frameBytes = encoded.size() + size;
+                if (ready) {
+                    auto reserved = executor->startIo(*lease, frameBytes);
+                    if (!reserved.isOk()) return reserved;
+                }
+                auto written = socket->writeAll(encoded.data(), encoded.size());
+                if (written.isOk()) written = socket->writeAll(payload, size);
+                if (written.isOk() && ready) written = executor->finishIo(*lease, frameBytes);
+                return written;
+            };
+            status = writePayload(bytes, wireLength);
+            if (status.isOk() && options.hasDuplicateCorruptChunk &&
+                chunkIndex == options.duplicateCorruptChunk) {
+                auto duplicate = prepared.bytes;
+                duplicate[0] ^= 0xffU;
+                status = writePayload(duplicate.data(), length);
+            }
+            timing.payloadIoSeconds += secondsSince(payloadStarted);
+            if (status.isOk() && !timing.firstPayloadSeconds)
+                timing.firstPayloadSeconds = secondsSince(fileStarted);
+            if (!status.isOk()) {
+                writeFailed = true;
+                break;
+            }
+            payloadSent += length;
+            stats->payloadBytes += length;
+            addWire(protocol::kFrameHeaderSize + wireLength);
+        }
+        if (writeFailed)
+            pipeline.cancel(status.isOk() ? Status::runtimeError("persistent data write failed") : status);
+        producer.join();
+        timing.readSeconds += producerReadSeconds;
+        timing.checksumSeconds += producerChecksumSeconds;
+        stats->payloadPipelineHighWatermarkBytes = pipeline.highWatermarkBytes();
+        stats->payloadPipelineProducerWaits = pipeline.producerWaitCount();
+        stats->payloadPipelineConsumerWaits = pipeline.consumerWaitCount();
+        if (!writeFailed && !producerStatus.isOk()) {
+            status = producerStatus;
+            writeFailed = true;
         }
         const auto expectedBytes=id.rangeId ? id.rangeLength : id.totalSize;
         std::uint64_t requestedBytes = 0;

@@ -49,11 +49,17 @@ common::Result<std::vector<FramedDataSocket>> sockets(const config::FileTransfer
 void summary(const config::FileTransferOptions& o, const std::vector<std::unique_ptr<PersistentTreeStats>>& stats,
              const char* label, bool sender, double wall) {
     std::uint64_t bytes=0,wire=0,skipped=0,loaded=0,corrupt=0;
+    std::uint64_t payloadPipelineBudgetBytes=0, payloadPipelineHighWatermarkBytes=0;
+    std::uint64_t payloadPipelineProducerWaits=0, payloadPipelineConsumerWaits=0;
     TransferRuntimeMetrics runtime;
     storage::FileIoStats io;
     for (const auto& s:stats) {
         bytes+=s->payloadBytes;wire+=s->wireBytes;skipped+=s->skippedBytes;
         io.mergeFrom(s->fileIoStats);loaded+=s->loadedVerifiedChunks;corrupt+=s->removedCorruptChunks;
+        payloadPipelineBudgetBytes=std::max(payloadPipelineBudgetBytes,s->payloadPipelineBudgetBytes);
+        payloadPipelineHighWatermarkBytes=std::max(payloadPipelineHighWatermarkBytes,s->payloadPipelineHighWatermarkBytes);
+        payloadPipelineProducerWaits+=s->payloadPipelineProducerWaits;
+        payloadPipelineConsumerWaits+=s->payloadPipelineConsumerWaits;
         runtime.compressionAttempts+=s->runtime.compressionAttempts;
         runtime.compressedFrames+=s->runtime.compressedFrames;
         runtime.rawFallbackFrames+=s->runtime.rawFallbackFrames;
@@ -81,7 +87,11 @@ void summary(const config::FileTransferOptions& o, const std::vector<std::unique
         << " compressed_wire_bytes=" << runtime.compressedWireBytes
         << " compression_fallback_reason=" << runtime.compressionFallbackReason
         << " elapsed_seconds=" << wall << " connections=" << o.connections
-        << " file_io_backend=" << storage::fileIoBackendName(o.fileIo.backend);
+        << " file_io_backend=" << storage::fileIoBackendName(o.fileIo.backend)
+        << " payload_pipeline_budget_bytes=" << payloadPipelineBudgetBytes
+        << " payload_pipeline_high_watermark_bytes=" << payloadPipelineHighWatermarkBytes
+        << " payload_pipeline_producer_waits=" << payloadPipelineProducerWaits
+        << " payload_pipeline_consumer_waits=" << payloadPipelineConsumerWaits;
     storage::appendFileIoStats(output,io);
     std::cout<<output.str()<<std::endl;
 }
