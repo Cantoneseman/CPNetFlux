@@ -1,7 +1,7 @@
 # V3-RELEASE-STABILITY-01
 
 Date: 2026-10-20 (Asia/Shanghai)
-Status: slices A and B complete; parent release-stability task remains in_progress
+Status: slices A through D complete; parent release-stability task remains in_progress
 Owner: current commander, single serial developer
 Input commit: bb6cb2022e813c274387d915e3024a4546ac0549
 Branch: codex/V3-RELEASE-STABILITY-01
@@ -183,3 +183,36 @@ slice A 已通过。下一子阶段优先把“传输中服务端重启后 V3 �
 非目标：不更改正式服务、协议或检查点格式，不覆盖目标冲突和重复提交行为，不做吞吐、生产 readiness、物理 NIC 或不同物理链路验证。
 
 验收：上传/下载均确认损坏前存在非空未提交检查点；resume 明确失败且无 V3 之外路径；目标不被误报为完整或以错误数据覆盖；测试日志与文件 SHA 证据完整；双端同提交构建、CTest 及二进制一致后跨云复验。预计受影响文件为新的 V3 checkpoint-corruption smoke、CMakeLists.txt、本任务记录、evidence JSON 和任务板；仅红测确认产品缺陷时增加生产文件。
+
+## Slice D 执行与验收结果（2026-10-20）
+
+本阶段解决的问题：传输中断后，如果进度检查点被破坏，V3 必须停下来报错，不能把损坏数据说成传输成功，也不能改坏已经写下的部分数据。本轮只增加 loopback/跨云验收脚本，没有发现生产代码缺陷，因此未改 C++、协议或检查点格式。
+
+新增 	ools/test/run_v3_corrupt_partial_checkpoint_smoke.py 并注册 CTest cpnetflux_v3_corrupt_partial_checkpoint_smoke；另新增 	ools/test/run_v3_corrupt_partial_checkpoint_interop.py 固化跨云相同场景。跨云 runner 提交 5f222689fc08e960208eb2ec9aa8029e0ce295d2 已推送至 origin/codex/V3-RELEASE-STABILITY-01，git ls-remote 回读相同 SHA。其源码归档 SHA-256 在两端均为 573e36b656bce2d8af3b314a714e51fb16204919e049de0d8ae574fdb7f0bd17。第一次对新归档的构建命令误把归档顶层目录剥掉，造成深圳误选桌面 CMake、上海因 Qt 不可用而失败；该次不作通过证据。修正为从归档根目录配置后，两端核心构建退出码均为 0。
+
+两端配置相同：Release、TLS ON、io_uring ON、测试 ON、桌面 OFF、跨域 CTest OFF。定向 CTest 两端均 1/1；完整串行 CTest 深圳 397/397（123.45 秒）、上海 397/397（121.58 秒），0 失败。server、upload client、download client 两端 SHA-256 一致，分别为 952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412、19d1bcd167e7e12ed9f2d738b624d2294b2d9a12b26e1b74f598fbd11080e14c、7e488ecd507aab737b5c29afb4ae9f59503203587fa7d32f0e5479ba23bd3969。
+
+完成哈希门禁后，深圳 V3 客户端连接上海临时服务做了 64 MiB 上传/下载损坏 checkpoint 实测。两个方向先形成 16 个已校验块的部分检查点，中断后只修改测试持有的时间戳字段。上传 resume 明确失败（persistent range resume rejected），下载明确失败（download manifest body checksum mismatch）；两个方向均没有发送数据，部分文件大小和 SHA-256 前后不变，也没有生成最终目标文件。证据摘要位于 /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-d-verified/crosscloud-evidence/20261020T092552/summary.json；两端全量 CTest 和构建日志位于同目录的 slice-d-verified/。
+
+正式服务在两端均保持 active，未停止或修改；临时服务、代理及测试 payload 已清理，日志/摘要保留。本轮只证明这些云主机和构建配置下损坏部分检查点会安全失败；尚不代表发布就绪，也不覆盖目标冲突、重复提交或物理链路。
+
+### Slice E 计划：已有目标冲突与重复提交
+
+先分别确定并固化两条用户可见边界：目标文件/目录已存在时，V3 是否明确拒绝覆盖或按显式 overwrite 语义执行；同一 transfer 被重复提交/重试完成消息时，最终文件和 batch 计数是否保持一次提交。先建立 loopback 红测并检查现有实现，只有发现行为缺陷才改生产逻辑。随后同提交完成深圳/上海构建、定向和完整 CTest、关键二进制哈希一致核验，再做深圳到上海临时 V3 服务的真实场景。正式服务和物理 NIC/链路均不触碰。
+
+范围包括两个隔离 smoke/必要 CTest、任务证据和任务板；非目标为协议/schema 重设计、性能、生产 readiness、物理网卡/不同物理路径。验收必须证明无意外覆盖、无重复最终提交/计数、错误信息明确，且源/目标 SHA 与摘要一致。预计这一 Slice 约 2–4 小时的实际开发与双端验证；若红测暴露产品缺陷，修复和重跑可能延长。
+
+
+## Slice E：已有目标冲突与重复提交（计划）
+
+计划输入提交：5f222689fc08e960208eb2ec9aa8029e0ce295d2。
+
+### 范围、非目标和验收
+
+本 Slice 检查两件容易造成用户损失的事：目标文件已存在时，新的 V3 上传/下载是否按默认规则拒绝覆盖；同一份已经成功的传输再次提交或以 resume 重试时，结果是否保持幂等，不重复写入、重复计数或破坏最终文件。先做 loopback 可重复行为测试。目标冲突分别覆盖 upload 和 download；重复提交验证首次成功、默认重复请求明确失败且旧目标 SHA 不变，再用同一 V3 transfer identity resume 重试并核对最终 SHA、提交状态与摘要。若测试发现缺陷，才修生产实现。之后同一提交两端构建/定向及完整 CTest、server/client SHA 核验，并用深圳客户端连接上海临时服务实测。
+
+非目标：协议/schema 改动、并发重复请求竞态、性能、生产 readiness、正式服务更改、物理 NIC/local-bind/物理链路验证。并发竞争若现有可重复 API 无法精确触发，留给后续专项而不夸大本 Slice 覆盖。
+
+验收：默认冲突请求失败且原目标文件字节不变；显式 overwrite（若 CLI 定义允许）只按该标志覆盖，或文档/CLI 明确不支持时保持拒绝；同一已提交传输重复 resume 是安全可重复结果，文件 SHA 与提交数不变；loopback smoke 和 CTest 两端通过、完整串行 CTest 0 失败；同提交两端关键二进制 SHA 一致后跨云 upload/download 用例通过；正式服务保持 active、测试 payload 清理、证据留存。
+
+预计受影响文件：新增 	ools/test/run_v3_target_conflict_idempotency_smoke.py、CMakeLists.txt、本任务 Markdown、evidence JSON、docs/coordination/BOARD.md。预计开发和双端验证约 2–4 小时；若出现生产逻辑缺陷，另加修复和完整重跑时间。

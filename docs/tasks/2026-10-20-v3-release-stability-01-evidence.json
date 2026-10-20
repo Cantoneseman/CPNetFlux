@@ -1,7 +1,7 @@
 {
   "task": "V3-RELEASE-STABILITY-01",
   "slice": "client interruption followed by V3 resume",
-  "status": "slice_c_complete_parent_in_progress",
+  "status": "slice_d_complete_parent_in_progress",
   "input_commit": "bb6cb2022e813c274387d915e3024a4546ac0549",
   "plan_commit": "2741d8605161052e9886fcf5cf70f202d7689406",
   "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -67,7 +67,7 @@
     "remote_ref": "refs/heads/codex/V3-RELEASE-STABILITY-01",
     "remote_sha_readback": "671cb001dd694709c353f61a4c485a0924ade700"
   },
-  "next": "Slice D: create a non-empty V3 upload/download checkpoint, corrupt only the task-owned checkpoint, then verify resume fails clearly without false commit or damaging target data. Same-commit two-host CTest and SHA gate before cross-cloud recheck; physical NIC/link validation stays deferred.",
+  "next": "Slice E: existing-target conflict and duplicate submission safety; then final release candidate audit. Physical NIC/link validation stays deferred.",
   "implementation_commit": {
     "sha": "671cb001dd694709c353f61a4c485a0924ade700",
     "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -161,9 +161,10 @@
   "completed_slices": [
     "A: client interruption resume",
     "B: temporary service process restart resume",
-    "C: transfer silence timeout and V3 checkpoint resume"
+    "C: transfer silence timeout and V3 checkpoint resume",
+    "D: corrupted partial checkpoint fails safely"
   ],
-  "active_slice": "D: safe failure on a corrupted partial-transfer checkpoint (planned)",
+  "active_slice": "E: existing-target conflict and duplicate submission safety",
   "slice_b_execution": {
     "input_commit": "3c4f3627c452d9dcc70de667d51e3c31c33d3b5b",
     "code_commits": [
@@ -500,6 +501,97 @@
       "docs/tasks/2026-10-20-v3-release-stability-01.md",
       "docs/tasks/2026-10-20-v3-release-stability-01-evidence.json"
     ],
+    "status": "complete"
+  },
+  "slice_d_execution": {
+    "input_commit": "671cb001dd694709c353f61a4c485a0924ade700",
+    "implementation_commit": "5f222689fc08e960208eb2ec9aa8029e0ce295d2",
+    "implementation_commit_pushed": true,
+    "github_remote_sha_readback": "5f222689fc08e960208eb2ec9aa8029e0ce295d2",
+    "source_archive_sha256_both_hosts": "573e36b656bce2d8af3b314a714e51fb16204919e049de0d8ae574fdb7f0bd17",
+    "same_commit_build": {
+      "shenzhen": 0,
+      "shanghai": 0,
+      "configuration": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCPNETFLUX_ENABLE_TLS=ON",
+        "-DCPNETFLUX_ENABLE_IO_URING=ON",
+        "-DCPNETFLUX_BUILD_DESKTOP=OFF",
+        "-DCPNETFLUX_BUILD_TESTS=ON",
+        "-DCPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS=OFF"
+      ],
+      "build_log_shenzhen": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-d-verified/build-shenzhen.log",
+      "build_log_shanghai": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-d-verified/build-shanghai.log"
+    },
+    "focused_ctest": {
+      "name": "cpnetflux_v3_corrupt_partial_checkpoint_smoke",
+      "shenzhen": "1/1 passed",
+      "shanghai": "1/1 passed"
+    },
+    "full_ctest_serial": {
+      "shenzhen": "397/397 passed; 0 failed; 123.45s",
+      "shanghai": "397/397 passed; 0 failed; 121.58s",
+      "logs": [
+        "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-d-verified/ctest-shenzhen.log",
+        "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-d-verified/ctest-shanghai.log"
+      ]
+    },
+    "binary_sha256_equal": {
+      "cpnetflux-gridftp-server": "e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412",
+      "cpnetflux-tree-upload-client": "19d1bcd167e7e12ed9f2d738b624d2294b2d9a12b26e1b74f598fbd11080e14c",
+      "cpnetflux-tree-download-client": "7e488ecd507aab737b5c29afb4ae9f59503203587fa7d32f0e5479ba23bd3969"
+    },
+    "cross_cloud": {
+      "command": "python3 tools/test/run_v3_corrupt_partial_checkpoint_interop.py --build-dir <shenzhen-build> --remote-alias gridflux-beta-shanghai --remote-build-dir <shanghai-build> --remote-root <isolated-slice-d-root> --file-size-mib 64",
+      "exit_code": 0,
+      "summary": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-d-verified/crosscloud-evidence/20261020T092552/summary.json",
+      "topology": "Shenzhen V3 client to Shanghai temporary V3 service",
+      "upload": {
+        "partial_verified_chunks": 16,
+        "resume_exit_code": 1,
+        "error": "persistent range resume rejected",
+        "data_transferred_bytes": 0,
+        "partial_size_sha256_unchanged": true,
+        "final_target_created": false
+      },
+      "download": {
+        "partial_verified_chunks": 16,
+        "resume_exit_code": 1,
+        "error": "download manifest body checksum mismatch",
+        "data_transferred_bytes": 0,
+        "partial_size_sha256_unchanged": true,
+        "final_target_created": false
+      }
+    },
+    "production_code_changed": false,
+    "formal_services": "active on both hosts; no restart or configuration change",
+    "temporary_payloads": "removed; evidence logs and summaries retained"
+  },
+  "slice_e_plan": {
+    "input_commit": "5f222689fc08e960208eb2ec9aa8029e0ce295d2",
+    "scope": "Verify V3 refuses an existing destination without changing its bytes and safely handles repeated submission/resume of the same completed transfer identity.",
+    "non_goals": [
+      "No protocol or checkpoint-schema redesign",
+      "No concurrent duplicate-request race in this slice",
+      "No performance or production-readiness claim",
+      "No physical NIC, local-bind, or physical-link validation",
+      "No formal service changes"
+    ],
+    "acceptance": [
+      "Upload and download destination conflicts fail by default without changing pre-existing target SHA-256",
+      "Repeated request/resume is idempotent: final file SHA and committed status/count remain stable",
+      "Loopback smoke and focused CTest pass on both hosts",
+      "Full serial CTest passes on both hosts from same commit",
+      "Key server/client binary SHA-256 match before Shenzhen-to-Shanghai temporary-service transfer"
+    ],
+    "planned_files": [
+      "tools/test/run_v3_target_conflict_idempotency_smoke.py",
+      "CMakeLists.txt",
+      "docs/tasks/2026-10-20-v3-release-stability-01.md",
+      "docs/tasks/2026-10-20-v3-release-stability-01-evidence.json",
+      "docs/coordination/BOARD.md"
+    ],
+    "estimate": "2-4 hours for implementation and two-host validation; allow additional time if a production defect is found",
     "status": "planned"
   }
 }
