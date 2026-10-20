@@ -1,7 +1,7 @@
 # V3-RELEASE-STABILITY-01
 
 Date: 2026-10-20 (Asia/Shanghai)
-Status: in_progress (slice A: interrupted V3 transfer resume)
+Status: slice A complete; parent release-stability task remains in_progress
 Owner: current commander, single serial developer
 Input commit: bb6cb2022e813c274387d915e3024a4546ac0549
 Branch: codex/V3-RELEASE-STABILITY-01
@@ -54,4 +54,16 @@ Branch: codex/V3-RELEASE-STABILITY-01
 
 ## 下一步交接
 
-本 slice 通过后，下一子阶段优先把“传输中服务端重启后 V3 是否能从持久 checkpoint 继续”做成单独故障注入门禁；本轮未覆盖的其余稳定性风险保持 open，不标记为 release-ready.
+slice A 已通过。下一子阶段优先把“传输中服务端重启后 V3 是否能从持久 checkpoint 继续”做成单独故障注入门禁；其余稳定性风险保持 open，不标记为 release-ready.
+
+## 实现与验收结果（2026-10-20）
+
+本阶段新增 tools/test/run_v3_interrupted_resume_smoke.py，并注册 CTest cpnetflux_v3_interrupted_resume_smoke。测试在传输尚未结束时，观察到接收端至少 16 个已校验 chunk 后对客户端发送 SIGTERM，再用 V3 resume 接续；上传和下载都最终提交，跳过已完成的 16 MiB，并核对 512 MiB 源/目的内容。没有发现生产逻辑缺陷，因此未改生产 C++。
+
+实现提交 00adb9074268cc5ec0b798c936c7ce93f56e39db 已推送到 origin/codex/V3-RELEASE-STABILITY-01，推送后 git ls-remote 回读 SHA 一致。源码从该提交生成同一归档，两端归档 SHA-256 均为 e9834a97f00ccd07849f579d2f46389fcda963ac753e08efaeffa526bed440a0。
+
+两端均使用 Release、TLS ON、io_uring ON、测试 ON、桌面 OFF、跨域 CTest OFF 配置；GNU 11.4 / CMake 3.22.1，构建退出码均为 0。定向 CTest cpnetflux_v3_interrupted_resume_smoke 两端均 1/1 通过。完整 CTest：深圳 394/394 通过；上海首次完整运行有一个既有 cpnetflux_reconnect_smoke 失败（其余 393 项通过），单独重跑该项 1/1 通过，随后完整重跑 394/394 通过。现有证据无法确定首次失败原因，故记录为一次未复现的失败，不归因于本次改动。日志保存在两端各自 /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/ 下，索引见 evidence JSON。
+
+两端构建的跨机测试 server、上传客户端、下载客户端 SHA-256 完全一致；随后由深圳 V3 客户端连接上海的临时 V3 测试服务，分别实测上传和下载，并在每个方向重置第 2 条数据连接。两个方向均由 V3 persistent-tree 执行器恢复成功，未降级；3 个文件共 67,230,715 字节，实际树 SHA-256 与预期同为 5816ca45fdc866157f2c8c9d0097009af11a3132eee66cd2fcdd745ab696c092。正式服务全程保持 active、未重启；临时服务结束后清理了测试 .bin 大载荷，保留 matrix、摘要、client/server/proxy 日志。该跨云测试证明的是深圳客户端到上海临时 V3 服务的上传/下载故障恢复，不等同生产 readiness，也未覆盖反向方向、服务重启或物理链路。
+
+下一子阶段：服务端在传输中重启后，V3 是否能读取持久 checkpoint 并安全继续。之后再分别验证超时、损坏 checkpoint、目标冲突、重复提交；这些尚未验收。

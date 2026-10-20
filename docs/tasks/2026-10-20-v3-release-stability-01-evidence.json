@@ -1,7 +1,7 @@
 {
   "task": "V3-RELEASE-STABILITY-01",
   "slice": "client interruption followed by V3 resume",
-  "status": "in_progress",
+  "status": "slice_a_complete_parent_in_progress",
   "input_commit": "bb6cb2022e813c274387d915e3024a4546ac0549",
   "plan_commit": "2741d8605161052e9886fcf5cf70f202d7689406",
   "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -40,7 +40,91 @@
     "evidence_file": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/registered-candidate/summary.json"
   },
   "two_host_build": null,
-  "cross_host_transfer": null,
+  "cross_host_transfer": {
+    "command": "python3 tools/test/run_cpnetflux_lane_recovery_interop.py --build-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/shenzhen-build/build --evidence-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/interop-evidence --server-side shanghai --transfer both --fault-kind data --reconnect-attempts 2 --remote-bin /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/bin --remote-root /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/interop",
+    "exit_code": 0,
+    "run_id": "20261020T021008Z-1792462208173034604",
+    "topology": "Shenzhen V3 client and Shanghai temporary V3 service",
+    "fault": "reset data connection #2 once in each direction",
+    "upload_and_download": {
+      "result": "pass",
+      "actual_transport": "v3",
+      "actual_mode": "persistent_tree",
+      "fallback_reason": "",
+      "recovery_attempts_used": 1,
+      "lane_local_recovery_count": 1,
+      "files": 3,
+      "bytes": 67230715,
+      "expected_and_actual_tree_sha256": "5816ca45fdc866157f2c8c9d0097009af11a3132eee66cd2fcdd745ab696c092"
+    },
+    "matrix": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/interop-evidence/20261020T021008Z-1792462208173034604/matrix.json",
+    "production_service_changed": false
+  },
   "github_push": null,
-  "next": "Build the committed source on Shenzhen and Shanghai, compare server/upload/download binary SHA-256, then run cross-host transfer."
+  "next": "V3 service restart recovery from durable checkpoint; then separately timeout, corrupted checkpoint, target conflict, duplicate submit. Physical NIC and physical-link testing remains deferred.",
+  "implementation_commit": {
+    "sha": "00adb9074268cc5ec0b798c936c7ce93f56e39db",
+    "branch": "codex/V3-RELEASE-STABILITY-01",
+    "pushed": true,
+    "remote_ref": "origin/codex/V3-RELEASE-STABILITY-01",
+    "remote_sha_readback": "00adb9074268cc5ec0b798c936c7ce93f56e39db"
+  },
+  "source_archive_sha256_both_hosts": "e9834a97f00ccd07849f579d2f46389fcda963ac753e08efaeffa526bed440a0",
+  "same_commit_ctest": {
+    "configure": [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DCPNETFLUX_ENABLE_TLS=ON",
+      "-DCPNETFLUX_ENABLE_IO_URING=ON",
+      "-DCPNETFLUX_BUILD_DESKTOP=OFF",
+      "-DCPNETFLUX_BUILD_TESTS=ON",
+      "-DCPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS=OFF"
+    ],
+    "toolchain": "GNU 11.4 / CMake 3.22.1",
+    "build_exit_codes": {
+      "shenzhen": 0,
+      "shanghai": 0
+    },
+    "targeted": {
+      "shenzhen": "1/1 passed",
+      "shanghai": "1/1 passed"
+    },
+    "full": {
+      "shenzhen": {
+        "result": "394/394 passed",
+        "seconds": 80.31,
+        "log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/shenzhen-build/ctest.log"
+      },
+      "shanghai": {
+        "first_run": "393/394 passed; cpnetflux_reconnect_smoke failed; cause unknown",
+        "first_log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/build/ctest.log",
+        "isolated_recheck": "cpnetflux_reconnect_smoke 1/1 passed, 23.41 sec",
+        "rerun": "394/394 passed, 79.69 sec",
+        "rerun_log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/build/ctest-rerun.log"
+      }
+    },
+    "binary_sha256": {
+      "cpnetflux-gridftp-server": "e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412",
+      "cpnetflux-tree-upload-client": "19d1bcd167e7e12ed9f2d738b624d2294b2d9a12b26e1b74f598fbd11080e14c",
+      "cpnetflux-tree-download-client": "7e488ecd507aab737b5c29afb4ae9f59503203587fa7d32f0e5479ba23bd3969",
+      "same_on_shenzhen_and_shanghai": true
+    }
+  },
+  "resource_preflight": {
+    "shenzhen": {
+      "disk_free_gib": 33,
+      "memory_available_gib": 2.5,
+      "formal_service": "active"
+    },
+    "shanghai": {
+      "disk_free_gib": 73,
+      "memory_available_gib": 2.9,
+      "formal_service": "active"
+    }
+  },
+  "cleanup": {
+    "generated_bin_payloads_removed": true,
+    "remaining_bin_payloads": 0,
+    "logs_and_matrix_retained": true,
+    "temporary_server_and_proxy_finished": true
+  }
 }
