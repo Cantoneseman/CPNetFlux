@@ -15,9 +15,9 @@
 - 历史 checkpoint 互操作计划已取消：没有已部署用户或生产断点需要迁移，不再为 V1/V2 历史输入保留开发和跨机验收门。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
 - 环境边界：深圳与上海正式服务均 active，运行 SHA 与本轮构建一致，因此无需重启。上海客户端反向验收使用深圳回环匿名临时服务和 SSH 隧道；临时服务、隧道、任务 payload 和上海正式服务下的任务测试目录均已清理，摘要与 manifest archive 保留。上海主动直连深圳 TCP/2121 仍超时，不能把隧道测试说成直连生产端口通过。
-- 下一步：继续 V3-RELEASE-STABILITY-01，先验收传输中服务端重启后的持久 checkpoint 续传；之后再分别验证超时、损坏 checkpoint、目标冲突和重复提交。每次跨云互传仍先同步两端源码、完成双端构建并核对关键二进制 SHA-256。物理 NIC/不同物理链路验证按用户要求暂缓。
+- 下一步：V3-RELEASE-STABILITY-01 Slice B（进行中）：验证传输中服务端重启后 V3 从持久 checkpoint 续传，先 loopback CTest、双端同提交构建及完整 CTest，再在二进制 SHA 一致后进行深圳→上海实际上传/下载。超时、损坏 checkpoint、目标冲突和重复提交随后分别验收；物理链路验证暂缓。
 - V3-COMPOSITION-STABILITY-01：已完成。扩展四步连续混合故障 `data#2 -> control#3 -> data#4 -> control#5`，覆盖深圳/上海服务端、上传/下载、重试预算 N=0..4 共 20/20 场景；两端同提交构建、关键二进制 SHA-256 一致，组合 CTest 1/1 通过。实现提交 `a596970c636b32a05789bb90f663150928e6f897` 已推送；任务记录和 evidence.json 见 `docs/tasks/2026-10-20-v3-composition-stability-01.md`。
-- V3-RELEASE-STABILITY-01：slice A 已完成，父任务仍进行中。新增 V3 上传/下载中断后 resume 的 CTest；深圳、上海同提交构建，定向测试两端通过、完整 CTest 最终均 394/394 通过；双向跨云注入 data connection #2 重置后均恢复，树 SHA-256 一致。上海首次完整 CTest 有一项 reconnect smoke 失败，独立重跑及完整重跑通过，原因未定。下一子阶段验收服务端重启续传；超时、损坏 checkpoint、目标冲突、重复提交仍 open。任务单：docs/tasks/2026-10-20-v3-release-stability-01.md；机器证据：docs/tasks/2026-10-20-v3-release-stability-01-evidence.json。
+- V3-RELEASE-STABILITY-01：slice A 已完成；Slice B 服务端重启续传计划已登记，父任务仍进行中。新增 V3 上传/下载中断后 resume 的 CTest；深圳、上海同提交构建，定向测试两端通过、完整 CTest 最终均 394/394 通过；双向跨云注入 data connection #2 重置后均恢复，树 SHA-256 一致。上海首次完整 CTest 有一项 reconnect smoke 失败，独立重跑及完整重跑通过，原因未定。下一子阶段验收服务端重启续传；超时、损坏 checkpoint、目标冲突、重复提交仍 open。任务单：docs/tasks/2026-10-20-v3-release-stability-01.md；机器证据：docs/tasks/2026-10-20-v3-release-stability-01-evidence.json。
 
 ## 历史执行快照
 

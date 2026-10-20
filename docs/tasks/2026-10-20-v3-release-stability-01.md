@@ -67,3 +67,41 @@ slice A 已通过。下一子阶段优先把“传输中服务端重启后 V3 �
 两端构建的跨机测试 server、上传客户端、下载客户端 SHA-256 完全一致；随后由深圳 V3 客户端连接上海的临时 V3 测试服务，分别实测上传和下载，并在每个方向重置第 2 条数据连接。两个方向均由 V3 persistent-tree 执行器恢复成功，未降级；3 个文件共 67,230,715 字节，实际树 SHA-256 与预期同为 5816ca45fdc866157f2c8c9d0097009af11a3132eee66cd2fcdd745ab696c092。正式服务全程保持 active、未重启；临时服务结束后清理了测试 .bin 大载荷，保留 matrix、摘要、client/server/proxy 日志。该跨云测试证明的是深圳客户端到上海临时 V3 服务的上传/下载故障恢复，不等同生产 readiness，也未覆盖反向方向、服务重启或物理链路。
 
 下一子阶段：服务端在传输中重启后，V3 是否能读取持久 checkpoint 并安全继续。之后再分别验证超时、损坏 checkpoint、目标冲突、重复提交；这些尚未验收。
+
+
+## Slice B：服务端重启后续传（计划，2026-10-20）
+
+计划输入提交：3c4f3627c452d9dcc70de667d51e3c31c33d3b5b。
+
+### 范围
+
+- 新增同一个可复现 smoke，覆盖 V3 目录上传和下载。
+- 传输 512 MiB 文件期间，先确认已持久化至少一个已校验 chunk 且尚未完成；随后只停止本任务启动的临时 CPNetFlux 服务进程。
+- 确认初次传输因服务端退出而失败；检查检查点仍在磁盘且 verified_chunks 未丢失。
+- 在相同 root、控制/数据端口和源码版本上重启临时服务，再以同一 transfer 输入执行 V3 resume。
+- 上传、下载最终均提交；断点跳过字节为正且小于文件总长；最终文件和目录 SHA-256 正确；summary 明确 V3 persistent-tree 且无 fallback。
+- 将 loopback 场景注册为 CTest；同一已提交源码在深圳、上海构建并运行定向和全量 CTest。关键 server/client 二进制哈希一致后，用深圳客户端与上海临时 V3 服务再实际执行上传、下载服务重启恢复。
+
+### 非目标
+
+- 不停止、重启或修改两端正式 cpnetflux-demo.service，不访问其数据目录或认证文件。
+- 不修改 wire protocol、manifest/checkpoint schema；只有复现出代码错误时才修改生产实现。
+- 不做超时、损坏 checkpoint、目标冲突、重复提交、性能、生产 readiness、物理 NIC 或不同物理链路验收。
+
+### 验收标准
+
+1. 上传和下载在服务端停止前都观察到 verified_chunks 大于 0 且小于总 chunk 数；服务器退出后初次客户端非零结束，不能靠测试脚本终止客户端来伪造服务故障。
+2. 服务退出后检查点仍存在、状态未 committed、已校验 chunk 集合保持；重启相同服务后 resume 完成。
+3. 最终 summary 为 result=pass、actual_transport=v3、actual_mode=persistent_tree、fallback_reason 为空，resume_skipped_bytes 在零和文件总长之间。
+4. 源、目的文件 SHA-256 和目录 SHA-256 完全一致；server 两代进程、客户端日志及中间检查点摘要写入 evidence JSON / 外部证据目录。
+5. 两端新 CTest 定向通过，完整 CTest 结果和失败重跑如实记录；同提交源码归档 SHA 与 server/upload/download 二进制 SHA 一致。
+6. 双端同步构建及哈希核对完成之后，才执行深圳→上海临时 V3 服务的上传/下载实测；正式服务不变，记录两端资源和遗留进程/监听端口状态。
+
+### 预计受影响文件
+
+- tools/test/run_v3_service_restart_resume_smoke.py（新增）
+- CMakeLists.txt（新增 CTest 项）
+- docs/coordination/BOARD.md
+- docs/tasks/2026-10-20-v3-release-stability-01.md
+- docs/tasks/2026-10-20-v3-release-stability-01-evidence.json
+- 生产 V3 文件仅在行为测试确认产品缺陷时修改。

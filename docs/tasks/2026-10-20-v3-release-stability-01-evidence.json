@@ -1,7 +1,7 @@
 {
   "task": "V3-RELEASE-STABILITY-01",
   "slice": "client interruption followed by V3 resume",
-  "status": "slice_a_complete_parent_in_progress",
+  "status": "slice_b_planned_parent_in_progress",
   "input_commit": "bb6cb2022e813c274387d915e3024a4546ac0549",
   "plan_commit": "2741d8605161052e9886fcf5cf70f202d7689406",
   "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -126,5 +126,29 @@
     "remaining_bin_payloads": 0,
     "logs_and_matrix_retained": true,
     "temporary_server_and_proxy_finished": true
+  },
+  "slice_b_plan": {
+    "input_commit": "3c4f3627c452d9dcc70de667d51e3c31c33d3b5b",
+    "scope": "V3 upload/download recovery after temporary server process restart with persisted checkpoint",
+    "plan_commit": "pending",
+    "resource_preflight_2026_10_20": {
+      "shenzhen": {
+        "disk_free_gib": 33,
+        "memory_available_gib": 2.5,
+        "formal_service": "active",
+        "temporary_test_ports_24600_24610_24617": "free"
+      },
+      "shanghai": {
+        "disk_free_gib": 73,
+        "memory_available_gib": 2.9,
+        "formal_service": "active",
+        "temporary_test_ports_24600_24610_24617": "free"
+      }
+    },
+    "acceptance": [
+      "loopback server restart smoke",
+      "same-commit CTest on both hosts",
+      "cross-cloud upload and download restart recovery after binary SHA match"
+    ]
   }
 }
