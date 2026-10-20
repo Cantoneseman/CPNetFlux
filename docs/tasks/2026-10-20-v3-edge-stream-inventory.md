@@ -42,7 +42,7 @@ This slice does not yet close the milestone. Remaining work in `V3-EDGE-STREAM-0
 1. Keep artificial slow-consumer benchmarking as optional performance research; do not use it as a correctness or readiness claim.
 2. Carry the accepted source/build evidence into V3-CANDIDATE-CLOSEOUT-01: freeze the manifest, rerun the fixed acceptance gate, and prepare the release handoff.
 
-Acceptance evidence for this slice: commit 164b98b is pushed to origin/codex/V3-LOGICAL-10LINK-01; final source archive SHA256 is c8e660e38d62a73dbc0d97c5c374269d03c36b7b9691bcb77bfb39ea685f9416 on both hosts; the C++ parent fa77fc8 passed 409/409 CTest and 357/357 unit tests on each host, and the 87550a2 source rebuilt successfully on both; the cross-cloud 10-case matrix passed 10/10; critical binary SHA256 values matched (cpnetflux-server 366f5fc8..., tree upload e0627efc..., tree download 2f761157...).
+Acceptance evidence for this slice: the final source commit is pushed to origin/codex/V3-LOGICAL-10LINK-01; the final source archive was transferred with matching SHA256 on both hosts; the C++ parent fa77fc8 passed 409/409 CTest and 357/357 unit tests on each host, and the pressure-collector source rebuilt successfully on both; the cross-cloud 10-case matrix passed 10/10; critical binary SHA256 values matched (cpnetflux-server 366f5fc8..., tree upload e0627efc..., tree download 2f761157...).
 
 ## Non-goals and remaining route
 
