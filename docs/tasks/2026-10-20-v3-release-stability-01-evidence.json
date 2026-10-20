@@ -1,7 +1,7 @@
 {
   "task": "V3-RELEASE-STABILITY-01",
   "slice": "client interruption followed by V3 resume",
-  "status": "slice_b_complete_parent_in_progress",
+  "status": "slice_c_in_progress_parent_in_progress",
   "input_commit": "bb6cb2022e813c274387d915e3024a4546ac0549",
   "plan_commit": "2741d8605161052e9886fcf5cf70f202d7689406",
   "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -156,7 +156,7 @@
     "A: client interruption resume",
     "B: temporary service process restart resume"
   ],
-  "active_slice": "none; Slice C planned",
+  "active_slice": "C: transfer silence timeout and resume",
   "slice_b_execution": {
     "input_commit": "3c4f3627c452d9dcc70de667d51e3c31c33d3b5b",
     "code_commits": [
@@ -294,5 +294,32 @@
       "logs_manifests_summaries": "retained"
     },
     "production_code_changed": false
+  },
+  "slice_c_plan": {
+    "input_commit": "9173e2528b1ee14db96355c966611be050b129d8",
+    "scope": "Stall V3 data forwarding after non-empty checkpoint, require bounded explicit timeout without fallback, then resume same transfer identity and verify final file/tree SHA-256.",
+    "non_goals": [
+      "No formal service/config change",
+      "No protocol or checkpoint schema change unless red test proves a product defect",
+      "No physical NIC/local-bind validation",
+      "No corrupt checkpoint, target conflict, duplicate submission, performance, or production-readiness claim"
+    ],
+    "acceptance": [
+      "Upload and download each observe proxy stall after verified_chunks > 0 and less than total chunks",
+      "Client exits nonzero within configured transfer-timeout bound with explicit timeout evidence and no V1/V2 fallback",
+      "Checkpoint retains verified chunks and is not committed while stalled",
+      "After forwarding resumes, V3 persistent-tree resume commits and source/target file and tree SHA-256 match",
+      "Focused smoke and serial full CTest pass on both hosts from same committed source; server/upload/download binary SHA-256 match before cross-cloud transfer"
+    ],
+    "planned_files": [
+      "tools/test/cpnetflux_fault_proxy.py",
+      "tools/test/test_cpnetflux_fault_proxy.py",
+      "tools/test/run_v3_timeout_resume_smoke.py",
+      "CMakeLists.txt",
+      "docs/coordination/BOARD.md",
+      "docs/tasks/2026-10-20-v3-release-stability-01.md",
+      "docs/tasks/2026-10-20-v3-release-stability-01-evidence.json"
+    ],
+    "status": "in_progress"
   }
 }

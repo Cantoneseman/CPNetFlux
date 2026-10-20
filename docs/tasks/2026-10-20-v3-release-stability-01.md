@@ -128,8 +128,28 @@ slice A 已通过。下一子阶段优先把“传输中服务端重启后 V3 �
 
 本阶段只证明当前两台云服务器、此配置和 V3 持久检查点上的服务重启恢复；不等于生产 readiness，不覆盖超时、损坏 checkpoint、目标冲突、重复提交、物理 NIC 或不同物理链路。
 
-## 下一计划：Slice C——传输静默超时与续传
+## Slice C：传输静默超时与续传（计划，2026-10-20）
+
+状态：planned；计划输入提交 9173e2528b1ee14db96355c966611be050b129d8。
 
 实际问题：对端仍连着但不再传数据时，用户需要确认传输会在设定时间内明确失败，而不是无限等待；恢复连接后也应能从已保存进度继续。
 
 验收计划：用 loopback 可控代理在 V3 上传、下载已有非空 checkpoint 后停止转发数据；验证客户端在 --transfer-timeout-ms 约定范围内非零退出并报告明确超时，不切换旧路径；检查已校验 chunk 保留；解除静默后从相同 V3 transfer 身份 resume，最终文件和目录 SHA-256 一致。先定向和完整 CTest，再按同提交双端构建及二进制哈希门禁，在深圳→上海临时 V3 服务重复实际场景。Slice C 不修改损坏 checkpoint、目标冲突或重复提交场景，这些仍需后续分别计划；物理链路验证继续暂缓。
+
+### Slice C 执行范围、非目标与验收
+
+范围：为测试代理增加只作用于测试链路的数据静默开关；扩展 V3 上传/下载 smoke，在已有非空检查点后暂停数据转发，记录代理暂停事件、检查点、客户端计时与错误，然后开放转发并使用同一 V3 transfer 输入续传。先验证代理测试，再跑端到端 CTest。若端到端红测暴露产品缺陷，才最小修复 V3 代码。随后固定源码提交，在深圳、上海构建、运行定向和完整 CTest，校验关键二进制 SHA-256 一致后，才运行深圳客户端到上海临时 V3 服务的真实上传/下载。
+
+非目标：不更改正式服务、认证配置、协议或 checkpoint schema；不触碰 GridFlux-Beta、CPSS(DCC)、其他 worktree、凭据或历史大 payload；不验证损坏 checkpoint、目标冲突、重复提交、性能、生产 readiness、物理 NIC/local-bind/不同物理链路。
+
+验收标准：
+1. 上传和下载均记录数据代理确实进入静默，且接收端/下载端已有 verified_chunks 大于 0 且小于总 chunk 数。
+2. 静默期间客户端在配置的 --transfer-timeout-ms 上界内以非零状态退出，并在日志/摘要中可识别为超时；执行路径保持 V3，无 fallback。
+3. 静默后 checkpoint 仍包含原有已校验 chunk 且未提交；打开同一代理继续转发后，用相同 transfer identity resume 成功。
+4. 最终文件与目录 SHA-256 一致，V3 persistent-tree 摘要无 fallback。
+5. 新定向 CTest 和两端同提交完整 CTest 通过；记录重试/失败项。深圳与上海源码归档 SHA 和 server/upload/download 二进制 SHA 一致后，才做跨云两方向场景。
+6. 记录资源/正式服务状态、实现与证据提交、GitHub push 及远端 SHA 回读；清理测试 payload/临时服务/代理和监听端口，保留日志与 checkpoint 摘要。
+
+预计文件：tools/test/cpnetflux_fault_proxy.py、tools/test/test_cpnetflux_fault_proxy.py、新增 tools/test/run_v3_timeout_resume_smoke.py、CMakeLists.txt、本任务 Markdown 与 evidence JSON、docs/coordination/BOARD.md；仅产品红测证实时才改生产 V3 文件。
+
+验收命令：python3 -m py_compile tools/test/cpnetflux_fault_proxy.py tools/test/run_v3_timeout_resume_smoke.py；python3 -m unittest tools/test/test_cpnetflux_fault_proxy.py；python3 tools/test/run_v3_timeout_resume_smoke.py --build-dir BUILD_DIR --file-size-mib SIZE_MIB；ctest --test-dir BUILD_DIR -R cpnetflux_v3_timeout_resume_smoke --output-on-failure；最后两端串行 CPNETFLUX_TEST_TOKEN=temporary-test-value ctest --test-dir BUILD_DIR --output-on-failure -j1。
