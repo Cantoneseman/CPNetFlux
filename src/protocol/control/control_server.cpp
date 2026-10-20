@@ -1357,6 +1357,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     requestedDataTls == options.dataTlsMode &&
                     (!linkSetRequested || (hasRequestedLinks && hasRequestedLinkCaps &&
                         requestedLinks <= core::io::kPersistentTreeMaxChannels &&
+                        requestedLinks <= requestedChannels &&
                         requestedLinks <= options.linkSetMaxLinks &&
                         (requestedLinkCaps & ~options.linkSetCapabilityBits) == 0));
                 if (persistentNegotiated) {
@@ -1374,7 +1375,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         " link_caps=" + std::to_string(requestedLinkCaps) : "") +
                     (requestedDynamic ? " scheduling=dynamic" : "");
                 (void)sendLine(&control, formatReply(persistentNegotiated ? 200 : 504,
-                    persistentNegotiated ? accepted : "Unsupported V2 configuration"));
+                    persistentNegotiated ? accepted : "Unsupported V3 configuration"));
                 continue;
             }
 

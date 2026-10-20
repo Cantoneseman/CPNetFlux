@@ -487,7 +487,8 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     if (options.reuseDataSession &&
         options.fileParallelism > core::io::kPersistentTreeMaxChannels) {
         return common::Status::invalidArgument(
-            "persistent tree channels are limited to 8");
+            "persistent tree channels are limited to " +
+            std::to_string(core::io::kPersistentTreeMaxChannels));
     }
     options.requestedReuseDataSession = options.reuseDataSession;
     if (options.reuseDataSession && options.schedulerMode == TreeSchedulerMode::Global &&

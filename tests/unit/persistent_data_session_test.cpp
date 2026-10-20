@@ -263,7 +263,7 @@ TEST(PersistentSessionTest, ReceiverDrainsFailedMiddleFileAndCommitsNext) {
 }
 
 TEST(PersistentSessionTest, StableFileIdsMapToExactlyOneBoundedChannel) {
-    for (const std::uint32_t channelCount : {1U, 2U, 4U, 8U}) {
+    for (const std::uint32_t channelCount : {1U, 2U, 4U, 8U, 10U}) {
         for (std::uint32_t fileId = 1; fileId <= 128; ++fileId) {
             std::uint32_t matches = 0;
             for (std::uint32_t channel = 0; channel < channelCount; ++channel)
@@ -1050,3 +1050,30 @@ TEST(PersistentDirectoryBatchTest, HealthyLaneFinishesBeforeFailedLaneReattach) 
 }
 
 INSTANTIATE_TEST_SUITE_P(UploadDownload, PersistentMultiRangeRecoveryTest, ::testing::Bool());
+
+TEST(PersistentSessionTest, LogicalLinkMatrixRangesPartitionSourceExactlyOnce) {
+    for (const std::uint32_t lanes : {1U, 2U, 4U, 8U, 10U}) {
+        PersistentFileIdentity file{1, 1, (lanes * 16ULL + 1) * 1024 * 1024 + 19,
+                                    "large.bin", "partition"};
+        file.chunkSize = 65536;
+        auto ranges = expandPersistentFileRanges({file}, lanes);
+        ASSERT_TRUE(ranges.isOk()) << ranges.status().message();
+        if (lanes == 1) {
+            ASSERT_EQ(ranges.value().size(), 1U);
+            EXPECT_EQ(ranges.value()[0].rangeId, 0U);
+            continue;
+        }
+        std::uint64_t offset = 0;
+        std::vector<unsigned> work(lanes);
+        for (const auto& range : ranges.value()) {
+            EXPECT_EQ(range.rangeOffset, offset);
+            EXPECT_GT(range.rangeLength, 0U);
+            EXPECT_EQ(range.rangeCount, ranges.value().size());
+            EXPECT_EQ(range.rangeOffset % file.chunkSize, 0U);
+            ++work[(range.rangeId - 1) % lanes];
+            offset += range.rangeLength;
+        }
+        EXPECT_EQ(offset, file.totalSize);
+        for (auto count : work) EXPECT_GT(count, 0U);
+    }
+}

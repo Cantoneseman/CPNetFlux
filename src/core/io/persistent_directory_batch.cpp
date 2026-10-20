@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/persistent_directory_batch.h"
+#include "cpnetflux/core/io/persistent_tree_transfer.h"
 #include <algorithm>
 #include <poll.h>
 #include <sstream>
@@ -7,7 +8,7 @@
 namespace cpnetflux::core::io {
 PersistentDirectoryBatch::PersistentDirectoryBatch(std::uint32_t total, std::uint32_t channels)
     : total_(total) {
-    if (!channels || channels > 8) status_ = common::Status::invalidArgument("invalid batch channels");
+    if (!channels || channels > kPersistentTreeMaxChannels) status_ = common::Status::invalidArgument("invalid batch channels");
     else {
         channels_.resize(channels);
         monitor_ = std::thread([this] {

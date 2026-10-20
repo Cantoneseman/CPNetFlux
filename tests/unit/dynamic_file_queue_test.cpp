@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <thread>
+#include <future>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <poll.h>
@@ -1139,4 +1140,78 @@ TEST(DynamicFileQueueTest, GlobalSchedulerCancellationReleasesLinkSetLeaseLoad) 
 
     queue.cancel(cpnetflux::common::Status::runtimeError("test cancellation"));
     EXPECT_EQ(scheduler.linkSet().runtime("link0")->inflightBytes, 0U);
+}
+
+TEST(PersistentDirectoryBatchTest, TenLanesCommitDistinctRangesAndFinishTogether) {
+    PersistentDirectoryBatch batch(1, 10);
+    ASSERT_TRUE(batch.status().isOk()) << batch.status().message();
+    for (std::uint32_t lane = 0; lane < 10; ++lane) {
+        ASSERT_TRUE(batch.attach(lane).isOk());
+        batch.bind(lane, -1, -1);
+    }
+    ASSERT_TRUE(batch.waitReady(9, std::chrono::seconds(1)).isOk());
+    for (std::uint32_t range = 0; range < 20; ++range) {
+        auto file = tasks(1)[0];
+        file.totalSize = 20 * 64;
+        file.chunkSize = 64;
+        file.rangeId = range + 1;
+        file.rangeOffset = range * 64;
+        file.rangeLength = 64;
+        file.rangeCount = 20;
+        const auto lane = range % 10;
+        ASSERT_TRUE(batch.fileEvent(lane, file, Status::ok(), false).isOk());
+        ASSERT_TRUE(batch.fileEvent(lane, file, Status::ok(), true).isOk());
+    }
+    std::vector<Status> results(10);
+    std::vector<std::jthread> finishers;
+    for (std::uint32_t lane = 0; lane < 10; ++lane)
+        finishers.emplace_back([&, lane] { results[lane] = batch.finish(lane, std::chrono::seconds(2)); });
+    for (auto& worker : finishers) worker.join();
+    for (const auto& result : results) EXPECT_TRUE(result.isOk()) << result.message();
+}
+TEST(PersistentDirectoryBatchTest, RejectsZeroAndAboveTenLanes) {
+    for (const std::uint32_t count : {0U, 11U}) {
+        PersistentDirectoryBatch batch(0, count);
+        EXPECT_FALSE(batch.status().isOk());
+    }
+}
+
+TEST(DynamicFileQueueTest, RangeAffinityWaitsForUnadmittedWorkInsteadOfEndingLane) {
+    auto files = tasks(2);
+    std::swap(files[0], files[1]); // ring holds lane 1; lane 0's file is not admitted yet
+    DynamicFileQueue queue(std::move(files), 2, 1, 1, true, false, {"link0", "link1"}, true);
+    const auto owner = queue.worker(0).value();
+    auto waiting = std::async(std::launch::async, [&] {
+        return queue.claim(owner, WorkClock::now(), std::chrono::seconds(2));
+    });
+    EXPECT_EQ(waiting.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    auto sibling = queue.claim(queue.worker(1).value());
+    ASSERT_TRUE(sibling.isOk());
+    ASSERT_TRUE(sibling.value());
+    EXPECT_EQ(sibling.value()->file.fileId, 2U);
+    auto next = waiting.get();
+    ASSERT_TRUE(next.isOk()) << next.status().message();
+    ASSERT_TRUE(next.value()) << "unadmitted lane work must not become EOF";
+    EXPECT_EQ(next.value()->file.fileId, 1U);
+    EXPECT_EQ(next.value()->owner, owner);
+    EXPECT_EQ(queue.highWatermark(), 1U);
+}
+TEST(DynamicFileQueueTest, RangeAffinityAdmissionWaitHonorsCancellationAndTimeout) {
+    for (bool cancel : {false, true}) {
+        auto files = tasks(2);
+        std::swap(files[0], files[1]);
+        DynamicFileQueue queue(std::move(files), 2, 1, 1, true, false, {"link0", "link1"}, true);
+        auto waiting = std::async(std::launch::async, [&] {
+            return queue.claim(queue.worker(0).value(), WorkClock::now(),
+                               std::chrono::milliseconds(100));
+        });
+        if (cancel) {
+            EXPECT_EQ(waiting.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+            queue.cancel(Status::runtimeError("test admission cancellation"));
+        }
+        auto next = waiting.get();
+        EXPECT_FALSE(next.isOk()) << "waiting for future admission must not report successful EOF";
+        if (cancel) EXPECT_EQ(next.status().message(), "test admission cancellation");
+        EXPECT_EQ(queue.outstanding(), 0U);
+    }
 }

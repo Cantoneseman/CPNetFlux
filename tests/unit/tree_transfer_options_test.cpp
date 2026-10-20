@@ -272,18 +272,18 @@ TEST(TreeTransferOptionsTest, BoundsPersistentChannelCount) {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
     const std::string rootText = root.string();
-    for (const char* count : {"1", "4", "8"}) {
+    for (const char* count : {"1", "2", "4", "8", "10"}) {
         const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
                               "--dest-dir", "remote", "--data-session-reuse", "tree",
                               "--file-parallelism", count};
         auto parsed = cpnetflux::config::parseTreeTransferOptions(
             static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
         ASSERT_TRUE(parsed.isOk()) << count << ": " << parsed.status().message();
-        EXPECT_EQ(parsed.value().fileParallelism, static_cast<std::uint32_t>(count[0] - '0'));
+        EXPECT_EQ(parsed.value().fileParallelism, static_cast<std::uint32_t>(std::stoul(count)));
     }
     const char* tooMany[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
                              "--dest-dir", "remote", "--data-session-reuse", "tree",
-                             "--file-parallelism", "9"};
+                             "--file-parallelism", "11"};
     EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
         static_cast<int>(std::size(tooMany)), tooMany,
         cpnetflux::config::TreeTransferRole::Upload).isOk());
@@ -719,5 +719,25 @@ TEST(TreeTransferOptionsTest, ParsesExplicitLinkSetNegotiationOptions) {
         const char* invalid[] = {"client", "--auth-probe", "--link-set-links", value};
         EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
             4, invalid, cpnetflux::config::TreeTransferRole::Upload).isOk());
+    }
+}
+
+TEST(TreeTransferOptionsTest, AcceptsTenPersistentChannelsAndRejectsEleven) {
+    for (const auto role : {cpnetflux::config::TreeTransferRole::Upload,
+                            cpnetflux::config::TreeTransferRole::Download}) {
+        const char* args[] = {"client", "--auth-probe", "--data-session-reuse", "tree",
+                              "--file-parallelism", "10", "--link-set-links", "10"};
+        auto parsed = cpnetflux::config::parseTreeTransferOptions(
+            static_cast<int>(std::size(args)), args, role);
+        ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+        EXPECT_EQ(parsed.value().fileParallelism, 10U);
+        EXPECT_EQ(parsed.value().linkSetLinks, 10U);
+        EXPECT_TRUE(parsed.value().reuseDataSession);
+        for (const auto count : {"0", "11"}) {
+            const char* invalid[] = {"client", "--auth-probe",
+                                     "--file-parallelism", count};
+            EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+                static_cast<int>(std::size(invalid)), invalid, role).isOk());
+        }
     }
 }

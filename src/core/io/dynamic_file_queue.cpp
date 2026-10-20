@@ -360,6 +360,36 @@ common::Result<std::optional<WorkLease>> DynamicFileQueue::claim(const WorkerCon
     if (!staticChannelAffinity_ && !size_ && retry_.empty())
         return std::optional<WorkLease>{};
 
+    if (rangeAffinity_ && !staticChannelAffinity_) {
+        const auto availableToOwner = [&](const Ready& candidate) {
+            const auto preferred = preferredWorker(candidate.item);
+            return preferred && (*preferred == owner.workerId ||
+                workers_[*preferred].state != WorkerState::Accepting);
+        };
+        const auto hasAdmittedWork = [&] {
+            if (std::any_of(retry_.begin(), retry_.end(), availableToOwner)) return true;
+            for (std::size_t offset = 0; offset < size_; ++offset) {
+                const auto& entry = ring_[(head_ + offset) % ring_.size()];
+                if (entry && availableToOwner(*entry)) return true;
+            }
+            return false;
+        };
+        const auto admissionDeadline = WorkClock::now() + timeout;
+        // A bounded ring can temporarily contain only sibling-owned work.
+        // Do not turn that temporary absence into lane EOF while input remains.
+        while (next_ < files_.size() && !hasAdmittedWork()) {
+            if (changed_.wait_until(lock, admissionDeadline) == std::cv_status::timeout &&
+                next_ < files_.size() && !hasAdmittedWork())
+                return common::Status::runtimeError("lane work admission timed out");
+            if (!status_.isOk()) return status_;
+            if (!matchesWorker(owner) ||
+                workers_[owner.workerId].state != WorkerState::Accepting) return mismatch();
+            if (claimsStopped_) return std::optional<WorkLease>{};
+        }
+        if (credits_[owner.workerId] >= window_)
+            return common::Status::runtimeError("dynamic channel credit exhausted");
+    }
+
     Ready ready;
     if (staticChannelAffinity_) {
         const auto affinity = [&](const WorkItem& item) {

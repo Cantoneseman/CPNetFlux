@@ -466,6 +466,11 @@ if(CPNETFLUX_BUILD_TESTS)
     )
     set_tests_properties(cpnetflux_lane_recovery_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(
+        NAME cpnetflux_v3_logical_link_matrix
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_logical_link_matrix.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_v3_logical_link_matrix PROPERTIES TIMEOUT 420 RUN_SERIAL TRUE)
+    add_test(
         NAME cpnetflux_fault_proxy_unit
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/test_cpnetflux_fault_proxy.py
     )

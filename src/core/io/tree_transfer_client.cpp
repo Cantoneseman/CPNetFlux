@@ -1718,7 +1718,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     }
     if (options.linkSetLinks > kPersistentTreeMaxChannels) {
         return common::Status::invalidArgument(
-            "persistent multi-link requests above the safe 8-channel limit are unsupported");
+            "persistent multi-link requests exceed the safe " +
+            std::to_string(kPersistentTreeMaxChannels) + "-channel limit");
     }
     const std::uint32_t channelCount = std::max(options.fileParallelism, options.linkSetLinks);
     std::vector<std::string> laneLinkIds;

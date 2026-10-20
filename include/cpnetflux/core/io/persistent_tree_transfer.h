@@ -21,7 +21,7 @@ struct PersistentTransferContext;
     const PersistentTransferPolicy& policy = {});
 [[nodiscard]] common::Status verifyCommittedPersistentOutputs(
     const std::shared_ptr<PersistentTransferContext>& context);
-inline constexpr std::uint32_t kPersistentTreeMaxChannels = 8;
+inline constexpr std::uint32_t kPersistentTreeMaxChannels = 10;
 inline constexpr std::uint32_t kUnifiedFileMaxChannels = 64;
 inline constexpr std::uint32_t kUnknownPersistentFileCount = UINT32_MAX;
 
