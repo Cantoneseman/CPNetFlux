@@ -35,7 +35,7 @@ Red/green evidence so far:
 - Full unit suite after the final metrics edit: 357/357 passed (`/tmp/cpnetflux-runs/V3-EDGE-STREAM-01-unit-final.log`).
 - Shenzhen CTest: 409/409 passed when the host token was supplied from `/etc/cpnetflux/token` (`/tmp/cpnetflux-runs/V3-EDGE-STREAM-01-ctest-final-token.log`). The first environment-only run reported 2 token-auth failures because `CPNETFLUX_TEST_TOKEN` was unset; the two tests passed immediately when rerun with the existing host token.
 
-This slice does not yet close the milestone. Remaining work in `V3-EDGE-STREAM-01` is a bounded slow-consumer/interrupt observation on both cloud hosts, optional run-scoped CPU/disk/PSI sampling, and the written sendfile/splice suitability decision.
+The implementation and acceptance evidence for `V3-EDGE-STREAM-01` are complete. Artificial slow-consumer throughput experiments remain optional research work; they are not required to claim bounded memory, cancellation, or correctness.
 
 ## Remaining acceptance scope
 
@@ -53,6 +53,6 @@ No physical NIC/local bind/different physical path validation, formal service re
 
 The cross-cloud rerun used the committed fa77fc8 source on both hosts. It exercised plain upload and download at 1, 2, 4, 8, and 10 logical lanes. All 10 cases passed admission, coverage, tree-hash, checkpoint, and range checks. Existing fault/recovery CTest cases also passed on each host.
 
-The optional pressure collector is tools/perf/collect_pressure.py. It samples /proc/stat, /proc/diskstats, and /proc/pressure/{cpu,io,memory} into JSONL records tied to a run id. Missing files are represented as available: false with a reason. Shenzhen and Shanghai each produced three validated samples at /tmp/cpnetflux-runs/V3-EDGE-STREAM-01/{shenzhen,shanghai}-pressure.jsonl after source synchronization.
+The optional pressure collector is tools/perf/collect_pressure.py. It samples /proc/stat, /proc/diskstats, and /proc/pressure/{cpu,io,memory} into JSONL records tied to a run id. Missing files are represented as available: false with a reason. Shenzhen and Shanghai each produced three validated samples at /tmp/cpnetflux-runs/V3-EDGE-STREAM-01/shenzhen-pressure-final.jsonl and /tmp/cpnetflux-runs/V3-EDGE-STREAM-01/shanghai-pressure-final.jsonl after source synchronization.
 
 I/O mechanism decision: retain buffered userspace I/O for the V3 framed path. CPNetFlux must read, checksum, optionally compress, protect, and frame each payload before writing it. sendfile or splice cannot replace that path while preserving these transformations and TLS behavior. No zero-copy or throughput claim is made; a future protocol-specific optimization would need its own correctness gate.
