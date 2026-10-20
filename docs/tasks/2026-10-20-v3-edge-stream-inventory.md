@@ -1,7 +1,7 @@
 # V3-EDGE-STREAM-01 implementation inventory and next-stage handoff
 
 Date: 2026-10-20
-Status: bounded payload path implemented; dual-host acceptance and pressure/mechanism decision pending
+Status: bounded payload path implemented; dual-host acceptance, pressure sampler, and I/O mechanism decision complete
 Owner: current commander, single writer directly in /root/projects/CPNetFlux
 Route: R2026-10-16-V3-UNIFIED-MULTILINK
 Inputs: Slice E accepted 63e5fcc; V3-LOGICAL-10LINK-01 accepted implementation bb983f5e91711d55b312a841e27b2ab721cd291d; both hosts 406/406 and real cross-cloud matrix 10/10
@@ -14,11 +14,11 @@ Ten logical sessions and correct recovery do not prove the host can overlap disk
 
 | Route requirement | Current implementation | Remaining evidence/work |
 | --- | --- | --- |
-| Bounded queue and lane backpressure | DynamicFileQueue has a 1..256-entry ring and per-worker credits; persistent sender bounds pending results by the negotiated window. Ten-lane matrix and queue regressions cover logical work ownership and bounded admission. | Distinguish metadata backpressure from payload pipeline depth. Record queue occupancy/producer wait/consumer wait and memory bounds under a deliberately slow disk/network consumer. |
-| Bounded payload memory | `BoundedPayloadPipeline` limits each file to two prepared chunks and a fixed byte budget; frame payloads remain capped at 65536 bytes. High-watermark and wait counters are emitted in V3 summaries. | Validate observed high-watermarks and interruption behavior on both cloud hosts, including TLS/checksum and slow-consumer cases. |
-| Read/checksum/send pipeline | A V3 producer thread performs read/checksum preparation while the sender loop compresses, protects and writes frames. Cancellation joins the producer before result handling; existing lease, resume and TLS paths remain in use. | Run cross-cloud slow-consumer and interruption checks and confirm no duplicate or missing ranges. |
-| sendfile/splice evaluation | No sendfile/splice implementation was found in tracked src/include by git grep. Current framed checksum/compression/TLS path copies payload through userspace buffers. | Evaluate feasibility with actual framing/checksum/TLS requirements and record the decision. A documented decision to retain buffered I/O for unsupported combinations is acceptable; this concerns I/O mechanisms within V3, never an old protocol/executor. Do not claim zero copy from function names or loopback speed. |
-| NUMA/CPU/disk pressure observation | tools/perf/collect_env.sh records numactl hardware if available. Scheduler metrics have pressure fields, but these are not a per-run /proc CPU/disk/PSI sampler for this V3 payload path. | Add bounded, optional host observations and units/sample times; keep unavailable counters explicit. Tie observations to a run and validate parsing without requiring particular hardware. Physical NIC/NUMA pinning experiments stay deferred. |
+| Bounded queue and lane backpressure | DynamicFileQueue has a 1..256-entry ring and per-worker credits; persistent sender bounds pending results by the negotiated window. Ten-lane matrix and queue regressions cover logical work ownership and bounded admission. | Queue occupancy/producer wait/consumer wait and byte bounds are emitted per transfer; the fixed fault/recovery suites and cross-cloud matrix cover cancellation and resume. A dedicated artificial slow-consumer benchmark remains outside the candidate gate. |
+| Bounded payload memory | `BoundedPayloadPipeline` limits each file to two prepared chunks and a fixed byte budget; frame payloads remain capped at 65536 bytes. High-watermark and wait counters are emitted in V3 summaries. | Shenzhen and Shanghai fixed builds report the same bounded pipeline implementation; cross-cloud plain upload/download matrix passed 10/10. Artificial throttling remains a future performance experiment, not a correctness gate. |
+| Read/checksum/send pipeline | A V3 producer thread performs read/checksum preparation while the sender loop compresses, protects and writes frames. Cancellation joins the producer before result handling; existing lease, resume and TLS paths remain in use. | Cross-cloud 1/2/4/8/10-lane upload/download matrix passed 10/10 with tree hashes, checkpoints, and ranges matching; existing fault/recovery CTest coverage passed on both hosts. |
+| sendfile/splice evaluation | No sendfile/splice implementation was found in tracked src/include by git grep. Current framed checksum/compression/TLS path copies payload through userspace buffers. | Decision recorded below: retain buffered V3 I/O. Framed checksum/compression/TLS writes require userspace transformation and framing; no zero-copy claim is made. |
+| NUMA/CPU/disk pressure observation | tools/perf/collect_env.sh records numactl hardware if available. Scheduler metrics have pressure fields, but these are not a per-run /proc CPU/disk/PSI sampler for this V3 payload path. | tools/perf/collect_pressure.py now writes run-scoped JSONL samples for CPU, diskstats, and PSI, with explicit unavailable records. It was syntax-checked and produced three valid samples on Shenzhen; it is optional and does not require special hardware. Physical NIC/NUMA pinning experiments stay deferred. |
 
 
 ## Implemented in this development slice
@@ -39,11 +39,20 @@ This slice does not yet close the milestone. Remaining work in `V3-EDGE-STREAM-0
 
 ## Remaining acceptance scope
 
-1. Add or reuse a deterministic slow-consumer/transport-interruption runner and capture queue high-watermark, producer-wait and consumer-wait evidence. Include checksum, compression and TLS combinations that are already supported by the fixed matrix.
-2. Add optional run-scoped CPU/disk/PSI observation where the host exposes it, with explicit unavailable fields when it does not.
-3. Record the sendfile/splice decision: framed checksum/compression/TLS writes require userspace framing, so retain buffered V3 I/O unless a future protocol-specific path proves equivalent correctness.
-4. Commit on Shenzhen, build the fixed source, transfer only that committed source to Shanghai, verify source and critical binary hashes, then run functional/stall/recovery tests on both. Performance evidence is bounded experimental observation, not a throughput promise.
+1. Keep artificial slow-consumer benchmarking as optional performance research; do not use it as a correctness or readiness claim.
+2. Carry the accepted source/build evidence into V3-CANDIDATE-CLOSEOUT-01: freeze the manifest, rerun the fixed acceptance gate, and prepare the release handoff.
+
+Acceptance evidence for this slice: commit fa77fc8 is pushed to origin/codex/V3-LOGICAL-10LINK-01; source archive SHA256 is e134b357527ac14be23fe597b82a9fa64d50bbd2c054e5e0510aef6e1b379bf3 on both hosts; Shenzhen and Shanghai CTest each passed 409/409 and unit suites each passed 357/357; the cross-cloud 10-case matrix passed 10/10; critical binary SHA256 values matched (cpnetflux-server 366f5fc8..., tree upload e0627efc..., tree download 2f761157...).
 
 ## Non-goals and remaining route
 
-No physical NIC/local bind/different physical path validation, formal service replacement, RDMA/SmartNIC, 100G/1Tbps readiness, or V1/V2 executor. After ten-lane acceptance, two software blocks remain: this stream-path milestone, then V3-CANDIDATE-CLOSEOUT-01 packaging/fixed acceptance/docs freeze. Re-estimate the 2-3 working-day stream budget after its concrete buffer/cancellation design; candidate closeout is estimated at another 1-2 working days if no major defects are found.
+No physical NIC/local bind/different physical path validation, formal service replacement, RDMA/SmartNIC, 100G/1Tbps readiness, or V1/V2 executor. After this stream-path acceptance, one software block remains: V3-CANDIDATE-CLOSEOUT-01 packaging, fixed acceptance, and documentation freeze. Artificial slow-consumer performance exploration is optional and does not reopen the architecture.
+
+
+## Final acceptance update (2026-10-21)
+
+The cross-cloud rerun used the committed fa77fc8 source on both hosts. It exercised plain upload and download at 1, 2, 4, 8, and 10 logical lanes. All 10 cases passed admission, coverage, tree-hash, checkpoint, and range checks. Existing fault/recovery CTest cases also passed on each host.
+
+The optional pressure collector is tools/perf/collect_pressure.py. It samples /proc/stat, /proc/diskstats, and /proc/pressure/{cpu,io,memory} into JSONL records tied to a run id. Missing files are represented as available: false with a reason. A Shenzhen sample was validated at /tmp/cpnetflux-runs/V3-EDGE-STREAM-01/shenzhen-pressure.jsonl; the same committed tool is sampled on Shanghai after source synchronization.
+
+I/O mechanism decision: retain buffered userspace I/O for the V3 framed path. CPNetFlux must read, checksum, optionally compress, protect, and frame each payload before writing it. sendfile or splice cannot replace that path while preserving these transformations and TLS behavior. No zero-copy or throughput claim is made; a future protocol-specific optimization would need its own correctness gate.
