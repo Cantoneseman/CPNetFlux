@@ -1,3 +1,16 @@
+# 2026-10-20 当前总指挥交接
+
+以下当前节覆盖后面的历史接手快照。开发由当前总指挥单人串行直接在深圳 /root/projects/CPNetFlux 执行；不使用子代理，不另建开发 worktree。上海只作同步已提交版本的构建/传输对端，Windows 只连接/查看/回收证据。
+
+- V3-LOGICAL-10LINK-01 accepted; implementation bb983f5e91711d55b312a841e27b2ab721cd291d, pushed and ref verified. Root returned to current codex/V3-LOGICAL-10LINK-01 branch; original eleven modified files and two untracked historical task documents preserved as described in task record.
+- Both hosts: Release/TLS/io_uring/tests ON, desktop/cross-domain CTest OFF; complete CTest 406/406 exit 0. Same-source archive and server/upload/download hashes verified before real cross-cloud 10/10 matrix. Root explicit 14/14 matrix includes ten-lane TLS and reset recovery.
+- Practical fixes: consistent max ten persistent lanes and bounded affinity queue admission wait. The latter closes a reproducible 19/22-file mixed-upload failure caused by premature lane EOF.
+- Task-owned processes/payload/ports/ephemeral keys cleaned; formal services active, not replaced. Preserve raw failure and acceptance logs in /tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01.
+- Next: finalize and implement V3-EDGE-STREAM-01 from its inventory, then V3-CANDIDATE-CLOSEOUT-01. Two remaining software blocks, estimated 3-5 working days subject to defects. Physical NIC/path work is deferred by user.
+- Read BOARD current section, this task/evidence, stream inventory and AGENTS; do not resume old worktree/parallel-delegation instructions below.
+
+---
+
 # CPNetFlux｜00 总指挥接手回执
 
 ## 2026-10-17 当前交接：V3-WORK-UNIFY-04

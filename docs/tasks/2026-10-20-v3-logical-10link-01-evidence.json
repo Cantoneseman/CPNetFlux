@@ -1,0 +1,1550 @@
+{
+  "task": "V3-LOGICAL-10LINK-01",
+  "status": "accepted",
+  "date": "2026-10-20",
+  "authoritative_workspace": "/root/projects/CPNetFlux",
+  "execution": "single commander; serial; no subagents or new development worktrees",
+  "implementation_commit": "bb983f5e91711d55b312a841e27b2ab721cd291d",
+  "github_implementation_push": {
+    "status": "success",
+    "remote_sha": "bb983f5e91711d55b312a841e27b2ab721cd291d"
+  },
+  "same_version_gate": {
+    "source_commit": "bb983f5e91711d55b312a841e27b2ab721cd291d",
+    "archive_sha256": "edc2b63772356f0561b5146e0d1159132cfddb047499ac50aae7d2f8d6a85419",
+    "shenzhen_binary_sha256": {
+      "cpnetflux-gridftp-server": "ef79b7b78fa7eea739a3f553283bce476d900da88c773c9088ae3097704b05fc",
+      "cpnetflux-tree-upload-client": "e9f3d92f6945a6d08ecebee86ed3fd3868134de8e732d45b423d70ea57808ef6",
+      "cpnetflux-tree-download-client": "95b551127d4673626743105280675e29e4d8d46572356d3e81c56bf1a005716d"
+    },
+    "shanghai_binary_sha256": {
+      "cpnetflux-gridftp-server": "ef79b7b78fa7eea739a3f553283bce476d900da88c773c9088ae3097704b05fc",
+      "cpnetflux-tree-upload-client": "e9f3d92f6945a6d08ecebee86ed3fd3868134de8e732d45b423d70ea57808ef6",
+      "cpnetflux-tree-download-client": "95b551127d4673626743105280675e29e4d8d46572356d3e81c56bf1a005716d"
+    },
+    "equal": true,
+    "build_completed": true,
+    "peer_ctest": {
+      "phase": "ctest",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/same-source-acceptance/shanghai-build",
+        "--output-on-failure",
+        "-j1"
+      ],
+      "exit": 0,
+      "seconds": 143.9535195827484
+    }
+  },
+  "full_ctest": {
+    "shenzhen": {
+      "tests": 406,
+      "passed": 406,
+      "exit": 0,
+      "seconds": 148.51,
+      "log": "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/root-final-ctest.log",
+      "build_source": "/root/projects/CPNetFlux",
+      "source_content_matches_commit": "bb983f5e91711d55b312a841e27b2ab721cd291d"
+    },
+    "shanghai": {
+      "tests": 406,
+      "passed": 406,
+      "exit": 0,
+      "seconds": 143.95,
+      "log": "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/shanghai-full-ctest.log",
+      "source_commit": "bb983f5e91711d55b312a841e27b2ab721cd291d"
+    }
+  },
+  "root_local_cases": [
+    {
+      "case": "1-upload-plain",
+      "lanes": 1,
+      "direction": "upload",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "a0f4d61c148df7965ff19cffb84f56fb3ec043b9822bc8bb25c4e669958a4699",
+        22,
+        17907921
+      ],
+      "observed_tree": [
+        "a0f4d61c148df7965ff19cffb84f56fb3ec043b9822bc8bb25c4e669958a4699",
+        22,
+        17907921
+      ],
+      "lane_work_counts": [
+        0
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 17825811
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "1-download-plain",
+      "lanes": 1,
+      "direction": "download",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "a0f4d61c148df7965ff19cffb84f56fb3ec043b9822bc8bb25c4e669958a4699",
+        22,
+        17907921
+      ],
+      "observed_tree": [
+        "a0f4d61c148df7965ff19cffb84f56fb3ec043b9822bc8bb25c4e669958a4699",
+        22,
+        17907921
+      ],
+      "lane_work_counts": [
+        0
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 17825811
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "2-upload-plain",
+      "lanes": 2,
+      "direction": "upload",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "22d0ae3124da93ac2feb7936eb3aff29b38b6bba288674a93f05b394d7e6d674",
+        22,
+        34685137
+      ],
+      "observed_tree": [
+        "22d0ae3124da93ac2feb7936eb3aff29b38b6bba288674a93f05b394d7e6d674",
+        22,
+        34685137
+      ],
+      "lane_work_counts": [
+        2,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "2-download-plain",
+      "lanes": 2,
+      "direction": "download",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "22d0ae3124da93ac2feb7936eb3aff29b38b6bba288674a93f05b394d7e6d674",
+        22,
+        34685137
+      ],
+      "observed_tree": [
+        "22d0ae3124da93ac2feb7936eb3aff29b38b6bba288674a93f05b394d7e6d674",
+        22,
+        34685137
+      ],
+      "lane_work_counts": [
+        1,
+        2
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "4-upload-plain",
+      "lanes": 4,
+      "direction": "upload",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "576b1289877ec26d03c6f59cc7f80f5b216235c5b90eedb458d8028229f9a099",
+        22,
+        68239569
+      ],
+      "observed_tree": [
+        "576b1289877ec26d03c6f59cc7f80f5b216235c5b90eedb458d8028229f9a099",
+        22,
+        68239569
+      ],
+      "lane_work_counts": [
+        2,
+        1,
+        1,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "4-download-plain",
+      "lanes": 4,
+      "direction": "download",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "576b1289877ec26d03c6f59cc7f80f5b216235c5b90eedb458d8028229f9a099",
+        22,
+        68239569
+      ],
+      "observed_tree": [
+        "576b1289877ec26d03c6f59cc7f80f5b216235c5b90eedb458d8028229f9a099",
+        22,
+        68239569
+      ],
+      "lane_work_counts": [
+        2,
+        1,
+        1,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "8-upload-plain",
+      "lanes": 8,
+      "direction": "upload",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "d6fcde12b509db36148cc971c22f680540d4e54789e1df7bf17cb54a75d2497e",
+        22,
+        135348433
+      ],
+      "observed_tree": [
+        "d6fcde12b509db36148cc971c22f680540d4e54789e1df7bf17cb54a75d2497e",
+        22,
+        135348433
+      ],
+      "lane_work_counts": [
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 16777216
+        },
+        {
+          "offset": 83886080,
+          "length": 16777216
+        },
+        {
+          "offset": 100663296,
+          "length": 16777216
+        },
+        {
+          "offset": 117440512,
+          "length": 16777216
+        },
+        {
+          "offset": 134217728,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "8-download-plain",
+      "lanes": 8,
+      "direction": "download",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "d6fcde12b509db36148cc971c22f680540d4e54789e1df7bf17cb54a75d2497e",
+        22,
+        135348433
+      ],
+      "observed_tree": [
+        "d6fcde12b509db36148cc971c22f680540d4e54789e1df7bf17cb54a75d2497e",
+        22,
+        135348433
+      ],
+      "lane_work_counts": [
+        1,
+        1,
+        1,
+        2,
+        1,
+        1,
+        1,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 16777216
+        },
+        {
+          "offset": 83886080,
+          "length": 16777216
+        },
+        {
+          "offset": 100663296,
+          "length": 16777216
+        },
+        {
+          "offset": 117440512,
+          "length": 16777216
+        },
+        {
+          "offset": 134217728,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "10-upload-plain",
+      "lanes": 10,
+      "direction": "upload",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "observed_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "lane_work_counts": [
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 16777216
+        },
+        {
+          "offset": 83886080,
+          "length": 16777216
+        },
+        {
+          "offset": 100663296,
+          "length": 16777216
+        },
+        {
+          "offset": 117440512,
+          "length": 16777216
+        },
+        {
+          "offset": 134217728,
+          "length": 16777216
+        },
+        {
+          "offset": 150994944,
+          "length": 16777216
+        },
+        {
+          "offset": 167772160,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 7,
+      "resets_observed": 0
+    },
+    {
+      "case": "10-download-plain",
+      "lanes": 10,
+      "direction": "download",
+      "tls": false,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "observed_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "lane_work_counts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        1,
+        1,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 16777216
+        },
+        {
+          "offset": 83886080,
+          "length": 16777216
+        },
+        {
+          "offset": 100663296,
+          "length": 16777216
+        },
+        {
+          "offset": 117440512,
+          "length": 16777216
+        },
+        {
+          "offset": 134217728,
+          "length": 16777216
+        },
+        {
+          "offset": 150994944,
+          "length": 16777216
+        },
+        {
+          "offset": 167772160,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 7,
+      "resets_observed": 0
+    },
+    {
+      "case": "10-upload-tls",
+      "lanes": 10,
+      "direction": "upload",
+      "tls": true,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "observed_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "lane_work_counts": [
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 16777216
+        },
+        {
+          "offset": 83886080,
+          "length": 16777216
+        },
+        {
+          "offset": 100663296,
+          "length": 16777216
+        },
+        {
+          "offset": 117440512,
+          "length": 16777216
+        },
+        {
+          "offset": 134217728,
+          "length": 16777216
+        },
+        {
+          "offset": 150994944,
+          "length": 16777216
+        },
+        {
+          "offset": 167772160,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "10-download-tls",
+      "lanes": 10,
+      "direction": "download",
+      "tls": true,
+      "reset": false,
+      "result": "pass",
+      "expected_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "observed_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "lane_work_counts": [
+        1,
+        1,
+        1,
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 16777216
+        },
+        {
+          "offset": 83886080,
+          "length": 16777216
+        },
+        {
+          "offset": 100663296,
+          "length": 16777216
+        },
+        {
+          "offset": 117440512,
+          "length": 16777216
+        },
+        {
+          "offset": 134217728,
+          "length": 16777216
+        },
+        {
+          "offset": 150994944,
+          "length": 16777216
+        },
+        {
+          "offset": 167772160,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 0,
+      "resets_observed": 0
+    },
+    {
+      "case": "10-upload-reset",
+      "lanes": 10,
+      "direction": "upload",
+      "tls": false,
+      "reset": true,
+      "result": "pass",
+      "expected_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "observed_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "lane_work_counts": [
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 16777216
+        },
+        {
+          "offset": 83886080,
+          "length": 16777216
+        },
+        {
+          "offset": 100663296,
+          "length": 16777216
+        },
+        {
+          "offset": 117440512,
+          "length": 16777216
+        },
+        {
+          "offset": 134217728,
+          "length": 16777216
+        },
+        {
+          "offset": 150994944,
+          "length": 16777216
+        },
+        {
+          "offset": 167772160,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 7,
+      "resets_observed": 1
+    },
+    {
+      "case": "10-download-reset",
+      "lanes": 10,
+      "direction": "download",
+      "tls": false,
+      "reset": true,
+      "result": "pass",
+      "expected_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "observed_tree": [
+        "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+        22,
+        168902865
+      ],
+      "lane_work_counts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        2
+      ],
+      "ranges": [
+        {
+          "offset": 0,
+          "length": 16777216
+        },
+        {
+          "offset": 16777216,
+          "length": 16777216
+        },
+        {
+          "offset": 33554432,
+          "length": 16777216
+        },
+        {
+          "offset": 50331648,
+          "length": 16777216
+        },
+        {
+          "offset": 67108864,
+          "length": 16777216
+        },
+        {
+          "offset": 83886080,
+          "length": 16777216
+        },
+        {
+          "offset": 100663296,
+          "length": 16777216
+        },
+        {
+          "offset": 117440512,
+          "length": 16777216
+        },
+        {
+          "offset": 134217728,
+          "length": 16777216
+        },
+        {
+          "offset": 150994944,
+          "length": 16777216
+        },
+        {
+          "offset": 167772160,
+          "length": 1048595
+        }
+      ],
+      "committed_checkpoints": 22,
+      "admission_checks": 7,
+      "resets_observed": 1
+    }
+  ],
+  "cross_cloud": {
+    "status": {
+      "source_commit": "bb983f5e91711d55b312a841e27b2ab721cd291d",
+      "build_gate": "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/same-version-gate.json",
+      "seconds": 124.63179397583008,
+      "exit": 0,
+      "command": [
+        "run_v3_logical_link_matrix.py",
+        "--build-dir",
+        "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/root-dev-build",
+        "--evidence-dir",
+        "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/cross-cloud-matrix",
+        "--peer-alias",
+        "gridflux-beta-shanghai",
+        "--peer-host",
+        "47.116.174.181",
+        "--peer-build-dir",
+        "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/same-source-acceptance/shanghai-build",
+        "--peer-run-dir",
+        "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/real-interop",
+        "--skip-extras"
+      ]
+    },
+    "cases": [
+      {
+        "case": "1-upload-plain",
+        "lanes": 1,
+        "direction": "upload",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "a0f4d61c148df7965ff19cffb84f56fb3ec043b9822bc8bb25c4e669958a4699",
+          22,
+          17907921
+        ],
+        "observed_tree": [
+          "a0f4d61c148df7965ff19cffb84f56fb3ec043b9822bc8bb25c4e669958a4699",
+          22,
+          17907921
+        ],
+        "lane_work_counts": [
+          0
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 17825811
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 0,
+        "resets_observed": 0
+      },
+      {
+        "case": "1-download-plain",
+        "lanes": 1,
+        "direction": "download",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "a0f4d61c148df7965ff19cffb84f56fb3ec043b9822bc8bb25c4e669958a4699",
+          22,
+          17907921
+        ],
+        "observed_tree": [
+          "a0f4d61c148df7965ff19cffb84f56fb3ec043b9822bc8bb25c4e669958a4699",
+          22,
+          17907921
+        ],
+        "lane_work_counts": [
+          0
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 17825811
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 0,
+        "resets_observed": 0
+      },
+      {
+        "case": "2-upload-plain",
+        "lanes": 2,
+        "direction": "upload",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "22d0ae3124da93ac2feb7936eb3aff29b38b6bba288674a93f05b394d7e6d674",
+          22,
+          34685137
+        ],
+        "observed_tree": [
+          "22d0ae3124da93ac2feb7936eb3aff29b38b6bba288674a93f05b394d7e6d674",
+          22,
+          34685137
+        ],
+        "lane_work_counts": [
+          2,
+          1
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 16777216
+          },
+          {
+            "offset": 16777216,
+            "length": 16777216
+          },
+          {
+            "offset": 33554432,
+            "length": 1048595
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 0,
+        "resets_observed": 0
+      },
+      {
+        "case": "2-download-plain",
+        "lanes": 2,
+        "direction": "download",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "22d0ae3124da93ac2feb7936eb3aff29b38b6bba288674a93f05b394d7e6d674",
+          22,
+          34685137
+        ],
+        "observed_tree": [
+          "22d0ae3124da93ac2feb7936eb3aff29b38b6bba288674a93f05b394d7e6d674",
+          22,
+          34685137
+        ],
+        "lane_work_counts": [
+          2,
+          1
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 16777216
+          },
+          {
+            "offset": 16777216,
+            "length": 16777216
+          },
+          {
+            "offset": 33554432,
+            "length": 1048595
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 0,
+        "resets_observed": 0
+      },
+      {
+        "case": "4-upload-plain",
+        "lanes": 4,
+        "direction": "upload",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "576b1289877ec26d03c6f59cc7f80f5b216235c5b90eedb458d8028229f9a099",
+          22,
+          68239569
+        ],
+        "observed_tree": [
+          "576b1289877ec26d03c6f59cc7f80f5b216235c5b90eedb458d8028229f9a099",
+          22,
+          68239569
+        ],
+        "lane_work_counts": [
+          2,
+          1,
+          1,
+          1
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 16777216
+          },
+          {
+            "offset": 16777216,
+            "length": 16777216
+          },
+          {
+            "offset": 33554432,
+            "length": 16777216
+          },
+          {
+            "offset": 50331648,
+            "length": 16777216
+          },
+          {
+            "offset": 67108864,
+            "length": 1048595
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 0,
+        "resets_observed": 0
+      },
+      {
+        "case": "4-download-plain",
+        "lanes": 4,
+        "direction": "download",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "576b1289877ec26d03c6f59cc7f80f5b216235c5b90eedb458d8028229f9a099",
+          22,
+          68239569
+        ],
+        "observed_tree": [
+          "576b1289877ec26d03c6f59cc7f80f5b216235c5b90eedb458d8028229f9a099",
+          22,
+          68239569
+        ],
+        "lane_work_counts": [
+          1,
+          1,
+          2,
+          1
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 16777216
+          },
+          {
+            "offset": 16777216,
+            "length": 16777216
+          },
+          {
+            "offset": 33554432,
+            "length": 16777216
+          },
+          {
+            "offset": 50331648,
+            "length": 16777216
+          },
+          {
+            "offset": 67108864,
+            "length": 1048595
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 0,
+        "resets_observed": 0
+      },
+      {
+        "case": "8-upload-plain",
+        "lanes": 8,
+        "direction": "upload",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "d6fcde12b509db36148cc971c22f680540d4e54789e1df7bf17cb54a75d2497e",
+          22,
+          135348433
+        ],
+        "observed_tree": [
+          "d6fcde12b509db36148cc971c22f680540d4e54789e1df7bf17cb54a75d2497e",
+          22,
+          135348433
+        ],
+        "lane_work_counts": [
+          2,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 16777216
+          },
+          {
+            "offset": 16777216,
+            "length": 16777216
+          },
+          {
+            "offset": 33554432,
+            "length": 16777216
+          },
+          {
+            "offset": 50331648,
+            "length": 16777216
+          },
+          {
+            "offset": 67108864,
+            "length": 16777216
+          },
+          {
+            "offset": 83886080,
+            "length": 16777216
+          },
+          {
+            "offset": 100663296,
+            "length": 16777216
+          },
+          {
+            "offset": 117440512,
+            "length": 16777216
+          },
+          {
+            "offset": 134217728,
+            "length": 1048595
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 0,
+        "resets_observed": 0
+      },
+      {
+        "case": "8-download-plain",
+        "lanes": 8,
+        "direction": "download",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "d6fcde12b509db36148cc971c22f680540d4e54789e1df7bf17cb54a75d2497e",
+          22,
+          135348433
+        ],
+        "observed_tree": [
+          "d6fcde12b509db36148cc971c22f680540d4e54789e1df7bf17cb54a75d2497e",
+          22,
+          135348433
+        ],
+        "lane_work_counts": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          1,
+          1
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 16777216
+          },
+          {
+            "offset": 16777216,
+            "length": 16777216
+          },
+          {
+            "offset": 33554432,
+            "length": 16777216
+          },
+          {
+            "offset": 50331648,
+            "length": 16777216
+          },
+          {
+            "offset": 67108864,
+            "length": 16777216
+          },
+          {
+            "offset": 83886080,
+            "length": 16777216
+          },
+          {
+            "offset": 100663296,
+            "length": 16777216
+          },
+          {
+            "offset": 117440512,
+            "length": 16777216
+          },
+          {
+            "offset": 134217728,
+            "length": 1048595
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 0,
+        "resets_observed": 0
+      },
+      {
+        "case": "10-upload-plain",
+        "lanes": 10,
+        "direction": "upload",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+          22,
+          168902865
+        ],
+        "observed_tree": [
+          "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+          22,
+          168902865
+        ],
+        "lane_work_counts": [
+          2,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 16777216
+          },
+          {
+            "offset": 16777216,
+            "length": 16777216
+          },
+          {
+            "offset": 33554432,
+            "length": 16777216
+          },
+          {
+            "offset": 50331648,
+            "length": 16777216
+          },
+          {
+            "offset": 67108864,
+            "length": 16777216
+          },
+          {
+            "offset": 83886080,
+            "length": 16777216
+          },
+          {
+            "offset": 100663296,
+            "length": 16777216
+          },
+          {
+            "offset": 117440512,
+            "length": 16777216
+          },
+          {
+            "offset": 134217728,
+            "length": 16777216
+          },
+          {
+            "offset": 150994944,
+            "length": 16777216
+          },
+          {
+            "offset": 167772160,
+            "length": 1048595
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 7,
+        "resets_observed": 0
+      },
+      {
+        "case": "10-download-plain",
+        "lanes": 10,
+        "direction": "download",
+        "tls": false,
+        "reset": false,
+        "result": "pass",
+        "expected_tree": [
+          "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+          22,
+          168902865
+        ],
+        "observed_tree": [
+          "3f22f2c83959d963b2c8593898ba1117f2f888192bb5f5a7795812ec250d48a8",
+          22,
+          168902865
+        ],
+        "lane_work_counts": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          1,
+          1,
+          1,
+          1
+        ],
+        "ranges": [
+          {
+            "offset": 0,
+            "length": 16777216
+          },
+          {
+            "offset": 16777216,
+            "length": 16777216
+          },
+          {
+            "offset": 33554432,
+            "length": 16777216
+          },
+          {
+            "offset": 50331648,
+            "length": 16777216
+          },
+          {
+            "offset": 67108864,
+            "length": 16777216
+          },
+          {
+            "offset": 83886080,
+            "length": 16777216
+          },
+          {
+            "offset": 100663296,
+            "length": 16777216
+          },
+          {
+            "offset": 117440512,
+            "length": 16777216
+          },
+          {
+            "offset": 134217728,
+            "length": 16777216
+          },
+          {
+            "offset": 150994944,
+            "length": 16777216
+          },
+          {
+            "offset": 167772160,
+            "length": 1048595
+          }
+        ],
+        "committed_checkpoints": 22,
+        "admission_checks": 7,
+        "resets_observed": 0
+      }
+    ],
+    "directions": "Shenzhen client uploads to Shanghai server; same client downloads from Shanghai source; both data directions use CPNetFlux",
+    "peer_processes_started_and_stopped": 10
+  },
+  "admission": {
+    "configured_peer_max_eight_rejections": 7,
+    "zero_payload_commands": true,
+    "runtime": "V3 only; capability/limit rejection, no old protocol fallback"
+  },
+  "regression": {
+    "issue": "affine lane emitted EOF while its work remained outside the bounded ready ring",
+    "observed": "19/22 identities at completion in instrumented 2-lane mixed-size upload",
+    "red_log": "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/affinity-red.log",
+    "green_log": "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/affinity-green.log",
+    "fix": "bounded admission wait with cancellation/stop/owner checks; retain ring capacity and lane affinity"
+  },
+  "prior_failed_checks": [
+    {
+      "log": "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01/root-full-ctest.log",
+      "passed": 403,
+      "total": 406,
+      "cause": "obsolete reject-9 test; two missing ephemeral test-token parameters",
+      "resolution": "updated 10/11 boundary; process-only random test token; targeted and full gates green"
+    },
+    {
+      "logs": [
+        "root-matrix-first.log",
+        "root-matrix-second.log"
+      ],
+      "cause": "test harness used anonymous USER rather than configured default test user",
+      "resolution": "use configured test login"
+    },
+    {
+      "log": "root-acceptance-3.log",
+      "cause": "harness treated range_id=0 whole-file sentinel as a ranged transfer",
+      "resolution": "use file_timings and whole-file size for single-lane evidence"
+    }
+  ],
+  "root_preservation": {
+    "authoritative_workspace": "/root/projects/CPNetFlux",
+    "branch": "codex/V3-LOGICAL-10LINK-01",
+    "preserved_old_root_stash": "c5d18322d50f1a86783b6d1f32cfe84fb3208e41",
+    "preserved_old_root_head": "9108b9d3b360baea02eaeda3f42448fc98f3d160",
+    "task_head": "028f15df15a366e9a1185587fe48dfa42df3e996",
+    "restored_untracked": [
+      "docs/tasks/2026-10-14-v3-worker-state-01b-result.md",
+      "docs/tasks/2026-10-14-v3-worker-state-01b.md"
+    ],
+    "historical_partial_tests_present_in_latest": [
+      "PreservesGlobalSchedulerPlanOrderInTheSharedQueue",
+      "GlobalSchedulerUsesQueueLeaseOwnerAndEpoch",
+      "AllowsGlobalSchedulerWithPersistentSharedDispatch"
+    ],
+    "former_worktree": "retired detached; preserved as recovery copy; no further development there"
+  },
+  "cleanup": {
+    "shenzhen": {
+      "hostname": "iZwz9bgztwf1tic26q48pjZ",
+      "free_bytes": 32603938816,
+      "active_task_servers": [],
+      "retained_case_payload_files": [],
+      "test_port_listeners": [],
+      "formal_service": "active",
+      "ephemeral_keys": []
+    },
+    "shanghai": {
+      "hostname": "iZuf6ja2uqvjzh635cugzmZ",
+      "free_bytes": 76426993664,
+      "active_task_servers": [],
+      "retained_case_payload_files": [],
+      "test_port_listeners": [],
+      "formal_service": "active",
+      "ephemeral_keys": []
+    }
+  },
+  "limitations": [
+    "logical TCP lanes, not distinct physical NIC/path validation",
+    "functional/recovery acceptance, no throughput or production readiness claim",
+    "formal services were not switched to this candidate"
+  ],
+  "remaining_software_blocks": [
+    "V3-EDGE-STREAM-01 bounded payload pipeline/pressure observations/I/O mechanism evaluation",
+    "V3-CANDIDATE-CLOSEOUT-01 fixed stability acceptance/packages/install/docs freeze"
+  ],
+  "evidence_root": "/tmp/cpnetflux-runs/V3-LOGICAL-10LINK-01"
+}

@@ -4,7 +4,7 @@ Date: 2026-10-20
 Status: inventory complete; implementation/acceptance pending
 Owner: current commander, single writer directly in /root/projects/CPNetFlux
 Route: R2026-10-16-V3-UNIFIED-MULTILINK
-Inputs: Slice E accepted 63e5fcc; V3-LOGICAL-10LINK-01 candidate (record final SHA in its evidence)
+Inputs: Slice E accepted 63e5fcc; V3-LOGICAL-10LINK-01 accepted implementation bb983f5e91711d55b312a841e27b2ab721cd291d; both hosts 406/406 and real cross-cloud matrix 10/10
 
 ## Practical issue
 

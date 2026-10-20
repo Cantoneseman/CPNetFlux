@@ -11,9 +11,11 @@ Development: directly in /root/projects/CPNetFlux on the current codex branch; s
 
 Finish the current V3 software candidate, with a fixed acceptance checklist instead of adding one more unrelated feature after every smoke test. This does not claim completion of the full 1 Tbps research programme.
 
-## Confirmed entry gap (2026-10-20 inventory)
+## Entry-gap update after ten-lane acceptance (2026-10-20)
 
-The actual persistent channel cap remains 8 in persistent_tree_transfer.h and PersistentDirectoryBatch; client/server admission also enforce that cap. A model that accepts ten profiles is not evidence of ten working data lanes. V3-LOGICAL-10LINK-01 must close this software gap before the ten-link acceptance matrix can pass. EDGE-STREAM route coverage still requires an implementation/evidence inventory; do not treat its absence from recent task summaries as completion or as proof that no partial implementation exists.
+V3-LOGICAL-10LINK-01 closed the eight-channel runtime cap and the mixed-size lane-EOF defect at bb983f5e91711d55b312a841e27b2ab721cd291d. Both hosts passed full CTest 406/406 with equal critical binary hashes; the real cross-cloud upload/download 1/2/4/8/10 matrix passed 10/10. See its task/evidence record. Ten logical TCP lanes are accepted; physical NIC/path evidence is still deferred.
+
+The next unresolved software block is V3-EDGE-STREAM-01. Its source/evidence inventory is in 2026-10-20-v3-edge-stream-inventory.md: bounded metadata queues and ACK overlap exist, but separate read/checksum/send payload overlap and run-scoped CPU/disk/PSI observations remain incomplete. Complete that milestone before candidate freeze.
 
 ## Scope
 
@@ -54,3 +56,7 @@ Planning budget for the remaining software route is 4-7 working days, conditiona
 ## Handoff
 
 Start by verifying Slice E implementation/result commit and resource/service state. Read the current BOARD top section and the 2026-10-16 decision. Run the route inventory before implementing additional code. Physical-network validation is a separate user-deferred stage.
+
+## Updated remaining budget
+
+After ten-lane acceptance, two software blocks remain: stream-path work (about 2-3 working days subject to its design and discovered defects), then fixed candidate/package/docs closeout (about 1-2 working days). Total planning budget is now 3-5 working days; the earlier 4-7-day figure included the now-accepted ten-lane milestone.
