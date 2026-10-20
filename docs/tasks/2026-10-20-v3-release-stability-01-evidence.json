@@ -1,7 +1,7 @@
 {
   "task": "V3-RELEASE-STABILITY-01",
   "slice": "client interruption followed by V3 resume",
-  "status": "slice_b_planned_parent_in_progress",
+  "status": "slice_b_complete_parent_in_progress",
   "input_commit": "bb6cb2022e813c274387d915e3024a4546ac0549",
   "plan_commit": "2741d8605161052e9886fcf5cf70f202d7689406",
   "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -61,7 +61,7 @@
     "production_service_changed": false
   },
   "github_push": null,
-  "next": "V3 service restart recovery from durable checkpoint; then separately timeout, corrupted checkpoint, target conflict, duplicate submit. Physical NIC and physical-link testing remains deferred.",
+  "next": "Slice C: deterministically stall the V3 data path after a non-empty checkpoint, verify bounded transfer-timeout failure without legacy fallback, then restore forwarding and resume successfully. Corrupt checkpoint, target conflict and duplicate submission remain separate later tests; physical NIC/link validation remains deferred.",
   "implementation_commit": {
     "sha": "00adb9074268cc5ec0b798c936c7ce93f56e39db",
     "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -130,7 +130,7 @@
   "slice_b_plan": {
     "input_commit": "3c4f3627c452d9dcc70de667d51e3c31c33d3b5b",
     "scope": "V3 upload/download recovery after temporary server process restart with persisted checkpoint",
-    "plan_commit": "pending",
+    "plan_commit": "449cb7243d1397babc9ece888187066f669b898d",
     "resource_preflight_2026_10_20": {
       "shenzhen": {
         "disk_free_gib": 33,
@@ -149,6 +149,150 @@
       "loopback server restart smoke",
       "same-commit CTest on both hosts",
       "cross-cloud upload and download restart recovery after binary SHA match"
-    ]
+    ],
+    "status": "complete"
+  },
+  "completed_slices": [
+    "A: client interruption resume",
+    "B: temporary service process restart resume"
+  ],
+  "active_slice": "none; Slice C planned",
+  "slice_b_execution": {
+    "input_commit": "3c4f3627c452d9dcc70de667d51e3c31c33d3b5b",
+    "code_commits": [
+      {
+        "sha": "3c4ec5ba6c05a355134a42cf10b47a7b48d20e81",
+        "purpose": "register V3 service-restart resume smoke and CTest",
+        "pushed": true,
+        "remote_sha_readback": "3c4ec5ba6c05a355134a42cf10b47a7b48d20e81"
+      },
+      {
+        "sha": "e56c631d4c9a4382cced7acd36613e50867f3408",
+        "purpose": "fix cross-cloud tree evidence verification",
+        "pushed": true,
+        "remote_sha_readback": "e56c631d4c9a4382cced7acd36613e50867f3408"
+      }
+    ],
+    "source_archive": {
+      "sha256_shenzhen_and_shanghai": "6886bb1fc455b0c552e5405db6289153aa44d704b4220e50e29b005f90ecf004",
+      "commit": "e56c631d4c9a4382cced7acd36613e50867f3408"
+    },
+    "build": {
+      "hosts": [
+        "shenzhen",
+        "shanghai"
+      ],
+      "configure": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCPNETFLUX_ENABLE_TLS=ON",
+        "-DCPNETFLUX_ENABLE_IO_URING=ON",
+        "-DCPNETFLUX_BUILD_DESKTOP=OFF",
+        "-DCPNETFLUX_BUILD_TESTS=ON",
+        "-DCPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS=OFF"
+      ],
+      "toolchain": "GNU 11.4 / CMake 3.22.1",
+      "exit_codes": {
+        "shenzhen": 0,
+        "shanghai": 0
+      },
+      "binary_sha256": {
+        "cpnetflux-gridftp-server": "e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412",
+        "cpnetflux-tree-upload-client": "19d1bcd167e7e12ed9f2d738b624d2294b2d9a12b26e1b74f598fbd11080e14c",
+        "cpnetflux-tree-download-client": "7e488ecd507aab737b5c29afb4ae9f59503203587fa7d32f0e5479ba23bd3969",
+        "equal_between_hosts": true
+      }
+    },
+    "focused_ctest": {
+      "name": "cpnetflux_v3_service_restart_resume_smoke",
+      "shenzhen": {
+        "result": "1/1 passed",
+        "exit_code": 0,
+        "seconds": 11.02
+      },
+      "shanghai": {
+        "result": "1/1 passed",
+        "exit_code": 0,
+        "seconds": 11.0
+      },
+      "same_commit": "e56c631d4c9a4382cced7acd36613e50867f3408"
+    },
+    "full_ctest": {
+      "token_env": "CPNETFLUX_TEST_TOKEN set to a temporary non-secret test value",
+      "final_serial_same_commit": {
+        "shenzhen": {
+          "result": "395/395 passed",
+          "exit_code": 0,
+          "seconds": 112.08,
+          "log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/ctest-shenzhen-e56c631-full.log"
+        },
+        "shanghai": {
+          "result": "395/395 passed",
+          "exit_code": 0,
+          "seconds": 107.61,
+          "log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/ctest-shanghai-e56c631-full.log"
+        }
+      },
+      "intermediate_runs": [
+        "Without CPNETFLUX_TEST_TOKEN, the token-auth and event-log CTests failed their required environment precondition on both hosts.",
+        "With the token and -j2, Shanghai passed 395/395; Shenzhen's existing cpnetflux_reconnect_smoke intermittently failed with duplicate persistent range. The isolated test passed, and the final serial full run passed 395/395."
+      ]
+    },
+    "cross_cloud": {
+      "command": "python3 tools/test/run_v3_service_restart_resume_smoke.py --build-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/shenzhen-build --evidence-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/crosscloud-evidence --file-size-mib 512 --remote-alias gridflux-beta-shanghai --remote-build-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/shanghai-build --remote-root /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/crosscloud-restart-20261020-02",
+      "exit_code": 0,
+      "run_id": "20261020T030611-3020825",
+      "topology": "Shenzhen V3 clients to Shanghai temporary V3 server",
+      "payload_bytes_per_direction": 536870912,
+      "source_sha256": "ad2f2f84c6cc1fe087ca4c4ccf19012aa50491eefa1873fcace327c8d33c6d63",
+      "expected_and_actual_tree_sha256": "3e6b8acd5fa38834adb83e70a71eb48108a6e6c6b7c15dd22f1053e653be5af8",
+      "upload": {
+        "initial_client_exit_code": 1,
+        "verified_chunks_before_stop": 16,
+        "verified_chunks_after_stop": 16,
+        "checkpoint_state_before_stop": "transferring",
+        "checkpoint_state_after_stop": "transferring",
+        "checkpoint_state_after_resume": "committed",
+        "resume_skipped_bytes": 16777216,
+        "actual_transport": "v3",
+        "actual_mode": "persistent_tree",
+        "fallback_reason": "",
+        "source_and_target_sha256_match": true
+      },
+      "download": {
+        "initial_client_exit_code": 1,
+        "verified_chunks_before_stop": 16,
+        "verified_chunks_after_stop": 41,
+        "checkpoint_state_before_stop": "transferring",
+        "checkpoint_state_after_stop": "failed",
+        "checkpoint_state_after_resume": "committed",
+        "resume_skipped_bytes": 42991616,
+        "actual_transport": "v3",
+        "actual_mode": "persistent_tree",
+        "fallback_reason": "",
+        "source_and_target_sha256_match": true
+      },
+      "evidence_dir": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/crosscloud-evidence/20261020T030611-3020825",
+      "initial_harness_issue": "First development cross-cloud run transferred and resumed but stopped at tree evidence generation due a test-script argument bug; it was not counted as acceptance. The corrected script was pushed as e56c631 and the isolated final rerun passed."
+    },
+    "loopback_ctest_evidence": {
+      "shenzhen": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/shenzhen-build/cpnetflux-v3-service-restart-resume-evidence/20261020T031044-3028017/summary.json",
+      "shanghai": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/shanghai-build/cpnetflux-v3-service-restart-resume-evidence/20261020T031040-3648198/summary.json"
+    },
+    "resource_and_service_final": {
+      "shenzhen_disk_free_gib": 32,
+      "shanghai_disk_free_gib": 72,
+      "formal_services": {
+        "shenzhen": "active",
+        "shanghai": "active"
+      },
+      "only_expected_listeners": {
+        "shenzhen": "formal TCP/2121",
+        "shanghai": "formal TCP/2121"
+      },
+      "temporary_servers_and_proxy": "stopped",
+      "test_payload_files": "removed from local and remote run directories",
+      "logs_manifests_summaries": "retained"
+    },
+    "production_code_changed": false
   }
 }

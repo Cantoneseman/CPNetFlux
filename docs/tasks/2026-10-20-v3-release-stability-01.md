@@ -1,7 +1,7 @@
 # V3-RELEASE-STABILITY-01
 
 Date: 2026-10-20 (Asia/Shanghai)
-Status: slice A complete; parent release-stability task remains in_progress
+Status: slices A and B complete; parent release-stability task remains in_progress
 Owner: current commander, single serial developer
 Input commit: bb6cb2022e813c274387d915e3024a4546ac0549
 Branch: codex/V3-RELEASE-STABILITY-01
@@ -105,3 +105,31 @@ slice A 已通过。下一子阶段优先把“传输中服务端重启后 V3 �
 - docs/tasks/2026-10-20-v3-release-stability-01.md
 - docs/tasks/2026-10-20-v3-release-stability-01-evidence.json
 - 生产 V3 文件仅在行为测试确认产品缺陷时修改。
+
+
+## Slice B 执行与验收结果（2026-10-20）
+
+本阶段解决的问题：服务在传输中退出时，客户端会报错；现在验证 CPNetFlux 能否保住已校验的数据进度，并在同一服务目录重启后只补传剩余部分。实现为一个故障注入 smoke 和对应 CTest，没有发现产品逻辑错误，因此未改生产 C++、协议或 checkpoint 格式。
+
+新增 tools/test/run_v3_service_restart_resume_smoke.py，并注册 cpnetflux_v3_service_restart_resume_smoke。512 MiB 上传和下载分别先观察到 16 个已校验 chunk，再只停止本轮临时服务。客户端因服务退出以非零状态结束；恢复同一个临时服务和 root 后，V3 persistent-tree resume 均提交成功、没有 fallback。循环回归固定 512 MiB；额外 64 MiB 开发 smoke 也通过。
+
+代码提交 3c4ec5ba6c05a355134a42cf10b47a7b48d20e81 加入测试；实际跨云暴露出目录摘要校验脚本的路径参数错误后，修正并提交 e56c631d4c9a4382cced7acd36613e50867f3408。两次提交均推送至 origin/codex/V3-RELEASE-STABILITY-01，并由 git ls-remote 回读相同 SHA。修正后的源码归档在深圳和上海 SHA-256 均为 6886bb1fc455b0c552e5405db6289153aa44d704b4220e50e29b005f90ecf004。
+
+两端均从 e56c631d4c9a4382cced7acd36613e50867f3408 构建，Release、TLS ON、io_uring ON、测试 ON、桌面 OFF、跨域 CTest OFF；GNU 11.4 / CMake 3.22.1。服务端、上传客户端、下载客户端 SHA-256 在两端相同：
+- server：e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412
+- upload：19d1bcd167e7e12ed9f2d738b624d2294b2d9a12b26e1b74f598fbd11080e14c
+- download：7e488ecd507aab737b5c29afb4ae9f59503203587fa7d32f0e5479ba23bd3969
+
+新 CTest 两端均 1/1 通过。设置 smoke 所需的一次性 CPNETFLUX_TEST_TOKEN 后，同一提交完整 CTest 串行结果为深圳 395/395、上海 395/395，退出码均为 0。并行全量运行曾让深圳已有 cpnetflux_reconnect_smoke 间歇报 duplicate persistent range；该项单独重跑通过，串行全量也通过，因此最终验收使用串行结果。没有把无 token 时两项依赖该变量的失败计为产品故障。
+
+在两端关键二进制哈希一致之后，深圳 V3 客户端连接上海临时 V3 服务实际传输 512 MiB 文件：上传和下载各经历一次服务端进程停止、客户端失败退出、服务重启、resume 成功。两个方向均报告 actual_transport=v3、actual_mode=persistent_tree、fallback_reason 为空。上传 resume 跳过 16 MiB；下载 resume 跳过 41 MiB。源文件 SHA-256 和两端最终目标文件 SHA-256 均为 ad2f2f84c6cc1fe087ca4c4ccf19012aa50491eefa1873fcace327c8d33c6d63；源/目标目录 SHA-256 均为 3e6b8acd5fa38834adb83e70a71eb48108a6e6c6b7c15dd22f1053e653be5af8。下载客户端停止时 checkpoint 状态被记录为 failed，但 41 个已校验 chunk 仍保留，后续 resume 成功提交。
+
+跨云汇总和全部 server/client 日志、checkpoint、SHA 结果保存在深圳 /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/crosscloud-evidence/20261020T030611-3020825/；上海测试目录为 /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-b/crosscloud-restart-20261020-02/。第一次跨云调试运行在文件恢复后发现校验脚本错误，未作为验收；修复后的独立新目录完整通过。完成后已删除源、上传和下载 .bin payload、临时 server/proxy 进程和测试监听端口；两端正式 cpnetflux-demo.service 始终 active，最终仅正式端口 2121 继续监听。保留日志、摘要和 manifest 供审查。
+
+本阶段只证明当前两台云服务器、此配置和 V3 持久检查点上的服务重启恢复；不等于生产 readiness，不覆盖超时、损坏 checkpoint、目标冲突、重复提交、物理 NIC 或不同物理链路。
+
+## 下一计划：Slice C——传输静默超时与续传
+
+实际问题：对端仍连着但不再传数据时，用户需要确认传输会在设定时间内明确失败，而不是无限等待；恢复连接后也应能从已保存进度继续。
+
+验收计划：用 loopback 可控代理在 V3 上传、下载已有非空 checkpoint 后停止转发数据；验证客户端在 --transfer-timeout-ms 约定范围内非零退出并报告明确超时，不切换旧路径；检查已校验 chunk 保留；解除静默后从相同 V3 transfer 身份 resume，最终文件和目录 SHA-256 一致。先定向和完整 CTest，再按同提交双端构建及二进制哈希门禁，在深圳→上海临时 V3 服务重复实际场景。Slice C 不修改损坏 checkpoint、目标冲突或重复提交场景，这些仍需后续分别计划；物理链路验证继续暂缓。
