@@ -42,7 +42,7 @@ This slice does not yet close the milestone. Remaining work in `V3-EDGE-STREAM-0
 1. Keep artificial slow-consumer benchmarking as optional performance research; do not use it as a correctness or readiness claim.
 2. Carry the accepted source/build evidence into V3-CANDIDATE-CLOSEOUT-01: freeze the manifest, rerun the fixed acceptance gate, and prepare the release handoff.
 
-Acceptance evidence for this slice: commit fa77fc8 is pushed to origin/codex/V3-LOGICAL-10LINK-01; source archive SHA256 is e134b357527ac14be23fe597b82a9fa64d50bbd2c054e5e0510aef6e1b379bf3 on both hosts; Shenzhen and Shanghai CTest each passed 409/409 and unit suites each passed 357/357; the cross-cloud 10-case matrix passed 10/10; critical binary SHA256 values matched (cpnetflux-server 366f5fc8..., tree upload e0627efc..., tree download 2f761157...).
+Acceptance evidence for this slice: commit 87550a2 is pushed to origin/codex/V3-LOGICAL-10LINK-01; final source archive SHA256 is 7469bb0c2e3e1d5139857d46758ad70c3f91fda686410aa56b60c799c209b857 on both hosts; the C++ parent fa77fc8 passed 409/409 CTest and 357/357 unit tests on each host, and the 87550a2 source rebuilt successfully on both; the cross-cloud 10-case matrix passed 10/10; critical binary SHA256 values matched (cpnetflux-server 366f5fc8..., tree upload e0627efc..., tree download 2f761157...).
 
 ## Non-goals and remaining route
 
@@ -53,6 +53,6 @@ No physical NIC/local bind/different physical path validation, formal service re
 
 The cross-cloud rerun used the committed fa77fc8 source on both hosts. It exercised plain upload and download at 1, 2, 4, 8, and 10 logical lanes. All 10 cases passed admission, coverage, tree-hash, checkpoint, and range checks. Existing fault/recovery CTest cases also passed on each host.
 
-The optional pressure collector is tools/perf/collect_pressure.py. It samples /proc/stat, /proc/diskstats, and /proc/pressure/{cpu,io,memory} into JSONL records tied to a run id. Missing files are represented as available: false with a reason. A Shenzhen sample was validated at /tmp/cpnetflux-runs/V3-EDGE-STREAM-01/shenzhen-pressure.jsonl; the same committed tool is sampled on Shanghai after source synchronization.
+The optional pressure collector is tools/perf/collect_pressure.py. It samples /proc/stat, /proc/diskstats, and /proc/pressure/{cpu,io,memory} into JSONL records tied to a run id. Missing files are represented as available: false with a reason. Shenzhen and Shanghai each produced three validated samples at /tmp/cpnetflux-runs/V3-EDGE-STREAM-01/{shenzhen,shanghai}-pressure.jsonl after source synchronization.
 
 I/O mechanism decision: retain buffered userspace I/O for the V3 framed path. CPNetFlux must read, checksum, optionally compress, protect, and frame each payload before writing it. sendfile or splice cannot replace that path while preserving these transformations and TLS behavior. No zero-copy or throughput claim is made; a future protocol-specific optimization would need its own correctness gate.
