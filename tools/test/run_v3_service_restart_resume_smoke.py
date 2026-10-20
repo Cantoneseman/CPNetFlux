@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import math
@@ -46,6 +45,14 @@ def parse_manifest(text: str) -> dict[str, str]:
             key, value = line.split("=", 1)
             fields[key] = value
     return fields
+
+
+def one_file_tree_hash(name: str, size: int, file_sha256: str) -> str:
+    digest = hashlib.sha256()
+    digest.update(name.encode("utf-8") + b"\0")
+    digest.update(str(size).encode("ascii") + b"\0")
+    digest.update(file_sha256.encode("ascii") + b"\0")
+    return digest.hexdigest()
 
 
 def chunk_count(fields: dict[str, str]) -> int:
@@ -248,32 +255,11 @@ class Service:
             raise RuntimeError(f"remote sha256sum failed for {path}: {result.stderr}")
         return result.stdout.split()[0]
 
-    def remote_tree_hash(self, root: Path) -> str:
-        code = """import hashlib,pathlib,sys
-root=pathlib.Path(sys.argv[1])
-digest=hashlib.sha256()
-for path in sorted(item for item in root.rglob("*") if item.is_file()):
-    relative=path.relative_to(root).as_posix()
-    if ".cpnetflux." in relative or ".part." in relative:
-        continue
-    size=path.stat().st_size
-    digest.update(relative.encode("utf-8")+bytes([0]))
-    digest.update(str(size).encode("ascii")+bytes([0]))
-    file_digest=hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(1048576), b""):
-            file_digest.update(block)
-    digest.update(file_digest.hexdigest().encode("ascii")+bytes([0]))
-print(digest.hexdigest())
-"""
-        encoded = base64.b64encode(code.encode("utf-8")).decode("ascii")
-        result = self._ssh([
-            "python3", "-c", "import base64,sys;exec(base64.b64decode(sys.argv[1]))",
-            encoded, str(root),
-        ])
+    def remote_file_size(self, path: Path) -> int:
+        result = self._ssh(["stat", "-c", "%s", str(path)])
         if result.returncode:
-            raise RuntimeError(f"remote tree hash failed for {root}: {result.stderr}")
-        return result.stdout.strip().splitlines()[-1]
+            raise RuntimeError(f"remote file size failed for {path}: {result.stderr}")
+        return int(result.stdout.strip())
 
     def cleanup_payload(self) -> None:
         if not self.remote_alias or not self.remote_server_root:
@@ -396,19 +382,18 @@ def run_transfer(service: Service, build_dir: Path, run_dir: Path, source_file: 
                    else service.local_root / "uploaded" / "payload.bin"
                    if direction == "upload"
                    else run_dir / "download" / "payload.bin")
-    target_hash = (service.remote_sha256(target_file) if service.remote_alias and direction == "upload"
-                   else sha256_file(target_file))
+    remote_upload = service.remote_alias and direction == "upload"
+    target_hash = service.remote_sha256(target_file) if remote_upload else sha256_file(target_file)
+    target_size = service.remote_file_size(target_file) if remote_upload else target_file.stat().st_size
     source_hash = sha256_file(source_file)
-    if target_hash != source_hash:
-        raise RuntimeError(f"{label}: SHA-256 mismatch source={source_hash}, target={target_hash}")
+    if target_hash != source_hash or target_size != file_size:
+        raise RuntimeError(f"{label}: source/target mismatch source_sha={source_hash}, "
+                           f"target_sha={target_hash}, target_size={target_size}")
     target_tree_hash = tree_hash(run_dir / "source")[0]
-    target_root = (service.remote_server_root / "uploaded"
-                   if direction == "upload" and service.remote_alias
-                   else service.local_root / "uploaded" if direction == "upload"
+    target_root = (service.local_root / "uploaded" if direction == "upload"
                    else run_dir / "download")
-    actual_tree_hash = (service.remote_tree_hash(target_root)
-                        if service.remote_alias and direction == "upload"
-                        else tree_hash(target_root)[0])
+    actual_tree_hash = (one_file_tree_hash("payload.bin", target_size, target_hash)
+                        if remote_upload else tree_hash(target_root)[0])
     if actual_tree_hash != target_tree_hash:
         raise RuntimeError(f"{label}: final tree SHA-256 mismatch "
                            f"expected={target_tree_hash}, actual={actual_tree_hash}")
