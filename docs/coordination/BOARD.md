@@ -15,9 +15,9 @@
 - 历史 checkpoint 互操作计划已取消：没有已部署用户或生产断点需要迁移，不再为 V1/V2 历史输入保留开发和跨机验收门。
 - 非目标：本轮及下一计划都不验证物理 NIC、local bind 或不同物理链路；按用户要求待软件故障恢复开发完成后再配置服务器验证。
 - 环境边界：深圳与上海正式服务均 active，运行 SHA 与本轮构建一致，因此无需重启。上海客户端反向验收使用深圳回环匿名临时服务和 SSH 隧道；临时服务、隧道、任务 payload 和上海正式服务下的任务测试目录均已清理，摘要与 manifest archive 保留。上海主动直连深圳 TCP/2121 仍超时，不能把隧道测试说成直连生产端口通过。
-- 下一步：V3-RELEASE-STABILITY-01 Slice C（in_progress）：正在用可控代理验证数据静默超时、checkpoint 保留和 V3 续传；范围与验收见 docs/tasks/2026-10-20-v3-release-stability-01.md。先 CTest，再双端同提交构建/哈希门禁和深圳→上海实测。损坏 checkpoint、目标冲突、重复提交仍 open；物理链路验证暂缓。
+- V3-RELEASE-STABILITY-01 Slice C 已完成：实现提交 671cb001dd694709c353f61a4c485a0924ade700 已推送并由 GitHub 回读一致；增加静默超时/续传故障注入，深圳、上海完整 CTest 各 396/396；同哈希版本深圳→上海 64 MiB 上传/下载均在超时后由 V3 检查点续传成功，文件及目录 SHA 一致。512 MiB 试跑因 5 秒总截止时间再次超时，不计验收。正式服务 active，临时服务和本 Slice payload 已清理。下一步 Slice D：测试部分传输后的损坏检查点是否安全失败，详见 docs/tasks/2026-10-20-v3-release-stability-01.md。
 - V3-COMPOSITION-STABILITY-01：已完成。扩展四步连续混合故障 `data#2 -> control#3 -> data#4 -> control#5`，覆盖深圳/上海服务端、上传/下载、重试预算 N=0..4 共 20/20 场景；两端同提交构建、关键二进制 SHA-256 一致，组合 CTest 1/1 通过。实现提交 `a596970c636b32a05789bb90f663150928e6f897` 已推送；任务记录和 evidence.json 见 `docs/tasks/2026-10-20-v3-composition-stability-01.md`。
-- V3-RELEASE-STABILITY-01：Slice A、B 已完成，父任务继续进行中。Slice A 验收客户端中断续传；Slice B 新增服务进程重启后的 V3 上传/下载 resume 门禁。提交 3c4ec5b 与校验修复 e56c631 均已推送并回读一致；同一 e56c631 源码在深圳/上海构建，关键二进制 SHA 一致，新 CTest 两端 1/1、完整 CTest 两端 395/395。512 MiB 深圳→上海上传/下载各在服务端停止后从持久 checkpoint 恢复，V3 persistent-tree、无 fallback，源/目标文件及目录 SHA 一致。正式服务保持 active，临时进程与 payload 已清理。下一步 Slice C 验证静默超时后从 checkpoint 恢复；任务与日志路径见 docs/tasks/2026-10-20-v3-release-stability-01.md 和 evidence JSON。
+- V3-RELEASE-STABILITY-01：Slice A、B、C 已完成，父任务继续进行中。Slice A 验收客户端中断续传；Slice B 新增服务进程重启后的 V3 上传/下载 resume 门禁；Slice C 验收数据静默超时后保留检查点并由 V3 续传。提交 3c4ec5b 与校验修复 e56c631 均已推送并回读一致；同一 e56c631 源码在深圳/上海构建，关键二进制 SHA 一致，新 CTest 两端 1/1、完整 CTest 两端 395/395。512 MiB 深圳→上海上传/下载各在服务端停止后从持久 checkpoint 恢复，V3 persistent-tree、无 fallback，源/目标文件及目录 SHA 一致。正式服务保持 active，临时进程与 payload 已清理。Slice C 另有 512 MiB 云间用例因固定 5 秒总截止时间失败；64 MiB 双向用例通过。下一步 Slice D 验证部分传输后的损坏 checkpoint 安全失败；任务与证据见 docs/tasks/2026-10-20-v3-release-stability-01.md 和 evidence JSON。
 
 ## 历史执行快照
 

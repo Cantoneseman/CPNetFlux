@@ -1,7 +1,7 @@
 {
   "task": "V3-RELEASE-STABILITY-01",
   "slice": "client interruption followed by V3 resume",
-  "status": "slice_c_in_progress_parent_in_progress",
+  "status": "slice_c_complete_parent_in_progress",
   "input_commit": "bb6cb2022e813c274387d915e3024a4546ac0549",
   "plan_commit": "2741d8605161052e9886fcf5cf70f202d7689406",
   "branch": "codex/V3-RELEASE-STABILITY-01",
@@ -60,16 +60,22 @@
     "matrix": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/interop-evidence/20261020T021008Z-1792462208173034604/matrix.json",
     "production_service_changed": false
   },
-  "github_push": null,
-  "next": "Slice C: deterministically stall the V3 data path after a non-empty checkpoint, verify bounded transfer-timeout failure without legacy fallback, then restore forwarding and resume successfully. Corrupt checkpoint, target conflict and duplicate submission remain separate later tests; physical NIC/link validation remains deferred.",
+  "github_push": {
+    "commit_sha": "671cb001dd694709c353f61a4c485a0924ade700",
+    "branch": "codex/V3-RELEASE-STABILITY-01",
+    "push_exit_code": 0,
+    "remote_ref": "refs/heads/codex/V3-RELEASE-STABILITY-01",
+    "remote_sha_readback": "671cb001dd694709c353f61a4c485a0924ade700"
+  },
+  "next": "Slice D: create a non-empty V3 upload/download checkpoint, corrupt only the task-owned checkpoint, then verify resume fails clearly without false commit or damaging target data. Same-commit two-host CTest and SHA gate before cross-cloud recheck; physical NIC/link validation stays deferred.",
   "implementation_commit": {
-    "sha": "00adb9074268cc5ec0b798c936c7ce93f56e39db",
+    "sha": "671cb001dd694709c353f61a4c485a0924ade700",
     "branch": "codex/V3-RELEASE-STABILITY-01",
     "pushed": true,
     "remote_ref": "origin/codex/V3-RELEASE-STABILITY-01",
-    "remote_sha_readback": "00adb9074268cc5ec0b798c936c7ce93f56e39db"
+    "remote_sha_readback": "671cb001dd694709c353f61a4c485a0924ade700"
   },
-  "source_archive_sha256_both_hosts": "e9834a97f00ccd07849f579d2f46389fcda963ac753e08efaeffa526bed440a0",
+  "source_archive_sha256_both_hosts": "d3c2f3e86fadcfa36547fe0166dc435e0dfddf28d1e622085571db4b3d6dc450",
   "same_commit_ctest": {
     "configure": [
       "-DCMAKE_BUILD_TYPE=Release",
@@ -154,9 +160,10 @@
   },
   "completed_slices": [
     "A: client interruption resume",
-    "B: temporary service process restart resume"
+    "B: temporary service process restart resume",
+    "C: transfer silence timeout and V3 checkpoint resume"
   ],
-  "active_slice": "C: transfer silence timeout and resume",
+  "active_slice": "D: safe failure on a corrupted partial-transfer checkpoint (planned)",
   "slice_b_execution": {
     "input_commit": "3c4f3627c452d9dcc70de667d51e3c31c33d3b5b",
     "code_commits": [
@@ -320,6 +327,179 @@
       "docs/tasks/2026-10-20-v3-release-stability-01.md",
       "docs/tasks/2026-10-20-v3-release-stability-01-evidence.json"
     ],
-    "status": "in_progress"
+    "status": "complete"
+  },
+  "slice_c_execution": {
+    "implementation_commit": "671cb001dd694709c353f61a4c485a0924ade700",
+    "implementation_commit_pushed": true,
+    "github_remote_sha_readback": "671cb001dd694709c353f61a4c485a0924ade700",
+    "source_archive_sha256_both_hosts": "d3c2f3e86fadcfa36547fe0166dc435e0dfddf28d1e622085571db4b3d6dc450",
+    "configuration": [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DCPNETFLUX_ENABLE_TLS=ON",
+      "-DCPNETFLUX_ENABLE_IO_URING=ON",
+      "-DCPNETFLUX_BUILD_DESKTOP=OFF",
+      "-DCPNETFLUX_BUILD_TESTS=ON",
+      "-DCPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS=OFF"
+    ],
+    "toolchain": "GNU 11.4 / CMake 3.22.1",
+    "build_exit_codes": {
+      "shenzhen": 0,
+      "shanghai": 0
+    },
+    "focused_ctest": {
+      "name": "cpnetflux_v3_timeout_resume_smoke",
+      "shenzhen": {
+        "result": "1/1 passed",
+        "exit_code": 0,
+        "seconds": 12.27
+      },
+      "shanghai": {
+        "result": "1/1 passed",
+        "exit_code": 0,
+        "seconds": 12.26
+      }
+    },
+    "proxy_unit_tests": {
+      "result": "13/13 passed",
+      "exit_code": 0
+    },
+    "python_compile": {
+      "result": "passed",
+      "exit_code": 0
+    },
+    "full_ctest_serial": {
+      "shenzhen": {
+        "result": "396/396 passed",
+        "exit_code": 0,
+        "seconds": 125.0,
+        "log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/ctest-shenzhen.log"
+      },
+      "shanghai": {
+        "result": "396/396 passed",
+        "exit_code": 0,
+        "log": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/ctest-shanghai.log"
+      }
+    },
+    "binary_sha256": {
+      "cpnetflux-gridftp-server": "e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412",
+      "cpnetflux-tree-upload-client": "19d1bcd167e7e12ed9f2d738b624d2294b2d9a12b26e1b74f598fbd11080e14c",
+      "cpnetflux-tree-download-client": "7e488ecd507aab737b5c29afb4ae9f59503203587fa7d32f0e5479ba23bd3969",
+      "same_on_shenzhen_and_shanghai": true
+    },
+    "cross_cloud_64mib": {
+      "command": "python3 tools/test/run_v3_timeout_resume_smoke.py --build-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/shenzhen-build --evidence-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/crosscloud-evidence --file-size-mib 64 --remote-alias gridflux-beta-shanghai --remote-build-dir /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/shanghai-build --remote-root /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c-remote/timeout-20261020-02",
+      "exit_code": 0,
+      "run_id": "20261020T042141-3101842",
+      "summary": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/crosscloud-evidence/20261020T042141-3101842/summary.json",
+      "payload_bytes": 67108864,
+      "source_sha256": "e966427143da9f7e64951e8f8a9f435a540fcef5247558ed452594c71ffdd458",
+      "source_tree_sha256": "816eae02754fbe156bbb61a39c0cd610ff0221c3f9a3540a28a20c3e5eb28674",
+      "upload": {
+        "proxy_stall_events": 1,
+        "timeout_exit_code": 1,
+        "timeout_configured_ms": 5000,
+        "timeout_seconds_after_observed_stall": 2.317,
+        "verified_chunks_before_stall": 16,
+        "verified_chunks_after_timeout": 16,
+        "checkpoint_state_after_timeout": "transferring",
+        "checkpoint_state_after_resume": "committed",
+        "resume_skipped_bytes": 16777216,
+        "actual_transport": "v3",
+        "actual_mode": "persistent_tree",
+        "fallback_reason": "",
+        "source_and_target_sha256_equal": true
+      },
+      "download": {
+        "proxy_stall_events": 1,
+        "timeout_exit_code": 1,
+        "timeout_configured_ms": 5000,
+        "timeout_seconds_after_observed_stall": 3.018,
+        "verified_chunks_before_stall": 16,
+        "verified_chunks_after_timeout": 31,
+        "checkpoint_state_after_timeout": "failed",
+        "checkpoint_state_after_resume": "committed",
+        "resume_skipped_bytes": 32505856,
+        "actual_transport": "v3",
+        "actual_mode": "persistent_tree",
+        "fallback_reason": "",
+        "source_and_target_sha256_equal": true
+      },
+      "evidence_integrity": {
+        "source_sha256": "e966427143da9f7e64951e8f8a9f435a540fcef5247558ed452594c71ffdd458",
+        "target_sha256": "e966427143da9f7e64951e8f8a9f435a540fcef5247558ed452594c71ffdd458",
+        "source_tree_sha256": "816eae02754fbe156bbb61a39c0cd610ff0221c3f9a3540a28a20c3e5eb28674",
+        "target_tree_sha256": "816eae02754fbe156bbb61a39c0cd610ff0221c3f9a3540a28a20c3e5eb28674"
+      },
+      "topology": "Shenzhen V3 clients to Shanghai temporary V3 service; temporary deterministic test proxy"
+    },
+    "cross_cloud_512mib_trial": {
+      "result": "failed_as_expected_by_transfer_deadline",
+      "run_id": "20261020T041938-3099798",
+      "summary": null,
+      "failure_note": "The first upload correctly timed out after the configured 5 s total deadline; resume again consumed its 5 s total deadline on the 512 MiB cross-cloud payload. It was excluded from acceptance; a new isolated 64 MiB run passed in both directions.",
+      "failure_evidence": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/crosscloud-evidence/20261020T041938-3099798/failure.txt",
+      "generated_payloads_removed": true
+    },
+    "resource_preflight": {
+      "shenzhen": {
+        "disk_free_gib": 32,
+        "memory_available_gib": 2.3,
+        "formal_service": "active"
+      },
+      "shanghai": {
+        "disk_free_gib": 72,
+        "memory_available_gib": 2.8,
+        "formal_service": "active"
+      }
+    },
+    "final_service_and_cleanup": {
+      "formal_services": {
+        "shenzhen": "active",
+        "shanghai": "active"
+      },
+      "temporary_slice_c_service_and_proxy": "stopped",
+      "this_slice_generated_payloads": "removed",
+      "logs_and_checkpoint_summaries": "retained",
+      "listeners": {
+        "shenzhen": "formal TCP/2121 plus pre-existing unrelated test proxy TCP/25400 (left untouched)",
+        "shanghai": "formal TCP/2121 only"
+      },
+      "production_service_modified": false
+    },
+    "loopback_evidence": {
+      "shenzhen_ctest_summary": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/shenzhen-build/cpnetflux-v3-timeout-resume-evidence/20261020T042253-3103021/summary.json",
+      "shanghai_ctest_summary": "/tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/shanghai-build/cpnetflux-v3-timeout-resume-evidence/20261020T042253-3103021/summary.json"
+    },
+    "failed_trial_512_details": {
+      "upload_bytes_before_first_timeout": 42205168,
+      "upload_bytes_during_resume_attempt": 64683988,
+      "timeout_message": "transfer total deadline exceeded"
+    }
+  },
+  "slice_d_plan": {
+    "input_commit": "671cb001dd694709c353f61a4c485a0924ade700",
+    "scope": "After a partial V3 upload/download creates a non-empty checkpoint, corrupt only that test-owned checkpoint and verify resume fails safely without false commit or damaging accepted target data.",
+    "non_goals": [
+      "No formal service/config changes",
+      "No protocol or checkpoint schema changes unless a red test proves a production defect",
+      "No target-conflict or duplicate-submission scope",
+      "No performance, production-readiness, physical NIC, local-bind, or physical-link validation"
+    ],
+    "acceptance": [
+      "Upload and download both begin with a non-empty uncommitted V3 checkpoint",
+      "Only the task-owned checkpoint is corrupted and the corruption is recorded",
+      "V3 resume fails explicitly and does not mark incomplete/corrupt content committed",
+      "Any pre-existing destination data remains byte-for-byte unchanged",
+      "Focused and full serial CTest pass on both hosts from one pushed source commit; key binary SHA-256 values match before cross-cloud test"
+    ],
+    "planned_files": [
+      "tools/test/run_v3_corrupt_partial_checkpoint_smoke.py",
+      "CMakeLists.txt",
+      "docs/coordination/BOARD.md",
+      "docs/tasks/2026-10-20-v3-release-stability-01.md",
+      "docs/tasks/2026-10-20-v3-release-stability-01-evidence.json"
+    ],
+    "status": "planned"
   }
 }

@@ -128,13 +128,13 @@ slice A 已通过。下一子阶段优先把“传输中服务端重启后 V3 �
 
 本阶段只证明当前两台云服务器、此配置和 V3 持久检查点上的服务重启恢复；不等于生产 readiness，不覆盖超时、损坏 checkpoint、目标冲突、重复提交、物理 NIC 或不同物理链路。
 
-## Slice C：传输静默超时与续传（计划，2026-10-20）
+## Slice C：传输静默超时与续传（完成，2026-10-20）
 
-状态：planned；计划输入提交 9173e2528b1ee14db96355c966611be050b129d8。
+状态：完成；计划输入提交 9173e2528b1ee14db96355c966611be050b129d8；实现提交 671cb001dd694709c353f61a4c485a0924ade700。
 
 实际问题：对端仍连着但不再传数据时，用户需要确认传输会在设定时间内明确失败，而不是无限等待；恢复连接后也应能从已保存进度继续。
 
-验收计划：用 loopback 可控代理在 V3 上传、下载已有非空 checkpoint 后停止转发数据；验证客户端在 --transfer-timeout-ms 约定范围内非零退出并报告明确超时，不切换旧路径；检查已校验 chunk 保留；解除静默后从相同 V3 transfer 身份 resume，最终文件和目录 SHA-256 一致。先定向和完整 CTest，再按同提交双端构建及二进制哈希门禁，在深圳→上海临时 V3 服务重复实际场景。Slice C 不修改损坏 checkpoint、目标冲突或重复提交场景，这些仍需后续分别计划；物理链路验证继续暂缓。
+验收方案：用 loopback 可控代理在 V3 上传、下载已有非空 checkpoint 后停止转发数据；验证客户端在 --transfer-timeout-ms 约定范围内非零退出并报告明确超时，不切换旧路径；检查已校验 chunk 保留；解除静默后从相同 V3 transfer 身份 resume，最终文件和目录 SHA-256 一致。先定向和完整 CTest，再按同提交双端构建及二进制哈希门禁，在深圳→上海临时 V3 服务重复实际场景。Slice C 不修改损坏 checkpoint、目标冲突或重复提交场景，这些仍需后续分别计划；物理链路验证继续暂缓。
 
 ### Slice C 执行范围、非目标与验收
 
@@ -153,3 +153,33 @@ slice A 已通过。下一子阶段优先把“传输中服务端重启后 V3 �
 预计文件：tools/test/cpnetflux_fault_proxy.py、tools/test/test_cpnetflux_fault_proxy.py、新增 tools/test/run_v3_timeout_resume_smoke.py、CMakeLists.txt、本任务 Markdown 与 evidence JSON、docs/coordination/BOARD.md；仅产品红测证实时才改生产 V3 文件。
 
 验收命令：python3 -m py_compile tools/test/cpnetflux_fault_proxy.py tools/test/run_v3_timeout_resume_smoke.py；python3 -m unittest tools/test/test_cpnetflux_fault_proxy.py；python3 tools/test/run_v3_timeout_resume_smoke.py --build-dir BUILD_DIR --file-size-mib SIZE_MIB；ctest --test-dir BUILD_DIR -R cpnetflux_v3_timeout_resume_smoke --output-on-failure；最后两端串行 CPNETFLUX_TEST_TOKEN=temporary-test-value ctest --test-dir BUILD_DIR --output-on-failure -j1。
+
+
+### Slice C 执行与验收结果（2026-10-20）
+
+本阶段解决的问题：数据连接还在，但对面停止发送时，CPNetFlux 不会无限等下去；达到配置时限后会明确失败，保留已校验的进度，恢复通路后仍由 V3 接着传，不必从头来。新增测试代理静默控制、上传/下载端到端 smoke 和 CTest；未发现产品 C++ 缺陷，因此没有改生产逻辑、协议或检查点格式。
+
+实现提交 671cb001dd694709c353f61a4c485a0924ade700 已推送至 origin/codex/V3-RELEASE-STABILITY-01，深圳执行 git ls-remote 回读同一 SHA。源码归档 SHA-256：d3c2f3e86fadcfa36547fe0166dc435e0dfddf28d1e622085571db4b3d6dc450。
+
+深圳、上海均从此提交使用 Release、TLS ON、io_uring ON、测试 ON、桌面 OFF、跨域 CTest OFF 构建；构建均成功。完整串行 CTest 两端各 396/396 通过，新增定向 CTest 两端各 1/1 通过；代理单测 13/13、Python 编译检查通过。server、upload client、download client 两端 SHA-256 一致：
+- server：e952ea928fd6c7753df6cbe4b558e829232df40b481d0f36cbbe4a860827f412
+- upload：19d1bcd167e7e12ed9f2d738b624d2294b2d9a12b26e1b74f598fbd11080e14c
+- download：7e488ecd507aab737b5c29afb4ae9f59503203587fa7d32f0e5479ba23bd3969
+
+经同哈希双端门禁后，深圳客户端到上海临时 V3 服务以 64 MiB 测试文件完成上传和下载。两方向均发生 5 秒配置时限内的明确超时；上传超时后保留 16 个 verified chunks，下载保留 31 个；检查点恢复后均提交成功，V3 persistent-tree、无 fallback。上传跳过已完成的 16 MiB，下载跳过 31 MiB；源/目标文件 SHA-256 均为 e966427143da9f7e64951e8f8a9f435a540fcef5247558ed452594c71ffdd458，目录 SHA-256 均为 816eae02754fbe156bbb61a39c0cd610ff0221c3f9a3540a28a20c3e5eb28674。跨云证据：深圳 /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c/crosscloud-evidence/20261020T042141-3101842/summary.json；上海临时测试目录 /tmp/cpnetflux-runs/V3-RELEASE-STABILITY-01/slice-c-remote/timeout-20261020-02/。
+
+另有一次 512 MiB 跨云尝试未通过：上传在静默后按设计触发 5 秒超时，但续传再次用满 5 秒总时限仍未传完整文件，因而测试正确失败。它说明该超时参数也是整次传输的总截止时间，大文件跨云续传测试不能沿用 64 MiB 试验的固定 5 秒设置。本次 512 MiB 运行的源文件和远端部分文件已单独清理，未将其算作通过；验收依据是后续独立的 64 MiB 双向通过记录。
+
+两台正式服务始终 active，只在正式 TCP/2121 监听；本 Slice 的临时服务和代理均已停止，测试 payload 已清理，保留日志和检查点摘要。深圳另有一个使用 TCP/25400 的既存测试代理进程，非本 Slice 启动且不属于正式服务；本轮未触碰它。资源复核：深圳磁盘可用 32 GiB、可用内存约 2.3 GiB；上海磁盘可用 72 GiB、可用内存约 2.8 GiB。
+
+本阶段只验证当前云主机和本构建配置下的静默超时与续传，不代表生产 readiness，不覆盖物理链路、损坏检查点、目标冲突或重复提交。
+
+### Slice D 计划：部分传输后的损坏检查点安全处理
+
+目标问题：传输中断并留下进度后，如果检查点内容后来被破坏，V3 是否会清楚报错并阻止错误提交，而不是把不完整文件当成完成品，或破坏原有目标数据。
+
+范围：增加一项独立 V3 loopback 故障注入，上传和下载都先形成非空检查点，再只损坏本次测试持有的检查点，执行 V3 resume；记录错误、检查点和目标文件变化，并验证不会错误标记 committed、不会把损坏内容报告为成功。若红测证明产品逻辑有缺陷，才修改最小范围的生产实现；否则只补测试覆盖。随后在同一提交下完成两端构建、定向和完整 CTest、二进制 SHA 一致核验，再做深圳到上海临时服务实测。
+
+非目标：不更改正式服务、协议或检查点格式，不覆盖目标冲突和重复提交行为，不做吞吐、生产 readiness、物理 NIC 或不同物理链路验证。
+
+验收：上传/下载均确认损坏前存在非空未提交检查点；resume 明确失败且无 V3 之外路径；目标不被误报为完整或以错误数据覆盖；测试日志与文件 SHA 证据完整；双端同提交构建、CTest 及二进制一致后跨云复验。预计受影响文件为新的 V3 checkpoint-corruption smoke、CMakeLists.txt、本任务记录、evidence JSON 和任务板；仅红测确认产品缺陷时增加生产文件。
