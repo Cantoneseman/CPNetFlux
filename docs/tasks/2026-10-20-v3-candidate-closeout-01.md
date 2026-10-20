@@ -1,9 +1,9 @@
 # V3-CANDIDATE-CLOSEOUT-01
 
-Date: 2026-10-20 (Asia/Shanghai)
-Status: planned; execute after Slice E and software route gaps are accepted
+Date: 2026-10-20 (Asia/Shanghai); result recorded 2026-10-21
+Status: complete for the software-candidate boundary
 Owner: current commander only; no subagents
-Input implementation: 63e5fcc6f59db60c09b2ccb64d6bb063761ced2d
+Input implementation: 3ef398c8d896a7ca534ce89de6c21043bf115ca0
 Authoritative workspace: Shenzhen
 Development: directly in /root/projects/CPNetFlux on the current codex branch; single commander, serial edits/tests/commits; no new development worktree
 
@@ -13,18 +13,15 @@ Finish the current V3 software candidate, with a fixed acceptance checklist inst
 
 ## Entry-gap update after ten-lane acceptance (2026-10-20)
 
-V3-LOGICAL-10LINK-01 closed the eight-channel runtime cap and the mixed-size lane-EOF defect at bb983f5e91711d55b312a841e27b2ab721cd291d. Both hosts passed full CTest 406/406 with equal critical binary hashes; the real cross-cloud upload/download 1/2/4/8/10 matrix passed 10/10. See its task/evidence record. Ten logical TCP lanes are accepted; physical NIC/path evidence is still deferred.
-
-The next unresolved software block is V3-EDGE-STREAM-01. Its source/evidence inventory is in 2026-10-20-v3-edge-stream-inventory.md: bounded metadata queues and ACK overlap exist, but separate read/checksum/send payload overlap and run-scoped CPU/disk/PSI observations remain incomplete. Complete that milestone before candidate freeze.
+V3-LOGICAL-10LINK-01 closed the eight-channel runtime cap and the mixed-size lane-EOF defect. Both hosts passed the preceding full CTest gate and the real cross-cloud upload/download matrix. V3-EDGE-STREAM-01 then closed the bounded stream-path work. The candidate package and fixed acceptance evidence are recorded below.
 
 ## Scope
 
-1. Reconcile the 2026-10-16 V3 route against current code and task evidence. In particular, do not treat old task-board planned text as current implementation status. Explicitly identify any software-only gaps in EDGE-STREAM, link/range routing, supported composition, and default settings.
-2. Run one fixed 1/2/4/8/10 logical-link functional matrix for upload/download, small-file/mixed/large-range datasets, supported TLS/checksum combinations, and selected interruption/restart/timeout cases. Capture file/tree SHA, lease/recovery counts, and summary mode. Physical-NIC binding is excluded.
-3. Run bounded repeated transfers and resume checks on the same candidate. Record elapsed time, resources, correctness, and failures. This is candidate stability evidence, not a throughput benchmark or heavy-soak claim.
-4. Produce candidate packages from an identified committed source, inspect package contents, and test installation/configuration/client-server transfer in task-owned isolated staging paths on both cloud hosts. Do not modify formal service or credential files.
-5. Reconcile README/usage/defaults with the accepted V3 behavior; document commands, prerequisites, known limitations, and reproduced failures. Record package/source hashes, test commands, logs and GitHub push/readback evidence.
-6. Freeze the candidate only after required checks pass. If a defect is found, fix that defect and rerun affected gates; do not expand scope to new optimizations during closeout.
+1. Reconcile the current V3 route against implementation and task evidence.
+2. Run the fixed 1/2/4/8/10 logical-link functional and recovery matrix. Physical-NIC binding is excluded.
+3. Produce candidate packages from an identified committed source and verify installation/configuration/client-server transfer in task-owned isolated staging paths on both hosts.
+4. Record package/source hashes, commands, logs, known limitations and the next physical-network validation handoff.
+5. Freeze the candidate after the required checks pass. Do not expand scope to new optimizations during closeout.
 
 ## Non-goals
 
@@ -34,29 +31,25 @@ The next unresolved software block is V3-EDGE-STREAM-01. Its source/evidence inv
 - Formal-service rollout, credentials, old GridFlux-Beta trees, CPSS(DCC), or unrelated worktrees.
 - Redesigning desktop UI or adding new product features.
 
-## Acceptance
+## Acceptance and execution result
 
-- Current-route inventory lists implemented, validated, deferred and missing items with evidence.
-- Fixed software matrix passes from one committed source; same source on Shenzhen and Shanghai, both builds complete and critical binary hashes match before cross-cloud tests.
-- Full serial CTest passes on both hosts; skipped/failed/retried results are recorded honestly.
-- Package installation/staging and representative V3 transfer/resume checks pass without changing formal services.
-- Candidate artifacts, SHA-256, usage instructions, known limitations and next physical-network validation handoff are recorded.
-- Explicit-file commits are pushed to the verified CPNetFlux GitHub remote and remote SHA is read back.
+The required software-candidate checks all passed:
 
-## Expected files
+- Shenzhen desktop-enabled build: CTest 413/413.
+- Shanghai same-source core build: CTest 409/409. Shanghai lacks Qt6 development configuration, so the desktop target was not rebuilt there; the same Shenzhen-built DEB/TGZ was hash-verified, installed in an isolated prefix, and its installed checks passed.
+- Shenzhen installed-package checks: 14/14 local logical-link cases; interruption/resume, timeout/resume, and service-restart/resume checks passed.
+- Shanghai installed-package checks: package hashes and installed checks passed; interruption/resume passed.
+- Shenzhen↔Shanghai using the same installed candidate package: 1/2/4/8/10 upload and download cases passed, 10/10 total, with coverage/checkpoint/hash checks.
+- No formal service or credential files were changed.
 
-- New bounded acceptance runner(s) only where existing runners cannot express the fixed matrix.
-- CMakeLists.txt and relevant behavior files only if evidence proves a defect.
-- This task, evidence JSON, docs/coordination/BOARD.md, and candidate usage/package notes.
+Exact package names and SHA-256 values, command paths, evidence files, and the internal-candidate boundary are in `docs/tasks/2026-10-21-v3-candidate-closeout-01-result.md`.
 
-## Schedule estimate
+## Remaining work
 
-Planning budget for the remaining software route is 4-7 working days, conditional on the route inventory and no major defect: roughly 1-2 days for ten-lane admission/negotiation and functional coverage, 2-3 days to resolve stream-path software gaps and bounded stability coverage, and 1-2 days for fixed acceptance, candidate packages, usage notes and freeze. These are engineering estimates, not measured completion dates. The earlier 1-3-day estimate applied only to closeout checks and omitted confirmed remaining implementation. Physical NIC/path setup and 100G/1Tbps research goals remain outside this estimate. Re-estimate after inventory if substantial new work is found.
+Remaining items for this software candidate closeout: **0**.
+
+The next separate stage, if authorized, is physical-NIC/local-bind/different-physical-path validation after the servers are configured for those links. That stage is intentionally outside this software closeout.
 
 ## Handoff
 
-Start by verifying Slice E implementation/result commit and resource/service state. Read the current BOARD top section and the 2026-10-16 decision. Run the route inventory before implementing additional code. Physical-network validation is a separate user-deferred stage.
-
-## Updated remaining budget
-
-After ten-lane acceptance, two software blocks remain: stream-path work (about 2-3 working days subject to its design and discovered defects), then fixed candidate/package/docs closeout (about 1-2 working days). Total planning budget is now 3-5 working days; the earlier 4-7-day figure included the now-accepted ten-lane milestone.
+The candidate package is frozen from source commit `3ef398c8d896a7ca534ce89de6c21043bf115ca0`. The result document and board update are evidence-only documentation commits after the package freeze; they do not change the package binaries.
