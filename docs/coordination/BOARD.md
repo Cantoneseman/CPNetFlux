@@ -17,7 +17,7 @@
 - 环境边界：深圳与上海正式服务均 active，运行 SHA 与本轮构建一致，因此无需重启。上海客户端反向验收使用深圳回环匿名临时服务和 SSH 隧道；临时服务、隧道、任务 payload 和上海正式服务下的任务测试目录均已清理，摘要与 manifest archive 保留。上海主动直连深圳 TCP/2121 仍超时，不能把隧道测试说成直连生产端口通过。
 - 下一步：V3-COMPOSITION-STABILITY-01。把已验证的 lane 恢复、控制连接恢复和共享重试预算组合进 V3-only 稳定矩阵；每次先同步两端源码并完成双端构建，再进行互传验收。V1/V2 运行逻辑和历史 checkpoint 互操作不再作为开发输入。
 - V3-COMPOSITION-STABILITY-01：已完成。扩展四步连续混合故障 `data#2 -> control#3 -> data#4 -> control#5`，覆盖深圳/上海服务端、上传/下载、重试预算 N=0..4 共 20/20 场景；两端同提交构建、关键二进制 SHA-256 一致，组合 CTest 1/1 通过。实现提交 `a596970c636b32a05789bb90f663150928e6f897` 已推送；任务记录和 evidence.json 见 `docs/tasks/2026-10-20-v3-composition-stability-01.md`。
-- 下一步：V3-RELEASE-STABILITY-01。将组合恢复与取消、超时、服务重启、损坏 checkpoint、目标冲突和重复提交放进统一 V3-only 稳定候选门禁；继续先同步两端、双端构建并核对哈希后再互传。
+- V3-RELEASE-STABILITY-01：进行中（slice A：客户端中断后续传）。本阶段新增真实 V3 上传/下载中断后 resume 的 CTest 门禁；服务重启、超时、损坏 checkpoint、目标冲突和重复提交仍待后续验收。先同步、双端构建并核对二进制 SHA-256，再做跨机传输。任务单：docs/tasks/2026-10-20-v3-release-stability-01.md。
 
 ## 历史执行快照
 
