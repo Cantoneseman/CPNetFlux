@@ -5,7 +5,7 @@ Status: planned; execute after Slice E and software route gaps are accepted
 Owner: current commander only; no subagents
 Input implementation: 63e5fcc6f59db60c09b2ccb64d6bb063761ced2d
 Authoritative workspace: Shenzhen
-Branch: codex/V3-RELEASE-STABILITY-01 (create a task-specific branch/worktree for new implementation)
+Development: directly in /root/projects/CPNetFlux on the current codex branch; single commander, serial edits/tests/commits; no new development worktree
 
 ## Goal and completion boundary
 

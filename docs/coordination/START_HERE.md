@@ -1,3 +1,5 @@
+> 当前执行规则（2026-10-20）：深圳 /root/projects/CPNetFlux 根目录直接单人串行开发，由当前总指挥完成，不使用子代理、不另建开发 worktree；Windows 只连接/查看/证据回收，上海只作同步版本后的传输对端。下文为历史快照，冲突条款已被 AGENTS.md 和 BOARD.md 当前节覆盖。
+
 # CPNetFlux：总指挥与五个专职角色
 
 本目录是新 Codex 项目的交接入口。项目文件夹固定为 `D:\Project\CPNetFlux`，不要把历史备份目录 `D:\Project\GridFlux Beta` 添加为新开发项目。

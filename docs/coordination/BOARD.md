@@ -1,6 +1,6 @@
 # 当前执行（2026-10-20；R2026-10-16-V3-UNIFIED-MULTILINK）
 
-本节优先于下方历史路线和旧任务快照。深圳为权威 Git 工作区；上海只作传输对端。
+本节优先于下方历史路线和旧任务快照。深圳 /root/projects/CPNetFlux 为唯一权威开发目录；当前总指挥单人串行直接开发、测试和提交，不再新建开发 worktree，不使用子代理；上海只作传输对端。2026-10-20 已保全主目录旧改动并将当前代码接回根目录，详见 V3-LOGICAL-10LINK-01 任务记录。
 
 - V3-ONLY-PEER-SYNC-01：已完成。提交 `10d05bcdf972faec15d3a19bae6230cf27905099` 已推送；深圳与上海服务运行同 SHA 的 V3 server，完整 CTest 393/393 通过。深圳→上海生产服务上传、上海→深圳下载均通过且树哈希一致；上海客户端→深圳隔离 V3 服务也经 SSH 隧道通过。上海直连深圳 TCP/2121 仍超时，详见任务记录和 evidence.json。
 - V3-ONLY-LEGACY-CODE-AUDIT-01：已完成。移除三个无调用点的旧 tree runners 和仅供其使用的逐文件/pipeline/scheduler 逻辑，共净删 2,052 行；保留 V3 executor 和当前 V3 manifest/checkpoint。提交 a41ee88050eab021a9d286aa514351a29bdb573f 已推送并由 origin 回读一致；两端 clean build 二进制一致，CTest 393/393，深圳↔上海实际上传/下载均通过。详见任务记录和 evidence.json。
