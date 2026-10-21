@@ -117,8 +117,7 @@ def main():
         assert verified["verified"] and not verified["physical_path_verified"]
         policy=dict(contract["policy_defaults"],channel_count=2,pending_window=4,
             control_pipeline_depth=2,reconnect_attempts=2,transfer_timeout_ms=45000,
-            compression="auto",scheduler_mode="global",scheduler_policy="adaptive",
-            scheduler_work_item_min_bytes=1048576,scheduler_work_item_max_bytes=1048576)
+            compression="auto",scheduler_mode="global",scheduler_policy="adaptive")
         records=[]
         expected_hash,files,total=tree_hash(source)
         for direction in ["upload","download"]:
