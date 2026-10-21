@@ -21,7 +21,14 @@ class Peer:
     def __init__(self, path):
         self.sock = socket.socket(socket.AF_UNIX)
         self.sock.settimeout(3)
-        self.sock.connect(str(path))
+        deadline=time.monotonic()+3
+        while True:
+            try:
+                self.sock.connect(str(path));break
+            except (FileNotFoundError,ConnectionRefusedError):
+                if time.monotonic()>=deadline:
+                    self.sock.close();raise
+                time.sleep(.01)
         self.file = self.sock.makefile("rb")
         self.count = 0
         self.events = []

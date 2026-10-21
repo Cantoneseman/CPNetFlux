@@ -101,6 +101,9 @@ range_policy=auto、queue_depth=auto、control_tls=verify_ca。旧模式和不�
 preview 的 resolved_options 是计划值。队列容量由核心决定：
 dynamic 为 channels × (pipeline_depth 非零时取它，否则取 pending_window) × 2；
 static 为 0。不提供一个填写后却被忽略的手动 queue_depth 数值。
+V3 使用共享流水线窗口：depth 非零时 resolved_options.pending_window 等于 depth；
+若与请求 pending_window 不同，preview.warnings 明确说明覆盖关系。
+scheduler_mode 是 RPC 字段，映射到核心命令行 --scheduler，不是 --scheduler-mode。
 
 real adapter 目前支持 TLS/token 目录上传、下载；单文件、管理员凭据和
 Secret Service 注入尚未接入。token 只通过权限受限的
@@ -128,6 +131,8 @@ file.list/range.list 增加 observation 与 coverage=observed_only：
 最终摘要里没有列到的跳过项或失败项不能推定为已展示；空列表也不能
 推定空目录。mtime_ns、每文件字节和校验值缺少证据时返回 null。
 只在最终成功摘要下把观测文件/range 标为 committed/verified。
+整文件观测的 length=0 不创建虚构 range；range_count 只统计显式 range。
+range.attempt_number 是桌面 attempt 序号，core_attempt 单独保留核心从 0 开始的重试序号。
 UI 应将这些页面称为最终观测明细，不能伪装实时监控。
 
 bytes_total 是整个任务逻辑总量；bytes_transferred 为本次实际发送的逻辑字节，

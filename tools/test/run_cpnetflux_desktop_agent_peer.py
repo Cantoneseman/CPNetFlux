@@ -20,7 +20,14 @@ class Peer:
     def __init__(self, path):
         self.sock = socket.socket(socket.AF_UNIX)
         self.sock.settimeout(20)
-        self.sock.connect(str(path))
+        deadline=time.monotonic()+3
+        while True:
+            try:
+                self.sock.connect(str(path));break
+            except (FileNotFoundError,ConnectionRefusedError):
+                if time.monotonic()>=deadline:
+                    self.sock.close();raise
+                time.sleep(.01)
         self.stream = self.sock.makefile("rb")
         self.count = 0
     def call(self, method, params):
@@ -69,7 +76,7 @@ def main():
     run.mkdir(mode=0o700,parents=True,exist_ok=False)
     source=run/"source";source.mkdir()
     (source/"nested").mkdir()
-    (source/"nested/compressible.bin").write_bytes(bytes(range(256))*8192)
+    (source/"nested/compressible.bin").write_bytes(bytes(range(256))*163840)
     (source/"random.bin").write_bytes(os.urandom(2*1024*1024))
     (source/"empty").write_bytes(b"")
     (source/"small.txt").write_bytes(b"CPNetFlux desktop V3 integration\n")
@@ -110,7 +117,8 @@ def main():
         assert verified["verified"] and not verified["physical_path_verified"]
         policy=dict(contract["policy_defaults"],channel_count=2,pending_window=4,
             control_pipeline_depth=2,reconnect_attempts=2,transfer_timeout_ms=45000,
-            compression="auto",scheduler_mode="global",scheduler_policy="adaptive")
+            compression="auto",scheduler_mode="global",scheduler_policy="adaptive",
+            scheduler_work_item_min_bytes=1048576,scheduler_work_item_max_bytes=1048576)
         records=[]
         expected_hash,files,total=tree_hash(source)
         for direction in ["upload","download"]:
@@ -120,6 +128,7 @@ def main():
                 destination=remote if direction=="upload" else local,policy=policy)
             preview=peer.call("transfer.validate",request)
             assert preview["resolved_options"]["channel_count"]==2 and preview["resolved_options"]["queue_capacity"]==8
+            assert preview["resolved_options"]["pending_window"]==2
             task=peer.call("transfer.create",dict(request,operation_id=operation()))["snapshot"]
             if direction=="upload":
                 # Queued tasks keep the reviewed endpoint and binding when profiles change.

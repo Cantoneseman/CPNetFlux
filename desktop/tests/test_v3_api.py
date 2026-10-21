@@ -59,6 +59,8 @@ class V3ApiTests(unittest.TestCase):
         before = copy.deepcopy(self.agent.store)
         result = self.agent.dispatch('transfer.validate',req,None)
         self.assertEqual(result['resolved_options']['channel_count'],2)
+        self.assertEqual(result['resolved_options']['pending_window'],2)
+        self.assertTrue(any('4' in warning and '2' in warning for warning in result['warnings']))
         self.assertEqual(result['resolved_options']['queue_capacity'],8)
         self.assertEqual(self.agent.store,before)
     def test_invalid_combinations_are_rejected_before_launch(self):
@@ -106,7 +108,7 @@ class V3ApiTests(unittest.TestCase):
         t['backend_evidence']={'event_log':'/tmp/events','summary':'/tmp/summary'}
         cmd = a.build_real_command(t)
         for flag,value in [('--link-set-links','2'),('--file-parallelism','2'),
-                           ('--data-pending-window','4'),('--compression','auto'),
+                           ('--data-pending-window','2'),('--compression','auto'),
                            ('--reconnect-attempts','2'),('--transfer-timeout-ms','45000'),
                            ('--control-pipeline-depth','2'),('--chunk-size','2097152')]:
             self.assertEqual(cmd[cmd.index(flag)+1],value)
@@ -190,6 +192,8 @@ class V3ApiTests(unittest.TestCase):
             for row in rows:validator.validate(row)
         self.assertIsNone(files[0]['mtime_ns'])
         self.assertEqual(ranges[0]['checksum']['status'],'pass')
+        self.assertEqual(ranges[0]['attempt_number'],1)
+        self.assertEqual(ranges[0]['core_attempt'],2)
         with self.assertRaises(MOD.RpcError):a.real_files(task,'another-attempt')
 
     def test_completion_rejects_unapplied_options_or_excess_recovery(self):
@@ -199,13 +203,13 @@ class V3ApiTests(unittest.TestCase):
             bytes_total=100,bytes_committed=100))
         summary=dict(result='pass',actual_transport='v3',actual_file_scheduling='dynamic',
             checksum_algorithm='crc32c',resume=False,link_set_accepted_links=2,
-            control_tls_verified=True,data_tls_verified=True,data_pending_window=4,
+            control_tls_verified=True,data_tls_verified=True,data_pending_window=2,
             compression_policy='auto',scheduler_mode='off',scheduler_policy='fixed',
             control_pipeline_depth=2,queue_capacity=8,reconnect_attempt_budget=2,recovery_attempts_used=1)
         a.apply_real_policy(t,summary)
         self.assertTrue(a.completion_matches(t,summary))
         for key,value in [('queue_capacity',12),('recovery_attempts_used',3),
-                ('reconnect_attempt_budget',0),('resume',True),('data_pending_window',2)]:
+                ('reconnect_attempt_budget',0),('resume',True),('data_pending_window',4)]:
             with self.subTest(field=key):
                 changed=dict(summary,**{key:value})
                 self.assertFalse(a.completion_matches(t,changed))

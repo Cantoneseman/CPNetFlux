@@ -622,7 +622,7 @@ class Agent:
             raise RpcError("unsupported", "adaptive 调度策略要求启用 global 调度")
         if p["scheduler_work_item_min_bytes"] > p["scheduler_work_item_max_bytes"]:
             raise RpcError("invalid_state", "调度最小工作块不能超过最大工作块")
-        return dict(channel_count=channels, pending_window=p["pending_window"],
+        return dict(channel_count=channels, pending_window=p["control_pipeline_depth"] or p["pending_window"],
             queue_capacity=channels*(p["control_pipeline_depth"] or p["pending_window"])*2 if scheduler=="dynamic_ring" else 0,
             checksum="crc32c" if p["checksum_policy"] == "required_crc32c" else "none",
             file_scheduling="dynamic" if scheduler == "dynamic_ring" else "static",
@@ -682,9 +682,13 @@ class Agent:
             suffix=".cpnetflux.tree."+p["direction"]+".manifest"
             if not Path(local["path"]+suffix).is_file():
                 raise RpcError("checkpoint_missing","require resume 需要已有 V3 tree manifest；具体内容由核心检查")
+        warnings=["preview 不连接远端；认证、数据端口和远端目录由启动后的核心验证"]
+        if p["policy"].get("control_pipeline_depth",0) and p["policy"]["control_pipeline_depth"] != p["policy"]["pending_window"]:
+            warnings.append("V3 共享流水线使用深度 %s 作为实际窗口；请求 pending_window=%s，实际=%s" %
+                (p["policy"]["control_pipeline_depth"],p["policy"]["pending_window"],options["pending_window"]))
         return dict(kind="transfer_validation",valid=True,runtime_protocol="v3",
             resolved_options=options,binding_plan_id=binding["plan_id"] if binding else None,
-            warnings=["preview 不连接远端；认证、数据端口和远端目录由启动后的核心验证"])
+            warnings=warnings)
 
     def summary_for(self, t, attempt_id):
         if not any(x["attempt_id"]==attempt_id for x in self.attempts_for(t["transfer_id"])):
@@ -710,7 +714,7 @@ class Agent:
         return [dict(transfer_id=t["transfer_id"],attempt_id=attempt_id,file_id=str(key[0]),
             generation=key[1],relative_path=rows[0]["relative_path"],size=rows[0]["size"],mtime_ns=None,
             state="committed" if success else "recoverable",bytes_transferred=None,bytes_verified=None,
-            range_count=len(rows),error=None,checksum=dict(algorithm=summary.get("checksum_algorithm","unknown"),
+            range_count=sum(1 for row in rows if row["length"]>0),error=None,checksum=dict(algorithm=summary.get("checksum_algorithm","unknown"),
                 expected=None,actual=None,status="not_requested" if summary.get("checksum_algorithm")=="none" else "pass" if success else "pending"))
             for key,rows in sorted(groups.items())]
 
@@ -722,7 +726,8 @@ class Agent:
         return [dict(transfer_id=t["transfer_id"],attempt_id=p["attempt_id"],file_id=p["file_id"],
             generation=p["generation"],range_id=str(x["range_id"]),offset=x["offset"],length=x["length"],
             state="verified" if summary["result"]=="pass" else "recoverable",bytes_transferred=None,
-            attempt_number=x["attempt"],error=None,checksum=dict(algorithm=summary["checksum_algorithm"],
+            attempt_number=next(a["attempt_number"] for a in self.attempts_for(t["transfer_id"]) if a["attempt_id"]==p["attempt_id"]),
+            core_attempt=x["attempt"],error=None,checksum=dict(algorithm=summary["checksum_algorithm"],
             expected=None,actual=None,status="not_requested" if summary["checksum_algorithm"]=="none" else "pass" if summary["result"]=="pass" else "pending")) for x in selected if x["length"]>0]
 
     def completion_matches(self, t, summary):
@@ -1036,10 +1041,13 @@ class Agent:
                 t["attempt"].update(state="completed", ended_at=now(), quiescence="confirmed")
                 self.quiescent(t)
             else:
-                message=stderr.decode(errors="replace")[-2000:] or "CPNetFlux core 返回失败"
+                mismatch=summary.get("result")=="pass"
+                message=stderr.decode(errors="replace")[-2000:] or (
+                    "V3 核心成功，但实际策略或文件/字节计数与预检不一致；请查看 transfer.evidence"
+                    if mismatch else "CPNetFlux core 返回失败")
                 t.update(state="recoverable", transfer_status="fail", integrity_status="fail",
                          evidence_status="incomplete",
-                         error=detail("internal_error",message,t["transfer_id"],"transfer"))
+                         error=detail("capability_mismatch" if mismatch else "internal_error",message,t["transfer_id"],"transfer"))
                 t["attempt"].update(state="recoverable", ended_at=now(), quiescence="confirmed")
                 self.checkpoint(t)
                 if t["recovery"]["eligibility"]!="eligible": t["state"]="failed"; t["attempt"]["state"]="failed"
