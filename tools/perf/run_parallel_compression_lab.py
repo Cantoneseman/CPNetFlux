@@ -175,6 +175,8 @@ def main():
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--channels", type=int, default=8)
     parser.add_argument("--scheduler-policy", choices=("fixed", "adaptive"), default="fixed")
+    parser.add_argument("--scheduler-default-rtt-ms", type=int, default=1,
+                        help="scheduler admission RTT budget; does not change measured network RTT")
     parser.add_argument("--port", type=int, default=34261)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
@@ -365,7 +367,7 @@ def main():
                     "build": "Release; TLS on; tests/desktop/io_uring off",
                     "transport": "TCP over selected IP interface; not RDMA verbs",
                     "scheduler": {"mode": "global", "policy": args.scheduler_policy,
-                                  "capacity_gbps": 100, "default_rtt_ms": 1,
+                                  "capacity_gbps": 100, "default_rtt_ms": args.scheduler_default_rtt_ms,
                                   "workitem_min_bytes": 512 * MIB,
                                   "workitem_max_bytes": 512 * MIB},
                     "local_before": before, "peer_before": peer_before,
@@ -405,7 +407,7 @@ def main():
                                      "--scheduler", "global",
                                      "--scheduler-policy", args.scheduler_policy,
                                      "--scheduler-capacity-gbps", "100",
-                                     "--scheduler-default-rtt-ms", "1",
+                                     "--scheduler-default-rtt-ms", args.scheduler_default_rtt_ms,
                                      "--scheduler-workitem-min-bytes", 512 * MIB,
                                      "--scheduler-workitem-max-bytes", 512 * MIB,
                                      "--scheduler-metrics-dir", workspace / "metrics" / name,
