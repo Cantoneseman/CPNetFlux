@@ -103,3 +103,14 @@ git diff --check passed. Logs: /tmp/cpnetflux-lab-prerequisite-build.log,
 /tmp/cpnetflux-lab-prerequisite-repeat.log and
 /tmp/cpnetflux-lab-prerequisite-full.log. The correctness build has no Release
 optimization claim; the hardware runner performs its own pinned Release build.
+
+Runtime 4a51e6eddde916c8c9f9ec868514ab455539e5bd passed all eight dense
+cells on R730 to R750; the next 1 GiB raw warm-up failed before payload with
+`link reserve exceeds admission limit: link0`. Investigation confirms range
+planning already produced 16 x 64 MiB ranges: the harness left the aggregate
+admission budget at its 64 MiB default, so concurrent claims exceeded it. The
+harness now sets a 512 MiB metadata-work reservation budget, 100 Gbps capacity
+and 1 ms conservative RTT explicitly. This budget is not a payload cache.
+Runner SHA is recorded independently; both modes/directions retain identical
+settings, and measured large/mixed cases require observed range completions.
+The partial prior run is retained but excluded from the restarted matrix.

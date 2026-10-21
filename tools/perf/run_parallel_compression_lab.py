@@ -361,9 +361,13 @@ def main():
         metadata = {"commit": args.commit, "binary_sha256": binary_hashes,
                     "archive_sha256": archive_hash,
                     "reused_artifacts": bool(args.build_artifacts),
+                    "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                     "build": "Release; TLS on; tests/desktop/io_uring off",
                     "transport": "TCP over selected IP interface; not RDMA verbs",
-                    "scheduler": {"mode": "global", "policy": args.scheduler_policy},
+                    "scheduler": {"mode": "global", "policy": args.scheduler_policy,
+                                  "capacity_gbps": 100, "default_rtt_ms": 1,
+                                  "workitem_min_bytes": 512 * MIB,
+                                  "workitem_max_bytes": 512 * MIB},
                     "local_before": before, "peer_before": peer_before,
                     "note": "warm cached files; network counters include SSH probe traffic"}
         (workspace / "environment.json").write_text(json.dumps(metadata, indent=2))
@@ -400,6 +404,10 @@ def main():
                                      "--connections", "1", "--data-pending-window", "4",
                                      "--scheduler", "global",
                                      "--scheduler-policy", args.scheduler_policy,
+                                     "--scheduler-capacity-gbps", "100",
+                                     "--scheduler-default-rtt-ms", "1",
+                                     "--scheduler-workitem-min-bytes", 512 * MIB,
+                                     "--scheduler-workitem-max-bytes", 512 * MIB,
                                      "--scheduler-metrics-dir", workspace / "metrics" / name,
                                      "--chunk-size", 4 * MIB, "--compression", mode,
                                      "--transfer-timeout-ms", "180000", "--json-summary", summary],
@@ -415,6 +423,10 @@ def main():
                             raise RuntimeError("transfer or SHA-256 verification failed")
                         if observed.get("actual_mode") != "persistent_tree":
                             raise RuntimeError("V3 persistent tree was not used")
+                        if (dataset.name != "dense" and expected[2] > 128 * MIB and
+                                args.channels > 1 and
+                                not sum(observed["persistent_lane_range_completed"])):
+                            raise RuntimeError("large-file range work was not observed")
                         if (observed.get("actual_file_scheduling") != "dynamic" or
                                 observed.get("scheduler_mode") != "global"):
                             raise RuntimeError("requested directory scheduling combination was not used")

@@ -91,3 +91,13 @@ Allow tools/test/run_cpnetflux_reconnect_smoke.py to serialize only this fixture
 with one lane and one pending file; the large-range/recovery scenarios retain
 their multi-lane coverage. Confirm repeated corruption rejection still reports
 checksum_mismatch rather than counting a missing fixture file as a core failure.
+
+## Explicit Lab Scheduler Profile
+
+The first fixed runtime 4a51e6e run passed all eight dense cells but rejected the
+1 GiB large-random warm-up before any payload. Its 16 ranges are 64 MiB each;
+the global scheduler's default 64 MiB aggregate admission budget cannot hold
+eight concurrent ranges. Correct the harness profile (no core change) to a
+512 MiB metadata reservation budget, capacity 100 Gbps, and conservative 1 ms
+RTT for both modes/directions. Record the runner SHA separately from runtime
+commit, verify observed range completions, and restart the comparison matrix.
