@@ -698,9 +698,9 @@ class Agent:
         return self.load_summary(record)
 
     def load_summary(self, path):
-        if not path or not Path(path).is_file() or Path(path).stat().st_size>4*MAX_FRAME: return None
+        if not path or not Path(path).is_file(): return None
         try:
-            value=json.loads(Path(path).read_text())
+            with Path(path).open() as stream: value=json.load(stream)
             if not isinstance(value,dict): return None
             return value
         except (OSError,ValueError): return None

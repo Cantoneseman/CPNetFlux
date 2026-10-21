@@ -214,4 +214,9 @@ class V3ApiTests(unittest.TestCase):
                 changed=dict(summary,**{key:value})
                 self.assertFalse(a.completion_matches(t,changed))
 
+    def test_large_internal_summary_is_independent_of_rpc_frame_budget(self):
+        path=Path(self.tmp.name)/'large-summary.json'
+        path.write_text('{"result":"pass"}'+' '*(4*MOD.MAX_FRAME+1))
+        self.assertEqual(self.agent.load_summary(str(path)),dict(result='pass'))
+
 if __name__ == '__main__': unittest.main(verbosity=2)
