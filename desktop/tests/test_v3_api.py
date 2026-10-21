@@ -110,6 +110,9 @@ class V3ApiTests(unittest.TestCase):
                            ('--reconnect-attempts','2'),('--transfer-timeout-ms','45000'),
                            ('--control-pipeline-depth','2'),('--chunk-size','2097152')]:
             self.assertEqual(cmd[cmd.index(flag)+1],value)
+        self.assertIn('--scheduler',cmd)
+        self.assertNotIn('--scheduler-mode',cmd)
+        self.assertEqual(cmd[cmd.index('--scheduler')+1],'off')
         self.assertNotIn('--resume',cmd)
         t['attempt']['attempt_number']=2
         self.assertIn('--resume',a.build_real_command(t))

@@ -277,7 +277,7 @@ class Agent:
                           ("reconnect_attempts", "reconnect-attempts"), ("compression", "compression"),
                           ("chunk_size", "chunk-size"), ("buffer_size", "buffer-size"),
                           ("control_pipeline_depth", "control-pipeline-depth"),
-                          ("scheduler_mode", "scheduler-mode"), ("scheduler_policy", "scheduler-policy"),
+                          ("scheduler_mode", "scheduler"), ("scheduler_policy", "scheduler-policy"),
                           ("scheduler_work_item_min_bytes", "scheduler-workitem-min-bytes"),
                           ("scheduler_work_item_max_bytes", "scheduler-workitem-max-bytes"),
                           ("scheduler_default_rtt_ms", "scheduler-default-rtt-ms"),
