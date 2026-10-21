@@ -1,12 +1,13 @@
 # V3-PARALLEL-COMPRESSION-01
 
 Date: 2026-10-21
-Status: authorized; implementation not yet started
+Status: first implementation/code gates complete; lab acceptance pending (both SSH endpoints timed out)
 Owner: current commander only; serial edits in Shenzhen; no subagents
 Branch: codex/V3-PARALLEL-COMPRESSION-01
 Input CPNetFlux commit: 390774cad2eaf3b58cb19e0a86ca3d3e02a2699b
 Peer behavior reference: neoClav/Computing-Power-Network-Transmission, branch feature/parallel-compression-pipeline, commit c0a5159077a055d5a84ff1436a54e2ac760d5513
 Authoritative source: /root/projects/CPNetFlux
+Current isolated checkout: /root/projects/CPNetFlux-worktrees/v3-parallel-compression-01
 Existing unrelated untracked files to preserve unchanged:
 - docs/tasks/2026-10-14-v3-worker-state-01b-result.md
 - docs/tasks/2026-10-14-v3-worker-state-01b.md
@@ -63,4 +64,15 @@ Use the peer branch as behavioral/algorithmic reference only. Its repository cur
 ## Rollback
 
 The feature branch is independent of the frozen candidate. Roll back only explicit feature commits with git revert, or return to the previous branch while preserving task evidence. Do not reset/clean the workspace, delete the two pre-existing untracked task records, change formal server services, or delete user data.
+
+## Implementation handoff
+
+See 2026-10-21-v3-parallel-compression-01-result.md for code changes, gates and the lab command.
+The root checkout received unrelated desktop/network-binding work during this task. Those changes were preserved; this feature continues serially in its isolated Shenzhen checkout from the documented input commit. It does not include or replace the later desktop/network-binding branch.
+
+The first feature uses the existing zlib wire codec with four process-wide workers, sixteen in-flight jobs, and a 256 MiB payload-buffer ceiling. Raw buffers and worst-case encoded output remain reserved until the result is sent or discarded. Fixed worker count separately bounds zlib workspace; the byte ceiling is not a total process RSS guarantee. Optional zstd/LZ4, adaptive codec selection, desktop controls and worker-count tuning are not implemented in this first slice.
+
+Both V3 upload and download explicitly negotiate COMPRESSION=zlib. An unsupported peer causes a pre-payload failure; an already negotiated frame may use the existing raw format when compression is ineffective or fails, with the reason recorded. Default compression remains off.
+
+Remaining acceptance: verified R730/R750 data-interface configuration, isolated deployment of the pinned commit and the measured lab matrix. No lab throughput result is claimed.
 

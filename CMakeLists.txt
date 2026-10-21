@@ -110,6 +110,7 @@ add_library(cpnetflux_core STATIC
     src/core/io/persistent_data_session.cpp
     src/core/io/persistent_tree_transfer.cpp
     src/core/io/payload_pipeline.cpp
+    src/core/io/parallel_compression_executor.cpp
     src/core/io/dynamic_file_queue.cpp
     src/core/io/work_executor.cpp
     src/core/io/persistent_directory_batch.cpp
@@ -315,6 +316,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/control_options_test.cpp
         tests/unit/control_session_test.cpp
         tests/unit/compressed_data_test.cpp
+        tests/unit/parallel_compression_executor_test.cpp
         tests/unit/download_manifest_test.cpp
         tests/unit/download_session_test.cpp
         tests/unit/event_log_test.cpp
@@ -357,6 +359,18 @@ if(CPNETFLUX_BUILD_TESTS)
     )
 
     gtest_discover_tests(cpnetflux_unit_tests)
+    add_test(NAME cpnetflux_parallel_compression_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_parallel_compression_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_parallel_compression_smoke PROPERTIES
+        TIMEOUT 180 RUN_SERIAL TRUE)
+    if(CPNETFLUX_HAS_TLS)
+        add_test(NAME cpnetflux_parallel_compression_tls_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_parallel_compression_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR} --tls)
+        set_tests_properties(cpnetflux_parallel_compression_tls_smoke PROPERTIES
+            TIMEOUT 180 RUN_SERIAL TRUE)
+    endif()
     add_test(NAME cpnetflux_v1_retirement_gate
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/check_v1_retired.py)
 

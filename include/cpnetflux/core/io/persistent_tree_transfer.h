@@ -15,6 +15,7 @@ namespace cpnetflux::core::io {
 struct PersistentTransferPolicy {
     config::FileTransferOptions options;
     std::string outputPath;
+    bool requireCompressionNegotiation = false;
 };
 struct PersistentTransferContext;
 [[nodiscard]] std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(
@@ -61,6 +62,9 @@ struct PersistentTreeStats {
     std::uint64_t payloadPipelineHighWatermarkBytes = 0;
     std::uint64_t payloadPipelineProducerWaits = 0;
     std::uint64_t payloadPipelineConsumerWaits = 0;
+    std::uint64_t compressionWorkersObserved = 0;
+    std::uint64_t compressionMaxInFlightJobsObserved = 0;
+    std::uint64_t compressionMaxInFlightBytesObserved = 0;
 };
 using PersistentFileCallback = std::function<common::Status(
     const PersistentFileIdentity&, const common::Status&, bool complete)>;

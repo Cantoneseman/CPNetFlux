@@ -45,7 +45,7 @@ BoundedPayloadPipeline::BoundedPayloadPipeline(std::size_t maxBytes, std::size_t
     : state_(std::make_shared<State>(maxBytes, maxChunks)) {}
 
 common::Status BoundedPayloadPipeline::push(PreparedPayload payload) {
-    const auto payloadBytes = payload.bytes.size();
+    const auto payloadBytes = payload.byteSize();
     auto state = state_;
     std::unique_lock<std::mutex> lock(state->mutex);
     if (payloadBytes > state->maxBytes) {
@@ -84,7 +84,7 @@ common::Result<std::optional<PreparedPayload>> BoundedPayloadPipeline::pop() {
     if (state->queue.empty()) return std::optional<PreparedPayload>{};
     PreparedPayload payload = std::move(state->queue.front());
     state->queue.pop_front();
-    state->queuedBytes -= payload.bytes.size();
+    state->queuedBytes -= payload.byteSize();
     lock.unlock();
     state->canPush.notify_one();
     return std::optional<PreparedPayload>(std::move(payload));

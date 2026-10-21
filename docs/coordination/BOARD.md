@@ -1,5 +1,7 @@
 # 当前执行（2026-10-20；R2026-10-16-V3-UNIFIED-MULTILINK）
 
+2026-10-21 V3-PARALLEL-COMPRESSION-01: first implementation on its independent feature branch is code-verified (423 CTest passes, one expected skip; TLS/data-TLS/token gates pass). The root desktop/network-binding changes remain separate. Lab acceptance is pending because R750/R730 SSH connections timed out. Results and the pinned-build experiment command: docs/tasks/2026-10-21-v3-parallel-compression-01-result.md. This is not a default rollout or a performance acceptance.
+
 本节优先于下方历史路线和旧任务快照。深圳 /root/projects/CPNetFlux 为唯一权威开发目录；当前总指挥单人串行直接开发、测试和提交，不再新建开发 worktree，不使用子代理；上海只作传输对端。2026-10-20 已保全主目录旧改动并将当前代码接回根目录，详见 V3-LOGICAL-10LINK-01 任务记录。
 
 - V3-ONLY-PEER-SYNC-01：已完成。提交 `10d05bcdf972faec15d3a19bae6230cf27905099` 已推送；深圳与上海服务运行同 SHA 的 V3 server，完整 CTest 393/393 通过。深圳→上海生产服务上传、上海→深圳下载均通过且树哈希一致；上海客户端→深圳隔离 V3 服务也经 SSH 隧道通过。上海直连深圳 TCP/2121 仍超时，详见任务记录和 evidence.json。

@@ -26,3 +26,9 @@ The peer branch is a behavioral reference, not a source dependency. The inspecte
 
 Revert only the feature branch commits. The previously accepted V3 candidate branch/package and its evidence remain untouched. Preserve unrelated dirty files and all user data.
 
+## First implementation
+
+Use the existing CPNetFlux zlib codec and frame representation. A fixed shared executor replaces synchronous per-frame encoding in the producer/sender pipeline; FIFO payload ownership preserves range order. Compression is negotiated on every control lane, including reconnect, and becomes part of dynamic batch identity/policy validation. No new runtime codec dependency is introduced.
+
+The lab control is compression off versus parallel compression auto on identical Release binaries from one commit, with the same TLS/token and V3 scheduling options. This measures the combined effect of compression plus this executor, not the isolated speedup over a one-worker compressor. A worker-count/codec study is a later extension. End-to-end time and actual wire traffic must be reported separately from logical-byte throughput.
+

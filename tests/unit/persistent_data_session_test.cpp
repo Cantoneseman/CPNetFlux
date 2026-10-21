@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/persistent_data_session.h"
+#include "cpnetflux/core/io/parallel_compression_executor.h"
 
 #include <gtest/gtest.h>
 #include <future>
@@ -1134,4 +1135,157 @@ TEST(BoundedPayloadPipelineTest, CloseDrainsQueuedChunksAndThenReturnsEndOfStrea
     auto end = pipeline.pop();
     ASSERT_TRUE(end.isOk());
     EXPECT_FALSE(end.value());
+}
+
+TEST(PersistentParallelCompressionTest, SeparateChannelsCommitCompressedRangesWithExactBytes) {
+    TempRoot source, destination;
+    std::string content(1024 * 1024, 'A');
+    for (std::size_t offset = 0; offset < content.size(); offset += 65536)
+        content.replace(offset, 16, std::to_string(offset) + std::string(16 - std::to_string(offset).size(), '_'));
+    std::ofstream(source.path / "ranges.bin", std::ios::binary) << content;
+    struct stat metadata{};
+    ASSERT_EQ(::stat((source.path / "ranges.bin").c_str(), &metadata), 0);
+    PersistentFileIdentity first{1, 7, content.size(), "ranges.bin", "compressed-ranges", 65536,
+        metadata.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c,
+        {}, 1, 0, content.size() / 2, 2};
+    auto second = first;
+    second.rangeId = 2;
+    second.rangeOffset = content.size() / 2;
+    cpnetflux::config::FileTransferOptions options;
+    options.hotPathCompression.enabled = options.hotPathCompression.candidate = true;
+    PersistentTransferPolicy policy;
+    policy.options = options;
+    policy.requireCompressionNegotiation = true;
+    auto context = makePersistentTransferContext(policy);
+    DynamicFileQueue queue({first, second}, 2, 1, 2);
+    SocketPair left, right;
+    PersistentTreeStats sentLeft, sentRight, receivedLeft, receivedRight;
+    cpnetflux::common::Status txLeft, txRight, rxLeft, rxRight;
+    std::jthread a([&] { rxLeft = receivePersistentTree(&left.receiver, destination.path.string(),
+        false, "", &receivedLeft, {}, 1, 0, 2, kUnknownPersistentFileCount, true, false, context);
+        ::shutdown(left.receiver.fd(), SHUT_RDWR); });
+    std::jthread b([&] { rxRight = receivePersistentTree(&right.receiver, destination.path.string(),
+        false, "", &receivedRight, {}, 1, 1, 2, kUnknownPersistentFileCount, true, false, context);
+        ::shutdown(right.receiver.fd(), SHUT_RDWR); });
+    std::jthread c([&] { txLeft = sendPersistentTree(&left.sender, source.path.string(), {},
+        &sentLeft, {}, 1, 0, 2, &queue, &options); });
+    std::jthread d([&] { txRight = sendPersistentTree(&right.sender, source.path.string(), {},
+        &sentRight, {}, 1, 1, 2, &queue, &options); });
+    c.join(); d.join(); a.join(); b.join();
+    EXPECT_TRUE(txLeft.isOk()) << txLeft.message();
+    EXPECT_TRUE(txRight.isOk()) << txRight.message();
+    EXPECT_TRUE(rxLeft.isOk()) << rxLeft.message();
+    EXPECT_TRUE(rxRight.isOk()) << rxRight.message();
+    EXPECT_GT(sentLeft.runtime.compressedFrames + sentRight.runtime.compressedFrames, 0U);
+    EXPECT_EQ(sentLeft.payloadBytes + sentRight.payloadBytes, content.size());
+    std::ifstream actual(destination.path / "ranges.bin", std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(actual)), {}), content);
+    EXPECT_EQ(sharedParallelCompressionExecutor().snapshot().inFlightJobs, 0U);
+}
+
+TEST(PersistentParallelCompressionTest, UnnegotiatedPayloadIsRejectedAndLeavesNoVerifiedCheckpoint) {
+    TempRoot source, destination;
+    std::ofstream(source.path / "rejected.bin") << std::string(131072, 'A');
+    struct stat metadata{};
+    ASSERT_EQ(::stat((source.path / "rejected.bin").c_str(), &metadata), 0);
+    PersistentFileIdentity identity{1, 7, 131072, "rejected.bin", "unnegotiated", 65536,
+        metadata.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    cpnetflux::config::FileTransferOptions options;
+    options.hotPathCompression.enabled = options.hotPathCompression.candidate = true;
+    PersistentTransferPolicy policy;
+    policy.requireCompressionNegotiation = true;
+    auto context = makePersistentTransferContext(policy);
+    SocketPair pair;
+    PersistentTreeStats sent, received;
+    cpnetflux::common::Status receiverStatus;
+    std::jthread receiver([&] {
+        receiverStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, false, false, context);
+        ::shutdown(pair.receiver.fd(), SHUT_RDWR);
+    });
+    auto status = sendPersistentTree(&pair.sender, source.path.string(), {identity}, &sent,
+        {}, 1, 0, 1, nullptr, &options);
+    receiver.join();
+    EXPECT_FALSE(status.isOk());
+    EXPECT_FALSE(receiverStatus.isOk());
+    EXPECT_NE(receiverStatus.message().find("not negotiated"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "rejected.bin"));
+    auto saved = cpnetflux::checkpoint::ManifestStore::load(
+        cpnetflux::checkpoint::manifestPathForOutput((destination.path / "rejected.bin").string()));
+    ASSERT_TRUE(saved.isOk());
+    EXPECT_TRUE(saved.value().verifiedChunks.empty());
+    EXPECT_EQ(sharedParallelCompressionExecutor().snapshot().inFlightJobs, 0U);
+}
+
+TEST(BoundedPayloadPipelineTest, CountsAndReleasesCompressedTaskLogicalBytesOnCancellation) {
+    ParallelCompressionExecutor executor({2, 4, 1024 * 1024});
+    BoundedPayloadPipeline pipeline(8192, 2);
+    for (unsigned index = 0; index < 2; ++index) {
+        PreparedPayload payload;
+        payload.bytes.assign(4096, 'A');
+        payload.logicalBytes = payload.bytes.size();
+        auto task = executor.submit(&payload.bytes, 8192);
+        ASSERT_TRUE(task.isOk());
+        payload.compressionTask.emplace(std::move(task.value()));
+        ASSERT_TRUE(pipeline.push(std::move(payload)).isOk());
+    }
+    EXPECT_EQ(pipeline.queuedBytes(), 8192U);
+    EXPECT_EQ(pipeline.highWatermarkBytes(), 8192U);
+    pipeline.cancel(cpnetflux::common::Status::runtimeError("cancel compressed pipeline"));
+    EXPECT_EQ(pipeline.queuedBytes(), 0U);
+    EXPECT_EQ(executor.snapshot().inFlightJobs, 0U);
+    EXPECT_EQ(executor.snapshot().inFlightBytes, 0U);
+}
+
+TEST(PersistentParallelCompressionTest, RangeResumeCompressesOnlyMissingCheckpointBytes) {
+    TempRoot source, destination;
+    const std::string content(4 * 65536, 'A');
+    std::ofstream(source.path / "resume.bin", std::ios::binary) << content;
+    struct stat metadata{};
+    ASSERT_EQ(::stat((source.path / "resume.bin").c_str(), &metadata), 0);
+    auto session = cpnetflux::core::session::TransferSession::createNew(
+        (destination.path / "resume.bin").string(), "compressed-resume", content.size(), 65536,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
+    ASSERT_TRUE(session.isOk());
+    ASSERT_TRUE(session.value().save().isOk());
+    {
+        std::ofstream partial(session.value().manifest().tempPath, std::ios::binary);
+        partial << content.substr(0, 65536) << std::string(content.size() - 65536, '\0');
+    }
+    cpnetflux::checksum::ChecksumComputer computer(cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
+    computer.update(reinterpret_cast<const std::uint8_t*>(content.data()), 65536);
+    ASSERT_TRUE(session.value().recordVerifiedChunk(0, 0, 65536, computer.finalize()).isOk());
+    ASSERT_TRUE(session.value().markFailed().isOk());
+    PersistentFileIdentity first{1, 7, content.size(), "resume.bin", "compressed-resume", 65536,
+        metadata.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c,
+        {}, 1, 0, content.size() / 2, 2};
+    auto second = first;
+    second.rangeId = 2;
+    second.rangeOffset = content.size() / 2;
+    cpnetflux::config::FileTransferOptions options;
+    options.resume = true;
+    options.hotPathCompression.enabled = options.hotPathCompression.candidate = true;
+    PersistentTransferPolicy policy;
+    policy.options = options;
+    policy.requireCompressionNegotiation = true;
+    auto context = makePersistentTransferContext(policy);
+    SocketPair pair;
+    PersistentTreeStats sent, received;
+    cpnetflux::common::Status result;
+    std::jthread receiver([&] {
+        result = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, true, true, context);
+        ::shutdown(pair.receiver.fd(), SHUT_RDWR);
+    });
+    auto status = sendPersistentTree(&pair.sender, source.path.string(), {first, second}, &sent,
+        {}, 1, 0, 1, nullptr, &options);
+    receiver.join();
+    ASSERT_TRUE(status.isOk()) << status.message();
+    ASSERT_TRUE(result.isOk()) << result.message();
+    EXPECT_EQ(sent.skippedBytes, 65536U);
+    EXPECT_EQ(sent.payloadBytes, content.size() - 65536);
+    EXPECT_GT(sent.runtime.compressedFrames, 0U);
+    std::ifstream actual(destination.path / "resume.bin", std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(actual)), {}), content);
+    EXPECT_EQ(sharedParallelCompressionExecutor().snapshot().inFlightBytes, 0U);
 }

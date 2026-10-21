@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "cpnetflux/common/status.h"
+#include "cpnetflux/core/io/parallel_compression_executor.h"
 
 namespace cpnetflux::core::io {
 
@@ -15,6 +16,12 @@ struct PreparedPayload {
     std::vector<std::uint8_t> bytes;
     std::uint64_t chunkIndex = 0;
     std::uint32_t frameChecksum = 0;
+    std::optional<ParallelCompressionExecutor::Task> compressionTask;
+    std::size_t logicalBytes = 0;
+
+    [[nodiscard]] std::size_t byteSize() const noexcept {
+        return compressionTask ? logicalBytes : bytes.size();
+    }
 };
 
 class BoundedPayloadPipeline {

@@ -267,7 +267,8 @@ class ControlClient {
         std::uint32_t requestedChannels, checksum::ChecksumAlgorithm checksumAlgorithm,
         bool resume, DataTlsMode dataTlsMode, std::uint32_t* actualWindow,
         std::uint32_t* actualChannels, bool dynamic = false,
-        std::uint32_t requestedLinks = 1, std::uint64_t requestedLinkCapabilities = 0) {
+        std::uint32_t requestedLinks = 1, std::uint64_t requestedLinkCapabilities = 0,
+        bool requestZlib = false, bool* zlibAccepted = nullptr) {
         if (requestedWindow == 0 || requestedWindow > 16 ||
             requestedChannels == 0 || requestedChannels > kPersistentTreeMaxChannels ||
             requestedLinks == 0 || requestedLinks > core::scheduler::LinkSet::kMaxLinks ||
@@ -289,6 +290,8 @@ class ControlClient {
         request += " CHECKSUM=" + std::string(checksum::checksumAlgorithmName(checksumAlgorithm));
         request += " RESUME=" + std::string(resume ? "1" : "0");
         request += " DATA_TLS=" + std::string(dataTlsModeName(dataTlsMode));
+        if (requestZlib) request += " COMPRESSION=zlib";
+        if (zlibAccepted != nullptr) *zlibAccepted = false;
         const bool linkSetRequested = requestedLinks != 1 || requestedLinkCapabilities != 0;
         if (linkSetRequested) {
             request += " " + core::scheduler::encodeLinkSetControlFields(
@@ -299,6 +302,12 @@ class ControlClient {
         if (!reply.isOk()) return reply.status();
         if (reply.value().code == 200) {
             const std::string replyText = joined(reply.value());
+            std::istringstream capabilityTokens(replyText);
+            std::string token;
+            bool peerZlib = false;
+            while (capabilityTokens >> token) {
+                if (token == "compression=zlib") peerZlib = true;
+            }
             const std::string checksumToken = "checksum=" +
                 std::string(checksum::checksumAlgorithmName(checksumAlgorithm));
             const std::string resumeToken = "resume=" + std::string(resume ? "1" : "0");
@@ -313,12 +322,15 @@ class ControlClient {
                  replyText.find("channels=" + std::to_string(requestedChannels)) == std::string::npos) ||
                 replyText.find(checksumToken) == std::string::npos ||
                 replyText.find(resumeToken) == std::string::npos ||
-                replyText.find(tlsToken) == std::string::npos) {
+                replyText.find(tlsToken) == std::string::npos ||
+                (requestZlib && !peerZlib)) {
                 timeout = {0, 0};
                 (void)::setsockopt(control_.fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
                 (void)::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
                 return false;
             }
+            if (zlibAccepted != nullptr)
+                *zlibAccepted = requestZlib && peerZlib;
             *actualWindow = requestedWindow;
             *actualChannels = requestedChannels;
             return true;
@@ -889,6 +901,10 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> decompressionFailures{0};
     std::atomic<std::uint64_t> compressedLogicalBytes{0};
     std::atomic<std::uint64_t> compressedWireBytes{0};
+    bool compressionNegotiated = false;
+    std::atomic<std::uint64_t> compressionWorkersObserved{0};
+    std::atomic<std::uint64_t> compressionMaxInFlightJobsObserved{0};
+    std::atomic<std::uint64_t> compressionMaxInFlightBytesObserved{0};
     std::atomic<std::uint64_t> controlConnectCount{0};
     std::atomic<std::uint64_t> controlReconnectCount{0};
     std::atomic<std::uint64_t> laneControlReconnectCount{0};
@@ -1231,9 +1247,9 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     const auto rawFallbackFrames = stats.rawFallbackFrames.load();
     std::string compressionDecision = "disabled";
     if (options.compressionMode == config::CompressionMode::Auto) {
-        if (compressionAttempts == 0) compressionDecision = "not_observed";
-        else if (compressedFrames != 0 && rawFallbackFrames != 0) compressionDecision = "mixed";
+        if (compressedFrames != 0 && rawFallbackFrames != 0) compressionDecision = "mixed";
         else if (compressedFrames != 0) compressionDecision = "compressed";
+        else if (compressionAttempts == 0) compressionDecision = "not_observed";
         else compressionDecision = "raw_fallback";
     }
     std::string treeHash;
@@ -1277,12 +1293,23 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"compression_policy\": \""
            << (options.compressionMode == config::CompressionMode::Auto ? "auto" : "off") << "\",\n";
     output << "  \"compression_decision\": \"" << compressionDecision << "\",\n";
+    output << "  \"compression_negotiated\": " << (stats.compressionNegotiated ? "true" : "false") << ",\n";
+    output << "  \"compression_codec\": \"" << (stats.compressionNegotiated ? "zlib" : "none") << "\",\n";
+    output << "  \"compression_pool_observation_scope\": \"local_process_lifetime\",\n";
+    output << "  \"compression_pool_worker_limit\": 4,\n";
+    output << "  \"compression_pool_job_limit\": 16,\n";
+    output << "  \"compression_pool_byte_limit\": 268435456,\n";
     output << "  \"compression_attempts\": " << compressionAttempts << ",\n";
     output << "  \"compressed_frames\": " << compressedFrames << ",\n";
     output << "  \"raw_fallback_frames\": " << rawFallbackFrames << ",\n";
     output << "  \"compression_failures\": " << stats.compressionFailures.load() << ",\n";
     output << "  \"compressed_logical_bytes\": " << stats.compressedLogicalBytes.load() << ",\n";
     output << "  \"compressed_wire_bytes\": " << stats.compressedWireBytes.load() << ",\n";
+    output << "  \"compression_workers_observed\": " << stats.compressionWorkersObserved.load() << ",\n";
+    output << "  \"compression_max_in_flight_jobs_observed\": "
+           << stats.compressionMaxInFlightJobsObserved.load() << ",\n";
+    output << "  \"compression_max_in_flight_bytes_observed\": "
+           << stats.compressionMaxInFlightBytesObserved.load() << ",\n";
     output << "  \"wire_bytes\": " << stats.wireBytes.load() << ",\n";
     output << "  \"file_parallelism\": " << options.fileParallelism << ",\n";
     output << "  \"connections\": " << options.connections << ",\n";
@@ -1745,6 +1772,17 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     const std::uint32_t dispatchWindow = options.controlPipelineDepth != 0
         ? options.controlPipelineDepth : options.dataPendingWindow;
     persistentOptions.dataPendingWindow = dispatchWindow;
+    config::FileTransferOptions transferOptions;
+    transferOptions.resume = options.resume;
+    transferOptions.bufferSize = options.bufferSize;
+    transferOptions.checksumBackend = options.checksumBackend;
+    transferOptions.hotPathCompression = options.hotPathCompression;
+    if (options.compressionMode == config::CompressionMode::Auto) {
+        transferOptions.hotPathCompression.enabled = true;
+        transferOptions.hotPathCompression.candidate = true;
+        if (transferOptions.hotPathCompression.maxPayloadBytes == 0)
+            transferOptions.hotPathCompression.maxPayloadBytes = options.bufferSize;
+    }
     const std::string batchId = options.dynamicFileScheduling ? generateTransferId() : "";
     if (attemptedBatch) *attemptedBatch = batchId;
     std::unique_ptr<DynamicFileQueue> ready;
@@ -1863,6 +1901,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         double controlWaitSeconds = 0, prepareSeconds = 0, reconnectControlPrepareSeconds = 0;
         double connectSeconds = 0, remoteQueueWait = 0, remoteScan = 0;
         bool dataConnected = false;
+        bool zlibCompressionAccepted = false;
         std::string linkId;
         std::size_t remoteQueueHigh = 0;
         common::Status status = common::Status::ok();
@@ -1934,10 +1973,14 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 }
             }
             std::uint32_t actualWindow = 1, actualChannels = 1;
+            bool zlibAccepted = false;
+            const bool requestZlib = transferOptions.hotPathCompression.enabled &&
+                transferOptions.hotPathCompression.candidate && !transferOptions.hotPathCompression.forceRaw;
             auto capability = channel.control->negotiatePersistent(
                 dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
                 options.dataTlsMode, &actualWindow, &actualChannels, options.dynamicFileScheduling,
-                options.linkSetLinks, options.linkSetCapabilityBits);
+                options.linkSetLinks, options.linkSetCapabilityBits, requestZlib, &zlibAccepted);
+            channel.zlibCompressionAccepted = capability.isOk() && capability.value() && zlibAccepted;
             if (!capability.isOk()) {
                 channel.status = capability.status();
                 recordFailure(channel.status);
@@ -1961,6 +2004,15 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             "server does not support the required V3 persistent tree capability");
     }
 
+    const bool compressionRequested = transferOptions.hotPathCompression.enabled &&
+        transferOptions.hotPathCompression.candidate && !transferOptions.hotPathCompression.forceRaw;
+    const bool compressionAccepted = compressionRequested && std::all_of(
+        channels.begin(), channels.end(), [](const auto& channel) {
+            return channel->zlibCompressionAccepted;
+        });
+    transferOptions.hotPathCompression.enabled = compressionAccepted;
+    transferOptions.hotPathCompression.candidate = compressionAccepted;
+    stats->compressionNegotiated = compressionAccepted;
     *used = true;
     stats->persistentData = true;
     stats->dynamicScheduling = options.dynamicFileScheduling;
@@ -2186,17 +2238,12 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         return saveManifest(manifest, manifestPath);
     };
 
-    config::FileTransferOptions transferOptions;
-    transferOptions.resume=options.resume;transferOptions.bufferSize=options.bufferSize;
-    transferOptions.checksumBackend=options.checksumBackend;
-    transferOptions.hotPathCompression=options.hotPathCompression;
-    if (upload && options.compressionMode == config::CompressionMode::Auto) {
-        transferOptions.hotPathCompression.enabled = true;
-        transferOptions.hotPathCompression.candidate = true;
-        if (transferOptions.hotPathCompression.maxPayloadBytes == 0)
-            transferOptions.hotPathCompression.maxPayloadBytes = options.bufferSize;
-    }
-    auto transactions = makePersistentTransferContext();
+    PersistentTransferPolicy receiverPolicy;
+    receiverPolicy.requireCompressionNegotiation = true;
+    receiverPolicy.options.hotPathCompression.enabled = compressionAccepted;
+    receiverPolicy.options.hotPathCompression.candidate = compressionAccepted;
+    receiverPolicy.options.hotPathCompression.maxPayloadBytes = options.bufferSize;
+    auto transactions = makePersistentTransferContext(receiverPolicy);
     workers.clear();
     for (std::uint32_t index = 0; index < channelCount; ++index) {
         workers.emplace_back([&, index]() {
@@ -2258,14 +2305,18 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                         channel.control, persistentOptions, stats);
                     if (!connectedStatus.isOk()) return connectedStatus;
                     std::uint32_t actualWindow = 1, actualChannels = 1;
+                    bool zlibAccepted = false;
+                    const bool requestZlib = transferOptions.hotPathCompression.enabled &&
+                        transferOptions.hotPathCompression.candidate && !transferOptions.hotPathCompression.forceRaw;
                     auto capability = channel.control->negotiatePersistent(
                         dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
                         options.dataTlsMode, &actualWindow, &actualChannels,
                         options.dynamicFileScheduling, options.linkSetLinks,
-                        options.linkSetCapabilityBits);
+                        options.linkSetCapabilityBits, requestZlib, &zlibAccepted);
                     if (!capability.isOk()) return capability.status();
                     if (!capability.value() || actualWindow != dispatchWindow ||
-                        actualChannels != channelCount) {
+                        actualChannels != channelCount ||
+                        (compressionAccepted && !zlibAccepted)) {
                         return common::Status::runtimeError(
                             "persistent lane control reconnect negotiation failed");
                     }
@@ -2411,6 +2462,14 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         stats->decompressionFailures.fetch_add(channel->observed.runtime.decompressionFailures);
         stats->compressedLogicalBytes.fetch_add(channel->observed.runtime.compressedLogicalBytes);
         stats->compressedWireBytes.fetch_add(channel->observed.runtime.compressedWireBytes);
+        stats->compressionWorkersObserved.store(std::max(
+            stats->compressionWorkersObserved.load(), channel->observed.compressionWorkersObserved));
+        stats->compressionMaxInFlightJobsObserved.store(std::max(
+            stats->compressionMaxInFlightJobsObserved.load(),
+            channel->observed.compressionMaxInFlightJobsObserved));
+        stats->compressionMaxInFlightBytesObserved.store(std::max(
+            stats->compressionMaxInFlightBytesObserved.load(),
+            channel->observed.compressionMaxInFlightBytesObserved));
         completeWaitSeconds += channel->observed.completeWaitSeconds + channel->controlWaitSeconds;
         pendingHighWatermark = std::max(pendingHighWatermark,
             channel->observed.pendingHighWatermark);

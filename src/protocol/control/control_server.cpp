@@ -869,7 +869,8 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
 }
 
 
-core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& options,bool resume=false) {
+core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& options,
+    bool resume=false, bool zlibCompression=false) {
     core::io::PersistentTransferPolicy p;
     p.options.chunkSize=options.chunkSize;p.options.bufferSize=options.bufferSize;
     p.options.checksumAlgorithm=options.checksumAlgorithm;p.options.checksumBackend=options.checksumBackend;
@@ -877,6 +878,10 @@ core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& 
     p.options.manifestFlushIntervalChunks=options.manifestFlushIntervalChunks;
     p.options.finalVerifyPolicy=options.finalVerifyPolicy;p.options.commitSyncPolicy=options.commitSyncPolicy;
     p.options.preallocateMode=options.preallocateMode;p.options.resume=resume;
+    p.options.hotPathCompression.enabled=zlibCompression;
+    p.options.hotPathCompression.candidate=zlibCompression;
+    p.options.hotPathCompression.maxPayloadBytes=options.bufferSize;
+    p.requireCompressionNegotiation = true;
     return p;
 }
 struct DirectoryLifetime { std::atomic<bool> released{false}, terminalError{false}; };
@@ -889,6 +894,7 @@ struct DynamicDirectory {
     }
     std::string destination;
     bool upload;
+    bool zlibCompression = false;
     std::uint32_t channels, window, total;
     double scanSeconds = 0;
     std::shared_ptr<core::io::PersistentDirectoryBatch> batch;
@@ -938,7 +944,7 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     std::uint32_t channels, std::uint32_t window, std::uint32_t requestedTotal,
     std::uint32_t channelIndex, std::uint64_t chunkSize,
     checksum::ChecksumAlgorithm checksumAlgorithm,
-    const ControlServerOptions& policyOptions) {
+    const ControlServerOptions& policyOptions, bool zlibCompression) {
     std::lock_guard lock(directoryRegistryMutex);
     for (auto i = directoryRegistry.begin(); i != directoryRegistry.end();)
         if (i->second.lifetime->released.load(std::memory_order_acquire))
@@ -948,6 +954,7 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     if (found != directoryRegistry.end() && found->second.directory) {
         auto existing = found->second.directory;
         if (existing->destination != destination || existing->upload != upload ||
+            existing->zlibCompression != zlibCompression ||
             existing->channels != channels || existing->window != window ||
             (upload && existing->total != requestedTotal)) {
             existing->batch->cancel(common::Status::invalidArgument("dynamic batch parameters changed"));
@@ -960,8 +967,10 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     if (found != directoryRegistry.end()) directoryRegistry.erase(found);
     if (directoryRegistry.size() >= 64) return common::Status::runtimeError("dynamic batch capacity exhausted");
     auto created = std::make_shared<DynamicDirectory>();
-    created->transactions=core::io::makePersistentTransferContext(persistentPolicy(policyOptions));
+    created->transactions=core::io::makePersistentTransferContext(
+        persistentPolicy(policyOptions,false,zlibCompression));
     created->destination = destination; created->upload = upload;
+    created->zlibCompression = zlibCompression;
     created->channels = channels; created->window = window; created->total = requestedTotal;
     if (!upload) {
         const auto scanStarted = std::chrono::steady_clock::now();
@@ -1018,7 +1027,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     PassiveListener* passive, const ControlServerOptions& options, bool upload,
     const std::string& requested, std::uint32_t pendingWindow, std::uint32_t channelIndex,
     std::uint32_t channelCount, std::uint32_t requestedTotalFiles, const std::string& batchId = {},
-    bool resume = false) {
+    bool resume = false, bool zlibCompression = false) {
     namespace fs = std::filesystem;
     if (channelCount == 0 || channelCount > core::io::kPersistentTreeMaxChannels ||
         channelIndex >= channelCount)
@@ -1053,7 +1062,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
             root.value().fullPath + "/" + batchId;
         auto group = acquireDynamicDirectory(guard.key, destination.string(),
             upload, channelCount, pendingWindow, requestedTotalFiles, channelIndex, options.chunkSize,
-            options.checksumAlgorithm, options);
+            options.checksumAlgorithm, options, zlibCompression);
         if (!group.isOk()) return sendLine(control, formatReply(550, group.status().message()));
         guard.directory = group.value();
         guard.attached = true;
@@ -1138,7 +1147,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     if (guard.directory) callback = [&](const auto& id, const auto& fileStatus, bool complete) {
         return guard.directory->batch->fileEvent(channelIndex,id,fileStatus,complete);
     };
-    auto policy=persistentPolicy(options,resume);
+    auto policy=persistentPolicy(options,resume,zlibCompression);
     auto transactions=guard.directory ? guard.directory->transactions :
         core::io::makePersistentTransferContext(policy);
     status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats, callback,
@@ -1220,6 +1229,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     std::uint32_t persistentChannels = 1;
     bool persistentDynamic = false;
     bool persistentResume = false;
+    bool persistentZlib = false;
     AsyncTransferRegistry asyncTransfers(logger, control.fd());
 
     if (!sendLine(&control, formatReply(220, "CPNetFlux GridFTP control ready")).isOk()) {
@@ -1295,6 +1305,8 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 auto checksumAlgorithm = checksum::ChecksumAlgorithm::None;
                 bool requestedResume = false;
                 auto requestedDataTls = core::io::DataTlsMode::Off;
+                bool requestedZlib = false;
+                bool hasCompressionToken = false;
                 std::istringstream request(line.value().substr(std::string("XCPNETFLUX V3").size()));
                 std::string token;
                 bool valid = true;
@@ -1348,6 +1360,12 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         auto parsed = core::io::parseDataTlsMode(value);
                         valid = parsed.isOk();
                         if (valid) requestedDataTls = parsed.value();
+                    } else if (key == "COMPRESSION") {
+                        valid = !hasCompressionToken && value == "zlib";
+                        if (valid) {
+                            requestedZlib = true;
+                            hasCompressionToken = true;
+                        }
                     } else {
                         valid = false;
                     }
@@ -1365,6 +1383,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     persistentChannels = requestedChannels;
                     persistentDynamic = requestedDynamic;
                     persistentResume = requestedResume;
+                    persistentZlib = requestedZlib;
                 }
                 const std::string accepted = "CPNetFlux V3 file-transactions/1 window=" +
                     std::to_string(requestedWindow) + " channels=" + std::to_string(requestedChannels) +
@@ -1373,7 +1392,8 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     " data_tls=" + core::io::dataTlsModeName(requestedDataTls) +
                     (linkSetRequested ? " links=" + std::to_string(requestedLinks) +
                         " link_caps=" + std::to_string(requestedLinkCaps) : "") +
-                    (requestedDynamic ? " scheduling=dynamic" : "");
+                    (requestedDynamic ? " scheduling=dynamic" : "") +
+                    (requestedZlib ? " compression=zlib" : "");
                 (void)sendLine(&control, formatReply(persistentNegotiated ? 200 : 504,
                     persistentNegotiated ? accepted : "Unsupported V3 configuration"));
                 continue;
@@ -1421,7 +1441,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             }
             auto status = runPersistentDirectory(&control, &session, &passive, options,
                 upload, requested, persistentWindow, channelIndex, channelCount, totalFiles, batchId,
-                persistentResume);
+                persistentResume, persistentZlib);
             if (!status.isOk()) return;
             continue;
         }

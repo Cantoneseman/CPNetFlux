@@ -28,6 +28,7 @@
 #include "cpnetflux/core/chunk/range_planner.h"
 #include "cpnetflux/storage/posix_file.h"
 #include "cpnetflux/core/protocol/compressed_data.h"
+#include "cpnetflux/core/io/parallel_compression_executor.h"
 
 namespace cpnetflux::core::io {
 struct PersistentTransferContext {
@@ -980,6 +981,24 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     prepared.chunkIndex = chunkIndex;
                     prepared.frameChecksum = frameDigest;
                     prepared.bytes = std::move(producerBuffer);
+                    if (options.hotPathCompression.enabled && options.hotPathCompression.candidate &&
+                        !options.hotPathCompression.forceRaw &&
+                        !options.hotPathCompression.testForceCompressFailure) {
+                        prepared.logicalBytes = length;
+                        auto& compression = sharedParallelCompressionExecutor();
+                        const auto maxPayload = options.hotPathCompression.maxPayloadBytes
+                            ? std::min(options.bufferSize, options.hotPathCompression.maxPayloadBytes)
+                            : options.bufferSize;
+                        auto task = compression.submit(&prepared.bytes, maxPayload, [&] {
+                            return !pipeline.status().isOk();
+                        });
+                        if (!task.isOk()) {
+                            producerStatus = task.status();
+                            pipeline.cancel(producerStatus);
+                            return;
+                        }
+                        prepared.compressionTask.emplace(std::move(task.value()));
+                    }
                     producerStatus = pipeline.push(std::move(prepared));
                     if (!producerStatus.isOk()) return;
                     producedBytes += length;
@@ -999,44 +1018,55 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             if (!next.value()) break;
             auto prepared = std::move(*next.value());
             const auto offset = prepared.offset;
-            const auto length = prepared.bytes.size();
             const auto frameDigest = prepared.frameChecksum;
             const auto chunkIndex = prepared.chunkIndex;
-            std::vector<std::uint8_t> compressed;
-            auto* bytes = prepared.bytes.data();
+            common::Status compressionStatus = common::Status::ok();
+            std::optional<ParallelCompressionExecutor::CompletedPayload> compressedPayload;
+            if (prepared.compressionTask) {
+                auto compressedResult = prepared.compressionTask->take();
+                if (!compressedResult.isOk()) {
+                    status = compressedResult.status();
+                    writeFailed = true;
+                    break;
+                }
+                compressedPayload.emplace(std::move(compressedResult.value()));
+                compressionStatus = compressedPayload->compressionStatus();
+            }
+            const bool attempted = options.hotPathCompression.enabled &&
+                options.hotPathCompression.candidate && !options.hotPathCompression.forceRaw;
+            if (attempted && options.hotPathCompression.testForceCompressFailure)
+                compressionStatus = Status::runtimeError("compression_failure");
+            const auto& raw = compressedPayload ? compressedPayload->rawBytes() : prepared.bytes;
+            std::vector<std::uint8_t> emptyCompressed;
+            auto& compressed = compressedPayload ? compressedPayload->compressedBytes() : emptyCompressed;
+            const auto length = raw.size();
+            const auto* bytes = raw.data();
             std::size_t wireLength = length;
             std::uint16_t flags = 0;
             auto& runtime = stats->runtime;
-            if (options.hotPathCompression.enabled && options.hotPathCompression.candidate &&
-                !options.hotPathCompression.forceRaw) {
+            if (attempted) {
                 ++runtime.compressionAttempts;
                 ++timing.compressionAttempts;
-                auto encoded = options.hotPathCompression.testForceCompressFailure
-                    ? common::Result<std::vector<std::uint8_t>>(Status::runtimeError("compression_failure"))
-                    : protocol::encodeCompressedDataPayload(bytes, length,
-                        options.hotPathCompression.maxPayloadBytes
-                            ? std::min(options.bufferSize, options.hotPathCompression.maxPayloadBytes)
-                            : options.bufferSize);
-                if (encoded.isOk() && encoded.value().size() < length) {
-                    compressed = std::move(encoded.value());
-                    bytes = compressed.data();
-                    wireLength = compressed.size();
-                    flags = protocol::kDataCompressed;
-                    ++runtime.compressedFrames;
-                    ++timing.compressedFrames;
-                    runtime.compressedLogicalBytes += length;
-                    runtime.compressedWireBytes += wireLength;
-                    if (options.hotPathCompression.testCorruptCompressedPayload &&
-                        wireLength > protocol::kCompressedDataPrefixSize)
-                        compressed[protocol::kCompressedDataPrefixSize] ^= 0xffU;
-                } else {
-                    ++runtime.rawFallbackFrames;
-                    ++timing.rawFallbackFrames;
-                    runtime.compressionFallbackReason = encoded.isOk() ? "poor_ratio" : "compression_failure";
-                    if (!encoded.isOk()) {
-                        ++runtime.compressionFailures;
-                        ++timing.compressionFailures;
-                    }
+            }
+            if (prepared.compressionTask && compressionStatus.isOk() && compressed.size() < length) {
+                bytes = compressed.data();
+                wireLength = compressed.size();
+                flags = protocol::kDataCompressed;
+                ++runtime.compressedFrames;
+                ++timing.compressedFrames;
+                runtime.compressedLogicalBytes += length;
+                runtime.compressedWireBytes += wireLength;
+                if (options.hotPathCompression.testCorruptCompressedPayload &&
+                    wireLength > protocol::kCompressedDataPrefixSize)
+                    compressed[protocol::kCompressedDataPrefixSize] ^= 0xffU;
+            } else if (attempted) {
+                ++runtime.rawFallbackFrames;
+                ++timing.rawFallbackFrames;
+                runtime.compressionFallbackReason = compressionStatus.isOk()
+                    ? "poor_ratio" : "compression_failure";
+                if (!compressionStatus.isOk()) {
+                    ++runtime.compressionFailures;
+                    ++timing.compressionFailures;
                 }
             }
             std::vector<std::uint8_t> protectedPayload;
@@ -1076,9 +1106,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             status = writePayload(bytes, wireLength);
             if (status.isOk() && options.hasDuplicateCorruptChunk &&
                 chunkIndex == options.duplicateCorruptChunk) {
-                auto duplicate = prepared.bytes;
-                duplicate[0] ^= 0xffU;
-                status = writePayload(duplicate.data(), length);
+                std::vector<std::uint8_t> duplicate(bytes, bytes + wireLength);
+                duplicate.back() ^= 0xffU;
+                status = writePayload(duplicate.data(), wireLength);
             }
             timing.payloadIoSeconds += secondsSince(payloadStarted);
             if (status.isOk() && !timing.firstPayloadSeconds)
@@ -1100,6 +1130,15 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             stats->payloadPipelineHighWatermarkBytes, pipeline.highWatermarkBytes());
         stats->payloadPipelineProducerWaits += pipeline.producerWaitCount();
         stats->payloadPipelineConsumerWaits += pipeline.consumerWaitCount();
+        if (stats->runtime.compressionAttempts != 0 &&
+            !options.hotPathCompression.testForceCompressFailure) {
+            const auto compressionSnapshot = sharedParallelCompressionExecutor().snapshot();
+            stats->compressionWorkersObserved = compressionSnapshot.maxActiveWorkers;
+            stats->compressionMaxInFlightJobsObserved = std::max<std::uint64_t>(
+                stats->compressionMaxInFlightJobsObserved, compressionSnapshot.peakInFlightJobs);
+            stats->compressionMaxInFlightBytesObserved = std::max<std::uint64_t>(
+                stats->compressionMaxInFlightBytesObserved, compressionSnapshot.peakInFlightBytes);
+        }
         if (!writeFailed && !producerStatus.isOk()) {
             status = producerStatus;
             writeFailed = true;
@@ -1392,6 +1431,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 logical.erase(logical.begin(),logical.begin()+4);
             }
             if (data.value().header.flags & protocol::kDataCompressed) {
+                if (context->policy.requireCompressionNegotiation &&
+                    (!context->policy.options.hotPathCompression.enabled ||
+                     !context->policy.options.hotPathCompression.candidate))
+                    return Status::invalidArgument("compressed DATA was not negotiated for this V3 session");
                 auto size = protocol::compressedDataPayloadLogicalLength(logical.data(),logical.size());
                 if (!size.isOk()) return size.status();
                 auto decoded = protocol::decodeCompressedDataPayload(logical.data(),logical.size(),
