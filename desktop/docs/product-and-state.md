@@ -41,6 +41,12 @@ requested_mode=auto/v1/v2；actual_mode=unknown/v1/v2。实际 scheduler=unknown
 所有尚未观测数值为 null。零仅代表观测到零，空扫描目录可以 totals=0；ETA null 不写成 0 秒。bytes_transferred 是当前 attempt 去重逻辑字节（不等于 wire bytes）；bytes_committed 是任务跨 attempt 已提交逻辑字节，verified bytes 是恢复可用事实。实时/平均速度以 bytes/second、单调时钟由 agent 算，UI 可转换 MiB/s；total 未知不计算百分比，commit 前不显示任务完成。
 记录 transfer_status/integrity_status/evidence_status 分离；completed 必须 scan_complete、总文件已 committed/skipped、files_failed=0、bytes_committed=bytes_total 及最终 commit 证据。总量未明、部分范围完成或进程 exit 0 本身不构成 completed。
 
+## 本机网络绑定 UX
+
+桌面端运行在服务器本机时，网络页面读取 node.network.inventory，显示物理或云虚拟接口、地址、链路状态和管理接口；node.network.plan 生成推荐源地址绑定。用户确认前显示清单版本与不足提示；不完整方案不能应用。IP、路由、防火墙和网卡状态保持原样。
+
+确认后 node.network.apply 持久化 CPNetFlux 源地址绑定。创建任务和启动核心客户端前都会复核地址、接口状态；失效时阻止传输。出站接口由系统路由决定。node.network.verify 不测试连通性，也不证明物理路径；逐链路远端地址映射、实际路径和故障行为仍需后续开发与实测。
+
 ## 节点认证与连接 UX
 
 安装两个 GUI 不等于可以互传。接收节点先运行受控 CPNetFlux 服务端，配置控制监听、数据端口范围、允许 root 和读写政策；UI 不隐式启动公网接收端。

@@ -143,7 +143,7 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(attempts[0]["quiescence"],"confirmed")
     def test_api_v2_handshake_and_snapshot_pagination(self):
         info=self.p.call("agent.getInfo",{})["result"]
-        self.assertEqual(info["api_version"],"2.0.0")
+        self.assertEqual(info["api_version"],"2.1.0")
         self.assertEqual(info["max_frame_bytes"],1024*1024)
         t=self.create()
         self.assertEqual(t["effective_policy"]["resolution"],"pending")
@@ -164,6 +164,159 @@ class AgentTests(unittest.TestCase):
         attempts=self.p.call("attempt.list",{"transfer_id":t["transfer_id"],"cursor":None,"limit":20})["result"]
         self.assertIsNone(attempts["attempt_id"])
         self.assertEqual(attempts["items"][0]["attempt_id"],t["attempt"]["attempt_id"])
+    def test_network_binding_requires_revision_and_confirmation(self):
+        info = self.p.call("agent.getInfo", {})["result"]
+        self.assertIn("network_inventory", info["features"])
+        inventory = self.p.call("node.network.inventory", {"node_id": "local"})["result"]
+        self.assertEqual(inventory["kind"], "network_inventory")
+        plan = self.p.call("node.network.plan", {
+            "node_id": "local",
+            "inventory_revision": inventory["inventory_revision"],
+            "requested_links": 1,
+            "peer_addresses": [None],
+        })["result"]
+        self.assertEqual(plan["kind"], "network_plan")
+        self.assertFalse(plan["requires_privilege"])
+        rejected = self.p.call("node.network.apply", {
+            "operation_id": "network-no-confirm",
+            "node_id": "local",
+            "plan_id": plan["plan_id"],
+            "inventory_revision": inventory["inventory_revision"],
+            "confirm": False,
+        })
+        self.assertEqual(rejected["error"]["data"]["code"], "protocol_error")
+        stale = self.p.call("node.network.apply", {
+            "operation_id": "network-stale",
+            "node_id": "local",
+            "plan_id": plan["plan_id"],
+            "inventory_revision": "stale",
+            "confirm": True,
+        })
+        self.assertEqual(stale["error"]["data"]["code"], "revision_conflict")
+        if plan["bindings"]:
+            applied = self.p.call("node.network.apply", {
+                "operation_id": "network-apply",
+                "node_id": "local",
+                "plan_id": plan["plan_id"],
+                "inventory_revision": inventory["inventory_revision"],
+                "confirm": True,
+            })["result"]
+            self.assertEqual(applied["outcome"], "applied")
+            verified = self.p.call("node.network.verify", {
+                "node_id": "local", "plan_id": plan["plan_id"]
+            })["result"]
+            self.assertTrue(verified["verified"])
+            self.assertFalse(verified["physical_path_verified"])
+
+    def test_real_command_uses_persisted_network_binding(self):
+        self._assert_real_command_uses_persisted_network_binding()
+
+    def test_network_binding_rejects_incomplete_plan(self):
+        inventory = self.p.call("node.network.inventory", {"node_id": "local"})["result"]
+        plan = self.p.call("node.network.plan", {
+            "node_id": "local", "inventory_revision": inventory["inventory_revision"],
+            "requested_links": 2, "peer_addresses": [],
+        })["result"]
+        self.assertEqual(len(plan["bindings"]), 1)
+        reply = self.p.call("node.network.apply", {
+            "operation_id": "incomplete", "node_id": "local",
+            "plan_id": plan["plan_id"], "inventory_revision": inventory["inventory_revision"],
+            "confirm": True,
+        })
+        self.assertEqual(reply["error"]["data"]["code"], "invalid_state")
+
+    def test_network_plan_does_not_pretend_to_apply_peer_mapping(self):
+        inventory = self.p.call("node.network.inventory", {"node_id": "local"})["result"]
+        reply = self.p.call("node.network.plan", {
+            "node_id": "local", "inventory_revision": inventory["inventory_revision"],
+            "requested_links": 1, "peer_addresses": ["198.51.100.2"],
+        })
+        self.assertEqual(reply["error"]["data"]["code"], "unsupported")
+
+    def test_network_binding_survives_agent_restart(self):
+        inventory = self.p.call("node.network.inventory", {"node_id": "local"})["result"]
+        plan = self.p.call("node.network.plan", {
+            "node_id": "local", "inventory_revision": inventory["inventory_revision"],
+            "requested_links": 1, "peer_addresses": [],
+        })["result"]
+        params = {"operation_id": "persistent-bind", "node_id": "local",
+                  "plan_id": plan["plan_id"], "inventory_revision": inventory["inventory_revision"],
+                  "confirm": True}
+        applied = self.p.call("node.network.apply", params)
+        self.p.close(); self.proc.terminate(); self.proc.communicate(timeout=5)
+        self.launch(); self.p = Peer(self.path)
+        self.assertEqual(self.p.call("node.network.apply", params)["result"], applied["result"])
+        self.assertTrue(self.p.call("node.network.verify", {
+            "node_id": "local", "plan_id": plan["plan_id"],
+        })["result"]["verified"])
+
+    def test_network_plan_excludes_link_local_and_matches_peer_family(self):
+        import types
+        spec = importlib.util.spec_from_file_location("cpnetflux_agent_plan", AGENT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        agent = object.__new__(module.Agent)
+        agent.store = {"profiles": {"remote": {"host": "198.51.100.2"}}, "network_plans": {}}
+        agent.save = lambda: None
+        agent._network_inventory = lambda node: {
+            "inventory_revision": "revision", "warnings": [], "interfaces": [
+                {"interface_id": "linux:eth0", "kind": "virtual", "state": "up",
+                 "carrier": True, "addresses": ["fe80::1", "192.0.2.10"]},
+                {"interface_id": "linux:eth1", "kind": "physical", "state": "up",
+                 "carrier": True, "addresses": ["fe80::2"]},
+            ],
+        }
+        plan = agent._network_plan("remote", "revision", 2, [])
+        self.assertEqual(len(plan["bindings"]), 1)
+        self.assertEqual(plan["bindings"][0]["local_address"], "192.0.2.10")
+
+    def _assert_real_command_uses_persisted_network_binding(self):
+        import types
+        spec = importlib.util.spec_from_file_location("cpnetflux_agent_binding", AGENT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            bindir = root / "bin"
+            bindir.mkdir()
+            executable = bindir / "cpnetflux-tree-upload-client"
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            executable.chmod(0o700)
+            ca = root / "ca.pem"
+            ca.write_text("test CA")
+            token = root / "token"
+            token.write_text("test-token")
+            token.chmod(0o600)
+            agent = object.__new__(module.Agent)
+            agent.args = types.SimpleNamespace(demo=False)
+            agent.core_bin_dir = bindir
+            agent.store = {
+                "profiles": {"n1": {
+                    "node_id": "n1", "host": "198.51.100.2", "control_port": 22310,
+                    "auth_mode": "token", "ca_path": str(ca), "server_name": "node.example",
+                    "credential_ref": "file:" + str(token),
+                }},
+                "network_bindings": {"n1": {
+                    "local_bind_addresses": ["192.0.2.10", "192.0.2.11"],
+                }},
+            }
+            task = {
+                "direction": "upload",
+                "source": {"path": str(source)},
+                "destination": {"node_id": "n1", "path": "dataset"},
+                "attempt": {"attempt_number": 1},
+                "backend_evidence": {"event_log": str(root / "events"),
+                                     "summary": str(root / "summary")},
+            }
+            command = agent.build_real_command(task)
+            self.assertIn("--link-set-links", command)
+            self.assertEqual(command[command.index("--link-set-links") + 1], "2")
+            self.assertIn("--local-bind-addresses", command)
+            self.assertEqual(command[command.index("--local-bind-addresses") + 1],
+                             "192.0.2.10,192.0.2.11")
+
     def test_real_policy_waits_for_backend_summary(self):
         spec = importlib.util.spec_from_file_location("cpnetflux_agent_under_test", AGENT)
         module = importlib.util.module_from_spec(spec)

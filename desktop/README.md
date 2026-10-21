@@ -1,6 +1,6 @@
 # CPNetFlux Linux Desktop Shell
 
-本目录是 CPNetFlux Linux 桌面端原型，包含中文 Qt 6/QML UI、独立 Python `cpnetflux-agent` 和明确标注的 demo adapter。00 已冻结 `desktop-agent API 2.0.0`；当前原型尚未实现全部 2.0.0 接口，也不执行真实传输。见 `desktop/docs/rpc-contract.md` 与 `desktop/docs/acceptance.md`。
+本目录包含中文 Qt 6/QML UI、独立 Python `cpnetflux-agent`，以及明确区分的 demo/real adapter。真实适配器通过 CPNetFlux 核心客户端执行有 TLS/认证保护的目录上传、下载和恢复；目录浏览、暂停等未实现的方法仍返回 unsupported。当前本机 IPC 合同为 `desktop-agent API 2.1.0`，该版本号独立于 V3 传输引擎。见 `desktop/docs/rpc-contract.md` 与 `desktop/docs/acceptance.md`。
 
 ## 构建
 
@@ -22,4 +22,10 @@ python3 desktop/agent/cpnetflux_agent.py --demo --runtime-dir "$XDG_RUNTIME_DIR/
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software desktop/build/cpnetflux-desktop   --socket "$XDG_RUNTIME_DIR/cpnetflux/agent.sock"
 ```
 
-可在第二个终端运行页面：`--page 0..6` 分别是任务首页、新建传输、详情、节点、目录、历史、高级设置。`--smoke-ms 900` 运行离屏启动门禁并退出。当前 demo 保持明确标记；真实节点探测、目录浏览、V2/V3 传输、安全凭据注入仍须按 API 2.0.0 后续实现。
+可在第二个终端运行页面：`--page 0..7` 分别是任务首页、新建传输、详情、节点、目录、历史、本机网络绑定、高级设置。`--smoke-ms 900` 运行离屏启动门禁并退出。demo 使用合成数据，不执行真实传输。
+
+## 本机源地址绑定
+
+网络页调用 `node.network.inventory/plan/apply/verify`，读取本机接口并生成推荐方案。应用要求明确确认和未变化的清单版本；请求链路数大于可用接口数时不能应用。绑定按远端节点持久保存，V3 控制/数据连接使用相应源地址，启动前重新验证地址仍可用。
+
+本阶段不会修改系统 IP、路由、防火墙或网卡状态；出站接口仍由现有路由决定。逐链路远端地址映射尚未接入，非空 `peer_addresses` 返回 unsupported。地址检查不等于真实物理路径或吞吐验收。

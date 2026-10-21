@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "CPNetFlux desktop-agent API 2.0.0",
+  "title": "CPNetFlux desktop-agent API 2.1.0",
   "$defs": {
     "errorDetail": {
       "type": "object",
@@ -738,22 +738,85 @@
         "phase_timing": {
           "type": "object",
           "properties": {
-            "control_prepare": {"type": ["number", "null"]},
-            "data_connect": {"type": ["number", "null"]},
-            "first_payload": {"type": ["number", "null"]},
-            "payload_io": {"type": ["number", "null"]},
-            "transfer_complete_wait": {"type": ["number", "null"]}
+            "control_prepare": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "data_connect": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "first_payload": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "payload_io": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "transfer_complete_wait": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
           },
-          "required": ["control_prepare", "data_connect", "first_payload", "payload_io", "transfer_complete_wait"],
+          "required": [
+            "control_prepare",
+            "data_connect",
+            "first_payload",
+            "payload_io",
+            "transfer_complete_wait"
+          ],
           "additionalProperties": false
         },
-        "manifest": {"type": ["object", "null"]},
-        "checksum": {"type": ["object", "null"]},
-        "finalize": {"type": ["object", "null"]},
-        "event_log": {"type": ["string", "null"]},
-        "summary": {"type": ["string", "null"]}
+        "manifest": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "checksum": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "finalize": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "event_log": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
-      "required": ["phase_timing", "manifest", "checksum", "finalize", "event_log", "summary"],
+      "required": [
+        "phase_timing",
+        "manifest",
+        "checksum",
+        "finalize",
+        "event_log",
+        "summary"
+      ],
       "additionalProperties": false
     },
     "transfer": {
@@ -2653,6 +2716,196 @@
             "params"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "node.network.inventory"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "node_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "node.network.plan"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "inventory_revision": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested_links": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "peer_addresses": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "node_id",
+                "inventory_revision",
+                "requested_links",
+                "peer_addresses"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "node.network.apply"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "operation_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "plan_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "inventory_revision": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "confirm": {
+                  "const": true
+                }
+              },
+              "required": [
+                "operation_id",
+                "node_id",
+                "plan_id",
+                "inventory_revision",
+                "confirm"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "node.network.verify"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "plan_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "node_id",
+                "plan_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -2871,6 +3124,18 @@
             },
             {
               "$ref": "#/$defs/rangeList"
+            },
+            {
+              "$ref": "#/$defs/networkInventory"
+            },
+            {
+              "$ref": "#/$defs/networkPlan"
+            },
+            {
+              "$ref": "#/$defs/networkApply"
+            },
+            {
+              "$ref": "#/$defs/networkVerify"
             }
           ]
         }
@@ -3608,7 +3873,7 @@
           "const": "agent_info"
         },
         "api_version": {
-          "const": "2.0.0"
+          "const": "2.1.0"
         },
         "agent_version": {
           "anyOf": [
@@ -3660,7 +3925,11 @@
               "range_stripe",
               "checksum_crc32c",
               "control_tls",
-              "data_tls"
+              "data_tls",
+              "network_inventory",
+              "network_plan",
+              "network_apply",
+              "network_verify"
             ]
           }
         }
@@ -3896,6 +4165,313 @@
         "snapshot_sequence",
         "items",
         "next_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "networkInterface": {
+      "type": "object",
+      "properties": {
+        "interface_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "physical",
+            "loopback",
+            "virtual",
+            "unknown"
+          ]
+        },
+        "state": {
+          "enum": [
+            "up",
+            "down",
+            "unknown"
+          ]
+        },
+        "carrier": {
+          "type": "boolean"
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "mtu": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "speed_bps": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "management": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "interface_id",
+        "name",
+        "kind",
+        "state",
+        "carrier",
+        "addresses",
+        "mtu",
+        "speed_bps",
+        "management"
+      ],
+      "additionalProperties": false
+    },
+    "networkInventory": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "network_inventory"
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inventory_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/networkInterface"
+          }
+        },
+        "management_interface_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "node_id",
+        "inventory_revision",
+        "observed_at",
+        "interfaces",
+        "management_interface_id",
+        "warnings"
+      ],
+      "additionalProperties": false
+    },
+    "networkBinding": {
+      "type": "object",
+      "properties": {
+        "lane_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "interface_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "local_address": {
+          "type": "string",
+          "minLength": 1
+        },
+        "peer_address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "lane_id",
+        "interface_id",
+        "local_address",
+        "peer_address"
+      ],
+      "additionalProperties": false
+    },
+    "networkPlan": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "network_plan"
+        },
+        "plan_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inventory_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requested_links": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/networkBinding"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "requires_privilege": {
+          "const": false
+        }
+      },
+      "required": [
+        "kind",
+        "plan_id",
+        "node_id",
+        "inventory_revision",
+        "requested_links",
+        "bindings",
+        "warnings",
+        "requires_privilege"
+      ],
+      "additionalProperties": false
+    },
+    "networkApply": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "network_apply"
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plan_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inventory_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "enum": [
+            "applied",
+            "already_applied"
+          ]
+        },
+        "effective_bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/networkBinding"
+          }
+        },
+        "requires_privilege": {
+          "const": false
+        }
+      },
+      "required": [
+        "kind",
+        "node_id",
+        "plan_id",
+        "inventory_revision",
+        "outcome",
+        "effective_bindings",
+        "requires_privilege"
+      ],
+      "additionalProperties": false
+    },
+    "networkVerify": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "network_verify"
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plan_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inventory_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verified": {
+          "type": "boolean"
+        },
+        "physical_path_verified": {
+          "const": false
+        },
+        "effective_bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/networkBinding"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "node_id",
+        "plan_id",
+        "inventory_revision",
+        "verified",
+        "physical_path_verified",
+        "effective_bindings",
+        "warnings"
       ],
       "additionalProperties": false
     }

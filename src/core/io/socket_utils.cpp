@@ -161,7 +161,8 @@ common::Result<UniqueFd> createNonBlockingConnection(const char* host, std::uint
 }
 
 common::Result<UniqueFd> connectBlockingSocket(const char* host, std::uint16_t port,
-                                               SocketDeadline deadline) {
+                                               SocketDeadline deadline,
+                                               std::string_view localBindAddress) {
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -176,6 +177,32 @@ common::Result<UniqueFd> connectBlockingSocket(const char* host, std::uint16_t p
     for (auto* address = addresses; address; address = address->ai_next) {
         UniqueFd candidate(::socket(address->ai_family, address->ai_socktype | SOCK_CLOEXEC, address->ai_protocol));
         if (!candidate.isValid()) { lastError = errno; continue; }
+        if (!localBindAddress.empty()) {
+            addrinfo localHints{};
+            localHints.ai_family = AF_UNSPEC;
+            localHints.ai_socktype = SOCK_STREAM;
+            localHints.ai_flags = AI_NUMERICHOST;
+            addrinfo* localAddresses = nullptr;
+            const auto localText = std::string(localBindAddress);
+            const int localResolved = ::getaddrinfo(localText.c_str(), "0", &localHints,
+                                                     &localAddresses);
+            if (localResolved != 0) {
+                return common::Status::invalidArgument(
+                    "local bind address is not numeric or does not match the peer address family");
+            }
+            bool bound = false;
+            int bindError = EADDRNOTAVAIL;
+            for (auto* local = localAddresses; local != nullptr; local = local->ai_next) {
+                if (local->ai_family != address->ai_family) continue;
+                if (::bind(candidate.get(), local->ai_addr, local->ai_addrlen) == 0) {
+                    bound = true;
+                    break;
+                }
+                bindError = errno;
+            }
+            ::freeaddrinfo(localAddresses);
+            if (!bound) { lastError = bindError; continue; }
+        }
         auto nonblocking = setNonBlocking(candidate.get());
         if (!nonblocking.isOk()) return nonblocking;
         if (::connect(candidate.get(), address->ai_addr, address->ai_addrlen) != 0) {

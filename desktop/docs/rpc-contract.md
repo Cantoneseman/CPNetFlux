@@ -1,6 +1,6 @@
-# desktop-agent JSON-RPC API 2.0.0
+# desktop-agent JSON-RPC API 2.1.0
 
-状态：已冻结的桌面端 IPC 合同。消息形状使用 JSON Schema Draft-07，schema 和离线语义门禁位于 `desktop/schemas/desktop-agent.schema.json`、`desktop/tests/test_contract.py` 与 `desktop/tests/fixtures.json`。合同版本 `api_version=2.0.0`，独立于 JSON-RPC 的 `jsonrpc="2.0"`。
+状态：已冻结的桌面端 IPC 合同。消息形状使用 JSON Schema Draft-07，schema 和离线语义门禁位于 `desktop/schemas/desktop-agent.schema.json`、`desktop/tests/test_contract.py` 与 `desktop/tests/fixtures.json`。合同版本 `api_version=2.1.0`，独立于 JSON-RPC 的 `jsonrpc="2.0"`。
 
 ## 传输、版本与安全
 
@@ -8,7 +8,18 @@ Unix stream socket 路径 `$XDG_RUNTIME_DIR/cpnetflux/agent.sock`。父目录 07
 
 帧为 UTF-8 JSON + LF，单帧最多 1 MiB；不支持 batch 或请求 notification。agent 限制并发请求和事件队列；慢消费者断开后重同步，不得阻塞 payload。时间为带时区 UTC RFC3339，速度为 bytes/second；JSON 安全整数最大 2^53-1，禁止截断。未知值使用 `null` 或对应 `unknown`。profile/RPC/event/log 只允许 `credential_ref`，禁止传 token、密码和私钥；节点包导入器在本地生成受限文件后仍只传引用。
 
-UI 在任何 profile 读取或有副作用请求前调用 `agent.getInfo`，要求 `api_version` 精确等于 `2.0.0`；不匹配时只显示兼容错误，不尝试猜测兼容。响应给出 agent epoch、adapter 类型、帧/并发上限和实际支持 feature 列表。feature 列表是 agent 已实现能力，不可由 UI 推导。
+UI 在任何 profile 读取或有副作用请求前调用 `agent.getInfo`，要求 `api_version` 精确等于 `2.1.0`；不匹配时只显示兼容错误，不尝试猜测兼容。响应给出 agent epoch、adapter 类型、帧/并发上限和实际支持 feature 列表。feature 列表是 agent 已实现能力，不可由 UI 推导。
+
+## 网络绑定方法与结果
+
+桌面端安装在服务器本机时，agent 提供四个只作用于 CPNetFlux 的网络配置方法：
+
+- node.network.inventory(node_id)：读取本机网卡、地址、carrier、MTU、速度和默认管理接口。只读，不修改系统网络。
+- node.network.plan(node_id, inventory_revision, requested_links, peer_addresses)：从可用的物理/云虚拟接口生成确定性源地址绑定建议，排除回环、链路本地、组播和未指定地址。数字对端地址约束源地址族；主机名优先推荐 IPv4。清单变化时拒绝使用旧方案。逐链路对端地址映射尚未实现，peer_addresses 只允许空数组或 null 条目；非空地址明确返回 unsupported。
+- node.network.apply(operation_id, node_id, plan_id, inventory_revision, confirm=true)：明确确认且全部请求链路均有可用绑定时保存 CPNetFlux 配置；网卡不足时必须减少请求链路数并重新生成。不会修改 IP、路由、网卡状态或防火墙，也不执行用户提供的命令。
+- node.network.verify(node_id, plan_id)：检查地址仍属于可用接口，不尝试向对端建连；physical_path_verified=false。TCP 只绑定本机源地址，出站接口由系统路由决定。不能把本地检查当作连通性或物理路径验收。
+
+network_plan 的每个 binding 包含 lane_id、interface_id、local_address 和可选 peer_address。network_apply 只返回实际保存的 CPNetFlux binding。传输客户端随后把这些地址作为 V3 control/data socket 的本地 bind 地址，并在 JSON summary 中记录 local_bind_addresses。系统 IP、路由和网卡启停属于后续独立的特权配置阶段。
 
 ## 方法与结果
 

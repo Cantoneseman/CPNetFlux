@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "cpnetflux/checksum/checksum.h"
 #include "cpnetflux/common/status.h"
@@ -42,6 +43,8 @@ enum class CompressionMode {
 struct TreeTransferOptions {
     std::string host = "127.0.0.1";
     std::uint16_t port = 2121;
+    // One address applies to every lane; multiple addresses map by lane index.
+    std::vector<std::string> localBindAddresses;
     bool authProbe = false;
     std::string sourceDir;
     std::string destDir;

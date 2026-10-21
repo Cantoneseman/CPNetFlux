@@ -337,6 +337,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/scheduler_task_queue_test.cpp
         tests/unit/scheduler_work_item_test.cpp
         tests/unit/sink_options_test.cpp
+        tests/unit/socket_bind_test.cpp
         tests/unit/throughput_counter_test.cpp
         tests/unit/transfer_manifest_test.cpp
         tests/unit/transfer_session_test.cpp

@@ -2,6 +2,9 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QQuickItem>
+#include <QQuickItemGrabResult>
+#include <QPainter>
 #include <QTimer>
 #include <QDir>
 #include <QCommandLineParser>
@@ -13,7 +16,7 @@ int main(int argc,char** argv) {
     parser.addOption({"socket","agent Unix socket","path",qEnvironmentVariable("XDG_RUNTIME_DIR")+"/cpnetflux/agent.sock"});
     parser.addOption({"smoke-ms","offscreen运行后退出","milliseconds"});
     parser.addOption({"screenshot","保存窗口截图","path"});
-    parser.addOption({"page","初始页面0..6","number","0"});
+    parser.addOption({"page","初始页面0..7","number","0"});
     parser.addOption({"window-width","启动窗口宽度","pixels","1180"});
     parser.addOption({"window-height","启动窗口高度","pixels","780"});
     parser.addOption({"layout-report","输出详情页滚动视口诊断"});
@@ -31,11 +34,27 @@ int main(int argc,char** argv) {
     if(parser.isSet("smoke-ms")) QTimer::singleShot(parser.value("smoke-ms").toInt(), &app, [&] {
         auto window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());
         bool ok=window && rpc.snapshotCount() >= 0;
-        if(parser.isSet("screenshot") && window) window->grabWindow().save(parser.value("screenshot"));
         qInfo("desktop smoke: connected=%d snapshots=%d",rpc.connected(),rpc.snapshotCount());
         if(parser.isSet("layout-report")) {
             auto detail=engine.rootObjects().first()->findChild<QObject*>("detailScroll");
             if(detail) qInfo("detail scroll: viewport=%f content=%f",detail->property("availableHeight").toReal(),detail->property("contentHeight").toReal());
+        }
+        if(parser.isSet("screenshot") && window) {
+            auto grab=window->contentItem()->grabToImage();
+            if(!grab) { app.exit(4); return; }
+            const auto path=parser.value("screenshot");
+            const auto background=window->color();
+            QObject::connect(grab.data(),&QQuickItemGrabResult::ready,&app,[grab,path,background,ok,&app] {
+                QImage image(grab->image().size(),QImage::Format_ARGB32_Premultiplied);
+                image.fill(background);
+                QPainter painter(&image);
+                painter.drawImage(0,0,grab->image());
+                painter.end();
+                const bool saved=!image.isNull() && image.save(path);
+                app.exit(ok && saved?0:4);
+            });
+            QTimer::singleShot(3000,&app,[&app]{app.exit(4);});
+            return;
         }
         app.exit(ok?0:3);
     });

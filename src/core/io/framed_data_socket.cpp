@@ -109,8 +109,9 @@ common::Status FramedDataSocket::readAll(std::uint8_t* data, std::size_t length)
 common::Result<FramedDataSocket> connectFramedDataSocket(const char* host, std::uint16_t port,
                                                          DataTlsMode dataTlsMode,
                                                          const TlsConfig& tlsConfig,
-                                                         const char* tlsServerName, SocketDeadline deadline) {
-    auto connection = connectBlockingSocket(host, port, deadline);
+                                                         const char* tlsServerName, SocketDeadline deadline,
+                                                         std::string_view localBindAddress) {
+    auto connection = connectBlockingSocket(host, port, deadline, localBindAddress);
     if (!connection.isOk()) {
         return connection.status();
     }

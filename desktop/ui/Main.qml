@@ -14,13 +14,14 @@ ApplicationWindow {
     property int page: initialPage
     property string selectedId: ""
     property string selectedProfileId: ""
+    property int requestedNetworkLinks: 1
     property bool pickerDirectory: false
     function pickPath(directory) { pickerDirectory=directory; pathPicker.active=true; if(pathPicker.status===Loader.Ready){ pathPicker.item.directoryMode=directory; pathPicker.item.open() } }
     property var selectedTask: {
         for (var i=0;i<rpc.tasks.length;i++) if(rpc.tasks[i].transfer_id === selectedId) return rpc.tasks[i]
         return rpc.tasks.length ? rpc.tasks[0] : null
     }
-    property var pageTitles: ["传输任务", "新建任务", "任务详情", "节点连接", "远端目录", "历史与恢复", "高级设置"]
+    property var pageTitles: ["传输任务", "新建任务", "任务详情", "节点连接", "远端目录", "历史与恢复", "本机网络绑定", "高级设置"]
     function stateName(s) {
         return ({queued:"排队中", scanning:"扫描中", connecting:"连接中", negotiating:"协商中", transferring:"传输中", committing:"提交中", completed:"已完成", failed:"失败", cancelled:"已取消", recoverable:"可恢复", paused:"已暂停"})[s] || "未知"
     }
@@ -37,6 +38,13 @@ ApplicationWindow {
         credentialRef.text=p.credential_ref || ""; auth.currentIndex=p.auth_mode==="admin_credential"?1:0
     }
     Connections { target: rpc; function onPageRequested(p) { window.page=p } }
+    Dialog { id:confirmNetworkDialog; modal:true; title:"确认本机绑定方案"; standardButtons:Dialog.Ok | Dialog.Cancel
+        width:Math.min(520,window.width-48); anchors.centerIn:parent
+        Label { width:parent.width; wrapMode:Text.WordWrap
+            text:"为“"+(rpc.networkPlan.node_id || "")+"”保存本机源地址绑定。系统网络设置保持不变，出站接口由现有路由决定。"
+        }
+        onAccepted:rpc.applyNetwork(rpc.networkPlan.node_id,rpc.networkPlan.plan_id,rpc.networkPlan.inventory_revision,true)
+    }
 
     component Card: Rectangle {
         color: "white"; radius: 12; border.color: "#e2e7f0"
@@ -55,7 +63,7 @@ ApplicationWindow {
                 Label { text: "真实传输客户端"; color: "#a9bed9"; font.pixelSize: 12 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: "#31435c"; Layout.topMargin: 14 }
                 Repeater {
-                    model: ["传输任务", "新建任务", "任务详情", "节点连接", "远端目录", "历史与恢复", "高级设置"]
+                    model: ["传输任务", "新建任务", "任务详情", "节点连接", "远端目录", "历史与恢复", "本机网络绑定", "高级设置"]
                     Button {
                         required property int index
                         required property string modelData
@@ -283,7 +291,95 @@ ApplicationWindow {
                         }
                     }
                 }
-                // 6: advanced
+                // 6: local network binding
+                ScrollView { id:networkScroll; clip:true; contentWidth:availableWidth
+                    ColumnLayout { width:networkScroll.availableWidth; spacing:14
+                        Card { Layout.fillWidth:true; implicitHeight:networkContent.implicitHeight+44
+                            ColumnLayout { id:networkContent; anchors.fill:parent; anchors.margins:22; spacing:12
+                                Heading { text:"检测并绑定本机网络" }
+                                Muted { Layout.fillWidth:true; text:"本机源地址绑定；系统仍按现有路由规则选择出站接口。" }
+                                RowLayout { Layout.fillWidth:true
+                                    Label { text:"绑定用于连接的远端节点"; }
+                                    ComboBox { id:networkProfileChoice; Layout.fillWidth:true
+                                        model:rpc.profiles
+                                        textRole:"name"
+                                        displayText:currentIndex>=0 && currentIndex<rpc.profiles.length ? rpc.profiles[currentIndex].name+" · "+rpc.profiles[currentIndex].host : "请先保存远端节点"
+                                        onActivated: if(index>=0 && index<rpc.profiles.length) window.selectedProfileId=rpc.profiles[index].node_id
+                                    }
+                                    Button { text:"检测本机网卡"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && (rpc.demoAdapter || rpc.profiles.length>0)
+                                        onClicked:{
+                                            if(rpc.demoAdapter) window.selectedProfileId="local"
+                                            else if(networkProfileChoice.currentIndex>=0)
+                                                window.selectedProfileId=rpc.profiles[networkProfileChoice.currentIndex].node_id
+                                            rpc.inspectNetwork(window.selectedProfileId)
+                                        }
+                                    }
+                                }
+                                RowLayout { Layout.fillWidth:true
+                                    Label { text:"希望使用的链路数"; }
+                                    SpinBox { from:1; to:10; value:window.requestedNetworkLinks
+                                        onValueModified: window.requestedNetworkLinks=value
+                                    }
+                                    Button { text:"生成推荐方案"; enabled:rpc.networkInventory.inventory_revision!==undefined && window.selectedProfileId.length>0
+                                        onClicked:rpc.planNetwork(window.selectedProfileId,rpc.networkInventory.inventory_revision,window.requestedNetworkLinks,[])
+                                    }
+                                    Button { text:"重新检查"; enabled:rpc.networkPlan.plan_id!==undefined
+                                        onClicked:rpc.inspectNetwork(rpc.networkPlan.node_id)
+                                    }
+                                }
+                                Label { Layout.fillWidth:true; wrapMode:Text.WordWrap
+                                    text:rpc.networkInventory.inventory_revision!==undefined ?
+                                        "清单版本 "+rpc.networkInventory.inventory_revision+" · 检测时间 "+rpc.networkInventory.observed_at :
+                                        "尚未检测。本页显示的是当前服务器本机的网卡。"
+                                    color:"#657389"
+                                }
+                                Repeater { model:rpc.networkInventory.interfaces || []
+                                    Rectangle { Layout.fillWidth:true; implicitHeight:54; radius:7; color:"#f4f7fb"; border.color:"#e2e7f0"
+                                        RowLayout { anchors.fill:parent; anchors.margins:10
+                                            Label { text:modelData.name+" · "+modelData.kind+" · "+modelData.state+(modelData.carrier?" · 链路正常":" · 无 carrier"); font.bold:true; Layout.fillWidth:true }
+                                            Label { text:(modelData.addresses || []).join(", ") || "无 IP 地址"; color:"#657389" }
+                                            Label { visible:modelData.management; text:"管理接口"; color:"#a46a1b" }
+                                        }
+                                    }
+                                }
+                                Repeater { model:rpc.networkInventory.warnings || []
+                                    Muted { required property string modelData; Layout.fillWidth:true; text:"提示："+modelData; color:"#a46a1b" }
+                                }
+                                Heading { text:"推荐绑定"; visible:rpc.networkPlan.plan_id!==undefined }
+                                Repeater { model:rpc.networkPlan.bindings || []
+                                    Rectangle { Layout.fillWidth:true; implicitHeight:48; radius:7; color:"#eef6f1"; border.color:"#cde5d7"
+                                        RowLayout { anchors.fill:parent; anchors.margins:10
+                                            Label { text:"链路 "+(modelData.lane_id+1)+" · "+modelData.interface_id; font.bold:true; Layout.fillWidth:true }
+                                            Label { text:modelData.local_address+" → "+(modelData.peer_address || "自动选择远端"); color:"#42614f" }
+                                        }
+                                    }
+                                }
+                                Repeater { model:rpc.networkPlan.warnings || []
+                                    Muted { required property string modelData; Layout.fillWidth:true; text:"方案提示："+modelData; color:"#a46a1b" }
+                                }
+                                RowLayout { Layout.fillWidth:true
+                                    Button { text:"确认并应用 CPNetFlux 绑定"; highlighted:true
+                                        enabled:rpc.networkPlan.plan_id!==undefined && (rpc.networkPlan.bindings || []).length===rpc.networkPlan.requested_links
+                                        onClicked:confirmNetworkDialog.open()
+                                    }
+                                    Button { text:"验证当前绑定"; enabled:rpc.networkApply.plan_id!==undefined
+                                        onClicked:rpc.verifyNetwork(rpc.networkApply.node_id,rpc.networkApply.plan_id)
+                                    }
+                                    Label { Layout.fillWidth:true; wrapMode:Text.WordWrap
+                                        text:rpc.networkVerify.plan_id===rpc.networkApply.plan_id && rpc.networkVerify.verified!==undefined ?
+                                             (rpc.networkVerify.verified ? "本机绑定有效；物理链路未验证" : "绑定当前不可用；请重新检测并应用") :
+                                             (rpc.networkApply.outcome ? "绑定已保存，等待验证" : "尚未应用绑定")
+                                        color:rpc.networkVerify.verified===true?"#237a57":"#657389"
+                                    }
+                                }
+                                Label { Layout.fillWidth:true; wrapMode:Text.WordWrap; color:"#657389"
+                                    text:rpc.networkVerify.physical_path_verified===false ? "所选地址仍属于可用接口；尚未验证对端连通性或物理数据路径。" : ""
+                                }
+                            }
+                        }
+                    }
+                }
+                // 7: advanced
                 Card { ColumnLayout { anchors.fill:parent; anchors.margins:24; spacing:16
                     Heading { text:"引擎与调度能力" }
                     Muted { Layout.fillWidth:true; text:"能力和阶段均来自 agent/backend evidence；未提供的 V3/range 字段显示未知，相关操作保持禁用。" }

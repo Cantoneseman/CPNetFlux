@@ -741,3 +741,32 @@ TEST(TreeTransferOptionsTest, AcceptsTenPersistentChannelsAndRejectsEleven) {
         }
     }
 }
+
+
+TEST(TreeTransferOptionsTest, ParsesNumericLocalBindAddresses) {
+    const char* argv[] = {
+        "cpnetflux-tree-upload-client",
+        "--source-dir", "/tmp",
+        "--dest-dir", "remote",
+        "--local-bind-addresses", "192.0.2.10,2001:db8::10",
+        "--link-set-links", "2"
+    };
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    ASSERT_EQ(parsed.value().localBindAddresses.size(), 2U);
+    EXPECT_EQ(parsed.value().localBindAddresses[0], "192.0.2.10");
+    EXPECT_EQ(parsed.value().localBindAddresses[1], "2001:db8::10");
+}
+
+TEST(TreeTransferOptionsTest, RejectsNonNumericLocalBindAddress) {
+    const char* argv[] = {
+        "cpnetflux-tree-upload-client",
+        "--source-dir", "/tmp",
+        "--dest-dir", "remote",
+        "--local-bind-address", "eth1"
+    };
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_FALSE(parsed.isOk());
+}

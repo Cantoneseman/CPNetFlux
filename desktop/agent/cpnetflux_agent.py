@@ -6,6 +6,8 @@ from collections import deque
 import copy
 from datetime import datetime, timezone
 import fcntl
+import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -24,7 +26,7 @@ MAX_OPERATIONS = 2000
 MAX_CLIENTS = 16
 MAX_PAGE_SNAPSHOTS = 64
 MAX_PAGE_CURSORS = 512
-API_VERSION = "2.0.0"
+API_VERSION = "2.1.0"
 PAGE_TTL_SECONDS = 300
 TERMINAL = {"completed", "failed", "cancelled", "recoverable"}
 ACTIVE = {"scanning", "connecting", "negotiating", "transferring", "committing"}
@@ -77,7 +79,7 @@ class Agent:
         self.events, self.clients, self.runners = deque(maxlen=128), set(), {}
         self.processes = {}
         self.core_bin_dir = Path(args.core_bin_dir).absolute() if args.core_bin_dir else None
-        self.store = dict(tasks={}, profiles={}, operations={}, attempt_history={})
+        self.store = dict(tasks={}, profiles={}, operations={}, attempt_history={}, network_plans={}, network_bindings={})
         self.page_snapshots, self.page_cursors = {}, {}
         path = self.state_dir / "state.json"
         if path.exists():
@@ -85,6 +87,8 @@ class Agent:
             if path.stat().st_size > 8 * MAX_FRAME: raise RuntimeError("state file exceeds limit")
             self.store = json.loads(path.read_text())
             self.store.setdefault("attempt_history", {})
+            self.store.setdefault("network_plans", {})
+            self.store.setdefault("network_bindings", {})
             for t in self.store["tasks"].values():
                 t.setdefault("backend_evidence", empty_evidence())
                 t.setdefault("effective_policy", self.pending_policy())
@@ -189,6 +193,11 @@ class Agent:
         if remote["path"].startswith("/") or ".." in Path(remote["path"]).parts:
             raise RpcError("permission_denied", "远端路径必须是 root-relative 且不能越界")
         profile = self.profile_for(remote)
+        binding = self.store.get("network_bindings", {}).get(remote["node_id"])
+        if binding:
+            verification = self._network_verify(remote["node_id"], binding.get("plan_id"))
+            if not verification["verified"]:
+                raise RpcError("invalid_state", "已配置的本机网卡绑定当前不可用，请重新检测并应用")
         # The unified tree adapter is the only authenticated real endpoint currently
         # exposed by the core. Keep single-file requests explicit and actionable until
         # the file client gains the same control-plane contract.
@@ -251,6 +260,12 @@ class Agent:
                 "--json-summary", t["backend_evidence"]["summary"], "--phase-timing", "on"]
         if t["attempt"]["attempt_number"] > 1:
             args += ["--resume"]
+        binding = self.store.get("network_bindings", {}).get(remote["node_id"])
+        if binding:
+            addresses = binding.get("local_bind_addresses", [])
+            if addresses:
+                args += ["--link-set-links", str(len(addresses))]
+                args += ["--local-bind-addresses", ",".join(addresses)]
         if t["direction"] == "upload":
             exe = self.core_binary("cpnetflux-tree-upload-client")
             args += ["--source-dir", str(path), "--dest-dir", remote["path"]]
@@ -386,16 +401,190 @@ class Agent:
         n=file["bytes_transferred"] or 0
         if n==0: return []
         return [dict(transfer_id=t["transfer_id"],attempt_id=attempt_id,file_id=file_id,range_id="demo-range-1",generation=generation,offset=0,length=file["size"],state="verified" if file["bytes_verified"]==file["size"] else "transferring",bytes_transferred=n,error=None,attempt_number=next(a["attempt_number"] for a in self.attempts_for(t["transfer_id"]) if a["attempt_id"]==attempt_id),checksum=copy.deepcopy(file["checksum"]))]
+    def _network_inventory(self, node_id):
+        if self.args.demo:
+            interfaces = [{
+                "interface_id": "demo:eth0", "name": "eth0", "kind": "physical",
+                "state": "up", "carrier": True, "addresses": ["192.0.2.10"],
+                "mtu": 1500, "speed_bps": 1000000000, "management": True
+            }]
+            management_id = "demo:eth0"
+        else:
+            addresses_by_name = {}
+            try:
+                completed = subprocess.run(
+                    ["ip", "-j", "address", "show"],
+                    capture_output=True, text=True, timeout=3, check=False)
+                if completed.returncode == 0:
+                    for item in json.loads(completed.stdout):
+                        values = []
+                        for address in item.get("addr_info", []):
+                            local = address.get("local")
+                            if isinstance(local, str) and local:
+                                values.append(local)
+                        addresses_by_name[item.get("ifname", "")] = values
+            except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+                addresses_by_name = {}
+            interfaces = []
+            for _, name in socket.if_nameindex():
+                base = Path("/sys/class/net") / name
+                def read_text(filename, default):
+                    try:
+                        return (base / filename).read_text().strip()
+                    except (OSError, UnicodeDecodeError):
+                        return default
+                state_text = read_text("operstate", "unknown")
+                state = state_text if state_text in {"up", "down"} else "unknown"
+                carrier_text = read_text("carrier", "0")
+                carrier = carrier_text == "1"
+                kind = "loopback" if name == "lo" else (
+                    "physical" if (base / "device").exists() else "virtual")
+                try:
+                    mtu = int(read_text("mtu", "0"))
+                except ValueError:
+                    mtu = 0
+                speed = None
+                try:
+                    value = int(read_text("speed", "-1"))
+                    if value >= 0:
+                        speed = value * 1000000
+                except ValueError:
+                    pass
+                interfaces.append({
+                    "interface_id": "linux:" + name, "name": name, "kind": kind,
+                    "state": state, "carrier": carrier,
+                    "addresses": sorted(set(addresses_by_name.get(name, []))),
+                    "mtu": mtu, "speed_bps": speed, "management": False
+                })
+            management_name = None
+            try:
+                for line in Path("/proc/net/route").read_text().splitlines()[1:]:
+                    fields = line.split()
+                    if len(fields) > 1 and fields[1] == "00000000":
+                        management_name = fields[0]
+                        break
+            except (OSError, UnicodeDecodeError):
+                pass
+            management_id = "linux:" + management_name if management_name else None
+            for item in interfaces:
+                item["management"] = item["interface_id"] == management_id
+        canonical = dict(node_id=node_id, management_interface_id=management_id,
+                         interfaces=interfaces)
+        revision = hashlib.sha256(json.dumps(
+            canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
+        warnings = []
+        usable = [x for x in interfaces
+                  if x["kind"] != "loopback" and x["state"] == "up"
+                  and x["carrier"] and x["addresses"]]
+        if not usable:
+            warnings.append("没有检测到带地址且链路为 up 的可用网卡")
+        elif len(usable) == 1:
+            warnings.append("当前只有一块可用网卡，无法形成多条独立链路")
+        if management_id is None:
+            warnings.append("未识别默认管理路由；应用绑定不会修改系统路由")
+        return dict(kind="network_inventory", node_id=node_id,
+                    inventory_revision=revision, observed_at=now(),
+                    interfaces=interfaces, management_interface_id=management_id,
+                    warnings=warnings)
+
+    def _network_plan(self, node_id, inventory_revision, requested_links, peer_addresses):
+        inventory = self._network_inventory(node_id)
+        if inventory["inventory_revision"] != inventory_revision:
+            raise RpcError("revision_conflict", "网卡清单已变化，请重新检测")
+        if any(address is not None for address in peer_addresses):
+            raise RpcError("unsupported", "当前仅支持本机源地址绑定；逐链路远端地址映射尚未接入")
+        host = self.store.get("profiles", {}).get(node_id, {}).get("host")
+        try:
+            peer_family = ipaddress.ip_address(host).version if host else None
+        except ValueError:
+            peer_family = None
+        candidates = []
+        for interface in inventory["interfaces"]:
+            if interface["kind"] == "loopback" or interface["state"] != "up" or not interface["carrier"]:
+                continue
+            usable = []
+            for text in interface["addresses"]:
+                try:
+                    address = ipaddress.ip_address(text)
+                except ValueError:
+                    continue
+                if address.is_loopback or address.is_link_local or address.is_unspecified or address.is_multicast:
+                    continue
+                if peer_family is None or address.version == peer_family:
+                    usable.append(address)
+            if usable:
+                selected = min(usable, key=lambda address: (address.version, int(address)))
+                candidates.append(dict(interface, addresses=[str(selected)]))
+        bindings = []
+        for lane, interface in enumerate(candidates[:requested_links]):
+            peers = peer_addresses[lane] if lane < len(peer_addresses) else None
+            bindings.append(dict(lane_id=lane, interface_id=interface["interface_id"],
+                                 local_address=interface["addresses"][0],
+                                 peer_address=peers))
+        warnings = list(inventory["warnings"])
+        if len(bindings) < requested_links:
+            warnings.append("可用网卡数量少于请求链路数量，请降低链路数后重新生成")
+        payload = dict(node_id=node_id, inventory_revision=inventory_revision,
+                       requested_links=requested_links, bindings=bindings)
+        plan_id = "plan-" + hashlib.sha256(json.dumps(
+            payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
+        result = dict(kind="network_plan", plan_id=plan_id, node_id=node_id,
+                      inventory_revision=inventory_revision,
+                      requested_links=requested_links, bindings=bindings,
+                      warnings=warnings, requires_privilege=False)
+        self.store["network_plans"][plan_id] = copy.deepcopy(result)
+        self.save()
+        return result
+
+    def _network_verify(self, node_id, plan_id):
+        plan = self.store.get("network_plans", {}).get(plan_id)
+        if plan is None or plan.get("node_id") != node_id:
+            raise RpcError("not_found", "网卡绑定方案不存在")
+        binding = self.store.get("network_bindings", {}).get(node_id)
+        if binding is None or binding.get("plan_id") != plan_id:
+            raise RpcError("invalid_state", "网卡绑定方案尚未应用")
+        inventory = self._network_inventory(node_id)
+        by_id = {x["interface_id"]: x for x in inventory["interfaces"]}
+        verified = True
+        warnings = list(inventory["warnings"])
+        effective = []
+        for item in binding.get("bindings", []):
+            interface = by_id.get(item["interface_id"])
+            ok = interface is not None and interface["state"] == "up" and interface["carrier"] \
+                and item["local_address"] in interface["addresses"]
+            if not ok:
+                verified = False
+                warnings.append("绑定地址或网卡状态已变化: " + item["interface_id"])
+            effective.append(copy.deepcopy(item))
+        return dict(kind="network_verify", node_id=node_id, plan_id=plan_id,
+                    inventory_revision=inventory["inventory_revision"], verified=verified,
+                    physical_path_verified=False, effective_bindings=effective,
+                    warnings=warnings)
+
     def dispatch(self, method, p, client):
+        if method == "node.network.inventory":
+            if not self.args.demo and p["node_id"] != "local" and p["node_id"] not in self.store["profiles"]:
+                raise RpcError("not_found", "节点不存在")
+            return self._network_inventory(p["node_id"])
+        if method == "node.network.plan":
+            if not self.args.demo and p["node_id"] != "local" and p["node_id"] not in self.store["profiles"]:
+                raise RpcError("not_found", "节点不存在")
+            return self._network_plan(p["node_id"], p["inventory_revision"],
+                                      p["requested_links"], p["peer_addresses"])
+        if method == "node.network.verify":
+            return self._network_verify(p["node_id"], p["plan_id"])
         if method == "agent.getInfo":
             real_ready = (self.core_bin_dir is not None and self.core_bin_dir.is_dir() and
                           all((self.core_bin_dir / name).is_file() and os.access(self.core_bin_dir / name, os.X_OK)
                               for name in ("cpnetflux-tree-upload-client", "cpnetflux-tree-download-client", "cpnetflux-auth-probe")))
-            return dict(kind="agent_info",api_version=API_VERSION,agent_version="0.1.0",agent_epoch=self.epoch,
+            return dict(kind="agent_info",api_version=API_VERSION,agent_version="0.2.0",agent_epoch=self.epoch,
                         adapter="demo" if self.args.demo else "real",max_frame_bytes=MAX_FRAME,
                         max_concurrent_requests=32,state_store="persistent",
-                        features=["profiles","transfer_lifecycle","entity_pages","resume"] if self.args.demo else
-                                 (["profiles","transfer_lifecycle","entity_pages","cancel","resume"] if real_ready else ["profiles"]))
+                        features=["profiles","transfer_lifecycle","entity_pages","resume",
+                                  "network_inventory","network_plan","network_apply","network_verify"] if self.args.demo else
+                                 (["profiles","transfer_lifecycle","entity_pages","cancel","resume",
+                                   "network_inventory","network_plan","network_apply","network_verify"] if real_ready else
+                                  ["profiles","network_inventory","network_plan","network_apply","network_verify"]))
         if method == "transfer.pause": raise RpcError("unsupported", "暂停尚未实现，任务状态保持不变")
         if method == "directory.list": raise RpcError("unsupported", "真实远端目录浏览尚未接入")
         if method == "node.testConnection":
@@ -497,7 +686,31 @@ class Agent:
             if old["request"] != fingerprint: raise RpcError("invalid_state", "operation_id 已用于不同请求")
             return copy.deepcopy(old["result"])
         if len(self.store["operations"]) >= MAX_OPERATIONS: raise RpcError("invalid_state", "本地操作历史预算已满")
-        if method.startswith("profile."):
+        if method == "node.network.apply":
+            plan = self.store.get("network_plans", {}).get(p["plan_id"])
+            if plan is None or plan.get("node_id") != p["node_id"]:
+                raise RpcError("not_found", "网卡绑定方案不存在")
+            if not p["confirm"]:
+                raise RpcError("invalid_state", "必须显式确认网卡绑定方案")
+            current = self._network_inventory(p["node_id"])
+            if current["inventory_revision"] != p["inventory_revision"] or plan["inventory_revision"] != p["inventory_revision"]:
+                raise RpcError("revision_conflict", "网卡清单已变化，请重新检测")
+            if not plan["bindings"]:
+                raise RpcError("invalid_state", "没有可应用的网卡地址绑定")
+            if len(plan["bindings"]) != plan["requested_links"]:
+                raise RpcError("invalid_state", "可用网卡不足，不能应用不完整的链路方案；请降低链路数后重新生成")
+            old = self.store.get("network_bindings", {}).get(p["node_id"])
+            outcome = "already_applied" if old and old.get("plan_id") == p["plan_id"] else "applied"
+            self.store["network_bindings"][p["node_id"]] = dict(
+                plan_id=p["plan_id"], inventory_revision=p["inventory_revision"],
+                bindings=copy.deepcopy(plan["bindings"]),
+                local_bind_addresses=[x["local_address"] for x in plan["bindings"]],
+                applied_at=now())
+            result = dict(kind="network_apply", node_id=p["node_id"], plan_id=p["plan_id"],
+                          inventory_revision=p["inventory_revision"], outcome=outcome,
+                          effective_bindings=copy.deepcopy(plan["bindings"]),
+                          requires_privilege=False)
+        elif method.startswith("profile."):
             profiles = self.store["profiles"]
             if method == "profile.delete":
                 if any(t["state"] in ACTIVE and p["node_id"] in [t["source"]["node_id"], t["destination"]["node_id"]] for t in self.store["tasks"].values()): raise RpcError("invalid_state", "节点有运行中的任务")
@@ -575,6 +788,7 @@ class Agent:
     async def run_real(self, t):
         proc = None
         try:
+            self.validate_real_request(t)
             command = self.build_real_command(t)
             t["state"] = "connecting"; self.emit(t)
             proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE,

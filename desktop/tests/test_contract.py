@@ -192,7 +192,7 @@ class ContractTests(unittest.TestCase):
     def test_v2_handshake_and_entity_page_watermarks(self):
         by_name = {v["name"]: v["message"] for v in VECTORS["valid"]}
         info = by_name["agent_info"]["result"]
-        self.assertEqual(info["api_version"], "2.0.0")
+        self.assertEqual(info["api_version"], "2.1.0")
         for name, kind in (("attempt_list", "attempt_list"), ("file_list", "file_list"), ("range_list", "range_list")):
             page = by_name[name]["result"]
             self.assertEqual(page["kind"], kind)

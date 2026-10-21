@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 #include "cpnetflux/common/status.h"
 #include "cpnetflux/core/io/socket_utils.h"
@@ -35,7 +36,8 @@ class FramedDataSocket {
 
 [[nodiscard]] common::Result<FramedDataSocket> connectFramedDataSocket(
     const char* host, std::uint16_t port, DataTlsMode dataTlsMode, const TlsConfig& tlsConfig,
-    const char* tlsServerName = nullptr, SocketDeadline deadline = {});
+    const char* tlsServerName = nullptr, SocketDeadline deadline = {},
+    std::string_view localBindAddress = {});
 
 [[nodiscard]] common::Result<FramedDataSocket> acceptFramedDataSocket(
     UniqueFd fd, DataTlsMode dataTlsMode, const TlsConfig& tlsConfig);
