@@ -1,7 +1,7 @@
 # V3-DESKTOP-AGENT-ALIGN-01
 
 Date: 2026-10-21
-Status: implemented; fixed-commit peer acceptance pending
+Status: complete; API 3.0 desktop scope accepted, see matching result record
 Input: fb9fd4e6a8f6326b6c18524532d090925c8cb115
 Branch: codex/V3-DESKTOP-NETWORK-BINDING-01
 Owner: current commander only, serial edits in /root/projects/CPNetFlux
