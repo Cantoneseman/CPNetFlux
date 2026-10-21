@@ -70,6 +70,33 @@ class AgentTests(unittest.TestCase):
     def mutate(self, method, t, **extra):
         return self.p.call(method, {"transfer_id":t["transfer_id"], "operation_id":str(time.monotonic_ns()), "expected_revision":t["revision"]} | extra)
     def get(self, t): return self.p.call("transfer.get", {"transfer_id":t["transfer_id"]})["result"]["snapshot"]
+    def test_v3_api_contract_preview_and_binding_clear_over_socket(self):
+        contract=self.p.call('agent.getContract',{})['result']
+        self.assertEqual(contract['runtime_protocol'],'v3')
+        params=json.loads(json.dumps(CREATE));params.pop('operation_id')
+        preview=self.p.call('transfer.validate',params)['result']
+        self.assertTrue(preview['valid'])
+        self.assertEqual(self.p.call('transfer.list',dict(cursor=None,limit=10))['result']['snapshots'],[])
+        inv=self.p.call('node.network.inventory',dict(node_id='local'))['result']
+        plan=self.p.call('node.network.plan',dict(node_id='local',inventory_revision=inv['inventory_revision'],
+            requested_links=1,peer_addresses=[],selections=[dict(interface_id='demo:eth0',local_address='192.0.2.10')]))['result']
+        self.p.call('node.network.apply',dict(operation_id='apply-new',node_id='local',plan_id=plan['plan_id'],inventory_revision=inv['inventory_revision'],confirm=True))
+        current=self.p.call('node.network.get',dict(node_id='local'))['result']
+        self.assertEqual(current['binding']['plan_id'],plan['plan_id'])
+        cleared=self.p.call('node.network.clear',dict(operation_id='clear-new',node_id='local',expected_plan_id=plan['plan_id'],confirm=True))['result']
+        self.assertIsNone(cleared['binding'])
+
+    def test_transfer_list_cursor_preserves_snapshot(self):
+        first=self.create();second=self.create()
+        page=self.p.call('transfer.list',dict(cursor=None,limit=1))['result']
+        self.assertEqual(len(page['snapshots']),1)
+        self.assertIsNotNone(page['next_cursor'])
+        third=self.create()
+        tail=self.p.call('transfer.list',dict(cursor=page['next_cursor'],limit=1))['result']
+        self.assertIsNone(tail['next_cursor'])
+        ids={page['snapshots'][0]['transfer_id'],tail['snapshots'][0]['transfer_id']}
+        self.assertEqual(ids,{first['transfer_id'],second['transfer_id']})
+        self.assertNotIn(third['transfer_id'],ids)
     def terminal(self, t):
         end = time.monotonic() + 5
         while time.monotonic() < end:
@@ -141,9 +168,9 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(len(attempts),1)
         self.assertEqual(attempts[0]["state"],"recoverable")
         self.assertEqual(attempts[0]["quiescence"],"confirmed")
-    def test_api_v2_handshake_and_snapshot_pagination(self):
+    def test_api_v3_handshake_and_snapshot_pagination(self):
         info=self.p.call("agent.getInfo",{})["result"]
-        self.assertEqual(info["api_version"],"2.1.0")
+        self.assertEqual(info["api_version"],"3.0.0")
         self.assertEqual(info["max_frame_bytes"],1024*1024)
         t=self.create()
         self.assertEqual(t["effective_policy"]["resolution"],"pending")
@@ -303,6 +330,7 @@ class AgentTests(unittest.TestCase):
                 }},
             }
             task = {
+                "policy": module.Agent.policy_defaults(),
                 "direction": "upload",
                 "source": {"path": str(source)},
                 "destination": {"node_id": "n1", "path": "dataset"},
@@ -332,15 +360,16 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(task["effective_policy"]["resolution"], "pending")
         self.assertEqual(task["effective_policy"]["control_tls"], "unknown")
         agent.apply_real_policy(task, {
-            "result": "pass", "actual_mode": "persistent_tree",
+            "result": "pass", "actual_transport": "v3",
             "actual_file_scheduling": "dynamic", "checksum_algorithm": "crc32c",
-            "resume": True, "connections": 1,
+            "resume": True, "connections": 1, "link_set_accepted_links":1,
+            "control_tls_verified":True,"data_tls_verified":True,
         })
-        self.assertEqual(task["actual_mode"], "v2")
+        self.assertEqual(task["actual_mode"], "v3")
         self.assertEqual(task["actual_scheduler"], "dynamic_ring")
         self.assertEqual(task["effective_policy"]["resolution"], "resolved")
         self.assertEqual(task["effective_policy"]["checksum"], "crc32c")
-        self.assertEqual(task["effective_policy"]["control_tls"], "unknown")
+        self.assertEqual(task["effective_policy"]["control_tls"], "verified")
         agent.apply_real_policy(task, {"result": "failed"})
         self.assertEqual(task["actual_mode"], "unknown")
         self.assertEqual(task["effective_policy"]["resolution"], "pending")

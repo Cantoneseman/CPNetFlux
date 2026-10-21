@@ -180,13 +180,13 @@ ApplicationWindow {
                                     Label { text:"远端相对目录" }
                                     TextField { id:remotePath; text:"dataset"; Layout.fillWidth:true }
                                     Label { text:"请求引擎" }
-                                    ComboBox { id:mode; model:rpc.demoAdapter ? ["自动选择","V1（合成）","V2（合成回退）"] : ["V2 目录传输"]; enabled:rpc.demoAdapter; Layout.fillWidth:true }
+                                    ComboBox { id:mode; model:rpc.demoAdapter ? ["V3（合成）"] : ["V3 目录传输"]; enabled:false; Layout.fillWidth:true }
                                     Label { text:"后端能力" }
                                     Label { text:rpc.demoAdapter ? "开发诊断/合成数据" : (rpc.capabilities.modes ? "已从 agent 读取" : "未知/未提供"); color:"#657389"; Layout.fillWidth:true }
                                 }
                                 Muted { Layout.fillWidth:true; text:rpc.demoAdapter ? "开发诊断入口；不会读取本地路径。" : "默认要求 CA/TLS 与凭据引用。agent 会在创建前检查路径、权限、认证和后端能力；缺失字段显示未知。" }
                                 Button { objectName:"createButton"; text:"创建传输任务"; highlighted:true; enabled:rpc.connected && rpc.apiCompatible && (rpc.demoAdapter || rpc.profiles.length>0)
-                                    onClicked:{ rpc.create(direction.currentIndex===0?"upload":"download",localPath.text,remotePath.text,false,rpc.demoAdapter?["auto","v1","v2"][mode.currentIndex]:"v2",window.selectedProfileId); window.page=0 }
+                                    onClicked:{ rpc.create(direction.currentIndex===0?"upload":"download",localPath.text,remotePath.text,false,"v3",window.selectedProfileId); window.page=0 }
                                 }
                             }
                         }
@@ -248,7 +248,7 @@ ApplicationWindow {
                                     Label { text:"CA文件" } TextField { id:ca; text:"/home/student/.config/cpnetflux/ca.pem"; Layout.fillWidth:true; Layout.columnSpan:3; onTextEdited: rpc.invalidateAuthentication() }
                                     Label { text:"身份方式" } ComboBox { id:auth; model:["短期 token 文件（支持）","管理员凭据（未接入）"]; Layout.fillWidth:true; onCurrentIndexChanged: { rpc.invalidateAuthentication(); if(currentIndex===1) credentialRef.text="" } }
                                     Label { text:"凭据引用" } TextField { id:credentialRef; text:"file:/home/student/.config/cpnetflux/token"; placeholderText:"file:/绝对路径（权限 0600）"; Layout.fillWidth:true; onTextEdited: rpc.invalidateAuthentication() }
-                                    Label { Layout.columnSpan:4; Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"认证检查只进行 DNS/TCP、TLS、token 登录和 V2 能力协商，不创建远端目录或数据文件。管理员凭据和 secret-service 引用当前不可用。"; color:"#657389" }
+                                    Label { Layout.columnSpan:4; Layout.fillWidth:true; wrapMode:Text.WordWrap; text:"认证检查只进行 DNS/TCP、TLS、token 登录和 V3 能力协商，不创建远端目录或数据文件。管理员凭据和 secret-service 引用当前不可用。"; color:"#657389" }
                                 }
                                 RowLayout {
                                     Button { text:"保存配置"; enabled:rpc.connected && port.acceptableInput; onClicked:{
@@ -258,7 +258,7 @@ ApplicationWindow {
                                     Button { text:"认证检查（不传输文件）"; enabled:rpc.connected && auth.currentIndex===0 && credentialRef.text.startsWith("file:"); onClicked:rpc.testNode(nodeId.text,rootPath.text) }
                                 }
                                 Label { Layout.fillWidth:true; text:"认证状态："+({"unknown":"未检查","required":"需要认证","authenticating":"认证中","authenticated":"已认证","failed":"认证失败","keyring_locked":"凭据不可用"}[rpc.authenticationState] || rpc.authenticationState); color:rpc.authenticationState==="authenticated"?"#237a57":(rpc.authenticationState==="failed"||rpc.authenticationState==="keyring_locked"?"#b34236":"#a46a1b"); font.bold:true }
-                                Repeater { model:[{key:"dns_control_port",name:"① DNS / 控制端口"},{key:"tls_identity",name:"② TLS服务端身份"},{key:"login",name:"③ token 登录"},{key:"capabilities",name:"④ V2 能力协商"},{key:"directory_permission",name:"⑤ 目录读写授权（不探测）"},{key:"data_port",name:"⑥ 数据端口（不打开）"}]
+                                Repeater { model:[{key:"dns_control_port",name:"① DNS / 控制端口"},{key:"tls_identity",name:"② TLS服务端身份"},{key:"login",name:"③ token 登录"},{key:"capabilities",name:"④ V3 能力协商"},{key:"directory_permission",name:"⑤ 目录读写授权（不探测）"},{key:"data_port",name:"⑥ 数据端口（不打开）"}]
                                     Label { required property var modelData; text:modelData.name+"："+(rpc.checks[modelData.key] ? ({"passed":"通过","failed":"失败","unsupported":"未提供","pending":"未执行","running":"检查中","skipped":"跳过"}[rpc.checks[modelData.key].state] || rpc.checks[modelData.key].state)+" · "+(rpc.checks[modelData.key].message || "") : "尚未检查 / 未提供"); color:"#657389" }
                                 }
                             }

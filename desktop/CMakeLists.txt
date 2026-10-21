@@ -16,6 +16,7 @@ add_custom_target(cpnetflux-agent ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/agent
 enable_testing()
 add_test(NAME desktop-contract COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_contract.py)
 add_test(NAME desktop-agent COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_agent.py)
+add_test(NAME desktop-v3-api COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_v3_api.py)
 add_test(NAME desktop-import COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_import.py $<TARGET_FILE:cpnetflux-desktop> ${CMAKE_CURRENT_SOURCE_DIR}/agent/cpnetflux_agent.py)
 add_test(NAME desktop-offscreen COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui.py $<TARGET_FILE:cpnetflux-desktop> ${CMAKE_CURRENT_SOURCE_DIR}/agent/cpnetflux_agent.py)
 set_tests_properties(desktop-agent desktop-import desktop-offscreen PROPERTIES TIMEOUT 40)

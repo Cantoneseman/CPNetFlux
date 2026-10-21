@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "CPNetFlux desktop-agent API 2.1.0",
+  "title": "CPNetFlux desktop-agent API 3.0.0",
   "$defs": {
     "errorDetail": {
       "type": "object",
@@ -86,57 +86,11 @@
       ],
       "additionalProperties": false
     },
-    "fallback": {
-      "type": "object",
-      "properties": {
-        "code": {
-          "enum": [
-            "checksum_unsupported",
-            "resume_unsupported",
-            "data_tls_unsupported",
-            "mode_unsupported",
-            "scheduler_unsupported",
-            "range_unsupported",
-            "version_mismatch",
-            "policy_requires_v1"
-          ]
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        },
-        "required": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "available": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      },
-      "required": [
-        "code",
-        "message",
-        "required",
-        "available"
-      ],
-      "additionalProperties": false
-    },
     "policy": {
       "type": "object",
       "properties": {
         "requested_mode": {
-          "enum": [
-            "auto",
-            "v1",
-            "v2"
-          ]
+          "const": "v3"
         },
         "scheduler": {
           "enum": [
@@ -146,30 +100,27 @@
           ]
         },
         "channel_count": {
-          "enum": [
-            "auto",
-            1,
-            2,
-            4,
-            8
+          "anyOf": [
+            {
+              "const": "auto"
+            },
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            }
           ]
         },
         "pending_window": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 64
+          "maximum": 16
         },
         "queue_depth": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65536
+          "const": "auto"
         },
         "range_policy": {
-          "enum": [
-            "auto",
-            "file",
-            "range_stripe"
-          ]
+          "const": "auto"
         },
         "checksum_policy": {
           "enum": [
@@ -194,20 +145,78 @@
           ]
         },
         "fallback_policy": {
-          "enum": [
-            "allow_compatible",
-            "reject"
-          ]
+          "const": "reject"
         },
         "conflict_policy": {
-          "enum": [
-            "fail",
-            "skip",
-            "replace"
-          ]
+          "const": "fail"
         },
         "experimental_raw_ack": {
           "type": "boolean"
+        },
+        "reconnect_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "transfer_timeout_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400000
+        },
+        "compression": {
+          "enum": [
+            "off",
+            "auto"
+          ]
+        },
+        "chunk_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1099511627776
+        },
+        "buffer_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        },
+        "control_pipeline_depth": {
+          "enum": [
+            0,
+            1,
+            2,
+            4
+          ]
+        },
+        "scheduler_mode": {
+          "enum": [
+            "off",
+            "global"
+          ]
+        },
+        "scheduler_policy": {
+          "enum": [
+            "fixed",
+            "adaptive"
+          ]
+        },
+        "scheduler_work_item_min_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "scheduler_work_item_max_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "scheduler_default_rtt_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "scheduler_capacity_gbps": {
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       },
       "required": [
@@ -864,8 +873,7 @@
         "actual_mode": {
           "enum": [
             "unknown",
-            "v1",
-            "v2"
+            "v3"
           ]
         },
         "actual_scheduler": {
@@ -878,19 +886,11 @@
         "actual_range_policy": {
           "enum": [
             "unknown",
-            "file",
-            "range_stripe"
+            "auto"
           ]
         },
         "fallback_reason": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/fallback"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "type": "null"
         },
         "attempt": {
           "$ref": "#/$defs/attempt"
@@ -981,32 +981,6 @@
       ],
       "additionalProperties": false,
       "allOf": [
-        {
-          "if": {
-            "properties": {
-              "actual_mode": {
-                "const": "v1"
-              },
-              "policy": {
-                "properties": {
-                  "requested_mode": {
-                    "enum": [
-                      "auto",
-                      "v2"
-                    ]
-                  }
-                }
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "fallback_reason": {
-                "$ref": "#/$defs/fallback"
-              }
-            }
-          }
-        },
         {
           "if": {
             "properties": {
@@ -1112,9 +1086,16 @@
           "maximum": 9007199254740991
         },
         "mtime_ns": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "state": {
           "enum": [
@@ -1240,7 +1221,8 @@
             "verified",
             "checkpointed",
             "failed",
-            "cancelled"
+            "cancelled",
+            "recoverable"
           ]
         },
         "bytes_transferred": {
@@ -1551,10 +1533,7 @@
         "modes": {
           "type": "array",
           "items": {
-            "enum": [
-              "v1",
-              "v2"
-            ]
+            "const": "v3"
           }
         },
         "schedulers": {
@@ -1569,16 +1548,13 @@
         "range_policies": {
           "type": "array",
           "items": {
-            "enum": [
-              "file",
-              "range_stripe"
-            ]
+            "const": "auto"
           }
         },
         "max_channel_count": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 8
+          "maximum": 10
         },
         "max_pending_window": {
           "type": "integer",
@@ -2794,6 +2770,29 @@
                       }
                     ]
                   }
+                },
+                "selections": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 10,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "interface_id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "local_address": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "interface_id",
+                      "local_address"
+                    ],
+                    "additionalProperties": false
+                  }
                 }
               },
               "required": [
@@ -2895,6 +2894,190 @@
               "required": [
                 "node_id",
                 "plan_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "agent.getContract"
+            },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.validate"
+            },
+            "params": {
+              "$ref": "#/$defs/validate"
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "transfer.evidence"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "transfer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "attempt_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "transfer_id",
+                "attempt_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "node.network.get"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "node_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "node.network.clear"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "operation_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "node_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expected_plan_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "confirm": {
+                  "const": true
+                }
+              },
+              "required": [
+                "operation_id",
+                "node_id",
+                "expected_plan_id",
+                "confirm"
               ],
               "additionalProperties": false
             }
@@ -3136,6 +3319,18 @@
             },
             {
               "$ref": "#/$defs/networkVerify"
+            },
+            {
+              "$ref": "#/$defs/agentContract"
+            },
+            {
+              "$ref": "#/$defs/transferValidation"
+            },
+            {
+              "$ref": "#/$defs/networkConfiguration"
+            },
+            {
+              "$ref": "#/$defs/transferEvidence"
             }
           ]
         }
@@ -3648,8 +3843,7 @@
         "mode": {
           "enum": [
             "unknown",
-            "v1",
-            "v2"
+            "v3"
           ]
         },
         "scheduler": {
@@ -3662,8 +3856,7 @@
         "range_policy": {
           "enum": [
             "unknown",
-            "file",
-            "range_stripe"
+            "auto"
           ]
         },
         "checksum": {
@@ -3791,10 +3984,7 @@
       "type": "object",
       "properties": {
         "mode": {
-          "enum": [
-            "v1",
-            "v2"
-          ]
+          "const": "v3"
         },
         "schedulers": {
           "type": "array",
@@ -3808,10 +3998,7 @@
         "range_policies": {
           "type": "array",
           "items": {
-            "enum": [
-              "file",
-              "range_stripe"
-            ]
+            "const": "auto"
           }
         },
         "checksums": {
@@ -3838,7 +4025,7 @@
         "max_channel_count": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 8
+          "maximum": 10
         },
         "max_pending_window": {
           "type": "integer",
@@ -3873,7 +4060,7 @@
           "const": "agent_info"
         },
         "api_version": {
-          "const": "2.1.0"
+          "const": "3.0.0"
         },
         "agent_version": {
           "anyOf": [
@@ -3929,7 +4116,14 @@
               "network_inventory",
               "network_plan",
               "network_apply",
-              "network_verify"
+              "network_verify",
+              "contract",
+              "network_get",
+              "network_clear",
+              "cancel",
+              "transfer_validate",
+              "transfer_evidence",
+              "v3"
             ]
           }
         }
@@ -4072,6 +4266,16 @@
         },
         "kind": {
           "const": "file_list"
+        },
+        "observation": {
+          "enum": [
+            "simulated",
+            "final_summary",
+            "not_available"
+          ]
+        },
+        "coverage": {
+          "const": "observed_only"
         }
       },
       "required": [
@@ -4151,6 +4355,16 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 9007199254740991
+        },
+        "observation": {
+          "enum": [
+            "simulated",
+            "final_summary",
+            "not_available"
+          ]
+        },
+        "coverage": {
+          "const": "observed_only"
         }
       },
       "required": [
@@ -4474,6 +4688,717 @@
         "warnings"
       ],
       "additionalProperties": false
+    },
+    "transferValidation": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "transfer_validation"
+        },
+        "valid": {
+          "const": true
+        },
+        "runtime_protocol": {
+          "const": "v3"
+        },
+        "resolved_options": {
+          "type": "object",
+          "properties": {
+            "channel_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "pending_window": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            },
+            "queue_capacity": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 320
+            },
+            "checksum": {
+              "enum": [
+                "crc32c",
+                "none"
+              ]
+            },
+            "file_scheduling": {
+              "enum": [
+                "static",
+                "dynamic"
+              ]
+            },
+            "reconnect_attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "transfer_timeout_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400000
+            },
+            "compression": {
+              "enum": [
+                "off",
+                "auto"
+              ]
+            },
+            "chunk_size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1099511627776
+            },
+            "buffer_size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16777216
+            },
+            "control_pipeline_depth": {
+              "enum": [
+                0,
+                1,
+                2,
+                4
+              ]
+            },
+            "scheduler_mode": {
+              "enum": [
+                "off",
+                "global"
+              ]
+            },
+            "scheduler_policy": {
+              "enum": [
+                "fixed",
+                "adaptive"
+              ]
+            },
+            "scheduler_work_item_min_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "scheduler_work_item_max_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "scheduler_default_rtt_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "scheduler_capacity_gbps": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "required": [
+            "channel_count",
+            "pending_window",
+            "queue_capacity",
+            "checksum",
+            "file_scheduling",
+            "reconnect_attempts",
+            "transfer_timeout_ms",
+            "compression",
+            "chunk_size",
+            "buffer_size",
+            "control_pipeline_depth",
+            "scheduler_mode",
+            "scheduler_policy",
+            "scheduler_work_item_min_bytes",
+            "scheduler_work_item_max_bytes",
+            "scheduler_default_rtt_ms",
+            "scheduler_capacity_gbps"
+          ],
+          "additionalProperties": false
+        },
+        "binding_plan_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "valid",
+        "runtime_protocol",
+        "resolved_options",
+        "binding_plan_id",
+        "warnings"
+      ],
+      "additionalProperties": false
+    },
+    "agentContract": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "agent_contract"
+        },
+        "api_version": {
+          "const": "3.0.0"
+        },
+        "runtime_protocol": {
+          "const": "v3"
+        },
+        "adapter": {
+          "enum": [
+            "demo",
+            "real"
+          ]
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "type": "string",
+                "minLength": 1
+              },
+              "support": {
+                "enum": [
+                  "supported",
+                  "unsupported",
+                  "simulated"
+                ]
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "method",
+              "support",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "policy_defaults": {
+          "$ref": "#/$defs/policy"
+        },
+        "policy_schema": {
+          "type": "object"
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "api_version",
+        "runtime_protocol",
+        "adapter",
+        "methods",
+        "policy_defaults",
+        "policy_schema",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "networkBindingConfig": {
+      "type": "object",
+      "properties": {
+        "plan_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inventory_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/networkBinding"
+          }
+        },
+        "local_bind_addresses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "applied_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "plan_id",
+        "inventory_revision",
+        "bindings",
+        "local_bind_addresses",
+        "applied_at"
+      ],
+      "additionalProperties": false
+    },
+    "networkConfiguration": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "network_configuration"
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/networkBindingConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "node_id",
+        "binding"
+      ],
+      "additionalProperties": false
+    },
+    "coreSummary": {
+      "type": "object",
+      "properties": {
+        "file_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "completed_files": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "skipped_files": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "failed_files": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "bytes_total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "bytes_transferred": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "wire_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "compressed_wire_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "link_set_requested_links": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "link_set_accepted_links": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "data_connect_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "control_reconnect_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "lane_control_reconnect_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "lane_local_recovery_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "queue_capacity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "queue_high_watermark": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "data_pending_window": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "data_pending_high_watermark": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "control_pipeline_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "payload_pipeline_budget_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "payload_pipeline_high_watermark_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "payload_pipeline_producer_waits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "payload_pipeline_consumer_waits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "actual_transport": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actual_file_scheduling": {
+          "type": "string",
+          "minLength": 1
+        },
+        "compression_policy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scheduler_mode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scheduler_policy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "checksum_algorithm": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tree_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "error_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "control_tls_verified": {
+          "type": "boolean"
+        },
+        "data_tls_verified": {
+          "type": "boolean"
+        },
+        "resume": {
+          "type": "boolean"
+        },
+        "elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "throughput_gbps": {
+          "type": "number",
+          "minimum": 0
+        },
+        "control_prepare_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "data_connect_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "transfer_complete_wait_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "local_bind_addresses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "persistent_lane_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "persistent_lane_range_completed": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "resume_skipped_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "recovery_payload_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reconnect_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reconnect_attempt_budget": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "recovery_attempts_used": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "connection_epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "compression_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "compressed_frames": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "raw_fallback_frames": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "compression_failures": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "compressed_logical_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "file_parallelism": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "connections": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "changed_files": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "compression_decision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "direction": {
+          "enum": [
+            "upload",
+            "download"
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "transferEvidence": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "transfer_evidence"
+        },
+        "transfer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observation": {
+          "enum": [
+            "final_summary",
+            "not_available"
+          ]
+        },
+        "physical_path_verified": {
+          "const": false
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/coreSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "transfer_id",
+        "attempt_id",
+        "observation",
+        "physical_path_verified",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "validate": {
+      "type": "object",
+      "properties": {
+        "direction": {
+          "enum": [
+            "upload",
+            "download"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "destination": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        }
+      },
+      "required": [
+        "direction",
+        "source",
+        "destination",
+        "policy"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "direction": {
+                "const": "upload"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "properties": {
+                  "kind": {
+                    "const": "local"
+                  }
+                }
+              },
+              "destination": {
+                "properties": {
+                  "kind": {
+                    "const": "remote"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "source": {
+                "properties": {
+                  "kind": {
+                    "const": "remote"
+                  }
+                }
+              },
+              "destination": {
+                "properties": {
+                  "kind": {
+                    "const": "local"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "oneOf": [

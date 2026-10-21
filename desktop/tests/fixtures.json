@@ -62,17 +62,17 @@
             "root_id": "home"
           },
           "policy": {
-            "requested_mode": "auto",
+            "requested_mode": "v3",
             "scheduler": "auto",
             "channel_count": "auto",
             "pending_window": 2,
-            "queue_depth": 256,
+            "queue_depth": "auto",
             "range_policy": "auto",
             "checksum_policy": "required_crc32c",
             "resume_policy": "allow",
             "control_tls": "verify_ca",
             "data_tls": "required",
-            "fallback_policy": "allow_compatible",
+            "fallback_policy": "reject",
             "conflict_policy": "fail",
             "experimental_raw_ack": false
           }
@@ -260,17 +260,17 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
@@ -550,14 +550,13 @@
           "observed_at": "2026-10-10T08:00:00Z",
           "protocol_version": "draft-input",
           "modes": [
-            "v1",
-            "v2"
+            "v3"
           ],
           "schedulers": [
             "static"
           ],
           "range_policies": [
-            "file"
+            "auto"
           ],
           "max_channel_count": 8,
           "max_pending_window": 2,
@@ -574,32 +573,12 @@
           "adapter": "real",
           "mode_capabilities": [
             {
-              "mode": "v1",
+              "mode": "v3",
               "schedulers": [
                 "static"
               ],
               "range_policies": [
-                "file"
-              ],
-              "checksums": [
-                "none",
-                "crc32c"
-              ],
-              "resume_supported": true,
-              "pause_supported": false,
-              "control_tls_verified": true,
-              "data_tls_supported": true,
-              "max_channel_count": 8,
-              "max_pending_window": 2,
-              "max_queue_depth": 256
-            },
-            {
-              "mode": "v2",
-              "schedulers": [
-                "static"
-              ],
-              "range_policies": [
-                "file"
+                "auto"
               ],
               "checksums": [
                 "none",
@@ -722,17 +701,17 @@
                 "root_id": "home"
               },
               "policy": {
-                "requested_mode": "auto",
+                "requested_mode": "v3",
                 "scheduler": "auto",
                 "channel_count": "auto",
                 "pending_window": 2,
-                "queue_depth": 256,
+                "queue_depth": "auto",
                 "range_policy": "auto",
                 "checksum_policy": "required_crc32c",
                 "resume_policy": "allow",
                 "control_tls": "verify_ca",
                 "data_tls": "required",
-                "fallback_policy": "allow_compatible",
+                "fallback_policy": "reject",
                 "conflict_policy": "fail",
                 "experimental_raw_ack": false
               },
@@ -796,111 +775,6 @@
       }
     },
     {
-      "name": "visible_v1_fallback",
-      "message": {
-        "jsonrpc": "2.0",
-        "id": "req1",
-        "result": {
-          "kind": "transfer",
-          "snapshot": {
-            "transfer_id": "t1",
-            "revision": 0,
-            "state": "negotiating",
-            "direction": "upload",
-            "source": {
-              "kind": "local",
-              "path": "/home/student/data",
-              "node_id": null,
-              "root_id": null
-            },
-            "destination": {
-              "kind": "remote",
-              "path": "dataset",
-              "node_id": "n1",
-              "root_id": "home"
-            },
-            "policy": {
-              "requested_mode": "v2",
-              "scheduler": "auto",
-              "channel_count": "auto",
-              "pending_window": 2,
-              "queue_depth": 256,
-              "range_policy": "auto",
-              "checksum_policy": "none",
-              "resume_policy": "allow",
-              "control_tls": "verify_ca",
-              "data_tls": "required",
-              "fallback_policy": "allow_compatible",
-              "conflict_policy": "fail",
-              "experimental_raw_ack": true
-            },
-            "actual_mode": "v1",
-            "actual_scheduler": "static",
-            "actual_range_policy": "file",
-            "fallback_reason": {
-              "code": "mode_unsupported",
-              "message": "V2模式不可用，回退V1保持已请求的安全策略",
-              "required": [
-                "v2"
-              ],
-              "available": [
-                "v1"
-              ]
-            },
-            "attempt": {
-              "attempt_id": "a1",
-              "attempt_number": 1,
-              "state": "running",
-              "cancel_requested": false,
-              "started_at": null,
-              "ended_at": null,
-              "quiescence": "not_applicable"
-            },
-            "metrics": {
-              "files_total": null,
-              "files_committed": null,
-              "files_failed": null,
-              "files_skipped": null,
-              "bytes_total": null,
-              "bytes_transferred": null,
-              "bytes_verified": null,
-              "bytes_committed": null,
-              "channel_count_active": null,
-              "queue_depth_current": null,
-              "data_connections": null,
-              "speed_bps": null,
-              "average_speed_bps": null,
-              "eta_seconds": null
-            },
-            "recovery": {
-              "eligibility": "unknown",
-              "checkpoint_id": null,
-              "reason": null
-            },
-            "scan_complete": false,
-            "commit_confirmed": false,
-            "transfer_status": "pending",
-            "integrity_status": "pending",
-            "evidence_status": "pending",
-            "error": null,
-            "adapter": "demo",
-            "effective_policy": {
-              "resolution": "resolved",
-              "mode": "v1",
-              "scheduler": "static",
-              "range_policy": "file",
-              "checksum": "none",
-              "resume_enabled": true,
-              "control_tls": "verified",
-              "data_tls": "verified",
-              "channel_count": 1,
-              "applied_at": "2026-10-10T08:00:00Z"
-            }
-          }
-        }
-      }
-    },
-    {
       "name": "cancel_pending",
       "message": {
         "jsonrpc": "2.0",
@@ -926,23 +800,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -983,9 +857,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -1022,23 +896,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -1079,9 +953,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -1119,23 +993,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -1176,9 +1050,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -1215,23 +1089,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -1272,9 +1146,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -1456,23 +1330,23 @@
                 "root_id": "home"
               },
               "policy": {
-                "requested_mode": "auto",
+                "requested_mode": "v3",
                 "scheduler": "auto",
                 "channel_count": "auto",
                 "pending_window": 2,
-                "queue_depth": 256,
+                "queue_depth": "auto",
                 "range_policy": "auto",
                 "checksum_policy": "required_crc32c",
                 "resume_policy": "allow",
                 "control_tls": "verify_ca",
                 "data_tls": "required",
-                "fallback_policy": "allow_compatible",
+                "fallback_policy": "reject",
                 "conflict_policy": "fail",
                 "experimental_raw_ack": false
               },
-              "actual_mode": "v2",
+              "actual_mode": "v3",
               "actual_scheduler": "dynamic_ring",
-              "actual_range_policy": "range_stripe",
+              "actual_range_policy": "auto",
               "fallback_reason": null,
               "attempt": {
                 "attempt_id": "a1",
@@ -1513,9 +1387,9 @@
               "adapter": "demo",
               "effective_policy": {
                 "resolution": "resolved",
-                "mode": "v2",
+                "mode": "v3",
                 "scheduler": "dynamic_ring",
-                "range_policy": "range_stripe",
+                "range_policy": "auto",
                 "checksum": "crc32c",
                 "resume_enabled": true,
                 "control_tls": "verified",
@@ -1573,23 +1447,23 @@
                 "root_id": "home"
               },
               "policy": {
-                "requested_mode": "auto",
+                "requested_mode": "v3",
                 "scheduler": "auto",
                 "channel_count": "auto",
                 "pending_window": 2,
-                "queue_depth": 256,
+                "queue_depth": "auto",
                 "range_policy": "auto",
                 "checksum_policy": "required_crc32c",
                 "resume_policy": "allow",
                 "control_tls": "verify_ca",
                 "data_tls": "required",
-                "fallback_policy": "allow_compatible",
+                "fallback_policy": "reject",
                 "conflict_policy": "fail",
                 "experimental_raw_ack": false
               },
-              "actual_mode": "v2",
+              "actual_mode": "v3",
               "actual_scheduler": "dynamic_ring",
-              "actual_range_policy": "range_stripe",
+              "actual_range_policy": "auto",
               "fallback_reason": null,
               "attempt": {
                 "attempt_id": "a1",
@@ -1630,9 +1504,9 @@
               "adapter": "demo",
               "effective_policy": {
                 "resolution": "resolved",
-                "mode": "v2",
+                "mode": "v3",
                 "scheduler": "dynamic_ring",
-                "range_policy": "range_stripe",
+                "range_policy": "auto",
                 "checksum": "crc32c",
                 "resume_enabled": true,
                 "control_tls": "verified",
@@ -1677,23 +1551,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -1734,9 +1608,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -1780,23 +1654,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -1837,9 +1711,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -2035,7 +1909,7 @@
         "id": "info1",
         "result": {
           "kind": "agent_info",
-          "api_version": "2.1.0",
+          "api_version": "3.0.0",
           "agent_version": "0.1.0",
           "agent_epoch": "epoch1",
           "adapter": "demo",
@@ -2156,6 +2030,90 @@
           ]
         }
       }
+    },
+    {
+      "name": "agent.getContract",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "agent.getContract",
+        "method": "agent.getContract",
+        "params": {}
+      }
+    },
+    {
+      "name": "transfer.validate",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "transfer.validate",
+        "method": "transfer.validate",
+        "params": {
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "/home/student/data",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "dataset",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "v3",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": "auto",
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "required",
+            "fallback_policy": "reject",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          }
+        }
+      }
+    },
+    {
+      "name": "transfer.evidence",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "transfer.evidence",
+        "method": "transfer.evidence",
+        "params": {
+          "transfer_id": "t1",
+          "attempt_id": "a1"
+        }
+      }
+    },
+    {
+      "name": "node.network.get",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "node.network.get",
+        "method": "node.network.get",
+        "params": {
+          "node_id": "local"
+        }
+      }
+    },
+    {
+      "name": "node.network.clear",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "node.network.clear",
+        "method": "node.network.clear",
+        "params": {
+          "node_id": "local",
+          "operation_id": "clear-1",
+          "expected_plan_id": null,
+          "confirm": true
+        }
+      }
     }
   ],
   "invalid": [
@@ -2196,17 +2154,17 @@
             "root_id": "home"
           },
           "policy": {
-            "requested_mode": "auto",
+            "requested_mode": "v3",
             "scheduler": "auto",
             "channel_count": "auto",
             "pending_window": 2,
-            "queue_depth": 256,
+            "queue_depth": "auto",
             "range_policy": "auto",
             "checksum_policy": "required_crc32c",
             "resume_policy": "allow",
             "control_tls": "verify_ca",
             "data_tls": "required",
-            "fallback_policy": "allow_compatible",
+            "fallback_policy": "reject",
             "conflict_policy": "fail",
             "experimental_raw_ack": false
           },
@@ -2237,17 +2195,17 @@
             "root_id": "home"
           },
           "policy": {
-            "requested_mode": "auto",
+            "requested_mode": "v3",
             "scheduler": "auto",
             "channel_count": "auto",
             "pending_window": 2,
-            "queue_depth": 256,
+            "queue_depth": "auto",
             "range_policy": "auto",
             "checksum_policy": "required_crc32c",
             "resume_policy": "allow",
             "control_tls": "verify_ca",
             "data_tls": "required",
-            "fallback_policy": "allow_compatible",
+            "fallback_policy": "reject",
             "conflict_policy": "fail",
             "experimental_raw_ack": false
           }
@@ -2277,17 +2235,17 @@
             "root_id": "home"
           },
           "policy": {
-            "requested_mode": "auto",
+            "requested_mode": "v3",
             "scheduler": "auto",
             "channel_count": "auto",
             "pending_window": 2,
-            "queue_depth": 256,
+            "queue_depth": "auto",
             "range_policy": "auto",
             "checksum_policy": "required_crc32c",
             "resume_policy": "allow",
             "control_tls": "verify_ca",
             "data_tls": "required",
-            "fallback_policy": "allow_compatible",
+            "fallback_policy": "reject",
             "conflict_policy": "fail",
             "experimental_raw_ack": false
           }
@@ -2317,17 +2275,17 @@
             "root_id": "home"
           },
           "policy": {
-            "requested_mode": "auto",
+            "requested_mode": "v3",
             "scheduler": "auto",
             "channel_count": "auto",
             "pending_window": 2,
-            "queue_depth": 0,
+            "queue_depth": 65537,
             "range_policy": "auto",
             "checksum_policy": "required_crc32c",
             "resume_policy": "allow",
             "control_tls": "verify_ca",
             "data_tls": "required",
-            "fallback_policy": "allow_compatible",
+            "fallback_policy": "reject",
             "conflict_policy": "fail",
             "experimental_raw_ack": false
           }
@@ -2357,116 +2315,19 @@
             "root_id": "home"
           },
           "policy": {
-            "requested_mode": "auto",
+            "requested_mode": "v3",
             "scheduler": "auto",
             "channel_count": "auto",
             "pending_window": 2,
-            "queue_depth": 256,
+            "queue_depth": "auto",
             "range_policy": "auto",
             "checksum_policy": "required_crc32c",
             "resume_policy": "allow",
             "control_tls": "verify_ca",
             "data_tls": "off",
-            "fallback_policy": "allow_compatible",
+            "fallback_policy": "reject",
             "conflict_policy": "fail",
             "experimental_raw_ack": false
-          }
-        }
-      },
-      "semantic": false
-    },
-    {
-      "name": "missing_fallback",
-      "message": {
-        "jsonrpc": "2.0",
-        "id": "req1",
-        "result": {
-          "kind": "transfer",
-          "snapshot": {
-            "transfer_id": "t1",
-            "revision": 0,
-            "state": "negotiating",
-            "direction": "upload",
-            "source": {
-              "kind": "local",
-              "path": "/home/student/data",
-              "node_id": null,
-              "root_id": null
-            },
-            "destination": {
-              "kind": "remote",
-              "path": "dataset",
-              "node_id": "n1",
-              "root_id": "home"
-            },
-            "policy": {
-              "requested_mode": "v2",
-              "scheduler": "auto",
-              "channel_count": "auto",
-              "pending_window": 2,
-              "queue_depth": 256,
-              "range_policy": "auto",
-              "checksum_policy": "required_crc32c",
-              "resume_policy": "allow",
-              "control_tls": "verify_ca",
-              "data_tls": "required",
-              "fallback_policy": "allow_compatible",
-              "conflict_policy": "fail",
-              "experimental_raw_ack": false
-            },
-            "actual_mode": "v1",
-            "actual_scheduler": "static",
-            "actual_range_policy": "file",
-            "fallback_reason": null,
-            "attempt": {
-              "attempt_id": "a1",
-              "attempt_number": 1,
-              "state": "running",
-              "cancel_requested": false,
-              "started_at": null,
-              "ended_at": null,
-              "quiescence": "not_applicable"
-            },
-            "metrics": {
-              "files_total": null,
-              "files_committed": null,
-              "files_failed": null,
-              "files_skipped": null,
-              "bytes_total": null,
-              "bytes_transferred": null,
-              "bytes_verified": null,
-              "bytes_committed": null,
-              "channel_count_active": null,
-              "queue_depth_current": null,
-              "data_connections": null,
-              "speed_bps": null,
-              "average_speed_bps": null,
-              "eta_seconds": null
-            },
-            "recovery": {
-              "eligibility": "unknown",
-              "checkpoint_id": null,
-              "reason": null
-            },
-            "scan_complete": false,
-            "commit_confirmed": false,
-            "transfer_status": "pending",
-            "integrity_status": "pending",
-            "evidence_status": "pending",
-            "error": null,
-            "adapter": "demo",
-            "effective_policy": {
-              "resolution": "resolved",
-              "mode": "v1",
-              "scheduler": "static",
-              "range_policy": "file",
-              "checksum": "crc32c",
-              "resume_enabled": true,
-              "control_tls": "verified",
-              "data_tls": "verified",
-              "channel_count": 1,
-              "applied_at": "2026-10-10T08:00:00Z"
-            }
           }
         }
       },
@@ -2497,23 +2358,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -2554,9 +2415,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -2594,23 +2455,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -2651,9 +2512,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -2691,23 +2552,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -2748,9 +2609,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -2788,23 +2649,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -2845,9 +2706,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -2932,23 +2793,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -2989,9 +2850,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "crc32c",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -3167,23 +3028,23 @@
               "root_id": "home"
             },
             "policy": {
-              "requested_mode": "auto",
+              "requested_mode": "v3",
               "scheduler": "auto",
               "channel_count": "auto",
               "pending_window": 2,
-              "queue_depth": 256,
+              "queue_depth": "auto",
               "range_policy": "auto",
               "checksum_policy": "required_crc32c",
               "resume_policy": "allow",
               "control_tls": "verify_ca",
               "data_tls": "required",
-              "fallback_policy": "allow_compatible",
+              "fallback_policy": "reject",
               "conflict_policy": "fail",
               "experimental_raw_ack": false
             },
-            "actual_mode": "v2",
+            "actual_mode": "v3",
             "actual_scheduler": "dynamic_ring",
-            "actual_range_policy": "range_stripe",
+            "actual_range_policy": "auto",
             "fallback_reason": null,
             "attempt": {
               "attempt_id": "a1",
@@ -3224,9 +3085,9 @@
             "adapter": "demo",
             "effective_policy": {
               "resolution": "resolved",
-              "mode": "v2",
+              "mode": "v3",
               "scheduler": "dynamic_ring",
-              "range_policy": "range_stripe",
+              "range_policy": "auto",
               "checksum": "none",
               "resume_enabled": true,
               "control_tls": "verified",
@@ -3237,6 +3098,126 @@
           }
         }
       }
+    },
+    {
+      "name": "reject_runtime_v1",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.create",
+        "params": {
+          "operation_id": "create-1",
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "/home/student/data",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "dataset",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "v1",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": "auto",
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "required",
+            "fallback_policy": "reject",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "reject_runtime_v2",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.create",
+        "params": {
+          "operation_id": "create-1",
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "/home/student/data",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "dataset",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "v2",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": "auto",
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "required",
+            "fallback_policy": "reject",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          }
+        }
+      },
+      "semantic": false
+    },
+    {
+      "name": "reject_runtime_auto",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req1",
+        "method": "transfer.create",
+        "params": {
+          "operation_id": "create-1",
+          "direction": "upload",
+          "source": {
+            "kind": "local",
+            "path": "/home/student/data",
+            "node_id": null,
+            "root_id": null
+          },
+          "destination": {
+            "kind": "remote",
+            "path": "dataset",
+            "node_id": "n1",
+            "root_id": "home"
+          },
+          "policy": {
+            "requested_mode": "auto",
+            "scheduler": "auto",
+            "channel_count": "auto",
+            "pending_window": 2,
+            "queue_depth": "auto",
+            "range_policy": "auto",
+            "checksum_policy": "required_crc32c",
+            "resume_policy": "allow",
+            "control_tls": "verify_ca",
+            "data_tls": "required",
+            "fallback_policy": "reject",
+            "conflict_policy": "fail",
+            "experimental_raw_ack": false
+          }
+        }
+      },
+      "semantic": false
     }
   ]
 }

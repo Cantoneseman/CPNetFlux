@@ -1,4 +1,4 @@
-"""Offline frozen desktop-agent API 2.0 contract gate; no live transfer backend."""
+"""Offline desktop-agent API 3.0 contract gate; no live transfer backend."""
 import copy
 import json
 from pathlib import Path
@@ -61,11 +61,8 @@ def snapshot_semantics(s):
             raise ValueError("partial files cannot complete")
         if s["policy"]["checksum_policy"] != "none" and s["integrity_status"] != "pass":
             raise ValueError("required checksum missing")
-    if s["actual_mode"] == "v1" and s["policy"]["requested_mode"] in {"auto", "v2"}:
-        if s["policy"]["fallback_policy"] == "reject":
-            raise ValueError("fallback forbidden")
-        if s["fallback_reason"] is None:
-            raise ValueError("fallback needs an explicit reason")
+    if s["actual_mode"] not in {"unknown","v3"} or s["fallback_reason"] is not None:
+        raise ValueError("only V3 runtime is supported")
     if s["state"] in {"paused", "recoverable"} and s["recovery"]["eligibility"] != "eligible":
         raise ValueError("recovery evidence missing")
     if s["state"] == "cancelled" and s["attempt"]["quiescence"] != "confirmed":
@@ -159,6 +156,7 @@ class ContractTests(unittest.TestCase):
                     "transfer.resume", "transfer.get", "transfer.subscribe", "transfer.list",
                     "attempt.list", "file.list", "range.list", "profile.list", "profile.create",
                     "profile.update", "profile.delete"}
+        required |= {"agent.getContract","transfer.validate","transfer.evidence","node.network.get","node.network.clear"}
         self.assertTrue(required <= methods)
 
     def test_recovery_attempt_and_cancel_contract_vectors(self):
@@ -189,10 +187,10 @@ class ContractTests(unittest.TestCase):
         events = [v["message"]["params"] for v in VECTORS["valid"] if v["message"].get("method") == "transfer.event"]
         self.assertEqual([p["sequence"] for p in events], list(range(5, 11)))
 
-    def test_v2_handshake_and_entity_page_watermarks(self):
+    def test_v3_handshake_and_entity_page_watermarks(self):
         by_name = {v["name"]: v["message"] for v in VECTORS["valid"]}
         info = by_name["agent_info"]["result"]
-        self.assertEqual(info["api_version"], "2.1.0")
+        self.assertEqual(info["api_version"], "3.0.0")
         for name, kind in (("attempt_list", "attempt_list"), ("file_list", "file_list"), ("range_list", "range_list")):
             page = by_name[name]["result"]
             self.assertEqual(page["kind"], kind)
@@ -202,8 +200,7 @@ class ContractTests(unittest.TestCase):
     def test_policy_readback_and_mode_capability_facts(self):
         by_name = {v["name"]: v["message"]["result"] for v in VECTORS["valid"] if "result" in v["message"]}
         snapshot_semantics(by_name["completed"]["snapshot"])
-        self.assertEqual(by_name["capabilities"]["mode_capabilities"][0]["mode"], "v1")
-        self.assertEqual(by_name["visible_v1_fallback"]["snapshot"]["effective_policy"]["checksum"], "none")
+        self.assertEqual(by_name["capabilities"]["mode_capabilities"][0]["mode"], "v3")
 
 
 if __name__ == "__main__":

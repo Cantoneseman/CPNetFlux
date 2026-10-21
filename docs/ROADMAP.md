@@ -1,5 +1,13 @@
 # CPNetFlux 路线图
 
+## 2026-10-22 Desktop API Update
+
+V3 is the only runtime. Desktop API 3.0 supersedes the old 2.x mode/fallback contract.
+Current scope: docs/tasks/2026-10-21-v3-desktop-agent-align-01.md.
+Next: build desktop views against desktop/docs/rpc-contract.md and its JSON schema.
+Pause, remote browsing, live range telemetry and per-lane peer mapping remain separate
+backend work; physical multi-NIC validation remains deferred until hardware is ready.
+
 ## 当前状态
 
 **路线重置（2026-09-17）：** 控制连接复用重测已完成。结果显示单文件差距约 8–12%，目录差距约 33–49%；worker 复用有效但没有解决目录数据面瓶颈。阶段 0 的证据分类、compression 开关传播和资源治理已经落地，见 [`docs/DECISIONS/2026-09-17-retest-route-reset.md`](DECISIONS/2026-09-17-retest-route-reset.md)。下一步按 [`docs/DECISIONS/2026-09-17-directory-data-plane-profiling.md`](DECISIONS/2026-09-17-directory-data-plane-profiling.md) 用固定提交补足代表性小矩阵并拆解目录阶段耗时，之后再决定 scheduler 是否值得继续优化。

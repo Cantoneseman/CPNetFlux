@@ -1333,6 +1333,10 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"lane_local_recovery_count\": " << stats.laneLocalRecoveryCount.load() << ",\n";
     output << "  \"data_transfer_count\": " << stats.dataTransferCount.load() << ",\n";
     output << "  \"actual_transport\": \"v3\",\n";
+    output << "  \"control_tls_verified\": "
+           << ((status.isOk() && options.tls.mode == TlsMode::Required) ? "true" : "false") << ",\n";
+    output << "  \"data_tls_verified\": "
+           << ((status.isOk() && options.dataTlsMode == DataTlsMode::Required) ? "true" : "false") << ",\n";
     output << "  \"requested_mode\": \"persistent_tree\",\n";
     output << "  \"actual_mode\": \"" << (stats.persistentData ? "persistent_tree" : "unknown") << "\",\n";
     output << "  \"requested_file_scheduling\": \"" << (options.dynamicFileScheduling ? "dynamic" : "static") << "\",\n";
@@ -1371,7 +1375,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "  \"queue_high_watermark\": " << stats.queueHighWatermark << ",\n";
         const auto dispatchWindow = options.controlPipelineDepth != 0
             ? options.controlPipelineDepth : options.dataPendingWindow;
-        output << "  \"queue_capacity\": " << (stats.dynamicScheduling ? stats.persistentDataConnectCount*dispatchWindow*2 : 0) << ",\n";
+        output << "  \"queue_capacity\": " << (stats.dynamicScheduling ? options.fileParallelism*dispatchWindow*2 : 0) << ",\n";
         output << "  \"dispatch_window\": " << (stats.persistentData ? stats.pendingWindow : 0) << ",\n";
         output << "  \"scan_seconds\": ";
         if (stats.scanSeconds) output << *stats.scanSeconds; else output << "null";

@@ -1,77 +1,157 @@
-# desktop-agent JSON-RPC API 2.1.0
+# desktop-agent JSON-RPC API 3.0.0
 
-状态：已冻结的桌面端 IPC 合同。消息形状使用 JSON Schema Draft-07，schema 和离线语义门禁位于 `desktop/schemas/desktop-agent.schema.json`、`desktop/tests/test_contract.py` 与 `desktop/tests/fixtures.json`。合同版本 `api_version=2.1.0`，独立于 JSON-RPC 的 `jsonrpc="2.0"`。
+状态：本轮 V3 桌面开发契约。唯一结构定义是 `desktop/schemas/desktop-agent.schema.json`；
+行为验收位于 `desktop/tests/test_contract.py`、`test_agent.py`、
+`test_v3_api.py`。旧 API 2.x 的 V1/V2 模式和自动回退规则已经失效。
+API 版本与 JSON-RPC 的 `jsonrpc="2.0"` 是两回事；运行引擎只有 V3。
 
-## 传输、版本与安全
+## 接入顺序
 
-Unix stream socket 路径 `$XDG_RUNTIME_DIR/cpnetflux/agent.sock`。父目录 0700、socket 0600；agent 检查 `SO_PEERCRED` 并只接受相同 UID。runtime dir 缺失或 UID 不符时拒绝连接。agent 由用户服务管理，UI 退出只断开订阅，不取消传输。
+1. 连接本机 Unix socket：`$XDG_RUNTIME_DIR/cpnetflux/agent.sock`。
+2. 调用 `agent.getInfo({})`，精确要求 `api_version="3.0.0"`。
+3. 调用 `agent.getContract({})`，按每个方法的 support/reason 启用控件。
+4. 读取 profile、保存的网卡绑定、任务列表，并建立 transfer.subscribe。
+5. 新任务从 policy_defaults 初始化，用 policy_schema 校验表单，先 validate，再 create/start。
 
-帧为 UTF-8 JSON + LF，单帧最多 1 MiB；不支持 batch 或请求 notification。agent 限制并发请求和事件队列；慢消费者断开后重同步，不得阻塞 payload。时间为带时区 UTC RFC3339，速度为 bytes/second；JSON 安全整数最大 2^53-1，禁止截断。未知值使用 `null` 或对应 `unknown`。profile/RPC/event/log 只允许 `credential_ref`，禁止传 token、密码和私钥；节点包导入器在本地生成受限文件后仍只传引用。
+`agent.getContract` 返回 runtime_protocol、adapter、methods、policy_defaults、
+policy_schema 和 limitations。support 为 supported/unsupported/simulated。
+real adapter 缺少核心可执行文件时，相关启动/预检方法显示 unsupported。
+支持一种方法不代表任意参数组合可用，最终以 validate 或明确错误为准。
 
-UI 在任何 profile 读取或有副作用请求前调用 `agent.getInfo`，要求 `api_version` 精确等于 `2.1.0`；不匹配时只显示兼容错误，不尝试猜测兼容。响应给出 agent epoch、adapter 类型、帧/并发上限和实际支持 feature 列表。feature 列表是 agent 已实现能力，不可由 UI 推导。
+仅支持 UTF-8 JSON + LF 单消息帧，最大 1 MiB；不支持 batch 和无 id 请求。
+请求 id 必须为非空字符串。父目录 0700、socket 0600，并检查同 UID。
+时间为 UTC RFC3339，整数不超过 2^53-1；未观测字段用 null/unknown。
+UI 退出只断开连接，正常运行的 agent 继续负责任务。
 
-## 网络绑定方法与结果
+## 可调用接口
 
-桌面端安装在服务器本机时，agent 提供四个只作用于 CPNetFlux 的网络配置方法：
-
-- node.network.inventory(node_id)：读取本机网卡、地址、carrier、MTU、速度和默认管理接口。只读，不修改系统网络。
-- node.network.plan(node_id, inventory_revision, requested_links, peer_addresses)：从可用的物理/云虚拟接口生成确定性源地址绑定建议，排除回环、链路本地、组播和未指定地址。数字对端地址约束源地址族；主机名优先推荐 IPv4。清单变化时拒绝使用旧方案。逐链路对端地址映射尚未实现，peer_addresses 只允许空数组或 null 条目；非空地址明确返回 unsupported。
-- node.network.apply(operation_id, node_id, plan_id, inventory_revision, confirm=true)：明确确认且全部请求链路均有可用绑定时保存 CPNetFlux 配置；网卡不足时必须减少请求链路数并重新生成。不会修改 IP、路由、网卡状态或防火墙，也不执行用户提供的命令。
-- node.network.verify(node_id, plan_id)：检查地址仍属于可用接口，不尝试向对端建连；physical_path_verified=false。TCP 只绑定本机源地址，出站接口由系统路由决定。不能把本地检查当作连通性或物理路径验收。
-
-network_plan 的每个 binding 包含 lane_id、interface_id、local_address 和可选 peer_address。network_apply 只返回实际保存的 CPNetFlux binding。传输客户端随后把这些地址作为 V3 control/data socket 的本地 bind 地址，并在 JSON summary 中记录 local_bind_addresses。系统 IP、路由和网卡启停属于后续独立的特权配置阶段。
-
-## 方法与结果
-
-| 方法 | 参数 | `result.kind` |
+| 方法 | 主要参数 | 结果 kind / 可用边界 |
 |---|---|---|
-| `agent.getInfo` | 空对象 | `agent_info` |
-| `profile.list/create/update/delete` | profile 地址/CA/`credential_ref`；变更带 `operation_id` | `profile_list/profile/deleted` |
-| `node.testConnection` | `node_id/root_id/path/access` | `connection_test` |
-| `node.capabilities` | `node_id` | `capabilities` |
-| `directory.list` | `node_id/root_id/path/cursor/limit` | `directory` |
-| `transfer.create` | `operation_id/direction/source/destination/policy` | `transfer` |
-| `transfer.start/pause/cancel` | `transfer_id/operation_id/expected_revision` | `operation` |
-| `transfer.resume` | 上述参数 + `checkpoint_id` | `operation` |
-| `transfer.get` | `transfer_id` | `transfer` |
-| `transfer.list` | `cursor/limit` | `transfer_list` |
-| `attempt.list` | `transfer_id/cursor/limit` | `attempt_list` |
-| `file.list` | `transfer_id/attempt_id/cursor/limit` | `file_list` |
-| `range.list` | `transfer_id/attempt_id/file_id/generation/cursor/limit` | `range_list` |
-| `transfer.subscribe` | `transfer_ids/agent_epoch/after_sequence` | `subscription`，之后发送 `transfer.event` |
+| agent.getInfo | {} | agent_info；握手、feature、进程 epoch |
+| agent.getContract | {} | agent_contract；表单默认值、schema、方法状态 |
+| profile.list | {} | profile_list |
+| profile.create/update | operation_id, profile | profile |
+| profile.delete | operation_id, node_id | deleted；活跃任务引用时拒绝 |
+| node.testConnection | node_id, root_id, path, access | connection_test；真实 TCP/TLS/token/V3 协商 |
+| node.capabilities | node_id | capabilities；本机核心支持上限，不冒充已连接对端 |
+| node.network.inventory | node_id | network_inventory；本机网卡快照 |
+| node.network.plan | node_id, inventory_revision, requested_links, peer_addresses, selections? | network_plan；推荐或手选 |
+| node.network.apply | operation_id, node_id, plan_id, inventory_revision, confirm=true | network_apply |
+| node.network.get | node_id | network_configuration；binding 可为 null |
+| node.network.verify | node_id, plan_id | network_verify |
+| node.network.clear | operation_id, node_id, expected_plan_id, confirm=true | network_configuration；绑定变化返回 revision_conflict |
+| transfer.validate | direction, source, destination, policy | transfer_validation；不创建任务、不连接对端 |
+| transfer.create | validate 参数 + operation_id | transfer；只创建 queued |
+| transfer.start/cancel | operation_id, transfer_id, expected_revision | operation |
+| transfer.resume | 上述参数 + checkpoint_id | operation；新建 attempt |
+| transfer.get | transfer_id | transfer |
+| transfer.list | cursor, limit | transfer_list；固定快照的分页游标 |
+| transfer.evidence | transfer_id, attempt_id | transfer_evidence；最终核心事实白名单 |
+| attempt.list | transfer_id, cursor, limit | attempt_list |
+| file.list | transfer_id, attempt_id, cursor, limit | file_list；最终摘要中观测到的文件 |
+| range.list | 上述参数 + file_id, generation | range_list；最终摘要中观测到的 range |
+| transfer.subscribe | transfer_ids, agent_epoch, after_sequence | subscription；之后推送 transfer.event |
+| transfer.pause | operation_id, transfer_id, expected_revision | 明确 unsupported，不改变任务 |
+| directory.list | node_id, root_id, path, cursor, limit | 明确 unsupported |
 
-不提供 `task.*` 或 `event.subscribe` 别名。`persistent_tree` 是 V2 数据面；V3 指动态文件调度和大文件 range 策略，不作为另一种 RPC 版本。
+完整字段、必填项、枚举和错误结构以 schema 为准，不从示例猜测。
 
-## 能力、请求策略和实际策略
+## 网络配置流程
 
-`node.capabilities.mode_capabilities` 对每个 `v1`/`v2` 分别报告 scheduler、range、checksum、resume、pause、TLS 和资源上限。旧的聚合能力字段仅作显示，不能据此推导某模式或组合一定支持。
+inventory 检测的是运行 agent 的本机网卡，不是远程服务器网卡。
+node_id 表示把本机源地址配置应用于哪个 peer profile。
+plan 不带 selections 时推荐地址；手选形式为：
+`selections=[{"interface_id":"linux:eth0","local_address":"192.0.2.10"}]`。
+手选数量必须等于 requested_links，每块网卡只能选一次，地址须已配置且接口可用。
+不足链路的推荐可以展示，不能 apply。旧 inventory_revision 被拒绝。
 
-transfer 的 `policy` 是用户请求值；`effective_policy` 是 agent 从后端协商/运行事实读回的实际值。建立任务或协商前须标 `resolution=pending`，所有有效值保持 `unknown`/`null`；不得复制请求值伪装成实际值。开始数据面前标 `resolution=resolved`，并回读 mode、scheduler、range、checksum、resume、控制/数据 TLS、实际通道数和时间。effective 值必须满足所请求安全策略；否则在 payload 前拒绝任务，不能自动降级 checksum 或 TLS。V1 fallback 仅在 `fallback_policy=allow_compatible`、V1 满足 checksum/resume/TLS 请求且尚未发送 payload 时发生，并记录明确 `fallback_reason`。payload 后错误不得改跑 V1。
+peer_addresses 只允许空数组或 null 项；实际逐链路远端地址映射尚未实现，
+非空地址明确返回 unsupported。apply 只保存 CPNetFlux 配置，不改系统
+IP、路由、网卡启停或防火墙。get 读取已保存值；clear 必须提交 get 返回的
+expected_plan_id（未保存时为 null）。活跃任务期间拒绝修改/清除所用配置。
 
-## 稳定身份、分页快照与事件
+verify 检查地址仍可用，physical_path_verified 始终为 false；
+真实传输 summary 回报 local_bind_addresses，仍不证明物理路径独立。
+单个绑定地址可用于多个逻辑通道；多个绑定地址的数量必须与 channel_count 一致。
+创建任务时冻结 profile 与 binding，之后更改配置不会偷偷改变已有任务。
 
-文件 identity 为 `(transfer_id, attempt_id, file_id, generation)`，并保留 `relative_path,size,mtime_ns`。目录调度队列只暴露元数据。range identity 为 `(transfer_id, attempt_id, file_id, generation, range_id)`，含 `attempt_number,offset,length,checksum,state`；区间不得越界或重叠。checksum 必须分别表达 algorithm、expected、actual、status；缺证据保持 unknown。
+## 任务策略和执行
 
-`attempt.list/file.list/range.list` 的第一页创建固定 `snapshot_id`，返回同一 `agent_epoch`、transfer `revision` 和 `snapshot_sequence`。续页 cursor 是不透明 token，并绑定方法、transfer、attempt、file generation、limit 与该快照；不得跨任务/attempt/file 复用。所有页均保留原快照 watermark；快照过期明确返回 `cursor_expired`，客户端重新从第一页读取。range 查询必须指定 `file_id` 与 generation。所有条目 identity 必须与页范围相符。
+固定项：requested_mode=v3、fallback_policy=reject、conflict_policy=fail、
+range_policy=auto、queue_depth=auto、control_tls=verify_ca。旧模式和不支持的
+覆盖/跳过策略在参数阶段拒绝；不再切换旧执行器。
 
-`agent_epoch` 每次 agent 生命周期变化；事件 `sequence` 全局单调递增，transfer `revision` 单调递增。subscribe 原子返回快照及 watermark：新订阅、epoch 改变、游标过期/缓冲被淘汰返回 `reset=true` 和完整 transfer 快照；连续重放返回 `reset=false`、空快照和请求游标。客户端分页的实体读取以其 watermark 为界，再从 `snapshot_sequence` 订阅后续事件。事件必须携带完整实体，不用 byte delta 还原事实。payload 身份、event envelope、attempt/revision/generation 不一致就拒绝更新；旧 attempt 事件不得覆盖当前 attempt。
+| 策略 | 范围 / 核心映射 |
+|---|---|
+| scheduler | auto/dynamic_ring/static；auto 解析为 dynamic |
+| channel_count | auto 或 1..10；同时配置 file-parallelism 和 link-set-links |
+| pending_window | 1..16；data-pending-window |
+| control_pipeline_depth | 0/1/2/4；非零要求 dynamic |
+| reconnect_attempts | 0..10；与 lane/整批恢复共用核心预算，要求 CRC32C 和允许 resume |
+| transfer_timeout_ms | 0..86400000；0 在不重连时使用核心默认，重连时解析为 300000 |
+| compression | off/auto；本分支的 V3 核心压缩，不代表其他未合入功能分支 |
+| chunk_size / buffer_size | 正数字节；schema 给出保守上限 |
+| scheduler_mode / scheduler_policy | off/global 与 fixed/adaptive；global 要求 dynamic，adaptive 要求 global |
+| scheduler_work_item_min_bytes/max_bytes | 正整数，min 不得大于 max |
+| scheduler_default_rtt_ms / scheduler_capacity_gbps | 正整数毫秒 / 正数 Gbps |
+| checksum_policy | required_crc32c/none |
+| resume_policy | never/allow/require；require 须已有 tree manifest |
+| data_tls | required/off；off 或 checksum none 要显式 experimental_raw_ack=true |
 
-UI 断开显示 stale，重连执行订阅重同步。不得仅靠 `transfer.get` 的汇总字段声称目录/range 详情完整。
+preview 的 resolved_options 是计划值。队列容量由核心决定：
+dynamic 为 channels × (pipeline_depth 非零时取它，否则取 pending_window) × 2；
+static 为 0。不提供一个填写后却被忽略的手动 queue_depth 数值。
 
-## 幂等、生命周期、取消与恢复
+real adapter 目前支持 TLS/token 目录上传、下载；单文件、管理员凭据和
+Secret Service 注入尚未接入。token 只通过权限受限的
+`credential_ref="file:/absolute/token"` 文件引用传递，不经 RPC 传值。
+远端 root_id 必须等于 profile.default_root_id；它是预配置 root 的标识，
+不会在服务端授予权限或切换宿主目录。路径必须 root-relative，不能有 ..。
 
-`operation_id` 在同用户域唯一且持久化。相同 ID 和相同参数返回原结果，不同参数拒绝；先查幂等记录再校验 `expected_revision`。记录操作和期望状态持久化后才能响应 accepted。连接断开导致结果未知时，用原 ID 重试或查询，不另发 ID 盲目重做。`transfer.create` 只创建 queued；start accepted 不代表 payload 已启动。pause 若后端不能真实暂停，返回 `unsupported` 且不改变状态。重复 start 不创建第二个子进程。
+首次 allow 不传 --resume；只有显式 require 或后续恢复 attempt 才传。
+进程结束后由核心 manifest/校验继续执行一致性检查；UI 不自行判断可恢复。
+旧 API 状态目录保留，API 3 必须使用独立私有状态目录；不自动迁移旧任务。
 
-cancel accepted 仅表示取消请求。活跃任务必须先变为 `cancelling`；只有底层 worker/channel 全部停止、没有继续写入、并持久化最终 checkpoint/commit 状态后，attempt 才能带 `quiescence=confirmed` 进入 `cancelled`。排队任务可直接安全终止。完成与 cancel 竞态以已持久化 terminal 状态为准；已完成重复取消返回 `already_terminal`。断线或 agent 重启不自动重复启动任务。
+## 结果、进度和证据
 
-resume 仅在 checkpoint 可验证时接受。agent 核对 checkpoint/schema 版本、transfer/source/destination/policy identity、文件 `(file_id,generation,path,size,mtime_ns)`、manifest/checksum 与已提交 range；source identity 改变返回 `source_changed`，缺失/损坏返回 `checkpoint_missing`。新恢复必须创建新 `attempt_id`/递增 `attempt_number` 并保留旧历史；只重传未验证缺失 range，已提交 range 不重复提交。`resume_policy=require` 而无可验证 checkpoint 时拒绝；eligible 不能仅由文件存在推定。
+policy 是请求，preview 是预估；effective_policy 只在读到成功的 V3 核心
+摘要后解析，运行期间保持 pending/unknown。实际通道数取
+link_set_accepted_links，不取总连接次数；TLS 验证事实取核心成功结果。
 
-## 目录、配置和授权
+transfer.evidence 返回当前 attempt 的 final_summary 或 not_available，
+只公开 schema 中列明的核心字段，包括恢复计数、压缩、队列、lane、TLS、
+local bind、逻辑字节、wire bytes、阶段时间和 tree_hash。
+不会把整个内部日志或 token 内容经 RPC 发出。
 
-`directory.list` 的 cursor 绑定节点、授权 root、目录和 snapshot；路径相对于授权 root，拒绝绝对路径、`..` 逃逸和符号链接绕行。过期 cursor 明确报错。profile 在节点活跃任务引用时不可删除；配置更新不改变已有 attempt 冻结的 endpoint、credential reference 和 policy。目录/节点测试各检查状态、原因和错误；控制端成功但数据端失败时 `ready=false`。
+真实 adapter 暂无实时逐字节速度、文件/range 事件。
+file.list/range.list 增加 observation 与 coverage=observed_only：
+最终摘要里没有列到的跳过项或失败项不能推定为已展示；空列表也不能
+推定空目录。mtime_ns、每文件字节和校验值缺少证据时返回 null。
+只在最终成功摘要下把观测文件/range 标为 committed/verified。
+UI 应将这些页面称为最终观测明细，不能伪装实时监控。
 
-## 错误与完成条件
+bytes_total 是整个任务逻辑总量；bytes_transferred 为本次实际发送的逻辑字节，
+可能因恢复跳过而小于 total；成功时 bytes_committed=bytes_total。
+完成需要核心 exit 0、result=pass、V3/TLS/调度/通道/队列策略匹配、
+文件计数闭合、无失败文件、最终 commit 和完整证据。进程 exit 0 本身不足以完成。
 
-应用错误映射：-32001 unsupported；-32002 invalid_state/revision_conflict；-32003 not_found；-32004 auth_failed/keyring_locked；-32005 tls_identity_failed；-32006 permission_denied；-32007 data_port_unreachable；-32008 capability_mismatch；-32009 checkpoint_missing；-32010 source_changed；-32011 cursor_expired；-32012 protocol_error。标准 JSON-RPC 错误 -32700/-32600/-32601/-32602/-32603 使用稳定 `errorDetail`；数值码与 `data.code` 必须一致。传输失败写入持久 transfer snapshot.error，RPC 拒绝本身不改变任务。
+## 生命周期、分页和错误
 
-`completed` 必须具备完整扫描、接收端 commit 确认、文件/字节计数闭合、`transfer_status=pass`、校验策略满足、range 全部验证并提交、`evidence_status=complete`，且无错误。`bytes_total` 是需发送/已提交逻辑字节，不含按 `conflict_policy=skip` 跳过的文件字节；`files_total` 包含跳过文件。UI 应明确显示“完成（含跳过）”。`checksum_policy=none` 只能在显式 `experimental_raw_ack=true` 下启用，完成态须标记 `not_requested`。
+operation_id 幂等且持久化；同 ID 同参数回放原结果，不同参数拒绝。
+expected_revision 防止旧页面覆盖最新状态。cancel accepted 是取消请求，
+底层进程退出才确认 cancelled/quiescence=confirmed；排队任务可直接取消。
+resume 新建 attempt_id，递增 attempt_number，保留原历史和各自摘要路径。
+
+分页游标绑定方法、任务、attempt、file generation 和 limit，快照有效期 300 秒。
+实体页返回 snapshot_id/agent_epoch/revision/snapshot_sequence，续页保持水位。
+epoch 变化或事件无法连续重放时 subscription 返回 reset=true 和完整快照。
+慢消费者断开后重同步，不能阻塞数据传输。
+
+连接探测只验证控制面，未探测目录授权和数据端口时 ready=false。
+node.capabilities 的 protocol_version 明确标为本机支持项，control_tls_verified=false；
+真正的已验证 TLS 取 connection_test 或成功任务 evidence。
+
+错误格式为 JSON-RPC error + 稳定 errorDetail。应用错误范围 -32001..-32012，
+标准错误 -32700/-32600/-32601/-32602/-32603，映射由 schema/契约测试固定。
+RPC 拒绝不改任务；运行失败写入 snapshot.error。UI 不应吞掉 unsupported 或
+revision_conflict 后继续执行。
