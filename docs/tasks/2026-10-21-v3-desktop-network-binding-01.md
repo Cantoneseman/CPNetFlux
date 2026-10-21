@@ -1,7 +1,7 @@
 # V3-DESKTOP-NETWORK-BINDING-01
 
 Date: 2026-10-21 (Asia/Shanghai)
-Status: in_progress
+Status: first_slice_complete (two-server transfer and physical path validation are not accepted by this record)
 Owner: current commander only; serial development in Shenzhen
 Input commit: 3660ac5d1a3abaa978da7312072d2d6cb66e0041
 Branch: codex/V3-DESKTOP-NETWORK-BINDING-01 (root initially held a compression documentation branch; no compression code was changed)
@@ -70,7 +70,23 @@ Add the first backend slice for server-local desktop network configuration:
 - Real Shenzhen inventory/plan/apply/verify passed in a temporary private state directory: eth0, source 192.168.10.22, one requested lane; verified=true and physical_path_verified=false. No deployed configuration was changed.
 - Core build evidence: /tmp/cpnetflux-runs/V3-DESKTOP-NETWORK-BINDING-01-build/Testing/Temporary/LastTest.log
 - Desktop build evidence: /tmp/cpnetflux-runs/V3-DESKTOP-NETWORK-BINDING-01-desktop/Testing/Temporary/LastTest.log
-- Shanghai preflight: 71 GB available on / and /tmp; CMake 3.22.1, ninja and g++ available. Synchronization/build result will be recorded after the implementation commit is pushed and read back.
+- Shanghai preflight: 71 GB available on / and /tmp; CMake 3.22.1, ninja and g++ available. Real inventory/plan/apply/verify also passed with eth0 source 192.168.10.138 in temporary state; physical_path_verified remained false.
+
+## Fixed revision and peer synchronization
+
+Implementation commit: 55897af909cb8ff3e90581d7236f265003175c0c, pushed to the verified CPNetFlux origin branch codex/V3-DESKTOP-NETWORK-BINDING-01; git ls-remote returned the identical SHA before synchronization.
+
+Both hosts use that implementation commit. The Git archive SHA-256 is 5d9484c6b52148a34bc2b79f68882e7b18caab6daf722806caf58f100d764280 on both hosts. Shanghai peer source/build directory: /tmp/cpnetflux-runs/V3-DESKTOP-NETWORK-BINDING-01. It is an isolated build artifact directory, not a development checkout.
+
+Shanghai core Release build passed with TLS and io_uring enabled. Related CTest passed 33/33; agent tests 16/16 and contract tests 8/8 passed. Qt6 development packages are absent on the peer, so no Shanghai desktop build is claimed; the desktop build and full desktop tests passed on Shenzhen.
+
+The independent core builds produced identical SHA-256 values:
+
+| Binary | SHA-256 on Shenzhen and Shanghai |
+|---|---|
+| cpnetflux-tree-upload-client | d53773ff9a699b4ccce615410663dbfa24ca37751fa1159d67fc3498f661d05f |
+| cpnetflux-tree-download-client | 91e9bd68364d558f04f67cd5e1514d95182580cfa643c7868b449332f82ca463 |
+| cpnetflux-gridftp-server | 6633aad6915683a1bae13e1c890b6256d4f268956fed1532af1ccb99a978ad6e |
 
 The implemented workflow configures local source addresses. The kernel still selects egress interfaces using existing routes. Verification checks local availability only; it does not establish peer connectivity, physical path separation, performance, or production readiness.
 
