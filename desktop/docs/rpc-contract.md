@@ -65,13 +65,16 @@ plan 不带 selections 时推荐地址；手选形式为：
 手选数量必须等于 requested_links，每块网卡只能选一次，地址须已配置且接口可用。
 不足链路的推荐可以展示，不能 apply。旧 inventory_revision 被拒绝。
 
-peer_addresses 只允许空数组或 null 项；实际逐链路远端地址映射尚未实现，
-非空地址明确返回 unsupported。apply 只保存 CPNetFlux 配置，不改系统
-IP、路由、网卡启停或防火墙。get 读取已保存值；clear 必须提交 get 返回的
+peer_addresses 为空时每条 lane 使用 profile.host；填写后必须覆盖每条 requested
+link，且是与本地地址同族的数字 IP。apply 保存 CPNetFlux 的本地绑定和逐链路
+远端映射，不改系统 IP、路由、网卡启停或防火墙。get 读取已保存值；clear 必须提交 get 返回的
 expected_plan_id（未保存时为 null）。活跃任务期间拒绝修改/清除所用配置。
 
 verify 检查地址仍可用，physical_path_verified 始终为 false；
-真实传输 summary 回报 local_bind_addresses，仍不证明物理路径独立。
+真实传输 summary 回报 peer_addresses 和每 lane 的 control/data socket 实际本地/远端 IP；
+agent 校验配置与观测一致后才确认任务完成。这仍不证明物理路径独立。
+summary 还回报 peer_addresses 和每条 lane 的 control/data socket 地址；agent
+会校验这些实际地址，失败时任务不会被标成完成。远端 IP 必须属于同一 V3 服务和根目录。
 单个绑定地址可用于多个逻辑通道；多个绑定地址的数量必须与 channel_count 一致。
 创建任务时冻结 profile 与 binding，之后更改配置不会偷偷改变已有任务。
 

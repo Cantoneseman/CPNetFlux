@@ -69,6 +69,7 @@ def main():
     parser.add_argument("--ca-file",type=Path,required=True)
     parser.add_argument("--token-file",type=Path,required=True)
     parser.add_argument("--local-bind-address",required=True)
+    parser.add_argument("--mapped-peer-address",required=True)
     parser.add_argument("--remote-path",required=True)
     parser.add_argument("--evidence-dir",type=Path,required=True)
     args=parser.parse_args()
@@ -108,7 +109,7 @@ def main():
         inventory=peer.call("node.network.inventory",dict(node_id="peer"))
         interface=next(x for x in inventory["interfaces"] if args.local_bind_address in x["addresses"])
         plan=peer.call("node.network.plan",dict(node_id="peer",inventory_revision=inventory["inventory_revision"],
-            requested_links=1,peer_addresses=[],selections=[dict(interface_id=interface["interface_id"],local_address=args.local_bind_address)]))
+            requested_links=1,peer_addresses=[args.mapped_peer_address],selections=[dict(interface_id=interface["interface_id"],local_address=args.local_bind_address)]))
         peer.call("node.network.apply",dict(operation_id=operation(),node_id="peer",plan_id=plan["plan_id"],
             inventory_revision=inventory["inventory_revision"],confirm=True))
         binding=peer.call("node.network.get",dict(node_id="peer"))
@@ -141,6 +142,11 @@ def main():
             assert summary["actual_transport"]=="v3" and summary["link_set_accepted_links"]==2
             assert summary["control_tls_verified"] and summary["data_tls_verified"]
             assert summary["local_bind_addresses"]==[args.local_bind_address]
+            assert summary["peer_addresses"]==[args.mapped_peer_address]
+            assert len(summary["lane_endpoints"])==2
+            for endpoint in summary["lane_endpoints"]:
+                assert endpoint["control_peer_address"]==endpoint["data_peer_address"]==args.mapped_peer_address
+                assert endpoint["control_local_address"]==endpoint["data_local_address"]==args.local_bind_address
             assert final["metrics"]["bytes_total"]==total and final["metrics"]["bytes_committed"]==total
             page=peer.call("file.list",dict(transfer_id=task["transfer_id"],attempt_id=final["attempt"]["attempt_id"],cursor=None,limit=100))
             assert page["observation"]=="final_summary" and page["coverage"]=="observed_only"

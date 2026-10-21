@@ -14,9 +14,10 @@ or manually selected bindings, explicit apply, get, verify, revision-guarded cle
 Freeze endpoint and binding when creating a task. Report source binds and logical
 lanes without claiming separate physical paths.
 
-Do not invent pause, secure remote browsing, live byte/range progress, per-lane peer
-mapping or single-file TLS/auth support. These remain explicit unsupported features
-or documented telemetry limits, not frontend assumptions.
+Do not invent pause, secure remote browsing, live byte/range progress or single-file
+TLS/auth support. These remain explicit unsupported features or documented telemetry
+limits, not frontend assumptions. Per-lane peer mapping is implemented by the
+2026-10-22 decision; physical-route independence remains unverified.
 
 Scope, tests, fixed-commit peer evidence and continuation are recorded in
 docs/tasks/2026-10-21-v3-desktop-agent-align-01.md. Desktop implementation follows

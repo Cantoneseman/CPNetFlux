@@ -261,11 +261,16 @@ class AgentTests(unittest.TestCase):
 
     def test_network_plan_does_not_pretend_to_apply_peer_mapping(self):
         inventory = self.p.call("node.network.inventory", {"node_id": "local"})["result"]
-        reply = self.p.call("node.network.plan", {
+        plan = self.p.call("node.network.plan", {
             "node_id": "local", "inventory_revision": inventory["inventory_revision"],
             "requested_links": 1, "peer_addresses": ["198.51.100.2"],
+        })["result"]
+        self.assertEqual(plan["bindings"][0]["peer_address"], "198.51.100.2")
+        self.p.call("node.network.apply", {
+            "operation_id": "mapped-peer", "node_id": "local",
+            "plan_id": plan["plan_id"], "inventory_revision": inventory["inventory_revision"],
+            "confirm": True,
         })
-        self.assertEqual(reply["error"]["data"]["code"], "unsupported")
 
     def test_network_binding_survives_agent_restart(self):
         inventory = self.p.call("node.network.inventory", {"node_id": "local"})["result"]

@@ -743,6 +743,26 @@ TEST(TreeTransferOptionsTest, AcceptsTenPersistentChannelsAndRejectsEleven) {
 }
 
 
+TEST(TreeTransferOptionsTest, ParsesNumericPeerAddresses) {
+    const char* argv[] = {"client", "--auth-probe", "--link-set-links", "2",
+                          "--peer-addresses", "127.0.0.2,::1"};
+    auto result = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(result.isOk()) << result.status().message();
+    EXPECT_EQ(result.value().peerAddresses, (std::vector<std::string>{"127.0.0.2", "::1"}));
+}
+
+TEST(TreeTransferOptionsTest, RejectsInvalidPeerAddresses) {
+    for (const char* value : {"", "peer.example", "127.0.0.1,", "127.0.0.1,,127.0.0.2",
+                              "127.0.0.1,127.0.0.2,127.0.0.3"}) {
+        const char* argv[] = {"client", "--auth-probe", "--link-set-links", "2",
+                              "--peer-addresses", value};
+        auto result = cpnetflux::config::parseTreeTransferOptions(
+            static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+        EXPECT_FALSE(result.isOk()) << value;
+    }
+}
+
 TEST(TreeTransferOptionsTest, ParsesNumericLocalBindAddresses) {
     const char* argv[] = {
         "cpnetflux-tree-upload-client",

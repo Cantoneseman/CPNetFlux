@@ -2764,6 +2764,7 @@
                 },
                 "peer_addresses": {
                   "type": "array",
+                  "maxItems": 10,
                   "items": {
                     "anyOf": [
                       {
@@ -4125,6 +4126,7 @@
               "contract",
               "network_get",
               "network_clear",
+              "network_peer_mapping",
               "cancel",
               "transfer_validate",
               "transfer_evidence",
@@ -5186,6 +5188,30 @@
           "items": {
             "type": "string",
             "minLength": 1
+          }
+        },
+        "peer_addresses": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "lane_endpoints": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "properties": {
+              "channel_index": {"type": "integer", "minimum": 0, "maximum": 15},
+              "lane_index": {"type": "integer", "minimum": 0, "maximum": 9},
+              "control_peer_address": {"type": "string"},
+              "data_peer_address": {"type": "string"},
+              "control_local_address": {"type": "string"},
+              "data_local_address": {"type": "string"},
+              "data_connections": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+            },
+            "required": ["channel_index", "lane_index", "control_peer_address", "data_peer_address",
+              "control_local_address", "data_local_address", "data_connections"],
+            "additionalProperties": false
           }
         },
         "persistent_lane_ids": {

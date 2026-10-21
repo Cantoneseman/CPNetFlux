@@ -45,6 +45,7 @@ struct TreeTransferOptions {
     std::uint16_t port = 2121;
     // One address applies to every lane; multiple addresses map by lane index.
     std::vector<std::string> localBindAddresses;
+    std::vector<std::string> peerAddresses;
     bool authProbe = false;
     std::string sourceDir;
     std::string destDir;

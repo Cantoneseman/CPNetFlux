@@ -88,6 +88,39 @@ class V3ApiTests(unittest.TestCase):
             expected_plan_id=plan['plan_id'],confirm=True),None)
         self.assertIsNone(result['binding'])
         self.assertIsNone(a.dispatch('node.network.get',{'node_id':'local'},None)['binding'])
+    def test_peer_mapping_plan_apply_and_frozen_command(self):
+        a=self.agent
+        inv=a._network_inventory('demo')
+        plan=a._network_plan('demo',inv['inventory_revision'],1,['198.51.100.20'])
+        a.dispatch('node.network.apply',dict(operation_id='mapped',node_id='demo',
+            plan_id=plan['plan_id'],inventory_revision=inv['inventory_revision'],confirm=True),None)
+        binding=a.dispatch('node.network.get',dict(node_id='demo'),None)['binding']
+        self.assertEqual(binding['bindings'][0]['peer_address'],'198.51.100.20')
+        a.args.demo=False;a.core_binary=lambda name:'/bin/'+name
+        profile=dict(host='identity.example',control_port=2121,server_name='identity.example',
+            ca_path='/ca',credential_ref='file:/token')
+        a.profile_for=lambda endpoint,profile=None:profile
+        a.store['task_inputs']['t']=dict(profile=profile,binding=copy.deepcopy(binding))
+        a.store['network_bindings'].clear()
+        task=self.request();task.update(transfer_id='t',attempt=dict(attempt_number=1),
+            backend_evidence=dict(event_log='/events',summary='/summary'))
+        cmd=a.build_real_command(task)
+        self.assertEqual(cmd[cmd.index('--peer-addresses')+1],'198.51.100.20')
+        self.assertEqual(cmd[cmd.index('--tls-server-name')+1],'identity.example')
+
+    def test_peer_mapping_rejects_partial_invalid_and_family_mismatch(self):
+        inv=self.agent._network_inventory('local')
+        for links,peers in [(2,['198.51.100.20']), (2,['198.51.100.20',None]),
+                (1,['peer.example']), (1,['0.0.0.0']), (1,['224.0.0.1']),
+                (1,['fe80::1']), (1,['::1'])]:
+            with self.assertRaises(MOD.RpcError):
+                self.agent._network_plan('local',inv['inventory_revision'],links,peers,
+                    [dict(interface_id='demo:eth0',local_address='192.0.2.10')]*links)
+        with self.assertRaises(MOD.RpcError):
+            self.agent.resolve_options(policy(),dict(local_bind_addresses=['192.0.2.10'],
+                bindings=[dict(local_address='192.0.2.10',peer_address='198.51.100.1'),
+                          dict(local_address='192.0.2.10',peer_address=None)]))
+
     def test_manual_selection_rejects_unassigned_or_duplicate_interface(self):
         inv = self.agent._network_inventory('local')
         for picks in [[dict(interface_id='demo:eth0',local_address='203.0.113.9')],
@@ -195,6 +228,34 @@ class V3ApiTests(unittest.TestCase):
         self.assertEqual(ranges[0]['attempt_number'],1)
         self.assertEqual(ranges[0]['core_attempt'],2)
         with self.assertRaises(MOD.RpcError):a.real_files(task,'another-attempt')
+
+    def test_completion_requires_actual_socket_endpoints_to_match_peer_map(self):
+        a=self.agent
+        binding=dict(local_bind_addresses=['192.0.2.10'],bindings=[dict(
+            lane_id=0,local_address='192.0.2.10',peer_address='198.51.100.20')])
+        a.store['task_inputs']['mapped']=dict(profile={},binding=binding)
+        t=self.request();t.update(transfer_id='mapped',attempt=dict(attempt_number=1),
+            metrics=dict(files_total=1,files_committed=1,files_skipped=0,files_failed=0,
+                bytes_total=7,bytes_committed=7),effective_policy=a.pending_policy())
+        summary=dict(result='pass',actual_transport='v3',actual_file_scheduling='dynamic',
+            checksum_algorithm='crc32c',resume=False,link_set_accepted_links=2,
+            control_tls_verified=True,data_tls_verified=True,data_pending_window=2,
+            compression_policy='auto',scheduler_mode='off',scheduler_policy='fixed',
+            control_pipeline_depth=2,queue_capacity=8,reconnect_attempt_budget=2,
+            recovery_attempts_used=1,peer_addresses=['198.51.100.20'],lane_endpoints=[
+                dict(channel_index=0,lane_index=0,control_peer_address='198.51.100.20',
+                    data_peer_address='198.51.100.20',control_local_address='192.0.2.10',
+                    data_local_address='192.0.2.10'),
+                dict(channel_index=1,lane_index=1,control_peer_address='198.51.100.20',
+                    data_peer_address='198.51.100.20',control_local_address='192.0.2.10',
+                    data_local_address='192.0.2.10')])
+        a.apply_real_policy(t,summary)
+        self.assertTrue(a.completion_matches(t,summary))
+        changed=copy.deepcopy(summary)
+        changed['lane_endpoints'][1]['data_peer_address']='203.0.113.10'
+        self.assertFalse(a.completion_matches(t,changed))
+        changed=copy.deepcopy(summary);changed['peer_addresses']=['203.0.113.10']
+        self.assertFalse(a.completion_matches(t,changed))
 
     def test_completion_rejects_unapplied_options_or_excess_recovery(self):
         a=self.agent;t=self.request()

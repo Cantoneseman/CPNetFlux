@@ -5,8 +5,10 @@
 V3 is the only runtime. Desktop API 3.0 supersedes the old 2.x mode/fallback contract.
 Current scope: docs/tasks/2026-10-21-v3-desktop-agent-align-01.md.
 Next: build desktop views against desktop/docs/rpc-contract.md and its JSON schema.
-Pause, remote browsing, live range telemetry and per-lane peer mapping remain separate
-backend work; physical multi-NIC validation remains deferred until hardware is ready.
+Per-lane peer mapping is now the active backend closeout task:
+docs/tasks/2026-10-22-v3-desktop-peer-mapping-01.md.
+Pause, remote browsing and live range telemetry remain separate backend work;
+physical multi-NIC validation remains deferred until hardware is ready.
 
 ## 当前状态
 

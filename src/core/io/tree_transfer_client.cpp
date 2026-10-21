@@ -71,10 +71,31 @@ const std::string& localBindAddressFor(const config::TreeTransferOptions& option
     return options.localBindAddresses.at(lane % options.localBindAddresses.size());
 }
 
+const std::string& peerAddressFor(const config::TreeTransferOptions& options, std::uint32_t lane) {
+    return options.peerAddresses.empty() ? options.host
+        : options.peerAddresses.at(lane % options.peerAddresses.size());
+}
+
+const std::string& tlsIdentityFor(const config::TreeTransferOptions& options) {
+    return options.tlsServerName.empty() ? options.host : options.tlsServerName;
+}
+
+std::string socketAddress(int fd, bool peer) {
+    sockaddr_storage address{};
+    socklen_t length = sizeof(address);
+    const int status = peer ? ::getpeername(fd, reinterpret_cast<sockaddr*>(&address), &length)
+                            : ::getsockname(fd, reinterpret_cast<sockaddr*>(&address), &length);
+    char host[NI_MAXHOST]{};
+    if (status != 0 || ::getnameinfo(reinterpret_cast<sockaddr*>(&address), length,
+            host, sizeof(host), nullptr, 0, NI_NUMERICHOST) != 0) return {};
+    return host;
+}
+
 constexpr auto kPipelineControlResponseTimeout = std::chrono::seconds(30);
 
 class ControlClient {
    public:
+    [[nodiscard]] int socketFd() const noexcept { return control_.fd(); }
     [[nodiscard]] common::Status connectTo(const std::string& host, std::uint16_t port,
                                            const TlsConfig& tls,
                                            const std::string& tlsServerName = {}, SocketDeadline deadline = {},
@@ -717,12 +738,10 @@ common::Status saveManifest(core::tree::TreeManifest* manifest, const std::strin
 
 common::Status ensureControlReady(ControlClient* client,
                                     const config::TreeTransferOptions& options,
-                                    const std::string& localBindAddress = {}) {
+                                    std::uint32_t lane = 0) {
     const common::Status connectStatus =
-        client->connectTo(options.host, options.port, options.tls, options.tlsServerName,
-                          options.transferDeadline,
-                          localBindAddress.empty() ? localBindAddressFor(options, 0)
-                                                   : localBindAddress);
+        client->connectTo(peerAddressFor(options, lane), options.port, options.tls, tlsIdentityFor(options),
+                          options.transferDeadline, localBindAddressFor(options, lane));
     if (!connectStatus.isOk()) {
         return connectStatus;
     }
@@ -740,7 +759,7 @@ TreeAuthProbeResult runTreeAuthProbeInternal(const config::TreeTransferOptions& 
     TreeAuthProbeResult result;
     ControlClient control;
     const common::Status connectStatus =
-        control.connectTo(options.host, options.port, options.tls, options.tlsServerName,
+        control.connectTo(peerAddressFor(options, 0), options.port, options.tls, tlsIdentityFor(options),
                           options.transferDeadline, localBindAddressFor(options, 0));
     if (!connectStatus.isOk()) {
         const std::string message = connectStatus.message();
@@ -892,6 +911,11 @@ common::Result<core::scheduler::SchedulerMetricsPaths> schedulerMetricsPaths(
     return paths;
 }
 
+struct LaneEndpoint {
+    std::uint32_t channelIndex = 0, laneIndex = 0, dataConnections = 0;
+    std::string controlPeer, dataPeer, controlLocal, dataLocal;
+};
+
 struct TreeRunStats {
     std::atomic<std::uint64_t> completedThisRun{0};
     std::atomic<std::uint64_t> skippedFiles{0};
@@ -914,6 +938,7 @@ struct TreeRunStats {
     bool perFileStarted = false;
     std::uint64_t persistentDataConnectCount = 0;
     std::vector<std::string> persistentLaneIds;
+    std::vector<LaneEndpoint> laneEndpoints;
     std::vector<std::uint64_t> persistentLaneRangeCompletions;
     std::uint64_t resumeSkippedBytes = 0, recoveryPayloadBytes = 0;
     std::uint32_t reconnectAttempts = 0, connectionEpoch = 1;
@@ -1352,6 +1377,25 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "\"" << jsonEscape(options.localBindAddresses[index]) << "\"";
     }
     output << "],\n";
+    output << "  \"peer_addresses\": [";
+    for (std::size_t index = 0; index < options.peerAddresses.size(); ++index) {
+        if (index) output << ", ";
+        output << "\"" << jsonEscape(options.peerAddresses[index]) << "\"";
+    }
+    output << "],\n";
+    output << "  \"lane_endpoints\": [";
+    for (std::size_t index = 0; index < stats.laneEndpoints.size(); ++index) {
+        const auto& endpoint = stats.laneEndpoints[index];
+        if (index) output << ", ";
+        output << "{\"channel_index\":" << endpoint.channelIndex
+               << ",\"lane_index\":" << endpoint.laneIndex
+               << ",\"control_peer_address\":\"" << jsonEscape(endpoint.controlPeer)
+               << "\",\"data_peer_address\":\"" << jsonEscape(endpoint.dataPeer)
+               << "\",\"control_local_address\":\"" << jsonEscape(endpoint.controlLocal)
+               << "\",\"data_local_address\":\"" << jsonEscape(endpoint.dataLocal)
+               << "\",\"data_connections\":" << endpoint.dataConnections << "}";
+    }
+    output << "],\n";
     if (stats.persistentData) {
         output << "  \"link_set_accepted_links\": " << stats.persistentLaneIds.size() << ",\n";
         output << "  \"persistent_lane_ids\": [";
@@ -1508,9 +1552,9 @@ common::Status emitTreeSummary(const char* label, const char* direction,
 common::Status ensureControlReadyWithStats(ControlClient* client,
                                            const config::TreeTransferOptions& options,
                                            TreeRunStats* stats,
-                                           const std::string& localBindAddress = {}) {
+                                           std::uint32_t lane = 0) {
     const auto started = std::chrono::steady_clock::now();
-    const common::Status status = ensureControlReady(client, options, localBindAddress);
+    const common::Status status = ensureControlReady(client, options, lane);
     if (stats != nullptr) {
         stats->phaseACount.fetch_add(1, std::memory_order_relaxed);
         stats->phaseASecondsNs.fetch_add(phaseNanos(std::chrono::steady_clock::now() - started), std::memory_order_relaxed);
@@ -1889,6 +1933,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         double controlWaitSeconds = 0, prepareSeconds = 0, reconnectControlPrepareSeconds = 0;
         double connectSeconds = 0, remoteQueueWait = 0, remoteScan = 0;
         bool dataConnected = false;
+        LaneEndpoint endpoint;
         std::string linkId;
         std::size_t remoteQueueHigh = 0;
         common::Status status = common::Status::ok();
@@ -1954,7 +1999,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             const auto preparing = std::chrono::steady_clock::now();
             if (!(index == 0 && connected != nullptr)) {
                 channel.status = ensureControlReadyWithStats(channel.control, persistentOptions, stats,
-                                                     localBindAddressFor(options, index));
+                                                     index);
                 if (!channel.status.isOk()) {
                     recordFailure(channel.status);
                     return;
@@ -2035,8 +2080,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
             channel.prepareSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now()-preparing).count();
             const auto connecting = std::chrono::steady_clock::now();
-            auto data = connectFramedDataSocket(options.host.c_str(), port.value(), options.dataTlsMode, options.tls,
-                                                  options.tlsServerName.empty() ? nullptr : options.tlsServerName.c_str(), options.transferDeadline,
+            auto data = connectFramedDataSocket(peerAddressFor(options, index).c_str(), port.value(), options.dataTlsMode, options.tls,
+                tlsIdentityFor(options).c_str(), options.transferDeadline,
                 localBindAddressFor(options, index));
             channel.connectSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now()-connecting).count();
             if (!data.isOk()) {
@@ -2046,6 +2091,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
             std::lock_guard<std::mutex> lock(channel.dataMutex);
             channel.data = std::move(data.value());
+            channel.endpoint.controlPeer = socketAddress(channel.control->socketFd(), true);
+            channel.endpoint.controlLocal = socketAddress(channel.control->socketFd(), false);
+            channel.endpoint.dataPeer = socketAddress(channel.data.fd(), true);
+            channel.endpoint.dataLocal = socketAddress(channel.data.fd(), false);
             channel.dataConnected = true;
             channel.dataConnectCount = 1;
         });
@@ -2284,7 +2333,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     stats->laneControlReconnectCount.fetch_add(1);
                     const auto connectedStatus = ensureControlReadyWithStats(
                         channel.control, persistentOptions, stats,
-                        localBindAddressFor(options, index));
+                        index);
                     if (!connectedStatus.isOk()) return connectedStatus;
                     std::uint32_t actualWindow = 1, actualChannels = 1;
                     auto capability = channel.control->negotiatePersistent(
@@ -2309,8 +2358,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     &channel.totalFiles, &channel.expectedFileCount, batchId);
                 if (!started.isOk()) return started;
                 const auto connecting = std::chrono::steady_clock::now();
-                auto data = connectFramedDataSocket(options.host.c_str(), port.value(), options.dataTlsMode,
-                    options.tls, options.tlsServerName.empty() ? nullptr : options.tlsServerName.c_str(),
+                auto data = connectFramedDataSocket(peerAddressFor(options, index).c_str(), port.value(), options.dataTlsMode,
+                    options.tls, tlsIdentityFor(options).c_str(),
                     options.transferDeadline, localBindAddressFor(options, index));
                 channel.connectSeconds += std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - connecting).count();
@@ -2318,6 +2367,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 {
                     std::lock_guard<std::mutex> lock(channel.dataMutex);
                     channel.data = std::move(data.value());
+                    channel.endpoint.controlPeer = socketAddress(channel.control->socketFd(), true);
+                    channel.endpoint.controlLocal = socketAddress(channel.control->socketFd(), false);
+                    channel.endpoint.dataPeer = socketAddress(channel.data.fd(), true);
+                    channel.endpoint.dataLocal = socketAddress(channel.data.fd(), false);
                 }
                 channel.dataConnected = true;
                 ++channel.dataConnectCount;
@@ -2406,6 +2459,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     for (const auto& channel : channels)
         stats->controlPrepareSeconds += channel->reconnectControlPrepareSeconds;
 
+    stats->laneEndpoints.clear();
     stats->persistentLaneIds.clear();
     for (std::uint32_t index = 0; index < options.linkSetLinks; ++index) {
         stats->persistentLaneIds.push_back("link" + std::to_string(index));
@@ -2420,6 +2474,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     std::uint64_t payloadPipelineProducerWaits = 0, payloadPipelineConsumerWaits = 0;
     for (std::size_t index = 0; index < channels.size(); ++index) {
         const auto& channel = channels[index];
+        auto endpoint = channel->endpoint;
+        endpoint.channelIndex = index;
+        endpoint.laneIndex = index % options.linkSetLinks;
+        endpoint.dataConnections = channel->dataConnectCount;
+        stats->laneEndpoints.push_back(std::move(endpoint));
         stats->persistentDataConnectCount += channel->dataConnectCount;
         stats->resumeSkippedBytes += channel->observed.skippedBytes;
         stats->queueWaitSeconds += upload ? channel->observed.queueWaitSeconds : channel->remoteQueueWait;

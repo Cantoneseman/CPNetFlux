@@ -62,9 +62,10 @@ common::Status requireValue(int argc, int index, std::string_view option) {
 }
 
 common::Status appendLocalBindAddresses(std::vector<std::string>* addresses,
-                                          std::string_view value) {
+                                          std::string_view value,
+                                          const std::string& option = "--local-bind-addresses") {
     if (value.empty()) {
-        return common::Status::invalidArgument("--local-bind-addresses must not be empty");
+        return common::Status::invalidArgument(option + " must not be empty");
     }
     std::size_t start = 0;
     while (start <= value.size()) {
@@ -73,7 +74,7 @@ common::Status appendLocalBindAddresses(std::vector<std::string>* addresses,
             ? value.size() - start : comma - start);
         if (token.empty()) {
             return common::Status::invalidArgument(
-                "--local-bind-addresses contains an empty address");
+                option + " contains an empty address");
         }
         addrinfo hints{};
         hints.ai_family = AF_UNSPEC;
@@ -83,7 +84,7 @@ common::Status appendLocalBindAddresses(std::vector<std::string>* addresses,
         const int status = ::getaddrinfo(std::string(token).c_str(), nullptr, &hints, &result);
         if (status != 0) {
             return common::Status::invalidArgument(
-                "--local-bind-addresses requires numeric IPv4/IPv6 addresses");
+                option + " requires numeric IPv4/IPv6 addresses");
         }
         ::freeaddrinfo(result);
         addresses->emplace_back(token);
@@ -92,7 +93,7 @@ common::Status appendLocalBindAddresses(std::vector<std::string>* addresses,
     }
     if (addresses->size() > 10) {
         return common::Status::invalidArgument(
-            "--local-bind-addresses supports at most 10 lane addresses");
+            option + " supports at most 10 lane addresses");
     }
     return common::Status::ok();
 }
@@ -236,6 +237,9 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return common::Status::invalidArgument("--port must be in range 1..65535");
             }
             options.port = static_cast<std::uint16_t>(parsed.value());
+        } else if (option == "--peer-addresses") {
+            const auto status = appendLocalBindAddresses(&options.peerAddresses, value, "--peer-addresses");
+            if (!status.isOk()) return status;
         } else if (option == "--local-bind-address" || option == "--local-bind-addresses") {
             const auto status = appendLocalBindAddresses(&options.localBindAddresses, value);
             if (!status.isOk()) return status;
@@ -579,6 +583,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             }
         }
     }
+    if (options.peerAddresses.size() > 1 && options.peerAddresses.size() != options.linkSetLinks) {
+        return common::Status::invalidArgument(
+            "--peer-addresses must contain one address or exactly --link-set-links addresses");
+    }
     if (options.localBindAddresses.size() > 1 &&
         options.localBindAddresses.size() != options.linkSetLinks) {
         return common::Status::invalidArgument(
@@ -621,7 +629,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            " [--connections <N>] [--file-parallelism <N>] [--chunk-size <bytes>] "
            "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
            "[--checksum-backend <auto|software|hardware>] [--reconnect-attempts 0..10] [--transfer-timeout-ms N] [--resume] "
-           "[--auth-probe] [--local-bind-address <numeric-ip>] [--local-bind-addresses <ip,ip,...>] "
+           "[--auth-probe] [--local-bind-address <numeric-ip>] [--local-bind-addresses <ip,ip,...>] [--peer-addresses <ip,ip,...>] "
            "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window 1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "

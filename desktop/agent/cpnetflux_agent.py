@@ -291,6 +291,9 @@ class Agent:
             addresses = binding.get("local_bind_addresses", [])
             if addresses:
                 args += ["--local-bind-addresses", ",".join(addresses)]
+            peers = self.binding_peers(binding)
+            if peers:
+                args += ["--peer-addresses", ",".join(peers)]
         if t["direction"] == "upload":
             exe = self.core_binary("cpnetflux-tree-upload-client")
             args += ["--source-dir", str(path), "--dest-dir", remote["path"]]
@@ -512,8 +515,18 @@ class Agent:
         inventory = self._network_inventory(node_id)
         if inventory["inventory_revision"] != inventory_revision:
             raise RpcError("revision_conflict", "网卡清单已变化，请重新检测")
-        if any(address is not None for address in peer_addresses):
-            raise RpcError("unsupported", "当前仅支持本机源地址绑定；逐链路远端地址映射尚未接入")
+        explicit_peers = any(address is not None for address in peer_addresses)
+        if len(peer_addresses) > requested_links or (explicit_peers and (
+                len(peer_addresses) != requested_links or None in peer_addresses)):
+            raise RpcError("invalid_state", "远端映射必须为每条链路指定地址，不能混用空值")
+        if explicit_peers:
+            try:
+                peers = [ipaddress.ip_address(x) for x in peer_addresses]
+                if any(x.is_unspecified or x.is_multicast or x.is_link_local or x.is_loopback for x in peers):
+                    raise ValueError()
+            except ValueError:
+                raise RpcError("invalid_state", "远端映射必须为可用的数字 IPv4/IPv6 地址")
+            peer_addresses = [str(x) for x in peers]
         host = self.store.get("profiles", {}).get(node_id, {}).get("host")
         try:
             peer_family = ipaddress.ip_address(host).version if host else None
@@ -531,11 +544,9 @@ class Agent:
                     continue
                 if address.is_loopback or address.is_link_local or address.is_unspecified or address.is_multicast:
                     continue
-                if peer_family is None or address.version == peer_family:
-                    usable.append(address)
+                usable.append(address)
             if usable:
-                selected = min(usable, key=lambda address: (address.version, int(address)))
-                candidates.append(dict(interface, addresses=[str(selected)]))
+                candidates.append(dict(interface, addresses=[str(x) for x in usable]))
         if selections is not None:
             if len(selections) != requested_links or len({x["interface_id"] for x in selections}) != len(selections):
                 raise RpcError("invalid_state", "手动选择数量必须匹配链路数，且每块网卡只能选择一次")
@@ -547,15 +558,30 @@ class Agent:
                 if (interface is None or interface["kind"] == "loopback" or interface["state"] != "up"
                         or not interface["carrier"] or str(address) not in interface["addresses"]
                         or address.is_loopback or address.is_link_local or address.is_unspecified
-                        or address.is_multicast or (peer_family and address.version != peer_family)):
+                        or address.is_multicast):
                     raise RpcError("invalid_state", "选择的本机地址不可用或与远端地址族不匹配")
                 selected_interfaces.append(dict(interface, addresses=[str(address)]))
             candidates = selected_interfaces
         bindings = []
         for lane, interface in enumerate(candidates[:requested_links]):
             peers = peer_addresses[lane] if lane < len(peer_addresses) else None
+            family = ipaddress.ip_address(peers).version if peers else peer_family
+            if selections is None:
+                # Match each lane's family before choosing an unused local interface.
+                used = {x["interface_id"] for x in bindings}
+                interface = next((x for x in candidates if x["interface_id"] not in used and
+                    any(family is None or ipaddress.ip_address(a).version == family for a in x["addresses"])), None)
+                if interface is None:
+                    break
+                addresses = [ipaddress.ip_address(x) for x in interface["addresses"]
+                    if family is None or ipaddress.ip_address(x).version == family]
+                local_address = str(min(addresses, key=lambda a: (a.version, int(a))))
+            else:
+                local_address = interface["addresses"][0]
+                if family and ipaddress.ip_address(local_address).version != family:
+                    raise RpcError("invalid_state", "选择的本机地址与该链路远端地址族不匹配")
             bindings.append(dict(lane_id=lane, interface_id=interface["interface_id"],
-                                 local_address=interface["addresses"][0],
+                                 local_address=local_address,
                                  peer_address=peers))
         warnings = list(inventory["warnings"])
         if len(bindings) < requested_links:
@@ -603,6 +629,17 @@ class Agent:
                     physical_path_verified=False, effective_bindings=effective,
                     warnings=warnings)
 
+    @staticmethod
+    def binding_peers(binding):
+        rows = (binding or {}).get("bindings", [])
+        peers = [x.get("peer_address") for x in rows]
+        if not any(x is not None for x in peers): return []
+        try:
+            if any(x is None for x in peers): raise ValueError()
+            return [str(ipaddress.ip_address(x)) for x in peers]
+        except ValueError:
+            raise RpcError("invalid_state", "保存的远端映射不完整或不是数字 IP，请重新生成方案")
+
     def resolve_options(self, policy, binding=None):
         p = dict(self.policy_defaults(), **policy)
         if (p["requested_mode"] != "v3" or p["fallback_policy"] != "reject"
@@ -613,6 +650,9 @@ class Agent:
         channels = (len(addresses) or 1) if p["channel_count"] == "auto" else p["channel_count"]
         if addresses and len(addresses) not in {1, channels}:
             raise RpcError("invalid_state", "通道数须匹配绑定地址数；单个地址可用于所有通道")
+        peers = self.binding_peers(binding)
+        if peers and (len(peers) not in {1, channels} or len(peers) != len(addresses)):
+            raise RpcError("invalid_state", "远端映射数量须匹配绑定地址和通道数")
         scheduler = "dynamic_ring" if p["scheduler"] == "auto" else p["scheduler"]
         if scheduler == "static" and (p["control_pipeline_depth"] or p["scheduler_mode"] == "global"):
             raise RpcError("unsupported", "控制流水线和 global 调度要求 dynamic 文件调度")
@@ -665,7 +705,7 @@ class Agent:
             policy_defaults=self.policy_defaults(),policy_schema=copy.deepcopy(self.schema["$defs"]["policy"]),
             limitations=["只提供带 TLS/token 的目录任务，不提供统一认证的单文件传输",
                 "真实文件/range 明细在传输结束后由核心摘要生成，没有实时逐块速率",
-                "网卡配置只写 CPNetFlux 本机源地址，不改系统路由；逐链路远端地址映射尚未实现",
+                "网卡配置只写 CPNetFlux 本机绑定和逐链路远端 IP，不改系统路由；映射须指向同一 V3 服务和根目录",
                 "local_supported 表示本机核心支持项；远端 peer 能力仍需连接实际协商"])
 
     def validation(self, p):
@@ -735,6 +775,26 @@ class Agent:
         frozen=self.store.get("task_inputs",{}).get(t["transfer_id"],{})
         binding=frozen.get("binding") if frozen else self.store["network_bindings"].get(remote["node_id"])
         options=self.resolve_options(t["policy"],binding); m=t["metrics"]
+        peers=self.binding_peers(binding)
+        endpoints=summary.get("lane_endpoints",[])
+        if peers:
+            if summary.get("peer_addresses") != peers or len(endpoints)!=options["channel_count"]:
+                return False
+            if {x.get("channel_index") for x in endpoints}!=set(range(options["channel_count"])):
+                return False
+            for endpoint in endpoints:
+                lane=endpoint["channel_index"]
+                try:
+                    expected=ipaddress.ip_address(peers[lane%len(peers)])
+                    local=ipaddress.ip_address(binding["local_bind_addresses"][lane%len(binding["local_bind_addresses"])])
+                    if endpoint.get("lane_index") != lane or any(
+                            ipaddress.ip_address(endpoint.get(key,""))!=expected
+                            for key in ("control_peer_address","data_peer_address")) or any(
+                            ipaddress.ip_address(endpoint.get(key,""))!=local
+                            for key in ("control_local_address","data_local_address")):
+                        return False
+                except ValueError:
+                    return False
         return (t["effective_policy"]["resolution"]=="resolved"
             and t["effective_policy"]["channel_count"]==options["channel_count"]
             and t["effective_policy"]["checksum"]==options["checksum"]
@@ -783,7 +843,7 @@ class Agent:
             return dict(kind="agent_info",agent_version="0.3.0",api_version=API_VERSION,agent_epoch=self.epoch,
                         adapter="demo" if self.args.demo else "real",max_frame_bytes=MAX_FRAME,
                         max_concurrent_requests=32,state_store="persistent",
-                        features=["profiles","contract","network_inventory","network_plan","network_apply","network_verify","network_get","network_clear"]+
+                        features=["profiles","contract","network_inventory","network_plan","network_apply","network_verify","network_get","network_clear","network_peer_mapping"]+
                             (["transfer_lifecycle","entity_pages","cancel","resume","transfer_validate","transfer_evidence","v3"] if self.args.demo or real_ready else []))
         if method == "transfer.pause": raise RpcError("unsupported", "暂停尚未实现，任务状态保持不变")
         if method == "directory.list": raise RpcError("unsupported", "真实远端目录浏览尚未接入")

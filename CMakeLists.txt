@@ -473,6 +473,11 @@ if(CPNETFLUX_BUILD_TESTS)
     )
     set_tests_properties(cpnetflux_v3_logical_link_matrix PROPERTIES TIMEOUT 420 RUN_SERIAL TRUE)
     add_test(
+        NAME cpnetflux_peer_mapping_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_peer_mapping_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_peer_mapping_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(
         NAME cpnetflux_fault_proxy_unit
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/test_cpnetflux_fault_proxy.py
     )
