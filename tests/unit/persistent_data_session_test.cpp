@@ -671,6 +671,54 @@ TEST(PersistentTreeLeaseTest, ReopenedWorkerUsesCurrentEpochThroughActualSender)
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), "ABCDEFGH");
 }
 
+TEST(PersistentTreeLeaseTest, HealthyWorkerPreservesRecoveredRangeAttempt) {
+    TempRoot source, destination;
+    std::ofstream(source.path / "migrate.bin") << "ABCDEFGH";
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "migrate.bin").c_str(), &st), 0);
+    PersistentFileIdentity id{1, 7, 8, "migrate.bin", "migrate-range", 4,
+        st.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    id.rangeId = id.rangeCount = 1;
+    id.rangeLength = id.totalSize;
+    DynamicFileQueue queue(std::vector<PersistentFileIdentity>{id}, 2, 1, 1);
+    WorkExecutor failed(queue, queue.worker(0).value());
+    auto first = failed.claim();
+    ASSERT_TRUE(first.isOk()); ASSERT_TRUE(first.value());
+    ASSERT_TRUE(failed.begin(*first.value()).isOk());
+    ASSERT_TRUE(queue.disconnect(failed.owner()).isOk());
+    ASSERT_TRUE(failed.recover({{*first.value(), WorkRecoveryDisposition::Missing}}, 1).isOk());
+
+    SocketPair pair;
+    PersistentTreeStats sent, received;
+    cpnetflux::common::Status receiverStatus;
+    std::uint64_t wireAttempt = UINT64_MAX, completedAttempt = UINT64_MAX;
+    std::jthread receiver([&] {
+        receiverStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false,
+            "", &received, [&](const PersistentFileIdentity& file,
+                               const cpnetflux::common::Status&, bool complete) {
+                if (!complete) wireAttempt = file.attempt;
+                return cpnetflux::common::Status::ok();
+            }, 1, 1, 2, 1, true);
+    });
+    cpnetflux::config::FileTransferOptions options;
+    options.reconnectAttempt = 0; // The healthy lane has never reconnected.
+    auto senderStatus = sendPersistentTree(&pair.sender, source.path.string(), {}, &sent,
+        [&](const PersistentFileIdentity& file, const cpnetflux::common::Status& status, bool complete) {
+            if (complete && status.isOk()) completedAttempt = file.attempt;
+            return cpnetflux::common::Status::ok();
+        }, 1, 1, 2, &queue, &options);
+    ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(senderStatus.isOk()) << senderStatus.message();
+    ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+    EXPECT_EQ(wireAttempt, 1U);
+    EXPECT_EQ(completedAttempt, 1U);
+    EXPECT_EQ(queue.outstanding(), 0U);
+    EXPECT_FALSE(queue.commit(*first.value()).isOk());
+    std::ifstream output(destination.path / "migrate.bin");
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), "ABCDEFGH");
+}
+
 namespace {
 class PersistentRecoveryTest : public ::testing::TestWithParam<std::tuple<bool, bool>> {};
 }

@@ -364,7 +364,16 @@ if(CPNETFLUX_BUILD_TESTS)
             --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_parallel_compression_smoke PROPERTIES
         TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_tree_fd_bound_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_fd_bound_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_tree_fd_bound_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     if(CPNETFLUX_HAS_TLS)
+        add_test(NAME cpnetflux_tree_fd_bound_tls_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_fd_bound_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR} --tls)
+        set_tests_properties(cpnetflux_tree_fd_bound_tls_smoke PROPERTIES
+            TIMEOUT 180 RUN_SERIAL TRUE)
         add_test(NAME cpnetflux_parallel_compression_tls_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_parallel_compression_smoke.py
                 --build-dir ${CMAKE_BINARY_DIR} --tls)

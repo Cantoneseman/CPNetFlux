@@ -18,6 +18,8 @@ import time
 
 BASE = Path("/tmp/cpnetflux-runs/V3-PARALLEL-COMPRESSION-01")
 MIB = 1024 * 1024
+BINARIES = ("cpnetflux-gridftp-server", "cpnetflux-tree-upload-client",
+            "cpnetflux-tree-download-client")
 SERVER_SUPERVISOR = """
 import pathlib, signal, subprocess, sys
 def stop(signum, frame):
@@ -139,11 +141,32 @@ def make_datasets(root, large_mib):
     return sorted(root.iterdir())
 
 
+def validate_compression_observation(mode, observed):
+    if mode == "off":
+        if observed["compression_attempts"] != 0:
+            raise RuntimeError("raw control unexpectedly attempted compression")
+        return
+    if not observed.get("compression_negotiated"):
+        raise RuntimeError("requested compression was not negotiated")
+    workers = observed["compression_workers_observed"]
+    if not (0 <= workers <= 4 and
+            observed["compression_max_in_flight_jobs_observed"] <= 16 and
+            observed["compression_max_in_flight_bytes_observed"] <= 268435456):
+        raise RuntimeError("compression concurrency evidence violates bounds")
+    if observed["compression_attempts"] and workers == 0:
+        raise RuntimeError("local compression attempts have no worker evidence")
+    # Auto can reject an incompressible sample before starting any pool job.
+    if not observed["compression_attempts"] and observed["compressed_frames"]:
+        raise RuntimeError("compressed frames have no local compression attempts")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--helper", help=argparse.SUPPRESS)
     parser.add_argument("--repository", type=Path)
     parser.add_argument("--commit")
+    parser.add_argument("--build-artifacts", type=Path,
+                        help="reuse this runner's manifest-verified artifacts from the same commit/archive")
     parser.add_argument("--peer-ssh")
     parser.add_argument("--peer-ip")
     parser.add_argument("--local-interface")
@@ -173,6 +196,26 @@ def main():
                 raise AssertionError("cleanup accepted a parent directory")
             except ValueError:
                 pass
+            idle = {"compression_negotiated": True, "compression_attempts": 0,
+                    "compressed_frames": 0, "compression_workers_observed": 0,
+                    "compression_max_in_flight_jobs_observed": 0,
+                    "compression_max_in_flight_bytes_observed": 0}
+            validate_compression_observation("off", idle)
+            validate_compression_observation("auto", idle)
+            active = dict(idle, compression_attempts=1, compressed_frames=1,
+                          compression_workers_observed=1,
+                          compression_max_in_flight_jobs_observed=1,
+                          compression_max_in_flight_bytes_observed=MIB)
+            validate_compression_observation("auto", active)
+            for invalid in (dict(active, compression_workers_observed=5),
+                            dict(active, compression_workers_observed=0),
+                            dict(idle, compression_negotiated=False),
+                            dict(idle, compressed_frames=1)):
+                try:
+                    validate_compression_observation("auto", invalid)
+                    raise AssertionError("invalid compression observation was accepted")
+                except RuntimeError:
+                    pass
             pid_file = workspace / "server.pid"
             supervisor = subprocess.Popen([sys.executable, "-c", SERVER_SUPERVISOR,
                 str(pid_file), sys.executable, "-c", "import time; time.sleep(30)"],
@@ -241,27 +284,42 @@ def main():
         required_free = max(8 * 1024 ** 3, args.large_mib * MIB * 4 + 2 * 1024 ** 3)
         if min(before["free_bytes"], peer_before["free_bytes"]) < required_free:
             raise RuntimeError("insufficient free space for bounded datasets/build/receiver")
-        build = workspace / "build"
-        with (workspace / "build.log").open("w") as log:
-            checked(["cmake", "-S", workspace / "src", "-B", build,
-                     "-DCMAKE_BUILD_TYPE=Release", "-DCPNETFLUX_BUILD_TESTS=OFF",
-                     "-DCPNETFLUX_BUILD_DESKTOP=OFF", "-DCPNETFLUX_ENABLE_TLS=ON"],
-                    stdout=log, stderr=subprocess.STDOUT)
-            checked(["cmake", "--build", build, "-j2", "--target",
-                     "cpnetflux-gridftp-server", "cpnetflux-tree-upload-client"],
-                    stdout=log, stderr=subprocess.STDOUT)
+        archive_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
+        build = args.build_artifacts.resolve() if args.build_artifacts else workspace / "build"
+        artifact_manifest = None
+        if args.build_artifacts:
+            artifact_manifest = json.loads((build / "artifact-manifest.json").read_text())
+            if (artifact_manifest.get("commit") != args.commit or
+                    artifact_manifest.get("archive_sha256") != archive_hash):
+                raise RuntimeError("artifact provenance does not match the pinned source archive")
+        else:
+            with (workspace / "build.log").open("w") as log:
+                checked(["cmake", "-S", workspace / "src", "-B", build,
+                         "-DCMAKE_BUILD_TYPE=Release", "-DCPNETFLUX_BUILD_TESTS=OFF",
+                         "-DCPNETFLUX_BUILD_DESKTOP=OFF", "-DCPNETFLUX_ENABLE_TLS=ON"],
+                        stdout=log, stderr=subprocess.STDOUT)
+                checked(["cmake", "--build", build, "-j2", "--target", *BINARIES],
+                        stdout=log, stderr=subprocess.STDOUT)
         remote(["mkdir", workspace / "bin"])
         binary_hashes = {}
-        for name in ("cpnetflux-gridftp-server", "cpnetflux-tree-upload-client"):
+        for name in BINARIES:
             source = build / name
-            copy(source, workspace / "bin" / name)
             local_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+            if (artifact_manifest is not None and
+                    artifact_manifest.get("binary_sha256", {}).get(name) != local_hash):
+                raise RuntimeError("reused build binary hash mismatch: " + name)
+            copy(source, workspace / "bin" / name)
             if peer_helper("binary_hash", workspace / "bin" / name) != local_hash:
                 raise RuntimeError("deployed binary hash mismatch")
             dependencies = remote(["ldd", workspace / "bin" / name], capture_output=True, text=True)
             if "not found" in dependencies.stdout + dependencies.stderr:
                 raise RuntimeError("receiver runtime dependency is missing")
             binary_hashes[name] = local_hash
+        if artifact_manifest is None:
+            (build / "artifact-manifest.json").write_text(json.dumps({
+                "commit": args.commit, "archive_sha256": archive_hash,
+                "binary_sha256": binary_hashes,
+                "build": "Release; TLS on; tests/desktop/io_uring off"}, indent=2))
         credentials = workspace / "credentials"
         credentials.mkdir(mode=0o700)
         token, cert, key = (credentials / name for name in ("token", "cert.pem", "key.pem"))
@@ -301,7 +359,8 @@ def main():
                     raise RuntimeError("isolated TLS server did not start; inspect server.log")
                 time.sleep(0.1)
         metadata = {"commit": args.commit, "binary_sha256": binary_hashes,
-                    "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+                    "archive_sha256": archive_hash,
+                    "reused_artifacts": bool(args.build_artifacts),
                     "build": "Release; TLS on; tests/desktop/io_uring off",
                     "transport": "TCP over selected IP interface; not RDMA verbs",
                     "scheduler": {"mode": "global", "policy": args.scheduler_policy},
@@ -359,15 +418,7 @@ def main():
                         if (observed.get("actual_file_scheduling") != "dynamic" or
                                 observed.get("scheduler_mode") != "global"):
                             raise RuntimeError("requested directory scheduling combination was not used")
-                        if mode == "auto" and not observed.get("compression_negotiated"):
-                            raise RuntimeError("requested compression was not negotiated")
-                        if mode == "auto" and not (
-                            1 <= observed["compression_workers_observed"] <= 4 and
-                            observed["compression_max_in_flight_jobs_observed"] <= 16 and
-                            observed["compression_max_in_flight_bytes_observed"] <= 268435456):
-                            raise RuntimeError("compression concurrency evidence violates bounds")
-                        if mode == "off" and observed["compression_attempts"] != 0:
-                            raise RuntimeError("raw control unexpectedly attempted compression")
+                        validate_compression_observation(mode, observed)
                         row = {"dataset": dataset.name, "repetition": repetition,
                                "warmup": repetition == 0, "compression": mode, "sha256": actual,
                                "wall_seconds": elapsed, "logical_gbps": expected[2] * 8 / elapsed / 1e9,

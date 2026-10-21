@@ -303,6 +303,10 @@ class FileTransaction {
         if (!status.isOk()) return status;
         if (!policy_.options.overwrite && ::unlink(temp_.c_str()) != 0)
             return Status::runtimeError("persistent temp unlink failed");
+        // Integrity callbacks retain this transaction until the batch ends.
+        // They reopen the published path; committed files need no live writer/fd.
+        writer_.reset();
+        file_ = storage::PosixFile{};
         active_ = false;
         return Status::ok();
     }
@@ -866,7 +870,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             stats->queueWaitSeconds += next.value()->queueWaitSeconds;
         }
         if (transferOptions && transferOptions->reconnectAttempt != UINT32_MAX)
-            id.attempt = transferOptions->reconnectAttempt;
+            // Recovered work may migrate to a lane that has never reconnected.
+            // Preserve the work attempt so the receiver can validate its replay.
+            id.attempt = std::max<std::uint64_t>(id.attempt, transferOptions->reconnectAttempt);
         timing.file = id; timing.channel = channelIndex; timing.sender = true;
         const auto fileStarted = Clock::now();
         status = tree::validateTreeRelativePath(id.relativePath);

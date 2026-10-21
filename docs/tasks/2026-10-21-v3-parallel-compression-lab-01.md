@@ -54,3 +54,40 @@ binaries/manifests are under /home/Su/.local/opt/cpnetflux-compression/<input SH
 Rollback: stop only owned experiment processes, remove owned temporary rules and
 generated payloads/credentials, retain logs and isolated versioned binaries. Revert
 only explicit task commits if needed. Never reset/clean other source trees.
+
+## Deployment Prerequisite: Bounded Receiver File Descriptors
+
+The first R730 to R750 raw dense warm-up failed after 992 reported commits
+(995 executor completions) with five failed files and no reconnect budget. The
+R750 SSH process soft RLIMIT_NOFILE is 1024. FileTransaction objects are retained
+for published-output integrity validation and currently keep their open temporary
+file after successful publication. Investigate with a low-limit loopback test
+before changing runtime behavior; do not count the failed run as performance.
+
+Narrow scope extension: release the writer and file handle after successful
+publication/checkpoint finalization, while retaining output identity and manifest
+integrity callbacks. Add raw and TLS low-descriptor-limit upload/download tests.
+Allowed extra paths: src/core/io/persistent_tree_transfer.cpp,
+tools/test/run_cpnetflux_tree_fd_bound_smoke.py and CMakeLists.txt. This supersedes
+the no-runtime-change non-goal only for this prerequisite defect. No protocol,
+retry policy, integrity policy, host-wide limit or formal service changes.
+Acceptance: regression fails on input code, passes with the fix, focused
+compression/recovery/terminal integrity tests and full serial CTest pass; then
+commit/push/read back SHA and rebuild both lab endpoints from that exact commit.
+
+The focused reconnect gate also exposed an intermittent duplicate-range-begin
+failure. Shared recovery increments the work item's attempt, but the sender can
+overwrite it with an unchanged healthy lane's attempt when work migrates. Extend
+the same prerequisite scope to preserve the greater work/lane attempt and cover
+the migrated range through an actual socket sender/receiver test in
+tests/unit/persistent_data_session_test.cpp. Do not relax receiver replay checks.
+The original full run also lacked the private CPNETFLUX_TEST_TOKEN and failed
+two authentication fixtures; supply that test-only variable without logging it
+for the final full suite. Existing successful runs do not erase these failures.
+
+The corruption fixture races parallel dispatch: its fault hook assumes a.bin
+already committed while another worker can hit the reset threshold first.
+Allow tools/test/run_cpnetflux_reconnect_smoke.py to serialize only this fixture
+with one lane and one pending file; the large-range/recovery scenarios retain
+their multi-lane coverage. Confirm repeated corruption rejection still reports
+checksum_mismatch rather than counting a missing fixture file as a core failure.

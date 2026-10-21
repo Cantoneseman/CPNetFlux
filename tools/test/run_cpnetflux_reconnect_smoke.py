@@ -112,7 +112,9 @@ def main():
                     "--port",str(port),"--source-dir",str(source) if direction=="upload" else "source",
                     "--dest-dir","received" if direction=="upload" else str(target),
                     "--chunk-size","65536","--buffer-size","32768","--checksum","crc32c",
-                    "--file-parallelism","1" if kind=="changed" else "2",
+                    "--file-parallelism","1" if kind in ("changed", "corrupt") else "2",
+                    # Corrupt only after the preceding file has a confirmed result.
+                    "--data-pending-window", "1" if kind == "corrupt" else "2",
                     "--scheduler","global","--scheduler-policy",policy,
                     "--scheduler-metrics-dir",str(case/"metrics"),"--json-summary",str(summary),
                     "--compression", a.compression]
