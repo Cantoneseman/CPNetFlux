@@ -114,3 +114,60 @@ and 1 ms conservative RTT explicitly. This budget is not a payload cache.
 Runner SHA is recorded independently; both modes/directions retain identical
 settings, and measured large/mixed cases require observed range completions.
 The partial prior run is retained but excluded from the restarted matrix.
+
+## Final Bidirectional Compression Matrix
+
+The isolated Release runtime was deployed identically on both endpoints at
+`/home/Su/.local/opt/cpnetflux-compression/4a51e6eddde916c8c9f9ec868514ab455539e5bd`.
+The three executable hashes and source archive hash match the R730 artifact
+manifest; the runner profile was SHA-256
+`8d8def2a4b03733442c9c9f3134b912fb326c40d9a77ea5af49f07b32fe941a1`.
+Both directions used TCP over the selected 100-Gbps Ethernet interfaces, TLS and
+token authentication, CRC32C, eight worker channels, global fixed scheduling,
+worker control reuse, tree data-session reuse, and V3 dynamic file scheduling.
+No formal service was replaced.
+
+Each direction completed 32 records: four data shapes, compression off/auto,
+one warm-up and three measured repetitions. The 24 measured records per direction
+all returned `result=pass`; source SHA-256, file count and byte count matched in
+every off/auto pair. The large-file cells reported 16 completed ranges. Run
+workspaces and raw JSON remain outside Git:
+
+- R730 -> R750: `20261021T164710-27065d0d5eff` on R730.
+- R750 -> R730: `20261022T005513-615f1dca05cc` on R750.
+
+Median results below use measured repetitions only. Wire bytes are application
+frame bytes recorded by the transfer summary; time delta is `(auto/off - 1)`.
+
+| Direction | Dataset | Off median (s) | Auto median (s) | Time delta | Off wire | Auto wire | Wire reduction |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| R730 -> R750 | dense 2048 x 64 KiB | 22.4248 | 25.8825 | +15.4% | 135,050,026 | 68,772,650 | 49.08% |
+| R730 -> R750 | large random 1 GiB | 6.1812 | 11.1893 | +81.0% | 1,074,878,800 | 1,074,878,800 | 0.00% |
+| R730 -> R750 | large repeated 1 GiB | 6.2315 | 6.1770 | -0.9% | 1,074,878,800 | 10,406,736 | 99.03% |
+| R730 -> R750 | mixed 514 files / 516 MiB | 5.4295 | 6.1792 | +13.8% | 541,809,323 | 274,538,593 | 49.33% |
+| R750 -> R730 | dense 2048 x 64 KiB | 26.1045 | 29.7586 | +14.0% | 135,050,026 | 68,772,650 | 49.08% |
+| R750 -> R730 | large random 1 GiB | 7.1250 | 13.2351 | +85.8% | 1,074,878,800 | 1,074,878,800 | 0.00% |
+| R750 -> R730 | large repeated 1 GiB | 7.1254 | 7.2750 | +2.1% | 1,074,878,800 | 10,406,736 | 99.03% |
+| R750 -> R730 | mixed 514 files / 516 MiB | 5.1726 | 5.7229 | +10.6% | 541,809,323 | 274,538,593 | 49.33% |
+
+Auto mode selected `compressed` for the repeated large file, `raw_fallback` for
+random data, and `mixed` for dense and mixed trees. The corresponding observed
+wire reductions were 99.03%, 0%, 49.08% and 49.33%. Compression is therefore a
+traffic-saving feature whose benefit depends on data entropy: it is not a
+universal elapsed-time accelerator. Random data paid the compression decision
+and worker CPU cost without reducing wire bytes; repeated data reached almost
+the same end-to-end time while moving about 1% of the uncompressed bytes.
+Dense and mixed data reduced traffic about half but took 10.6--15.4% longer in
+this direct-link run.
+
+This matrix is a functional and compression-effect acceptance run on a
+100-Gbps-capable direct link using ordinary TCP. It is not a native RDMA verbs
+benchmark, a 100-Gbps throughput claim, or cross-domain evidence. The measured
+throughput is also bounded by the chosen payload shapes, TLS, checksums, storage,
+compression CPU and fixed scheduler profile. A later performance campaign may
+vary channel count, CPU affinity, compression worker limits, RTT and larger
+repetitions only after this correctness result is accepted.
+
+Both cleanup manifests report peer receive, peer credentials, payload and local
+credentials removed. No owned runner or receiver process remains on R730 or
+R750; pre-existing formal services were left untouched.
