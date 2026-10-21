@@ -104,12 +104,13 @@ common::Status PersistentDirectoryBatch::failChannel(
 }
 void PersistentDirectoryBatch::failLocked(const common::Status& status) {
     if (status_.isOk()) status_ = status.isOk() ? common::Status::runtimeError("directory batch cancelled") : status;
-    const bool reportTargetConflict =
-        status_.message().find("output already exists") != std::string::npos;
+    const bool reportSemanticFailure =
+        status_.message().find("output already exists") != std::string::npos ||
+        status_.message().find("committed output ") != std::string::npos;
     for (auto& c : channels_) {
         // Keep controls available for the authoritative semantic terminal reply.
         // Data sockets still stop immediately so siblings cannot keep writing.
-        if (c.control >= 0 && !reportTargetConflict) (void)::shutdown(c.control, SHUT_RDWR);
+        if (c.control >= 0 && !reportSemanticFailure) (void)::shutdown(c.control, SHUT_RDWR);
         if (c.data >= 0) (void)::shutdown(c.data, SHUT_RDWR);
     }
     changed_.notify_all();

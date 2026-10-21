@@ -76,3 +76,28 @@ Both V3 upload and download explicitly negotiate COMPRESSION=zlib. An unsupporte
 
 Remaining acceptance: verified R730/R750 data-interface configuration, isolated deployment of the pinned commit and the measured lab matrix. No lab throughput result is claimed.
 
+## Directory composition follow-up (2026-10-21)
+
+Input commit: b88b0c17f450a81d0a302a52ba20f7d2b3421a91. The user specifically requested directory/compression integration. Continue serially in the same branch/checkout; preserve the separate root branch and its untracked documents.
+
+Scope: exercise negotiated auto compression with dynamic directory scheduling, worker control/data reuse, global fixed/adaptive scheduling, mixed nested small/random/empty files, large-file ranges, actual data disconnects and bounded recovery failures. Reuse the existing real TCP fault harness; choose a compressed-wire byte threshold so a reset cannot be silently skipped when compression reduces traffic.
+
+Non-goals: no new codecs, UI, authentication policy, native RDMA, performance experiments, formal-service deployment or general recovery refactor.
+
+Acceptance: successful upload/download trees match SHA-256, codec and dynamic V3 mode are confirmed, large-file range dispatch is observed, the injected fault actually fires and existing retry-budget checks still hold. Exhaustion/deadline/identity/content failures must remain bounded failures. Run focused composition tests and the full serial CTest; commit only task files and push/read back origin SHA.
+
+Expected paths: tools/test/run_cpnetflux_reconnect_smoke.py, CMakeLists.txt, tools/perf/run_parallel_compression_lab.py (explicit global scheduler policy/metrics), this task and its result record. A reproducible core fault, if found, may be fixed only in the previously allowed V3 compression/persistent-tree/control files with an appropriate failing regression first.
+
+Rollback: revert the explicit follow-up commit on this feature branch. Keep b88b0c17 and the frozen candidate available; do not remove user data, touch formal services or reset other branches.
+
+
+### Reproduced terminal-error fix
+
+The compressed-directory corruption case intermittently reports recovery-budget
+exhaustion instead of the committed-output checksum failure. A batch cancellation
+currently shuts down its control sockets before the handler sends its terminal
+reply. Add a socket-level regression, keep controls open for committed-output
+integrity failures, and propagate the batch's integrity cause to sibling replies.
+Additional allowed files: `src/core/io/persistent_directory_batch.cpp`,
+`src/protocol/control/control_server.cpp`, and
+`tests/unit/persistent_data_session_test.cpp`.

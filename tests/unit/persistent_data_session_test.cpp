@@ -950,6 +950,33 @@ TEST_P(PersistentMultiRangeRecoveryTest, ReplaysVerifiedPartitionAfterFirstSkipP
 }
 
 
+TEST(PersistentDirectoryBatchTest, KeepsIntegrityFailureControlsOpenWhileStoppingData) {
+    SocketPair control0, control1, data0, data1;
+    PersistentDirectoryBatch batch(1, 2);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    ASSERT_TRUE(batch.attach(1).isOk());
+    batch.bind(0, control0.sender.fd(), data0.sender.fd(), true);
+    batch.bind(1, control1.sender.fd(), data1.sender.fd(), true);
+    const auto integrity = cpnetflux::common::Status::invalidArgument(
+        "committed output checksum mismatch: a.bin");
+    batch.cancel(integrity);
+    batch.cancel(cpnetflux::common::Status::transportError("data connection closed"));
+    EXPECT_EQ(batch.status().message(), integrity.message());
+    const std::string reply = "550 " + integrity.message() + "\r\n";
+    for (auto* control : {&control0, &control1}) {
+        EXPECT_EQ(::send(control->sender.fd(), reply.data(), reply.size(), MSG_NOSIGNAL),
+                  static_cast<ssize_t>(reply.size()));
+        char received[128]{};
+        const auto count = ::recv(control->receiver.fd(), received, sizeof(received), MSG_DONTWAIT);
+        ASSERT_EQ(count, static_cast<ssize_t>(reply.size()));
+        EXPECT_EQ(std::string(received, count), reply);
+    }
+    for (auto* data : {&data0, &data1}) {
+        char byte{};
+        EXPECT_EQ(::recv(data->receiver.fd(), &byte, 1, MSG_DONTWAIT), 0);
+    }
+}
+
 TEST(PersistentDirectoryBatchTest, DetectsDataResetDuringPeerReadyWaitAndAllowsReattach) {
     PersistentDirectoryBatch batch(1,2);
     ASSERT_TRUE(batch.attach(0).isOk());

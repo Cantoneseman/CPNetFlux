@@ -87,3 +87,54 @@ No lab run was started. No RDMA, bandwidth, speedup or production-readiness clai
 - Review the resulting ratio, CPU, network traffic and end-to-end time before any promotion. Incompressible input may become slower from encoding overhead; high-bandwidth links can be CPU/disk limited.
 - Optional later slices: runtime worker tuning, a serial-compression control, adaptive codec selection and zstd/LZ4. No desktop UI feature was added here.
 - This branch starts at the documented frozen V3 input and does not include the concurrent desktop/network-binding branch. Integration with that newer branch and default rollout require a separate verified stage.
+
+## Directory Composition Follow-up (2026-10-21)
+
+Input: b88b0c17f450a81d0a302a52ba20f7d2b3421a91, same branch and checkout.
+
+Directory transfer and compression use one V3 transaction path. The metadata
+queue still claims files/ranges; compression runs on payload chunks in the shared
+bounded executor. No archive is assembled before transfer. Small files retain
+whole-file scheduling, large files retain offset-based ranges, and CRC32C,
+checkpoint, manifest and finalize continue to describe logical file content.
+
+Delivered:
+
+- Two additional real TCP composition gates. Positive cases cover upload and
+  download with both fixed/adaptive global scheduling, dynamic file claims,
+  worker control reuse, persistent data reuse, required control/data TLS and an
+  actual data reset. Each tree contains 68 files: 64 nested small files, an empty
+  file, random data, a 2,500-byte file and a 64 MiB file split across ranges.
+  SHA-256 trees, actual negotiated zlib, compressed/raw frames, whole-file small
+  dispatch and at least four completed ranges are checked.
+- Negative cases cover retry-budget exhaustion, total deadline, changed source
+  identity and corruption of committed content. Compressed-wire fault thresholds
+  ensure a reset is actually injected. The corruption fixture preserves mtime so
+  it tests content integrity independently of metadata identity.
+- Fixed a reproduced terminal-reply race: integrity-triggered batch cancellation
+  closed control sockets before their checksum reply. Data sockets now stop
+  immediately while controls retain the committed-output semantic error, and
+  sibling control handlers preserve that original batch failure. A socket-level
+  regression failed before the fix and passed after it. Corruption must report
+  checksum_mismatch without spending another retry on the semantic failure.
+- The lab runner explicitly enables global fixed/adaptive scheduling via
+  --scheduler-policy and retains per-run scheduler metrics outside payloads.
+
+Verification:
+
+- CMake build succeeded; focused terminal-error and directory composition CTest:
+  3/3 passed (13.73 seconds).
+- Four negative cases repeated 20 times with CTest --repeat until-fail:20:
+  80 scenario executions passed (28.71 seconds).
+- Full serial CTest: 427 total, 426 passed, one expected io_uring skip, zero failed
+  (193.29 seconds), using a private temporary CPNETFLUX_TEST_TOKEN.
+- Python compilation for both changed scripts, lab-runner --self-test and
+  git diff --check passed.
+
+Evidence outside Git: /tmp/cpnetflux-directory-terminal-focused.log,
+/tmp/cpnetflux-directory-terminal-repeat.log,
+/tmp/cpnetflux-directory-compression-ctest-final.log and retained directory-*
+diagnostic logs under /tmp/cpnetflux-runs/V3-PARALLEL-COMPRESSION-01/.
+Generated diagnostic payloads and temporary certificate/key files were removed;
+logs and scheduler metrics remain. No formal service, desktop package or lab
+deployment was changed. Hardware performance acceptance remains pending.

@@ -151,6 +151,7 @@ def main():
     parser.add_argument("--large-mib", type=int, default=512)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--channels", type=int, default=8)
+    parser.add_argument("--scheduler-policy", choices=("fixed", "adaptive"), default="fixed")
     parser.add_argument("--port", type=int, default=34261)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
@@ -303,6 +304,7 @@ def main():
                     "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
                     "build": "Release; TLS on; tests/desktop/io_uring off",
                     "transport": "TCP over selected IP interface; not RDMA verbs",
+                    "scheduler": {"mode": "global", "policy": args.scheduler_policy},
                     "local_before": before, "peer_before": peer_before,
                     "note": "warm cached files; network counters include SSH probe traffic"}
         (workspace / "environment.json").write_text(json.dumps(metadata, indent=2))
@@ -337,6 +339,9 @@ def main():
                                      "--control-reuse", "worker", "--data-session-reuse", "tree",
                                      "--file-scheduling", "dynamic", "--file-parallelism", args.channels,
                                      "--connections", "1", "--data-pending-window", "4",
+                                     "--scheduler", "global",
+                                     "--scheduler-policy", args.scheduler_policy,
+                                     "--scheduler-metrics-dir", workspace / "metrics" / name,
                                      "--chunk-size", 4 * MIB, "--compression", mode,
                                      "--transfer-timeout-ms", "180000", "--json-summary", summary],
                                     stdout=log, stderr=subprocess.STDOUT)
@@ -351,6 +356,9 @@ def main():
                             raise RuntimeError("transfer or SHA-256 verification failed")
                         if observed.get("actual_mode") != "persistent_tree":
                             raise RuntimeError("V3 persistent tree was not used")
+                        if (observed.get("actual_file_scheduling") != "dynamic" or
+                                observed.get("scheduler_mode") != "global"):
+                            raise RuntimeError("requested directory scheduling combination was not used")
                         if mode == "auto" and not observed.get("compression_negotiated"):
                             raise RuntimeError("requested compression was not negotiated")
                         if mode == "auto" and not (

@@ -370,6 +370,22 @@ if(CPNETFLUX_BUILD_TESTS)
                 --build-dir ${CMAKE_BINARY_DIR} --tls)
         set_tests_properties(cpnetflux_parallel_compression_tls_smoke PROPERTIES
             TIMEOUT 180 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_parallel_compression_directory_recovery_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR} --compression auto
+                --case upload-adaptive-tls-range --case download-fixed-tls-range
+                --case upload-fixed-tls-range --case download-adaptive-tls-range
+                --expect-lane-recovery --transfer-timeout-ms 10000)
+        set_tests_properties(cpnetflux_parallel_compression_directory_recovery_smoke PROPERTIES
+            TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_parallel_compression_directory_failure_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR} --compression auto
+                --case upload-fixed-exhausted --case download-adaptive-deadline
+                --case upload-fixed-changed --case upload-fixed-corrupt
+                --transfer-timeout-ms 10000)
+        set_tests_properties(cpnetflux_parallel_compression_directory_failure_smoke PROPERTIES
+            TIMEOUT 90 RUN_SERIAL TRUE)
     endif()
     add_test(NAME cpnetflux_v1_retirement_gate
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/check_v1_retired.py)

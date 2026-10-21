@@ -10,6 +10,8 @@ def main():
     p.add_argument("--build-dir", type=Path, required=True)
     p.add_argument("--baseline", action="store_true")
     p.add_argument("--evidence-dir", type=Path)
+    p.add_argument("--compression", choices=("off", "auto"), default="off",
+                   help="exercise directory compression together with recovery and scheduling")
     p.add_argument("--case", action="append", dest="selected_cases",
                    help="run only the named direction-policy-fault case")
     p.add_argument("--transfer-timeout-ms", type=int,
@@ -55,6 +57,13 @@ def main():
             (source/"a.bin").write_bytes(b"first"*500)
             size=64*1024*1024 if kind=="tls-range" else 8*1024*1024
             (source/"b.bin").write_bytes(bytes(range(256))*(size//256))
+            if a.compression == "auto":
+                (source / "c-random.bin").write_bytes(os.urandom(256 * 1024))
+                (source / "empty").touch()
+                for index in range(64):
+                    folder = source / "nested" / str(index % 8)
+                    folder.mkdir(parents=True, exist_ok=True)
+                    (folder / str(index)).write_bytes(bytes([index]) * 8192)
             expected=tree_hash(source)
             remote=case/"remote";remote.mkdir()
             if direction=="download": shutil.copytree(source,remote/"source")
@@ -84,9 +93,16 @@ def main():
                     if kind=="corrupt":
                         item=remote/"received"/"a.bin"
                         assert item.exists(), "committed file must predate corrupt fault"
+                        stamp = item.stat()
                         with item.open("r+b") as out: out.write(b"X")
+                        # Isolate content corruption from the independent mtime
+                        # identity guard, including runs crossing a clock second.
+                        os.utime(item, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
                 proxy=FaultProxy("127.0.0.2","127.0.0.1",port,base,
-                    drop_bytes=0 if kind in ("clean","terminal","result","deadline","tls-identity") else 262144,
+                    # Count actual wire bytes: the raw threshold can exceed a
+                    # compressed transfer's entire payload and never inject a fault.
+                    drop_bytes=0 if kind in ("clean","terminal","result","deadline","tls-identity")
+                        else (8192 if a.compression == "auto" else 262144),
                     drops=20 if kind=="exhausted" else 1,
                     delay=0.01 if kind in ("deadline","changed") else 0.0002,
                     drop_terminal=kind=="terminal",drop_result=kind=="result",on_reset=fault_hook,log=case/"proxy.jsonl")
@@ -98,7 +114,11 @@ def main():
                     "--chunk-size","65536","--buffer-size","32768","--checksum","crc32c",
                     "--file-parallelism","1" if kind=="changed" else "2",
                     "--scheduler","global","--scheduler-policy",policy,
-                    "--scheduler-metrics-dir",str(case/"metrics"),"--json-summary",str(summary)]
+                    "--scheduler-metrics-dir",str(case/"metrics"),"--json-summary",str(summary),
+                    "--compression", a.compression]
+                if a.compression == "auto":
+                    cmd += ["--file-scheduling", "dynamic", "--control-reuse", "worker",
+                            "--data-session-reuse", "tree"]
                 if not a.baseline:
                     timeout_ms = 100 if kind == "deadline" else (a.transfer_timeout_ms or 30000)
                     cmd += ["--reconnect-attempts", "1" if kind == "exhausted" else "2",
@@ -116,7 +136,10 @@ def main():
                         assert data["reconnect_attempts"]==0, data
                         assert data["lane_local_recovery_count"]==1, data
                         assert data["recovery_attempts_used"]==1, data
-                        assert "limit exceeded" in result.stderr, data
+                        exhausted = data.get("error", {}).get("message", "")
+                        assert ("limit exceeded" in result.stderr or
+                                "reconnect attempt budget exhausted" in exhausted), data
+                        if a.compression == "auto": assert proxy.dropped >= 2, proxy.dropped
                     elif kind=="deadline":
                         assert time.monotonic()-started<3 and "deadline" in result.stderr, data
                     elif kind == "changed":
@@ -125,10 +148,34 @@ def main():
                     elif kind == "corrupt":
                         assert time.monotonic()-started < 3, data
                         assert "committed output " in result.stderr and "mismatch" in result.stderr, data
-                        assert data["data_connect_count"] <= 2, data
+                        if a.compression == "auto":
+                            # A replacement lane can open for the injected socket reset
+                            # before the terminal checksum reply arrives. Checksum failure
+                            # itself must never spend another recovery attempt.
+                            assert data["error_code"] == "checksum_mismatch", data
+                            assert data["recovery_attempts_used"] <= proxy.dropped == 1, data
+                            assert data["data_connect_count"] <= data["file_parallelism"] + 1, data
+                        else: assert data["data_connect_count"] <= 2, data
                     else: assert data["reconnect_attempts"]==0, data
                 else:
                     actual=tree_hash(target); assert actual==expected,(actual,expected)
+                    if a.compression == "auto":
+                        assert data["compression_negotiated"] and data["compression_codec"] == "zlib", data
+                        assert data["compressed_frames"] > 0, data
+                        assert data["actual_mode"] == "persistent_tree", data
+                        assert data["actual_file_scheduling"] == "dynamic", data
+                        assert data["control_reuse_mode"] == "worker", data
+                        assert data["data_session_reuse_mode"] == "tree", data
+                        if direction == "upload":
+                            assert data["raw_fallback_frames"] > 0, data
+                        events = [json.loads(line) for line in
+                            (case / "metrics" / "scheduler_events.jsonl").read_text().splitlines()]
+                        small = [event for event in events if event.get("event") == "workitem_dispatch"
+                                 and event.get("length") == 8192]
+                        assert len({event["file_id"] for event in small}) == 64, small
+                        assert all(event.get("offset") == 0 for event in small), small
+                        if kind == "tls-range":
+                            assert sum(data["persistent_lane_range_completed"]) >= 4, data
                     reset=kind not in ("clean",)
                     lane_recovery = kind in ("reset", "tls-range", "result") and not a.baseline
                     global_recovery = kind == "terminal" and not a.baseline
