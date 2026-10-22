@@ -1,4 +1,9 @@
 # CPNetFlux 路线图
+## 2026-10-22 无压缩阶段对比后的后端性能路线
+
+依据 docs/tasks/2026-10-22-v3-gridftp-raw-stage-01-result.md，下一阶段后端计划为 docs/tasks/2026-10-22-v3-raw-performance-next-plan-01.md。第一项先修复已复现的文件描述符滞留；之后依次处理 summary CRC 重扫、tree manifest 高频全量落盘，再用单变量实验确认大文件 range 锁和 payload pipeline 的实际影响。桌面后端 peer mapping 已按 docs/tasks/2026-10-22-v3-desktop-peer-mapping-01-result.md 验收；桌面 UI 可独立按 API 3 合同继续。
+
+目标是缩小本轮已测无压缩工作负载的差距，不代表已达成。恢复语义、数据正确性、1024 FD 限制下的 2048 小文件稳定性和可重复性能证据都是阶段验收条件。物理多网卡验证仍按用户要求暂缓。
 
 ## 2026-10-22 Desktop API Update
 
