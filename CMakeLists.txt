@@ -651,6 +651,11 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_pending_window_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     add_test(
+        NAME cpnetflux_summary_crc_auto_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_summary_crc_auto_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_summary_crc_auto_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(
         NAME cpnetflux_tree_control_reuse_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_control_reuse_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )

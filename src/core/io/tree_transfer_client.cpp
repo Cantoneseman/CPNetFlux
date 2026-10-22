@@ -1101,7 +1101,9 @@ ChangedErrorDetails parseChangedError(const std::string& message) {
     return details;
 }
 
-common::Result<std::string> computeTreeVerificationHash(const std::string& root) {
+common::Result<std::string> computeTreeVerificationHash(
+    const std::string& root, checksum::ChecksumBackend requestedBackend,
+    checksum::ChecksumBackend* actualBackend) {
     std::error_code error;
     const std::filesystem::path rootPath(root);
     if (!std::filesystem::exists(rootPath, error) || error ||
@@ -1146,8 +1148,10 @@ common::Result<std::string> computeTreeVerificationHash(const std::string& root)
                std::filesystem::relative(right, rootPath).generic_string();
     });
 
-    checksum::ChecksumComputer computer(checksum::ChecksumAlgorithm::Crc32c,
-                                        checksum::ChecksumBackend::Software);
+    checksum::ChecksumComputer computer(checksum::ChecksumAlgorithm::Crc32c, requestedBackend);
+    if (actualBackend != nullptr) {
+        *actualBackend = computer.backend();
+    }
     std::vector<std::uint8_t> buffer(1024 * 1024);
     for (const auto& path : files) {
         const std::filesystem::path relative = std::filesystem::relative(path, rootPath, error);
@@ -1277,8 +1281,14 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         else compressionDecision = "raw_fallback";
     }
     std::string treeHash;
+    checksum::ChecksumBackend summaryTreeHashBackend = checksum::ChecksumBackend::Auto;
     const std::string hashRoot = std::string(direction) == "upload" ? options.sourceDir : options.destDir;
-    auto hash = computeTreeVerificationHash(hashRoot);
+    const auto summaryTreeHashStartedAt = std::chrono::steady_clock::now();
+    auto hash = computeTreeVerificationHash(hashRoot, options.checksumBackend,
+                                            &summaryTreeHashBackend);
+    const double summaryTreeHashSeconds =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - summaryTreeHashStartedAt)
+            .count();
     if (hash.isOk()) {
         treeHash = hash.value();
     }
@@ -1484,6 +1494,10 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"error_code\": \""
            << core::metrics::errorCodeName(core::metrics::classifyStatus(status)) << "\",\n";
     output << "  \"tree_hash\": \"" << jsonEscape(treeHash) << "\",\n";
+    output << "  \"summary_tree_hash_seconds\": " << summaryTreeHashSeconds << ",\n";
+    output << "  \"summary_tree_hash_backend\": \""
+           << (hash.isOk() ? checksum::checksumBackendName(summaryTreeHashBackend) : "unavailable")
+           << "\",\n";
     if (status.isOk()) {
         output << "  \"error\": null\n";
     } else {
