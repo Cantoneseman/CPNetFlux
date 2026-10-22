@@ -1,7 +1,7 @@
 # V3-DESKTOP-UI-REFACTOR-01 结果
 
 日期：2026-10-22
-状态：源码实现、真实 loopback 功能与构建门禁已通过；最终固定版本 DEB 待本记录补充，Ubuntu 22.04 GNOME VM 安装验收未完成。
+状态：源码实现、真实 loopback 功能与构建门禁已通过；固定版本完整 DEB 已生成并通过解包运行审计；Ubuntu 22.04 GNOME VM 安装验收未完成。
 
 ## 输入与执行边界
 
@@ -70,6 +70,27 @@ python3 -B desktop/tests/test_ui_real.py \
 - 默认策略要求 control CA/identity、data TLS、CRC32C、reject fallback；没有匿名/off-TLS 默认路径。
 - Ubuntu 22.04 GNOME 干净 VM 安装与图形会话验收待提供可用 VM。发现 WSL 发行版不能视为干净 GNOME VM。未修改深圳已运行服务。
 - 包审计将解包检查运行依赖、无凭据/状态/payload/测试探针，使用包内 wrapper 启动 real agent 与 offscreen UI；此结果只证明解包运行。
+
+## 提交与安装包
+
+- 实现提交：454c9e3ad96aabac0a3d1fdf71c0b74de7fd9c22，已推送 origin/codex/V3-DESKTOP-NETWORK-BINDING-01 并用 git ls-remote 回读一致。
+- 构建机为 Ubuntu 22.04.5 LTS；提交后重新 CMake configure/build，再 CPack，包内 source_revision 精确指向实现提交。
+- 完整安装包：/tmp/cpnetflux-desktop-integrated-build/package-delivery/cpnetflux_0.1.0+git.454c9e3ad96a_amd64.deb（约 4.3 MiB）。
+- SHA-256：489ba1f253e616665cd59158f9ec2f5dc654ab25a183738aae3020f676b3aa81。
+- CPack 日志：/tmp/cpnetflux-desktop-delivery-cpack.log；构建日志：/tmp/cpnetflux-desktop-delivery-build.log。
+- test_package.py 审计通过：27 个安装文件，wrapper 自动发现包内 sibling core，adapter=real/API=3.0.0；解包 UI offscreen 启动、连接并退出后 agent 仍存活；未包含测试探针、凭据、payload 或状态。
+- Depends 已核对包含 qt6-qpa-plugins、qml6-module-qtquick-templates、qml6-module-qtquick-dialogs 等；包内 build-info 的 public_release_ready=false 保留。
+- Windows 仅接收包和截图备份，路径 C:/Users/12563/.codex/visualizations/2026/10/12/01a12fd5-7f76-72a0-886a-274b0159ee7c；本机 Get-FileHash 回读 SHA-256 一致。没有在 Windows 开发源码。
+- 未 apt 安装到深圳主机，未切换已运行的 user/system service。解包运行不等于干净 GNOME VM 安装已通过。
+
+```bash
+cpack --config /tmp/cpnetflux-desktop-integrated-build/CPackConfig.cmake \
+  -G DEB -B /tmp/cpnetflux-desktop-integrated-build/package-delivery
+python3 -B desktop/tests/test_package.py \
+  /tmp/cpnetflux-desktop-integrated-build/package-delivery/cpnetflux_0.1.0+git.454c9e3ad96a_amd64.deb
+sha256sum /tmp/cpnetflux-desktop-integrated-build/package-delivery/cpnetflux_0.1.0+git.454c9e3ad96a_amd64.deb
+git ls-remote origin refs/heads/codex/V3-DESKTOP-NETWORK-BINDING-01
+```
 
 ## 回滚与下一步
 

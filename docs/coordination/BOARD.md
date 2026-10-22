@@ -1,6 +1,6 @@
 # 当前执行（2026-10-20；R2026-10-16-V3-UNIFIED-MULTILINK）
 
-- V3-DESKTOP-UI-REFACTOR-01：实现和功能回归已通过，待固定包版本；Ubuntu 22.04 GNOME VM 安装验收待环境。API 3.0.0 + 浅色正式 QML 已接通真实上传/下载/取消/resume/退出重开/排队任务启动；完整 CTest 422 项无失败（421 pass、1 io_uring skip），末轮定向 7/7。高级 scheduler 预算组合存在已记录恢复限制。范围、结果与回滚见 docs/tasks/2026-10-22-v3-desktop-ui-refactor-01.md 与同名 -result.md。离屏测试不代替 GNOME VM。
+- V3-DESKTOP-UI-REFACTOR-01：源码、功能回归与 DEB 解包运行审计已通过；Ubuntu 22.04 GNOME VM 安装验收待环境。实现提交 454c9e3ad96aabac0a3d1fdf71c0b74de7fd9c22 已推送并回读一致，完整包 SHA-256 489ba1f253e616665cd59158f9ec2f5dc654ab25a183738aae3020f676b3aa81。API 3.0.0 + 浅色正式 QML 已接通真实上传/下载/取消/resume/退出重开/排队任务启动；完整 CTest 422 项无失败（421 pass、1 io_uring skip），末轮定向 7/7。高级 scheduler 预算组合存在已记录恢复限制；未宣称独立单文件/mTLS/实时 range 预览已实现。范围、证据与回滚见 docs/tasks/2026-10-22-v3-desktop-ui-refactor-01.md 与同名 -result.md。离屏测试不代替 GNOME VM。
 
 本节优先于下方历史路线和旧任务快照。深圳 /root/projects/CPNetFlux 为唯一权威开发目录；当前总指挥单人串行直接开发、测试和提交，不再新建开发 worktree，不使用子代理；上海只作传输对端。2026-10-20 已保全主目录旧改动并将当前代码接回根目录，详见 V3-LOGICAL-10LINK-01 任务记录。
 
