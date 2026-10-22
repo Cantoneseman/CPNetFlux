@@ -303,6 +303,11 @@ class FileTransaction {
         if (!policy_.options.overwrite && ::unlink(temp_.c_str()) != 0)
             return Status::runtimeError("persistent temp unlink failed");
         active_ = false;
+        // The batch context retains committed transactions for its final audit,
+        // but their output handles are no longer needed. The audit reopens the
+        // published path on demand through verifyPublished().
+        writer_.reset();
+        file_ = storage::PosixFile{};
         return Status::ok();
     }
     std::uint64_t loadedVerifiedChunks() const {

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
@@ -1134,4 +1135,92 @@ TEST(BoundedPayloadPipelineTest, CloseDrainsQueuedChunksAndThenReturnsEndOfStrea
     auto end = pipeline.pop();
     ASSERT_TRUE(end.isOk());
     EXPECT_FALSE(end.value());
+}
+TEST(PersistentTreeResourceTest, ReleasesCommittedFileDescriptorsUnderDefaultLimit) {
+    constexpr std::size_t fileCount = 2048;
+    constexpr std::size_t fileSize = 64 * 1024;
+    TempRoot source;
+    TempRoot destination;
+    const std::vector<std::uint8_t> contents(fileSize, 0x5a);
+    std::vector<PersistentFileIdentity> files;
+    files.reserve(fileCount);
+    for (std::size_t index = 0; index < fileCount; ++index) {
+        const auto relative = "file-" + std::to_string(index) + ".bin";
+        const auto path = source.path / relative;
+        {
+            std::ofstream output(path, std::ios::binary);
+            ASSERT_TRUE(output.is_open()) << path;
+            output.write(reinterpret_cast<const char*>(contents.data()),
+                         static_cast<std::streamsize>(contents.size()));
+            ASSERT_TRUE(output.good()) << path;
+        }
+        struct stat sourceStat {};
+        ASSERT_EQ(::stat(path.c_str(), &sourceStat), 0) << path;
+        files.emplace_back(index + 1, index + 1, fileSize, relative, "fd-release-batch",
+            fileSize, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
+    }
+
+    struct rlimit previousLimit {};
+    ASSERT_EQ(::getrlimit(RLIMIT_NOFILE, &previousLimit), 0);
+    if (previousLimit.rlim_cur < 1024) GTEST_SKIP() << "soft RLIMIT_NOFILE is below 1024";
+    struct rlimit testLimit = previousLimit;
+    testLimit.rlim_cur = 1024;
+    ASSERT_EQ(::setrlimit(RLIMIT_NOFILE, &testLimit), 0);
+    struct RestoreLimit {
+        struct rlimit previous;
+        ~RestoreLimit() { (void)::setrlimit(RLIMIT_NOFILE, &previous); }
+    } restoreLimit{previousLimit};
+
+    auto countDestinationFds = [&](const std::filesystem::path& root) {
+        std::size_t count = 0;
+        std::error_code error;
+        for (std::filesystem::directory_iterator it("/proc/self/fd", error), end;
+             !error && it != end; it.increment(error)) {
+            std::error_code linkError;
+            auto target = std::filesystem::read_symlink(it->path(), linkError);
+            if (linkError) continue;
+            auto targetText = target.string();
+            constexpr char deletedSuffix[] = " (deleted)";
+            if (targetText.size() >= sizeof(deletedSuffix) - 1 &&
+                targetText.compare(targetText.size() - (sizeof(deletedSuffix) - 1),
+                    sizeof(deletedSuffix) - 1, deletedSuffix) == 0) {
+                targetText.resize(targetText.size() - (sizeof(deletedSuffix) - 1));
+            }
+            const auto normalized = std::filesystem::path(targetText).lexically_normal();
+            const auto prefix = root.lexically_normal().string() + "/";
+            if (normalized.string().compare(0, prefix.size(), prefix) == 0) ++count;
+        }
+        return count;
+    };
+
+    SocketPair pair;
+    auto context = makePersistentTransferContext();
+    PersistentTreeStats receivedStats;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &receivedStats, {}, 1, 0, 1, static_cast<std::uint32_t>(fileCount), false, false,
+            context);
+        if (!receiveStatus.isOk()) ::shutdown(pair.receiver.fd(), SHUT_RDWR);
+    });
+    PersistentTreeStats sentStats;
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), files, &sentStats);
+    receiver.join();
+
+    ASSERT_TRUE(sendStatus.isOk()) << "send: " << sendStatus.message()
+                                   << "; receive: " << receiveStatus.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(receivedStats.files, fileCount);
+    EXPECT_EQ(countDestinationFds(destination.path), 0U)
+        << "completed transactions must not retain destination file descriptors";
+
+    const auto auditStatus = verifyCommittedPersistentOutputs(context);
+    ASSERT_TRUE(auditStatus.isOk()) << auditStatus.message();
+    EXPECT_EQ(countDestinationFds(destination.path), 0U)
+        << "batch audit must close each output after checking it";
+
+    for (const auto index : {std::size_t{0}, fileCount - 1}) {
+        const auto output = destination.path / ("file-" + std::to_string(index) + ".bin");
+        EXPECT_EQ(std::filesystem::file_size(output), fileSize);
+    }
 }
