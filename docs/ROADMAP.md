@@ -1,9 +1,9 @@
 # CPNetFlux 路线图
 ## 2026-10-22 无压缩阶段对比后的后端性能路线
 
-依据 docs/tasks/2026-10-22-v3-gridftp-raw-stage-01-result.md，下一阶段后端计划为 docs/tasks/2026-10-22-v3-raw-performance-next-plan-01.md。第一项先修复已复现的文件描述符滞留；之后依次处理 summary CRC 重扫、tree manifest 高频全量落盘，再用单变量实验确认大文件 range 锁和 payload pipeline 的实际影响。桌面后端 peer mapping 已按 docs/tasks/2026-10-22-v3-desktop-peer-mapping-01-result.md 验收；桌面 UI 可独立按 API 3 合同继续。
+依据 docs/tasks/2026-10-22-v3-gridftp-raw-stage-01-result.md，后端性能计划细化在 docs/tasks/2026-10-22-v3-raw-performance-next-plan-01.md。八个串行门依次覆盖 FD 生命周期、summary 重扫、tree manifest 合并、range/pipeline 观测、每 4 MiB per-file checkpoint 合并、range 并行 offset 写、profile 驱动的 CRC/TLS/复制/调度优化，以及最终双机对照。计划逐项区分已证实代码路径与待测性能贡献，并给出改动文件、恢复不变量和验收指标。桌面后端 peer mapping 已按 docs/tasks/2026-10-22-v3-desktop-peer-mapping-01-result.md 验收；桌面 UI 可独立按 API 3 合同继续。
 
-目标是缩小本轮已测无压缩工作负载的差距，不代表已达成。恢复语义、数据正确性、1024 FD 限制下的 2048 小文件稳定性和可重复性能证据都是阶段验收条件。物理多网卡验证仍按用户要求暂缓。
+目标是让本轮无压缩热缓存工作负载达到明确的对照门槛，不代表已达成，也不代表冷盘或跨地域网络 readiness。恢复语义、数据正确性、1024 FD 下 2048 小文件稳定性和可重复性能证据都是阶段验收条件。物理网卡配置继续暂缓。
 
 ## 2026-10-22 Desktop API Update
 

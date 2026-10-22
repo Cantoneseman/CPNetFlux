@@ -4,7 +4,7 @@
 状态：开发计划已制定；本文件不包含运行时代码修改。
 权威工作区：深圳 /root/projects/CPNetFlux
 分支：codex/V3-DESKTOP-NETWORK-BINDING-01
-输入代码：运行时基线 55f7a21bb970cc0528d21a52901627aa96660b44；制定计划时 HEAD f7d2959。
+输入代码：运行时基线 55f7a21bb970cc0528d21a52901627aa96660b44；初版计划 HEAD f7d2959；本轮细化基于文档提交 3a2ff9ccbfa2581a22f15356e7eaf94efb1f631a。
 主要证据：2026-10-22-v3-gridftp-raw-stage-01-result.md。
 
 ## 目标和边界
@@ -24,83 +24,82 @@
 | JSON summary 令大文件进程退出明显变慢 | 4 GiB 测试的 core 结束到进程退出中位数约 11.8–12.0 秒；无 summary 的配对测试完整进程约 9.3 秒。computeTreeVerificationHash 固定使用软件 CRC32C | 已确认的进程尾部重扫成本。它不等于 V3 传输时间；优化后须分开报告传输时间和 summary/hash 时间，不能把计时边界改漂亮来制造吞吐提升。 |
 | 大文件仍慢于 GridFTP | 去 summary 后，两个 4 GiB 样本慢约 1.46–1.49 倍；mixed 慢约 1.38 倍。每 lane pipeline 约 131064 bytes，观察到约 6.4 万次 producer wait；range 写的计时代码覆盖协调器锁和 checkpoint | 传输路径确有剩余差距，但锁竞争、流水线深度和校验各自造成多少影响尚未证实。先补可区分的测量，再逐项消融。 |
 
+## 瓶颈、设计、改动位置和验收一一对应
+
+| 瓶颈/现象 | 证据与确定程度 | 对应设计 | 主要改动位置 | 如何证明解决 |
+|---|---|---|---|---|
+| 2048 个小文件传输慢，客户端反复保存整棵目录清单 | 已确认：每个文件 begin/complete 都会在 manifestMutex 内更新记录并调用保存；全目录 JSON 序列化后原子替换。strace 观察到 4098 次 rename。它解释了 dense 的主要软件热点，但不能单独解释整个 19.964 秒。 | 状态更新只改内存并递增 generation；唯一后台写者合并多个 generation，序列化/rename 放在状态锁外。按“32 个状态事件或 100 ms”触发，结束、失败、取消时等待最新 generation 写出。严格单写者，避免旧快照覆盖新快照。 | src/core/io/tree_transfer_client.cpp、src/core/tree/tree_manifest.cpp；tests/unit/tree_manifest_test.cpp 及 tree transfer 集成测试。 | 记录事件数、快照数、锁等待和 wall；snapshot 数符合阈值，dense 达到目标且最终 SHA-256 相同。强制终止后重启，未落盘状态由 per-file checkpoint 和 resume 协商重建，不能信任旧的 Completed。 |
+| 2048 个文件撞到默认 1024 FD 上限 | 已确认：批次 context.files 保留事务，FileTransaction 的 writer 和文件句柄也随事务留到批次审计；提高 ulimit 只能绕过失败。 | 成功发布和 committed checkpoint 后先销毁 writer，再关闭事务文件；审计只留轻量身份，需要验证时按文件重新打开。失败/取消只在该文件全部 lane 停止后释放句柄，部分文件和检查点仍可恢复。 | src/core/io/persistent_tree_transfer.cpp；相关 persistent tree/transfer 测试。 | 独立接收子进程 RLIMIT_NOFILE=1024 下传完 2048 个 64 KiB 文件；采样 FD 峰值有界、不随完成文件数线性增长；审计、失败、取消、resume、SHA-256 均通过。此项修复稳定性，不记作吞吐优化。 |
+| 大文件的每个 4 MiB 已验证块都会保存 per-file checkpoint | 代码路径已确认，实际耗时占比待测：RangeFileCoordinator::write 到达 chunk 边界后调用 FileTransaction::recordRange；它 flush writer、更新 TransferSession，再无条件 flushManifest。因此即使实验配置 manifest-flush-policy=final_only，range 路径仍逐块原子保存 per-file manifest。4 GiB/4 MiB 约有 1024 个块/文件。 | 保留“数据先写完并 flush，之后才能把 checksum 记为已验证”的顺序；将 manifest 落盘从每块一次改成有界批次（先测每 1/4/16 块以及 100 ms 上限）。批次内只允许包含已经完成写入和 checksum 的块；文件提交前强制 flush。干净取消/失败按策略 flush pending，flush 失败不得回成功。 | src/core/io/persistent_tree_transfer.cpp、src/core/session/transfer_session.cpp、src/core/session/download_session.cpp；对应 session/checkpoint 测试。 | 增加 checkpoint 次数、序列化字节、flush 时间指标；比较每块/批次写法的吞吐和进程崩溃后的重传量。SIGKILL 后 resume、块校验、最终树 SHA-256 均通过。该原子 rename 不等于 fsync，不宣称可抵御断电。 |
+| JSON summary 在传输结束后重读整棵树 | 已确认：tree hash 固定使用软件 CRC32C；4 GiB core 后到进程退出约 11.8–12 秒。 | 先让 summary 使用配置的 Auto CRC32C backend，并单独记录 summary_tree_hash_seconds 和实际 backend。再评估用已有的 per-file/chunk CRC32C 以 CRC combine 方式还原完全相同的旧 tree hash；只有覆盖、顺序、长度都能证明完整时才复用，否则明确 fallback 全量读取。路径/大小/内容的 hash 输入定义不变。 | src/core/io/tree_transfer_client.cpp、include/cpnetflux/checksum/checksum.h、CRC/tree summary 测试。 | 软件、硬件、Auto 对同一目录输出逐字节一致的 tree hash；涵盖空文件、嵌套/非 ASCII 路径、resume、已跳过文件和损坏输入。分开报告传输 core、摘要计算、完整进程 wall，不能把 summary 优化报成传输提速。 |
+| 大文件吞吐落后约 1.38–1.49 倍，range/pipeline 的占比不明 | 差距已确认，具体根因未确认：pipeline 只有约 131064 bytes/lane、producer wait 约 6.4 万次；RangeFileCoordinator::write 持 Entry 锁覆盖范围检查、写入、checksum 和 checkpoint。现有 wait 是次数，write_range 又包住锁与 checkpoint，二者都不能直接当作瓶颈时间。 | 先补每 lane 的 wait 秒数/队列水位、Entry 锁 wait/hold、数据写时长、块 checkpoint 写时长与次数；区分网络读取、CRC、socket/TLS、文件写入。基线采样后再单变量测试 pipeline depth 2/4/8/16。只有队列饥饿或抖动数据支持时才改默认深度。 | src/core/io/payload_pipeline.cpp、src/core/io/persistent_tree_transfer.cpp、src/core/io/tree_transfer_client.cpp、相应 metrics/tests。 | 观测开销先做校准；每项计数同时给累计时间和每 lane 分布。pipeline 候选至少 5 次配对样本，中位数改善 ≥10% 且内存有界才保留；仅 wait 次数下降不算成功。 |
+| range 之间实际写入被共享锁和共享可变 writer 串行化 | 代码结构已确认；对实际吞吐的贡献待第 4 阶段测量。BufferedFileWriter 有自己的缓冲状态，TransferSession 的已验证块列表也不是并发安全的，不能只删 Entry 锁。 | 每个 range slot 拥有稳定生命周期、独立顺序校验/CRC、独立 writer buffer 和独立统计；不同 slot 对同一临时文件的非重叠 offset 使用明确偏移写入。Entry 锁只做租约/重叠/状态/attempt 校验；每 slot 保序。独立 checkpoint mutex 串行更新 session 和 manifest；提交屏障等待全部 active write/checkpoint 结束。新 attempt 必须等待旧 attempt 排空并校验 generation，禁止旧 lane 迟到写入。 | src/core/io/persistent_tree_transfer.cpp、src/storage/file_io.cpp、include/cpnetflux/storage/file_io.h；range/transfer 并发测试。 | 证明非重叠 range 的写入时间有真实重叠，锁等待下降且 4 GiB 中位数改善；重叠租约仍拒绝。测试并发 range、乱序/越界 frame、断线重试、旧 attempt、commit 屏障、SIGKILL/resume、最终 SHA-256；FileIoStats 不发生数据竞争。 |
+| 锁和 pipeline 之后仍可能有 TLS、CRC、内存复制或线程/NUMA 热点 | 目前没有 CPU 栈和每线程 CPU 样本，属于未知项。短时 iperf 约 32.5 Gbps 与 V3 约 3.7 Gbps 表明软件路径值得分析，但不是同条件网络上限证明。 | 先用 Release 二进制采集 per-thread CPU、cycles、instructions、socket/NIC 字节和可用的 perf 栈；不可用时用轻量阶段计时替代。若 CRC 明显占 CPU，试用每 frame CRC 加 CRC32C combine 得到流 CRC，避免同一 payload 被完整扫描两遍；若复制/TLS 明显，再分别测 buffer ownership/record batching。只有 profile 显示 NUMA/调度问题时才加可回滚 affinity。TLS、校验和恢复始终开启。 | src/core/io/persistent_tree_transfer.cpp、src/core/io/payload_pipeline.cpp、checksum/TLS 热路径及对应测试；改动由 profile 决定。 | 对每个候选保留前后栈/CPU/吞吐证据和同一数据 correctness。profile 未证明的优化记为 no-go，不顺手加复杂度；不能通过关闭 TLS、CRC、resume 或最终验证取得数字。 |
+
 ## 串行开发任务
 
-### 1. V3-FD-RELEASE-01：事务完成后释放文件资源
+### 1. V3-FD-RELEASE-01：事务结束后释放文件资源
 
-在文件发布及 committed checkpoint 成功后，关闭事务持有的写入器和文件描述符。批次最终审计保留路径、身份和轻量 checkpoint 信息，需要校验已发布文件时按需重新打开；不要为了延后审计而长期持有每个已完成文件的 FD。失败、取消和 range 重试路径要按“仍有无活动 writer”安全收尾，不能提前关闭其他 lane 正在使用的文件。
+先在文件发布和 committed checkpoint 成功后释放 writer 与文件 FD；随后将同样的“停止该文件所有 lane，再释放”原则覆盖失败/取消路径。已完成文件的最终审计逐个按需 reopen，不能让批次对象继续持有所有已完成事务的写句柄。
 
-验收：
+验收：默认 RLIMIT_NOFILE=1024 的隔离接收端成功传输并校验 2048 个 64 KiB 文件；FD 峰值不随完成数增长；覆盖审计、失败、取消、resume 和树 SHA-256。此项是可靠性修复，不作为速度收益。
 
-- 在隔离测试进程中将 CPNetFlux 接收端 RLIMIT_NOFILE 设为 1024，成功传完并校验 2048 个 64 KiB 文件；不改服务器全局限制。
-- FD 数随已完成文件数不再线性增长，峰值保持在由活动 lane/服务句柄决定的有界水平。
-- 覆盖 commit 后审计、range 并发、取消/失败、resume 和输出校验；完整文件树 SHA-256 与源一致。
-- 先通过相关 CMake/CTest，再记录提交和证据。
+### 2. V3-SUMMARY-CRC-AUTO-01：先降低并准确报告 summary 成本
 
-### 2. V3-SUMMARY-CRC-AUTO-01：summary 使用可用的 CRC32C 后端并把时间讲清楚
+让 tree summary hash 接受配置的 checksum backend，记录解析后的 backend 与 summary_tree_hash_seconds。保持原 tree hash 的字节定义和原有传输计时边界。随后单独评估 CRC combine 复用已有完整 checksum 的条件；不能证明完整字节覆盖就继续扫描并标示 fallback。
 
-让 tree hash 接受已配置的 checksum backend，优先使用 auto 的硬件运行时选择并在 JSON 中记录实际 backend 与 summary_tree_hash_seconds。保留 transfer_elapsed_seconds 的原定义，并由外部 harness 另外记录进程总 wall；不把传输计时和传输后扫描合并或互相冒充。保留软件 fallback。
+验收：Software/Hardware/Auto hash 完全相同；硬件不可用时 Auto 回退；传输 core、summary、进程 wall 三种耗时可分辨。用 4 GiB 和 mixed 验证，只把收益记到实际被缩短的阶段。
 
-验收：
+### 3. V3-TREE-MANIFEST-COALESCE-01：避免每个文件都重写整棵树
 
-- 同一输入在 software、hardware（可用时）和 auto 后端生成完全相同的 tree hash；硬件不可用时 auto 正确退回。
-- summary 时间和进程 wall 可独立核对；性能报告仍单独呈现传输 core、summary hash 和完整进程耗时。
-- 在 4 GiB 与 mixed 数据上量出变化。如果只缩短传输后的摘要时间，只报告 CLI 尾部改善，不宣称 V3 传输速度变快。
+将状态变更与全目录序列化/原子替换解耦。采用单后台写者和 generation 快照，状态锁不跨序列化/磁盘 I/O；先按 32 个状态事件或 100 ms 做候选，终态强制写到最新 generation。错误退出要报告最后已写 generation，不能把内存状态说成已经落盘。
 
-### 3. V3-TREE-MANIFEST-COALESCE-01：合并重复的整树 manifest 落盘
+验收：dense 场景的事件数、快照数、序列化字节、锁等待可核查；在不同合并窗口 SIGKILL 后重启，正确依靠 per-file checkpoint/resume 重建文件状态，不因陈旧 Completed 跳过。tree manifest 只原子 rename、没有 fsync 保证，测试只宣称进程退出/重启语义，不宣称断电语义。
 
-把“收到每个文件状态事件”与“重写整份持久 manifest”分开。采用单写者、可合并的 generation snapshot：状态更新锁只保护内存态；序列化和原子替换不在 callback 的全局状态锁内进行。先验证当前恢复流程的权威事实源，再实现有界刷盘（计划初值：最多每 32 个状态事件或 100 ms 刷一次；成功、失败、取消和显式结束时强制 flush）。落盘过程必须按 generation 排序，旧快照不能覆盖新快照。
+### 4. V3-RANGE-OBSERVABILITY-01：先把大文件阶段计时做对
 
-不把批量刷盘误写成“每个状态事件都已持久”。如果进程崩溃，tree manifest 的未落盘状态必须由现有 per-file committed checkpoint / resume 协商重新核对；不得仅凭陈旧的 Completed 状态跳过文件。
+为每 lane 增加 pipeline producer/consumer wait 时长和高水位、源读取、CRC、frame/TLS/socket 发送、接收端 Entry 锁等待/持有、range offset 写、chunk flush、per-file manifest 序列化/rename 的次数和耗时。明确区分并发线程累计秒数与真实 wall；新增字段不能改变现有传输 elapsed 的起止点。
 
-验收：
+先测诊断开销，再用固定二进制/输入跑当前深度 2 与 4/8/16 单变量样本。同时取得每 lane CPU 和可用的 CPU 栈；若工具权限或符号缺失则如实记下，并使用轻量计时，不能伪造栈结论。
 
-- dense 测试不再为每个文件 begin/complete 都完整序列化并 rename 整棵 manifest；记录事件数、snapshot 数和锁等待，验证次数符合设定阈值。
-- 在阈值前后注入强制退出，再 resume；所有文件最终正确，已提交文件可核对，未完成文件不被误判为完成，不损坏或丢失 checkpoint。
-- 比较 2048-file 的 CPU、进程 wall、manifest snapshot 次数和最终 SHA-256；full CTest/恢复测试通过。
+验收：新指标能回答“等待在哪个阶段、锁等了多久、checkpoint 花了多少时间、pipeline 是满还是空”。无明显观测开销，单变量试验至少 5 次，记录中位数和范围。未达 ≥10% 稳定改善的 pipeline 深度不升为默认。
 
-### 4. V3-RANGE-DATAPATH-ABLATION-01：分开测量 range 写锁与 payload pipeline
+### 5. V3-RANGE-CHECKPOINT-BATCH-01：减少逐 4 MiB 保存检查点的成本
 
-先补观测：range 协调器锁等待/持有时间、实际 checkpoint 耗时、每 lane pipeline 深度/峰值字节数、producer 等待时间，以及读/校验/发送/接收写入的可解释边界。现有 write_range 包围锁等待和 checkpoint，不能直接当作磁盘服务时间。
+在观测基线后，对每个已完成 4 MiB 块仍先 flush 对应数据 writer，再把块 CRC 加入 session；只把 per-file manifest 原子落盘改为每 1/4/16 个块之一或 100 ms 到期时刷盘。候选 batch 大小不能越过已 flush 数据边界；最后提交、干净停止以及约定的错误路径强制 flush。一次 flush 失败不能对发送端报告成功。
 
-随后用固定代码和数据一次只改一个变量：
+验收：用 checkpoint 次数、写出的 manifest 字节、写盘耗时和吞吐对比策略；SIGKILL 后未落盘的块必须作为缺失块重传，不能误认为已验证。下载/上传、部分恢复、最终树 SHA-256 都通过。以不超过 100 ms 或候选 batch 上限控制进程崩溃后的重传窗口；不声称断电安全。只有中位数改善 ≥10%、内存/恢复成本在界内，才更改默认策略。
 
-1. pipeline depth 依次试 2/4/8/16 个 frame，报告吞吐、CPU、等待和最大缓冲内存；
-2. 独立测试 range 锁优化：不同 range 的互斥写入允许并行，checkpoint 更新仍保持正确串行化；对重叠 claim 继续拒绝。
+### 6. V3-DATA-PLANE-CLOSE-01：解除 range 数据写入的全局串行段
 
-每次先做一个改动，再运行同一组正确性和性能样本。只有重复 5 次的中位数至少改善 10%、p95 不恶化超过 5%、内存有界且恢复/校验全通过，才把参数或实现设为默认；否则保留原默认并记录结论。不能把“producer wait 次数多”单独当成 pipeline 是瓶颈的证明。
+基于第 4 阶段证据实现：短暂 Entry state lock 检查 lease、range overlap、offset 和 attempt；随后每个 slot 在自己的 writer/checksum context 内顺序处理数据，不同 slot 的非重叠 offset 可并行写。独立 checkpoint mutex 只保护 TransferSession 记录与 manifest flush。提交阶段关闭新写入入口，等待 active write 与 checkpoint 清零，flush 完所有 writer，再做 coverage、验证、publish。任何 attempt 被接管前先确认旧 attempt 停止且代号匹配。
 
-### 5. V3-DATA-PLANE-CLOSE-01：在消融证据基础上解除大文件串行化
+不要把 entry->mutex 简单拆成几个锁就认为完成：当前一个 BufferedFileWriter 与 session manifest 都有共享可变状态。先确认所选 FileIo backend 在并发 offset 写时的契约；每个 slot 的统计独立记录、完成时归并，不能并发写同一组普通计数器。
 
-这一项才是大文件剩余差距的解决任务，不以“增加 pipeline depth”作为最终方案。根据第 4 项的锁等待和 CPU 栈证据，按以下边界改造：
+验收：并发测试证明多个不重叠 slot 确实同时进入数据写区；冲突 range 仍拒绝。覆盖旧 lease、写错误、取消、重复 FILE_END、连接恢复、checkpoint、最终输出校验。按固定 4 GiB 数据至少 5 次交错测试；中位数改善 ≥10% 且其他集合退化不超过 5% 才采用，否则以锁/CPU/checkpoint 新指标解释并停在更简单的实现。
 
-- 数据字节写入与 range 租约/检查点元数据分离。不同 range 已证明不重叠时，数据写入走各自的偏移写入上下文；全局锁只保护租约、重叠检查、完成状态和检查点提交，不能包住每个 frame 的实际写入。
-- 每个 lane 使用有界的读、校验、TLS/framing、发送或接收写入队列，保持明确的 backpressure；测量后再选择 frame/缓冲大小，不盲目扩大内存。
-- 在不关闭 V3 校验、TLS、恢复和最终验证的前提下，减少重复拷贝和重复校验；记录每阶段实际 CPU 时间、锁等待、队列等待和 bytes。
-- 采集双路 CPU 栈和 NUMA/线程亲和性证据。只有确认跨 NUMA 或线程调度是剩余主因时，才加入可回滚的 lane 亲和性策略；不能把“CPU 总体空闲”当成没有单线程热点。
+### 7. V3-CPU-HOTPATH-01：仅按 profile 优化仍占主导的成本
 
-恢复不变量：range 写入完成并满足现有提交策略后，检查点才能把该范围标记为已验证；断线重连、重叠 range、重复 FILE_END、kill/resume 和最终 SHA-256 必须保持原语义。任何优化都不能通过关闭 TLS、CRC、resume 或最终验证来换吞吐。
+按第 4 阶段栈样本选择一个因素：重复 CRC 遍历、TLS record/系统调用、payload 复制，或线程/NUMA 调度。每次只改一个因素。CRC combine 需要与软件参考实现对全部边界长度、切块顺序、短尾块、range resume 和损坏 frame 对照；buffer 改造要证明 checksum 输入未变化；调度亲和性必须能关闭并在双机上分别验证。
 
-闭环验收：
+验收：每个改动至少 5 组相同条件配对结果、前后 CPU 栈和完整校验；没有重复改善就记 no-go。网络链路若显示为限制，另立链路任务，不在此阶段改系统网络配置或网卡绑定。
 
-- 4 GiB 伪随机、重复内容和 mixed 各 5 次交错重复；对比 V3 core、完整 wall、锁/队列/CPU/FD 指标和 GridFTP wall。
-- 相对 55f7a21 的无 summary 基线，4 GiB 两组和 mixed 均有可重复改善；若仍慢，报告必须能用新增指标解释剩余差距，而不是只给一个总耗时。
-- 正确性、恢复和资源上限全通过；只有在中位数改善至少 10%、p95 不恶化超过 5%、内存有界且无回归时才改变默认实现，否则保留旧默认并记录 no-go。
+### 8. V3-RAW-STAGE-02：最终性能与正确性闭环
 
-### 6. V3-RAW-STAGE-02：重跑无压缩对照并完成阶段验收
+使用同一 R730→R750 热缓存数据、4 路配置、无压缩、TLS/CRC/恢复开启，对 2048 小文件、两个 4 GiB 文件和 mixed 数据做至少 5 次交错配对测试；重要最终门建议 10 次。报告 median、范围；少于 20 个样本时不把 p95 当作稳定尾延迟结论。每次外部 SHA-256 校验单列在传输 wall 之外，同时报告 V3 core、summary hash 和进程完整 wall。GridFTP 是参照而非功能等价物。
 
-使用报告中的同一 R730→R750 热缓存数据集、4 路配置与无压缩条件，先核对源/接收目录 SHA-256。对 CPNetFlux 和 GridFTP 各数据组做 5 次交错样本，报告完整进程 wall、V3 core elapsed、summary hash、CPU/FD/锁/pipeline 指标。GridFTP 与 CPNetFlux 校验/恢复功能不完全相同，报告中保留这一限制。
+最终阶段目标：
 
-阶段目标（作为验收目标，不当作已实现事实）：
+- dense 128 MiB 的 V3 完整进程 wall 中位数 ≤4.9 秒（约不慢于本轮 GridFTP 的 2.5 倍），且 nofile=1024 下 2048 文件稳定完成。
+- 两种 4 GiB 文件的 V3/GridFTP wall 中位比值 ≤1.25；mixed 比值 ≤1.25。该目标高于“比原版快一点”，但不宣称所有机器或冷盘都能达到。
+- 任何正确性/恢复失败都是 no-go；性能目标没达到时，本阶段不能标成收尾，需按新增分解指标另制定下一项瓶颈任务。
+- 正式样本开始前确认两端运行同一源码提交、分别构建，并核对构建产物 SHA；性能结果同时保留输入目录 hash 和运行配置。
 
-- dense 128 MiB 的 CPNetFlux 中位进程 wall ≤ 4.9 秒（约不慢于 GridFTP 2.5 倍），且 2048 文件在 nofile=1024 下稳定通过。
-- 两个 4 GiB 无 summary 样本相对 55f7a21 各至少快 15%，不再由 summary 重扫决定进程 wall。
-- mixed 样本无正确性回归，性能不退化超过 5%。
-- 若数据路径目标未达成，保留失败结果并据新增分解指标决定下一项具体工作；不以“代码已合并”替代性能验收。
+当前仍有 8 个执行门：FD 生命周期、summary hash、tree manifest 合并、range 观测、per-file checkpoint 合并、range 并行写、profile 驱动的热点优化、最终双机验收。本轮只细化设计，没有完成其中任何运行时代码门。
 
 ## 执行和交付约束
 
-- 按以上任务串行执行，一次只改一个性能因素。每个实现任务单独记录输入提交、明确文件范围、相关 CMake/CTest 命令、输出证据和下一步。
+- 按以上任务串行执行，一次只改一个性能因素。每个实现/实验任务单独记录输入提交、明确文件范围、相关 CMake/CTest 命令或实验命令、输出证据和下一步。
 - 深圳 /root/projects/CPNetFlux 是唯一 Git/构建工作区，沿用当前分支并保留已有未跟踪 worker-state 文档。每阶段只提交本阶段明确文件，推送到已核实的 origin 并回读远端 SHA。
 - 任何跨服务器传输测试之前，先把同一提交同步到深圳和上海、两端构建，再比对源码归档和关键二进制 SHA-256；构建未完成或 SHA 不同不开始传输。
 - GridFTP/CPNetFlux 对照复用相同输入、接收策略和阶段定义；不把 iperf 短探测、热缓存结果或线程累计秒数解释成持续物理链路上限。
