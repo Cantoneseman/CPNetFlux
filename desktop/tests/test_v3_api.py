@@ -165,9 +165,30 @@ class V3ApiTests(unittest.TestCase):
             'metrics':{},'backend_evidence':MOD.empty_evidence()}
         a.read_real_evidence(t,dict(result='pass',file_count=2,completed_files=1,
             skipped_files=1,failed_files=0,bytes_total=100,bytes_transferred=40,
-            checksum_algorithm='crc32c'))
+            checksum_algorithm='crc32c',data_connect_seconds=0.125))
         self.assertEqual(t['metrics']['bytes_committed'],100)
         self.assertTrue(t['scan_complete'])
+        self.assertEqual(t['backend_evidence']['phase_timing']['data_connect'],0.125)
+
+    def test_cancel_without_summary_observes_real_manifest_for_resume(self):
+        a=self.agent
+        source=Path(self.tmp.name)/"tree";source.mkdir()
+        (source/"file.txt").write_text("actual source")
+        manifest=Path(str(source)+".cpnetflux.tree.upload.manifest")
+        manifest.write_text("manifest_version=1\nmode=upload\nroot_logical_path_hex="+str(source).encode().hex()+"\nchecksum_algorithm=crc32c\n")
+        task=dict(direction="upload",source=dict(path=str(source)),metrics={},
+            backend_evidence=MOD.empty_evidence(),policy=policy(),transfer_id="cancelled")
+        a.args.demo=False
+        a.read_real_evidence(task,None)
+        a.checkpoint(task)
+        self.assertEqual(task["backend_evidence"]["manifest"]["status"],"observed")
+        self.assertEqual(task["recovery"]["eligibility"],"eligible")
+        self.assertIsNone(task["metrics"]["bytes_transferred"])
+        # A manifest for another root must not grant recovery eligibility.
+        manifest.write_text("manifest_version=1\nmode=upload\nroot_logical_path_hex=00\nchecksum_algorithm=crc32c\n")
+        task["backend_evidence"]=MOD.empty_evidence()
+        a.read_real_evidence(task,None);a.checkpoint(task)
+        self.assertNotEqual(task["recovery"]["eligibility"],"eligible")
 
     def test_contract_and_preview_responses_match_schema(self):
         validator=Draft7Validator(SCHEMA)

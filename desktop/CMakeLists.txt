@@ -21,6 +21,19 @@ add_test(NAME desktop-import COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SO
 add_test(NAME desktop-offscreen COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui.py $<TARGET_FILE:cpnetflux-desktop> ${CMAKE_CURRENT_SOURCE_DIR}/agent/cpnetflux_agent.py)
 set_tests_properties(desktop-agent desktop-import desktop-offscreen PROPERTIES TIMEOUT 40)
 
+
+add_executable(cpnetflux-rpc-test tests/rpc_driver.cpp ui/rpc_client.cpp ui/rpc_client.h)
+target_include_directories(cpnetflux-rpc-test PRIVATE ui)
+target_link_libraries(cpnetflux-rpc-test PRIVATE Qt6::Core Qt6::Network)
+add_test(NAME desktop-rpc-client COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rpc_client.py $<TARGET_FILE:cpnetflux-rpc-test>)
+set_tests_properties(desktop-rpc-client PROPERTIES TIMEOUT 15)
+
+
+add_executable(cpnetflux-ui-flow-test tests/ui_flow_driver.cpp ui/rpc_client.cpp ui/rpc_client.h)
+target_include_directories(cpnetflux-ui-flow-test PRIVATE ui)
+qt_add_resources(cpnetflux-ui-flow-test flowqml PREFIX "/" FILES ui/Main.qml ui/PathPicker.qml ui/ProvisioningPicker.qml)
+target_link_libraries(cpnetflux-ui-flow-test PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2 Qt6::Network)
+
 include(GNUInstallDirs)
 configure_file(agent/cpnetflux-agent.in "${CMAKE_CURRENT_BINARY_DIR}/cpnetflux-agent-installed" @ONLY)
 install(TARGETS cpnetflux-desktop RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -29,13 +42,14 @@ install(FILES agent/cpnetflux_agent.py DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/c
 install(FILES schemas/desktop-agent.schema.json DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/cpnetflux/schemas)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/cpnetflux-desktop.desktop" DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/cpnetflux-agent.service" DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/user)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/cpnetflux-agent.service" DESTINATION lib/systemd/user)
 
 set(CPACK_GENERATOR "DEB")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_PACKAGE_NAME "cpnetflux-desktop")
-set(CPACK_PACKAGE_VERSION "0.2.0")
+set(CPACK_PACKAGE_VERSION "0.3.0")
 set(CPACK_PACKAGE_CONTACT "CPNetFlux maintainers")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "CPNetFlux real desktop transfer client")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "python3, python3-jsonschema, qt6-qpa-plugins, qml6-module-qtquick-templates, qml6-module-qtquick-controls, qml6-module-qtquick-dialogs")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "python3, python3-jsonschema, qt6-qpa-plugins, qml6-module-qtquick-templates, qml6-module-qtquick-controls, qml6-module-qtquick-dialogs, qml6-module-qtquick, qml6-module-qtquick-layouts, qml6-module-qtquick-window, qml6-module-qtqml-workerscript")
 include(CPack)

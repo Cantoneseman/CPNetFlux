@@ -342,14 +342,11 @@ class Agent:
             t["scan_complete"] = isinstance(files, int) and isinstance(total, int)
             t["backend_evidence"]["phase_timing"].update(
                 control_prepare=summary.get("control_prepare_seconds"),
+                data_connect=summary.get("data_connect_seconds"),
                 payload_io=summary.get("elapsed_seconds"),
                 transfer_complete_wait=summary.get("transfer_complete_wait_seconds"))
             t["backend_evidence"]["checksum"] = {"algorithm": summary.get("checksum_algorithm", "unknown"),
                 "status": "not_requested" if summary.get("checksum_algorithm") == "none" else ("pass" if summary.get("result") == "pass" else "fail")}
-            suffix = ".cpnetflux.tree.upload.manifest" if t["direction"] == "upload" else ".cpnetflux.tree.download.manifest"
-            manifest_path = Path(str(local) + suffix)
-            t["backend_evidence"]["manifest"] = {"path": str(manifest_path),
-                                                  "status": "observed" if manifest_path.exists() else "unknown"}
         elif local.exists() and local.is_dir():
             files = [f for f in local.rglob("*") if f.is_file()]
             m.update(files_total=len(files), files_committed=None, files_failed=None, files_skipped=None,
@@ -357,6 +354,24 @@ class Agent:
                      bytes_verified=None, bytes_committed=None, channel_count_active=0,
                      queue_depth_current=None, data_connections=None, speed_bps=None,
                      average_speed_bps=None, eta_seconds=None)
+        # SIGTERM can leave a valid tree checkpoint without a final summary.
+        # Offer it as a resume candidate; the V3 core still validates file identity.
+        manifest_path = Path(str(local) + ".cpnetflux.tree." + t["direction"] + ".manifest")
+        observed = False
+        try:
+            if not manifest_path.is_symlink():
+                with manifest_path.open("r", encoding="ascii") as stream:
+                    fields = dict(stream.readline(131072).rstrip("\n").split("=", 1) for _ in range(4))
+                expected_checksum = "none" if t.get("policy", {}).get("checksum_policy") == "none" else "crc32c"
+                observed = (fields.get("manifest_version") == "1"
+                    and fields.get("mode") == t["direction"]
+                    and fields.get("root_logical_path_hex") == os.fsencode(t["source"]["path"]).hex()
+                    and fields.get("checksum_algorithm") == expected_checksum)
+        except (OSError, UnicodeError, ValueError):
+            pass
+        t["backend_evidence"]["manifest"] = dict(path=str(manifest_path),
+            status="observed" if observed else "unknown")
+
     def page(self, kind, t, p, items, query, extra=None):
         now_mono = asyncio.get_running_loop().time()
         for token, cursor in list(self.page_cursors.items()):
@@ -1160,10 +1175,9 @@ class Agent:
         if self.args.demo:
             t["recovery"] = dict(eligibility="eligible", checkpoint_id="demo:"+t["transfer_id"], reason="仅用于演示恢复")
         else:
-            summary = t.get("backend_evidence", {}).get("summary")
             evidence = t.get("backend_evidence", {}).get("manifest") or {}
-            if summary and evidence.get("status") == "observed":
-                t["recovery"] = dict(eligibility="eligible", checkpoint_id="core:"+t["transfer_id"], reason="核心 manifest 可用于 resume")
+            if evidence.get("status") == "observed":
+                t["recovery"] = dict(eligibility="eligible", checkpoint_id="core:"+t["transfer_id"], reason="已观测 V3 tree manifest；源身份和缺失 range 由核心 resume 核验")
             else:
                 t["recovery"] = dict(eligibility="unknown", checkpoint_id=None, reason="核心未返回可验证 manifest；resume 已禁用")
         self.quiescent(t)

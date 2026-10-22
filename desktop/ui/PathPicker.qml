@@ -8,13 +8,13 @@ Item {
     function open() { if (directoryMode) folder.open(); else file.open() }
     FileDialog {
         id: file
-        title: "选择本地文件"
+        title: "选择配置文件"
         fileMode: FileDialog.OpenFile
-        onAccepted: root.selected(selectedFile.toString().replace(/^file:\/\//, ""))
+        onAccepted: root.selected(selectedFile.toString())
     }
     FolderDialog {
         id: folder
         title: "选择本地目录"
-        onAccepted: root.selected(selectedFolder.toString().replace(/^file:\/\//, ""))
+        onAccepted: root.selected(selectedFolder.toString())
     }
 }

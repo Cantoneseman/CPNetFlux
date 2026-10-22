@@ -32,6 +32,16 @@ class ServiceSafety(unittest.TestCase):
         argv = self.argv()
         self.assertEqual(argv[argv.index("--tls-client-auth") + 1], "none")
 
+    def test_user_agent_uses_relocatable_wrapper_and_shared_user_paths(self):
+        packaging=Path(__file__).resolve().parents[1]
+        unit=(packaging/"cpnetflux-agent.service").read_text()
+        self.assertIn("ExecStart=/usr/bin/cpnetflux-agent",unit)
+        self.assertNotIn("PrivateTmp=true",unit)
+        self.assertNotIn(".local/lib/cpnetflux",unit)
+        wrapper=(packaging.parent/"desktop/agent/cpnetflux-agent.in").read_text()
+        self.assertIn('--core-bin-dir',wrapper)
+        self.assertIn('CPNETFLUX_CORE_BIN_DIR:-$base/@CMAKE_INSTALL_BINDIR@',wrapper)
+
     def test_secure_policy_is_explicit(self):
         argv = self.argv()
         for flag, value in [("--tls-mode","required"),("--tls-client-auth","required"),

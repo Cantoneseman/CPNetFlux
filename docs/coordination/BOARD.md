@@ -1,5 +1,7 @@
 # 当前执行（2026-10-20；R2026-10-16-V3-UNIFIED-MULTILINK）
 
+- V3-DESKTOP-UI-REFACTOR-01：实现和功能回归已通过，待固定包版本；Ubuntu 22.04 GNOME VM 安装验收待环境。API 3.0.0 + 浅色正式 QML 已接通真实上传/下载/取消/resume/退出重开/排队任务启动；完整 CTest 422 项无失败（421 pass、1 io_uring skip），末轮定向 7/7。高级 scheduler 预算组合存在已记录恢复限制。范围、结果与回滚见 docs/tasks/2026-10-22-v3-desktop-ui-refactor-01.md 与同名 -result.md。离屏测试不代替 GNOME VM。
+
 本节优先于下方历史路线和旧任务快照。深圳 /root/projects/CPNetFlux 为唯一权威开发目录；当前总指挥单人串行直接开发、测试和提交，不再新建开发 worktree，不使用子代理；上海只作传输对端。2026-10-20 已保全主目录旧改动并将当前代码接回根目录，详见 V3-LOGICAL-10LINK-01 任务记录。
 
 - V3-ONLY-PEER-SYNC-01：已完成。提交 `10d05bcdf972faec15d3a19bae6230cf27905099` 已推送；深圳与上海服务运行同 SHA 的 V3 server，完整 CTest 393/393 通过。深圳→上海生产服务上传、上海→深圳下载均通过且树哈希一致；上海客户端→深圳隔离 V3 服务也经 SSH 隧道通过。上海直连深圳 TCP/2121 仍超时，详见任务记录和 evidence.json。

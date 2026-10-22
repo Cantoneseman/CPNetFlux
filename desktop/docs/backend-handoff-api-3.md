@@ -50,3 +50,9 @@ docs/tasks/2026-10-21-v3-desktop-agent-align-01-result.md。
 
 下一步由桌面端按上述契约实现页面和 RPC 集成，再按实际页面流程做端到端验收。
 其余明确 unsupported 的能力属于独立阶段，不阻塞当前已支持流程。
+
+## 2026-10-22 前端集成
+
+正式 QML 现已使用 API 3.0.0 的 getInfo/getContract、预检/确认/创建/启动、reset subscription、取消/resume、独立分页 watermark 与 network get/clear/manual mapping。浅色设计取代旧深色 demo 壳；没有新增 IPC 版本或另一套协议。
+真实 SIGTERM 无 summary 时，agent 也检查现有 V3 tree manifest 头部身份并提供恢复候选；完整源身份与缺失 range 校验仍由核心执行。恢复前缺失 range 预览和实时逐块统计仍未提供。
+实际验收和证据见 docs/tasks/2026-10-22-v3-desktop-ui-refactor-01-result.md。
