@@ -1,6 +1,6 @@
 # V3-GRIDFTP-RAW-STAGE-01：无压缩 V3 与 Globus GridFTP 阶段耗时对照
 
-状态：执行中  
+状态：实验已完成，结果见同目录 `2026-10-22-v3-gridftp-raw-stage-01-result.md`；发现缺陷不等于发布验收通过。
 权威工作区：深圳 `/root/projects/CPNetFlux`，分支 `codex/V3-DESKTOP-NETWORK-BINDING-01`  
 源冻结点：运行时代码 `55f7a21bb970cc0528d21a52901627aa96660b44`；当前 HEAD `3dd7bffeb012bfb65d6b7ad6aa8acf2834ddb171` 仅增加文档，已核验 `src/`、`include/` 和 `CMakeLists.txt` 无差异。
 
@@ -8,8 +8,8 @@
 
 在 R730→R750 直连数据网口上，对最新可验收 CPNetFlux V3 和 Globus GridFTP
 进行无压缩性能对照。V3 固定为 `persistent_tree`、动态文件调度、范围传输、
-8 个并发通道、worker control reuse、tree data-session reuse、CRC32C，明确
-`--compression off`；GridFTP 使用 GSI 控制认证、私密数据通道及 8 路文件/数据
+经 4/8/10 路有限筛选选择 4 个并发通道、worker control reuse、tree data-session reuse、CRC32C，明确
+`--compression off`；GridFTP 使用 GSI 控制认证、私密数据通道，筛选 4/8/10/16 路后使用 4 路文件/数据
 并行。两端使用同一确定性约 10.13 GiB 输入集，单向运行，按数据集各重复三次。
 
 数据包括 128 MiB/2048 文件 dense 目录、4 GiB 随机大文件、4 GiB 重复内容大文件、
@@ -18,6 +18,8 @@
 transfer-complete 等能被该实现直接观察的阶段；GridFTP 侧保存客户端 debug 和
 服务端 per-file transfer 日志，并对无法拆出的控制/传输阶段明确标为合并区间。
 双方另采集 CPU、RSS、磁盘、NIC、丢包/错误、连接和 GSI 身份/时限。
+补充 12 次关闭 JSON summary 的配对样本，量化报告中额外软件 CRC32C 全树扫描开销。
+双方配置和验收口径详见结果；本轮不承诺全参数空间的绝对最优性能。
 
 ## 非目标
 
