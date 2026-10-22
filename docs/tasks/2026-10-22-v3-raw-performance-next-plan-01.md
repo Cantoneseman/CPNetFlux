@@ -1,7 +1,7 @@
 # V3-RAW-PERFORMANCE-NEXT-PLAN-01
 
 日期：2026-10-22
-状态：第 1/8 项 V3-FD-RELEASE-01 已完成；其余 7 项待串行执行。
+状态：前 2/8 项实现与回归验收完成；其余 6 项待串行执行。
 权威工作区：深圳 /root/projects/CPNetFlux
 分支：codex/V3-DESKTOP-NETWORK-BINDING-01
 输入代码：运行时基线 55f7a21bb970cc0528d21a52901627aa96660b44；初版计划 HEAD f7d2959；本轮细化基于文档提交 3a2ff9ccbfa2581a22f15356e7eaf94efb1f631a。
@@ -48,9 +48,9 @@ FileTransaction::commit() 在输出发布、committed manifest 成功和临时�
 
 ### 2. V3-SUMMARY-CRC-AUTO-01：先降低并准确报告 summary 成本
 
-让 tree summary hash 接受配置的 checksum backend，记录解析后的 backend 与 summary_tree_hash_seconds。保持原 tree hash 的字节定义和原有传输计时边界。随后单独评估 CRC combine 复用已有完整 checksum 的条件；不能证明完整字节覆盖就继续扫描并标示 fallback。
+实现与回归验收完成，详情见 `docs/tasks/2026-10-23-v3-summary-crc-auto-01.md`。tree summary hash 使用配置的 CRC backend，并记录 `summary_tree_hash_backend` 与 `summary_tree_hash_seconds`；原 tree hash 字节定义、过滤规则及传输计时边界不变。深圳 smoke 对软件、硬件和 Auto 三种请求都得到相同的 `crc32c:3a314a68`，Auto 实际使用 hardware。
 
-验收：Software/Hardware/Auto hash 完全相同；硬件不可用时 Auto 回退；传输 core、summary、进程 wall 三种耗时可分辨。用 4 GiB 和 mixed 验证，只把收益记到实际被缩短的阶段。
+4 GiB 与 mixed 的收益尚未测量，不把小型 smoke 的单次时间视为性能结论；将在第 8 项配对矩阵分别报告 V3 core、summary hash 和完整进程 wall。CRC combine 复用已有完整 checksum 仍未实现：只有能证明字节覆盖完整才可做，否则保持全量读取。
 
 ### 3. V3-TREE-MANIFEST-COALESCE-01：避免每个文件都重写整棵树
 
@@ -97,7 +97,7 @@ FileTransaction::commit() 在输出发布、committed manifest 成功和临时�
 - 任何正确性/恢复失败都是 no-go；性能目标没达到时，本阶段不能标成收尾，需按新增分解指标另制定下一项瓶颈任务。
 - 正式样本开始前确认两端运行同一源码提交、分别构建，并核对构建产物 SHA；性能结果同时保留输入目录 hash 和运行配置。
 
-当前还剩 7 个执行门：summary hash、tree manifest 合并、range 观测、per-file checkpoint 合并、range 并行写、profile 驱动的热点优化、最终双机验收。第 1 项 FD 生命周期已完成；第 4 项可在测试证明无收益时以有证据的 no-go 结论完成；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
+当前还剩 6 个执行门：tree manifest 合并、range 观测、per-file checkpoint 合并、range 并行写、profile 驱动的热点优化、最终双机验收。第 1 项 FD 生命周期和第 2 项 summary CRC 实现均已完成；第 4 项可在测试证明无收益时以有证据的 no-go 结论完成；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
 
 ## 执行和交付约束
 
@@ -105,4 +105,4 @@ FileTransaction::commit() 在输出发布、committed manifest 成功和临时�
 - 深圳 /root/projects/CPNetFlux 是唯一 Git/构建工作区，沿用当前分支并保留已有未跟踪 worker-state 文档。每阶段只提交本阶段明确文件，推送到已核实的 origin 并回读远端 SHA。
 - 任何跨服务器传输测试之前，先把同一提交同步到深圳和上海、两端构建，再比对源码归档和关键二进制 SHA-256；构建未完成或 SHA 不同不开始传输。
 - GridFTP/CPNetFlux 对照复用相同输入、接收策略和阶段定义；不把 iperf 短探测、热缓存结果或线程累计秒数解释成持续物理链路上限。
-- 当前开发阶段还剩 7 个执行门：summary CRC、tree manifest 合并、range/pipeline 观测、per-file checkpoint 合并、大文件数据面解除串行化、profile 驱动的热点优化、最终重跑验收。FD 释放已完成。第 4 项可在测试证明无收益时以有证据的 no-go 结论完成；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
+- 当前开发阶段还剩 6 个执行门：tree manifest 合并、range/pipeline 观测、per-file checkpoint 合并、大文件数据面解除串行化、profile 驱动的热点优化、最终重跑验收。FD 释放与 summary CRC 实现已完成。第 4 项可在测试证明无收益时以有证据的 no-go 结论完成；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
