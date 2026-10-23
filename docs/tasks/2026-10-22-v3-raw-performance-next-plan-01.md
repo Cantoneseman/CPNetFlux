@@ -82,6 +82,16 @@ Entry hold 0.961 秒，支持先降低逐块保存频率的实验顺序。全套
 
 验收：用 checkpoint 次数、写出的 manifest 字节、写盘耗时和吞吐对比策略；SIGKILL 后未落盘的块必须作为缺失块重传，不能误认为已验证。下载/上传、部分恢复、最终树 SHA-256 都通过。以不超过 100 ms 或候选 batch 上限控制进程崩溃后的重传窗口；不声称断电安全。只有中位数改善 ≥10%、内存/恢复成本在界内，才更改默认策略。
 
+实现、安全边界和实验已完成，详见 docs/tasks/2026-10-23-v3-range-checkpoint-batch-01.md。
+512 MiB TLS/CRC、20 次交错样本均独立 SHA 通过：batch4/16 保存中位从131降为39/17，
+但 process wall 中位仅改善2.01%/1.31%，配对正负交错，未达到≥10%，**默认仍1块**。
+保留1/4/16实验选项，不宣称大文件吞吐瓶颈已解决。
+100 ms 空闲触发、范围/连接强制保存、保存失败粘性、上传/下载各batch4/16真实SIGKILL恢复均通过。
+全套440项无失败、1项环境skip；两端同源码构建、关键二进制SHA一致；
+80 MiB公网TLS/CRC上传下载均成功且三处SHA一致。该跨机样本仅验功能。
+Entry hold 与累计 rename 耗时未随保存次数同比下降，下一项继续隔离共享writer/checkpoint，
+仍需实际并发和配对实验，不把次数下降替代性能证据。
+
 ### 6. V3-DATA-PLANE-CLOSE-01：解除 range 数据写入的全局串行段
 
 基于第 4 阶段证据实现：短暂 Entry state lock 检查 lease、range overlap、offset 和 attempt；随后每个 slot 在自己的 writer/checksum context 内顺序处理数据，不同 slot 的非重叠 offset 可并行写。独立 checkpoint mutex 只保护 TransferSession 记录与 manifest flush。提交阶段关闭新写入入口，等待 active write 与 checkpoint 清零，flush 完所有 writer，再做 coverage、验证、publish。任何 attempt 被接管前先确认旧 attempt 停止且代号匹配。
@@ -107,7 +117,7 @@ Entry hold 0.961 秒，支持先降低逐块保存频率的实验顺序。全套
 - 任何正确性/恢复失败都是 no-go；性能目标没达到时，本阶段不能标成收尾，需按新增分解指标另制定下一项瓶颈任务。
 - 正式样本开始前确认两端运行同一源码提交、分别构建，并核对构建产物 SHA；性能结果同时保留输入目录 hash 和运行配置。
 
-当前还剩 4 个执行门：per-file checkpoint 合并、range 并行写、profile 驱动的热点优化、最终双机验收。第 1–4 项 FD 生命周期、summary CRC、tree manifest 合并、range 观测均已实现并验收；第 4 项已以观测验收完成和 pipeline 深度候选 no-go 收口；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
+当前还剩 3 个执行门：range 并行写、profile 驱动的热点优化、最终双机验收。第5项合并机制已实现并验证安全性，性能候选默认no-go，保留逐块默认。第 1–4 项 FD 生命周期、summary CRC、tree manifest 合并、range 观测均已实现并验收；第 4 项已以观测验收完成和 pipeline 深度候选 no-go 收口；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
 
 ## 执行和交付约束
 
@@ -115,4 +125,4 @@ Entry hold 0.961 秒，支持先降低逐块保存频率的实验顺序。全套
 - 深圳 /root/projects/CPNetFlux 是唯一 Git/构建工作区，沿用当前分支并保留已有未跟踪 worker-state 文档。每阶段只提交本阶段明确文件，推送到已核实的 origin 并回读远端 SHA。
 - 任何跨服务器传输测试之前，先把同一提交同步到深圳和上海、两端构建，再比对源码归档和关键二进制 SHA-256；构建未完成或 SHA 不同不开始传输。
 - GridFTP/CPNetFlux 对照复用相同输入、接收策略和阶段定义；不把 iperf 短探测、热缓存结果或线程累计秒数解释成持续物理链路上限。
-- 当前开发阶段还剩 4 个执行门：per-file checkpoint 合并、大文件数据面解除串行化、profile 驱动的热点优化、最终重跑验收。FD 释放、summary CRC、tree manifest 合并、range 观测均已实现。第 4 项已以观测验收完成和 pipeline 深度候选 no-go 收口；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
+- 当前开发阶段还剩 3 个执行门：大文件数据面解除串行化、profile 驱动的热点优化、最终重跑验收。per-file checkpoint 合并已实现、恢复正确性验收通过，但本机候选不达10%收益，默认不启用。FD 释放、summary CRC、tree manifest 合并、range 观测均已实现。第 4 项已以观测验收完成和 pipeline 深度候选 no-go 收口；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
