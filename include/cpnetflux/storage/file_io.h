@@ -162,6 +162,11 @@ using IoUringCompletionFn = common::Status (*)(std::uint64_t offset, std::size_t
     std::uint64_t queueDepth, std::uint64_t batchSize, std::size_t maxBytesPerSqe,
     IoUringCompletionFn completion, void* userData, FileIoStats* stats);
 
+// A writer has mutable sequential buffer state and requires one owner at a time.
+// Independent writers may use disjoint offsets on the same PosixFile: pwrite is
+// positional; io_uring uses a ring local to each call. The file and immutable
+// context must outlive every write/flush. Joining writers must precede close,
+// resize, final verification or publication. Statistics are caller-owned.
 class BufferedFileWriter {
    public:
     BufferedFileWriter(const PosixFile& file, const FileIoConfig& config, FileIoStats* stats);
