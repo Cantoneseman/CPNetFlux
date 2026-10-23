@@ -662,6 +662,12 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_manifest_coalesce_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     set_tests_properties(cpnetflux_tree_manifest_coalesce_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_range_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_observability_disabled_smoke
+        COMMAND ${CMAKE_COMMAND} -E env python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --observation off)
+    set_tests_properties(cpnetflux_range_observability_disabled_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_tree_control_reuse_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_control_reuse_smoke.py --build-dir ${CMAKE_BINARY_DIR}

@@ -61,6 +61,7 @@ class DownloadSession {
     [[nodiscard]] std::uint64_t manifestFlushIntervalChunks() const noexcept;
     [[nodiscard]] const checkpoint::DownloadManifest& manifest() const noexcept;
     [[nodiscard]] const std::string& manifestPath() const noexcept;
+    void setManifestSaveStats(checkpoint::ManifestSaveStats* stats) noexcept { manifestSaveStats_ = stats; }
     void setPhaseStats(metrics::TransferPhaseStats* phaseStats) noexcept;
 
    private:
@@ -73,6 +74,7 @@ class DownloadSession {
     std::uint64_t dirtyVerifiedChunks_ = 0;
     DownloadSessionStats stats_;
     metrics::TransferPhaseStats* phaseStats_ = nullptr;
+    checkpoint::ManifestSaveStats* manifestSaveStats_ = nullptr;
 };
 
 }  // namespace cpnetflux::core::session

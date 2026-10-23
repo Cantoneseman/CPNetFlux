@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
 #include <vector>
 
 #include "cpnetflux/checkpoint/transfer_manifest.h"
@@ -37,7 +38,7 @@ struct DownloadManifest {
     const DownloadManifest& manifest);
 [[nodiscard]] common::Result<DownloadManifest> parseDownloadManifest(const std::string& text);
 [[nodiscard]] common::Status saveDownloadManifestAtomic(const std::string& path,
-                                                        const DownloadManifest& manifest);
+                                                        const DownloadManifest& manifest, ManifestSaveStats* stats = nullptr);
 [[nodiscard]] common::Result<DownloadManifest> loadDownloadManifest(const std::string& path);
 
 }  // namespace cpnetflux::checkpoint

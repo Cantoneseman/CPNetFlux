@@ -493,11 +493,16 @@ common::Result<DownloadManifest> parseDownloadManifest(const std::string& text) 
 }
 
 common::Status saveDownloadManifestAtomic(const std::string& path,
-                                          const DownloadManifest& manifest) {
+                                          const DownloadManifest& manifest, ManifestSaveStats* stats) {
+    ManifestSaveAttempt attempt(stats);
+    OptionalManifestTimer serialization(stats ? &stats->serializeSeconds : nullptr);
     auto serialized = serializeDownloadManifest(manifest);
+    serialization.stop();
     if (!serialized.isOk()) {
         return serialized.status();
     }
+    if (stats) stats->serializedBytes += serialized.value().size();
+    OptionalManifestTimer tempWrite(stats ? &stats->tempWriteSeconds : nullptr);
 
     const std::string tempPath = path + ".tmp." + std::to_string(::getpid());
     const int fd = ::open(tempPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
@@ -517,11 +522,16 @@ common::Status saveDownloadManifestAtomic(const std::string& path,
         (void)storage::PosixFile::removePath(tempPath);
         return systemStatus("close download manifest temp", closeError);
     }
+    tempWrite.stop();
+    if (stats) ++stats->renameCalls;
+    OptionalManifestTimer renaming(stats ? &stats->renameSeconds : nullptr);
     const common::Status renameStatus = storage::PosixFile::renamePath(tempPath, path);
+    renaming.stop();
     if (!renameStatus.isOk()) {
         (void)storage::PosixFile::removePath(tempPath);
         return renameStatus;
     }
+    attempt.succeed();
     return common::Status::ok();
 }
 

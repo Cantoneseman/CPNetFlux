@@ -1,6 +1,7 @@
 #include "cpnetflux/core/io/payload_pipeline.h"
 
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <limits>
@@ -12,8 +13,8 @@ namespace {
 using common::Status;
 
 struct PipelineState {
-    explicit PipelineState(std::size_t byteBudget, std::size_t chunkBudget)
-        : maxBytes(byteBudget), maxChunks(chunkBudget) {
+    explicit PipelineState(std::size_t byteBudget, std::size_t chunkBudget, bool observe)
+        : maxBytes(byteBudget), maxChunks(chunkBudget), observeWaits(observe) {
         if (byteBudget == 0 || chunkBudget == 0) {
             terminal = Status::invalidArgument("payload pipeline budgets must be positive");
             cancelled = true;
@@ -30,6 +31,8 @@ struct PipelineState {
     std::size_t highWatermarkBytes = 0;
     std::uint64_t producerWaitCount = 0;
     std::uint64_t consumerWaitCount = 0;
+    const bool observeWaits;
+    double producerWaitSeconds = 0, consumerWaitSeconds = 0;
     bool closed = false;
     bool cancelled = false;
     Status terminal = Status::ok();
@@ -41,8 +44,8 @@ struct BoundedPayloadPipeline::State : PipelineState {
     using PipelineState::PipelineState;
 };
 
-BoundedPayloadPipeline::BoundedPayloadPipeline(std::size_t maxBytes, std::size_t maxChunks)
-    : state_(std::make_shared<State>(maxBytes, maxChunks)) {}
+BoundedPayloadPipeline::BoundedPayloadPipeline(std::size_t maxBytes, std::size_t maxChunks, bool observeWaits)
+    : state_(std::make_shared<State>(maxBytes, maxChunks, observeWaits)) {}
 
 common::Status BoundedPayloadPipeline::push(PreparedPayload payload) {
     const auto payloadBytes = payload.bytes.size();
@@ -58,7 +61,10 @@ common::Status BoundedPayloadPipeline::push(PreparedPayload payload) {
     };
     if (!canPush()) {
         ++state->producerWaitCount;
+        const auto started = state->observeWaits ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         state->canPush.wait(lock, canPush);
+        if (state->observeWaits) state->producerWaitSeconds +=
+            std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
     }
     if (state->cancelled || !state->terminal.isOk()) return state->terminal;
     if (state->closed) return Status::runtimeError("payload pipeline is closed");
@@ -78,7 +84,10 @@ common::Result<std::optional<PreparedPayload>> BoundedPayloadPipeline::pop() {
     };
     if (!canPop()) {
         ++state->consumerWaitCount;
+        const auto started = state->observeWaits ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         state->canPop.wait(lock, canPop);
+        if (state->observeWaits) state->consumerWaitSeconds +=
+            std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
     }
     if (state->cancelled || !state->terminal.isOk()) return state->terminal;
     if (state->queue.empty()) return std::optional<PreparedPayload>{};
@@ -135,6 +144,14 @@ std::uint64_t BoundedPayloadPipeline::consumerWaitCount() const {
     return state_->consumerWaitCount;
 }
 
+double BoundedPayloadPipeline::producerWaitSeconds() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->producerWaitSeconds;
+}
+double BoundedPayloadPipeline::consumerWaitSeconds() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->consumerWaitSeconds;
+}
 common::Status BoundedPayloadPipeline::status() const {
     std::lock_guard<std::mutex> lock(state_->mutex);
     return state_->terminal;

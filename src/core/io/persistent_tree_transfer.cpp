@@ -1,5 +1,8 @@
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
 #include "cpnetflux/core/io/payload_pipeline.h"
+#include <cstdlib>
+#include <ctime>
+#include <string_view>
 #include "cpnetflux/core/io/work_executor.h"
 
 #include <fcntl.h>
@@ -68,13 +71,65 @@ struct Timer {
     ~Timer() { if (value) *value += secondsSince(start); }
 };
 
+bool observeRanges(const PersistentTreeStats& stats) {
+    const auto* setting = std::getenv("CPNETFLUX_RANGE_TIMING");
+    return stats.phaseTiming && (!setting || std::string_view(setting) != "off");
+}
+common::Result<std::size_t> diagnosticPipelineDepth() {
+    const auto* setting = std::getenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
+    if (!setting) return std::size_t{2};
+    const std::string_view text(setting);
+    if (text == "2") return std::size_t{2};
+    if (text == "4") return std::size_t{4};
+    if (text == "8") return std::size_t{8};
+    if (text == "16") return std::size_t{16};
+    return Status::invalidArgument("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH must be 2, 4, 8 or 16");
+}
+double threadCpuSeconds(bool enabled) {
+    if (!enabled) return 0;
+    timespec now{};
+    if (::clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now) != 0) return 0;
+    return static_cast<double>(now.tv_sec) + static_cast<double>(now.tv_nsec)*1e-9;
+}
+class ObservedEntryLock {
+ public:
+    ObservedEntryLock(std::mutex& mutex, RangeObservation* observation)
+        : observation_(observation), lock_(mutex, std::defer_lock) {
+        const auto started = observation_ ? Clock::now() : Clock::time_point{};
+        lock_.lock();
+        if (observation_) {
+            acquired_ = Clock::now();
+            ++observation_->entryLockCalls;
+            observation_->entryLockWaitSeconds += std::chrono::duration<double>(acquired_-started).count();
+        }
+    }
+    ~ObservedEntryLock() {
+        if (observation_) observation_->entryLockHoldSeconds += secondsSince(acquired_);
+    }
+ private:
+    RangeObservation* observation_;
+    std::unique_lock<std::mutex> lock_;
+    Clock::time_point acquired_{};
+};
+// The shared transaction must never retain a lane's stack observation pointer.
+class ScopedManifestObservation {
+ public:
+    ScopedManifestObservation(Session& session, RangeObservation* observation) : session_(session) {
+        std::visit([&](auto& s) { s.setManifestSaveStats(observation ? &observation->manifestSave : nullptr); }, session_);
+    }
+    ~ScopedManifestObservation() {
+        std::visit([](auto& s) { s.setManifestSaveStats(nullptr); }, session_);
+    }
+ private:
+    Session& session_;
+};
 class FileTransaction {
  public:
     explicit FileTransaction(PersistentFileTiming* timing, const PersistentTransferPolicy& policy = {},
                              storage::FileIoStats* ioStats = nullptr)
         : timing_(timing), policy_(policy), ioContext_(policy.options.fileIo), ioStats_(ioStats) {}
     Status begin(const std::string& root, const PersistentFileIdentity& id,
-                 bool download, const std::string& remoteRoot, bool resume) {
+                 bool download, const std::string& remoteRoot, bool resume, RangeObservation* observation = nullptr) {
         std::lock_guard publicationLock(publicationMutex_);
         download_ = download;
         auto valid = tree::validateTreeRelativePath(id.relativePath);
@@ -228,6 +283,7 @@ class FileTransaction {
         writer_ = std::make_unique<storage::BufferedFileWriter>(file_,ioContext_,ioStats_);
         auto advice = storage::applyFileIoAdvice(file_,policy_.options.fileIo.advice,0,id.totalSize);
         if (!advice.isOk()) return advice;
+        ScopedManifestObservation observing(session_, observation);
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
         return resume ? common::Status::ok() : std::visit([](auto& s) { return s.save(); }, session_);
     }
@@ -262,7 +318,8 @@ class FileTransaction {
         }
         return Status::ok();
     }
-    Status commit() {
+    Status commit(RangeObservation* observation = nullptr) {
+        ScopedManifestObservation observing(session_, observation);
         std::lock_guard publicationLock(publicationMutex_);
         if (skipped_) { active_ = false; return Status::ok(); }
         auto flushed = writer_->flush();
@@ -381,23 +438,30 @@ class FileTransaction {
         }
         return true;
     }
-    Status writeRange(std::uint64_t offset, const std::vector<std::uint8_t>& bytes) {
+    Status writeRange(std::uint64_t offset, const std::vector<std::uint8_t>& bytes, RangeObservation* observation) {
         if (skipped_) return Status::ok();
         if (!active_ || offset > identity_.totalSize || bytes.size() > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range write exceeds file boundary");
+        if (observation) ++observation->offsetWriteCalls;
+        checkpoint::OptionalManifestTimer writing(observation ? &observation->offsetWriteSeconds : nullptr);
         const auto started = Clock::now();
         auto status = writer_->write(offset, bytes.data(), bytes.size());
         if (timing_) timing_->writeSeconds += secondsSince(started);
         return status;
     }
     Status recordRange(std::uint64_t rangeId, std::uint64_t offset, std::uint64_t length,
-                       checksum::ChecksumValue checksum) {
+                       checksum::ChecksumValue checksum, RangeObservation* observation) {
+        ScopedManifestObservation observing(session_, observation);
         if (skipped_) return Status::ok();
         if (!active_ || rangeId == 0 || length == 0 || offset > identity_.totalSize ||
             length > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range completion is invalid");
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
+        if (observation) ++observation->chunkFlushCalls;
+        checkpoint::OptionalManifestTimer flushing(observation ? &observation->chunkFlushSeconds : nullptr);
         auto flushed = writer_->flush();
+        flushing.stop();
+        checkpoint::OptionalManifestTimer checkpointing(observation ? &observation->checkpointSeconds : nullptr);
         if (!flushed.isOk()) return flushed;
         const auto recordId=std::visit([](const auto& s) {
             std::uint64_t next=0;
@@ -470,7 +534,7 @@ class RangeFileCoordinator {
     };
     static common::Result<std::shared_ptr<Entry>> begin(PersistentTransferContext& context,
         const std::string& root, const PersistentFileIdentity& id, bool download,
-        const std::string& remoteRoot, bool resume) {
+        const std::string& remoteRoot, bool resume, RangeObservation* observation) {
         if (!id.rangeId || !id.rangeCount || id.rangeId > id.rangeCount ||
             !id.rangeLength || id.rangeOffset > id.totalSize ||
             id.rangeLength > id.totalSize-id.rangeOffset)
@@ -489,7 +553,7 @@ class RangeFileCoordinator {
                 entry->rangeCount = id.rangeCount;
                 // The transaction outlives any channel's stack timing object.
                 entry->transaction = std::make_unique<FileTransaction>(nullptr,context.policy);
-                auto status = entry->transaction->begin(root,entry->base,download,remoteRoot,resume);
+                auto status = entry->transaction->begin(root,entry->base,download,remoteRoot,resume,observation);
                 if (!status.isOk()) return status;
                 entry->loadedVerifiedChunks = entry->transaction->loadedVerifiedChunks();
                 entry->removedCorruptChunks = entry->transaction->removedCorruptChunks();
@@ -503,7 +567,7 @@ class RangeFileCoordinator {
                 });
             }
         }
-        std::lock_guard lock(entry->mutex);
+        ObservedEntryLock lock(entry->mutex, observation);
         auto base = id;
         base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
         // A recovered file can become fully verified before every original range
@@ -550,8 +614,8 @@ class RangeFileCoordinator {
         return entry;
     }
     static Status write(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
-                        std::uint64_t offset, const std::vector<std::uint8_t>& bytes) {
-        std::lock_guard lock(entry->mutex);
+                        std::uint64_t offset, const std::vector<std::uint8_t>& bytes, RangeObservation* observation) {
+        ObservedEntryLock lock(entry->mutex, observation);
         const auto slot = entry->slots.find(id.rangeId);
         if (entry->committed || slot == entry->slots.end() || !slot->second.active ||
             !samePersistentIdentity(slot->second.id,id) || offset < id.rangeOffset ||
@@ -562,13 +626,15 @@ class RangeFileCoordinator {
         if (lease.next>=lease.missing.size() || offset!=lease.position ||
             bytes.size()>lease.missing[lease.next].end-lease.position)
             return Status::invalidArgument("range DATA touches already verified bytes");
-        auto status=entry->transaction->writeRange(offset,bytes);
+        auto status=entry->transaction->writeRange(offset,bytes,observation);
         if (!status.isOk()) return status;
+        checkpoint::OptionalManifestTimer checksumming(observation ? &observation->chunkChecksumSeconds : nullptr);
         lease.checksum.update(bytes.data(),bytes.size());
+        checksumming.stop();
         lease.position+=bytes.size();
         if (lease.position==lease.missing[lease.next].end) {
             const auto piece=lease.missing[lease.next];
-            status=entry->transaction->recordRange(id.rangeId,piece.begin,piece.end-piece.begin,lease.checksum.finalize());
+            status=entry->transaction->recordRange(id.rangeId,piece.begin,piece.end-piece.begin,lease.checksum.finalize(),observation);
             if (!status.isOk()) return status;
             ++lease.next;
             lease.position=lease.next==lease.missing.size() ? id.rangeOffset+id.rangeLength : lease.missing[lease.next].begin;
@@ -593,8 +659,8 @@ class RangeFileCoordinator {
         return entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength);
     }
     static Status complete(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
-                           checksum::ChecksumValue checksum, bool skipped) {
-        std::lock_guard lock(entry->mutex);
+                           checksum::ChecksumValue checksum, bool skipped, RangeObservation* observation) {
+        ObservedEntryLock lock(entry->mutex, observation);
         const auto slot = entry->slots.find(id.rangeId);
         if (slot == entry->slots.end() || !samePersistentIdentity(slot->second.id,id))
             return Status::invalidArgument("invalid or duplicate range completion");
@@ -623,7 +689,7 @@ class RangeFileCoordinator {
         // Full verified coverage plus no active writer is sufficient to publish.
         if (!entry->committed &&
             (entry->completed == entry->rangeCount || (drained && verified))) {
-            status = entry->transaction->commit();
+            status = entry->transaction->commit(observation);
             if (!status.isOk()) return status;
             entry->committed = true;
         }
@@ -722,6 +788,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     if (channelCount == 0 || channelCount > kUnifiedFileMaxChannels ||
         channelIndex >= channelCount)
         return Status::invalidArgument("persistent channel index/count is invalid");
+    const auto pipelineDepth = diagnosticPipelineDepth();
+    if (!pipelineDepth.isOk()) return pipelineDepth.status();
     stats->pendingWindow = pendingWindow;
     const std::uint64_t filesAtConnectionStart = stats->files;
     auto status = PersistentDataSession::setTimeout(socket, 30);
@@ -938,9 +1006,12 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         checksum::ChecksumComputer checksumComputer(id.checksumAlgorithm,options.checksumBackend);
         const auto pipelineChunkBytes = std::min<std::size_t>(
             std::max<std::size_t>(options.bufferSize, 1), PersistentDataSession::kMaxPayload - 4);
-        constexpr std::size_t kPipelineChunks = 2;
+        const auto kPipelineChunks = pipelineDepth.value();
+        timing.rangeObservationEnabled = observeRanges(*stats);
+        timing.payloadPipelineDepth = kPipelineChunks;
+        const auto laneCpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
         const auto pipelineBudget = pipelineChunkBytes * kPipelineChunks;
-        BoundedPayloadPipeline pipeline(pipelineBudget, kPipelineChunks);
+        BoundedPayloadPipeline pipeline(pipelineBudget, kPipelineChunks, timing.rangeObservationEnabled);
         stats->payloadPipelineBudgetBytes = std::max<std::uint64_t>(
             stats->payloadPipelineBudgetBytes, pipelineBudget);
         std::uint64_t payloadSent = 0;
@@ -949,6 +1020,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         double producerChecksumSeconds = 0;
         Status producerStatus = Status::ok();
         std::thread producer([&]() {
+            const auto cpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
+            struct CpuSample { PersistentFileTiming& timing; double started;
+                ~CpuSample() { timing.producerThreadCpuSeconds += threadCpuSeconds(timing.rangeObservationEnabled)-started; }
+            } cpuSample{timing,cpuStarted};
             std::vector<std::uint8_t> producerBuffer;
             for (const auto& piece : missing) {
                 for (std::uint64_t offset = piece.begin; offset < piece.end;) {
@@ -1007,6 +1082,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             const auto length = prepared.bytes.size();
             const auto frameDigest = prepared.frameChecksum;
             const auto chunkIndex = prepared.chunkIndex;
+            checkpoint::OptionalManifestTimer preparing(timing.rangeObservationEnabled ? &timing.framePrepareSeconds : nullptr);
             std::vector<std::uint8_t> compressed;
             auto* bytes = prepared.bytes.data();
             std::size_t wireLength = length;
@@ -1066,6 +1142,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             header.payloadSize = wireLength;
             header.flags = flags;
             auto encoded = protocol::encodeFrameHeader(header);
+            preparing.stop();
             const auto payloadStarted = Clock::now();
             auto writePayload = [&](const std::uint8_t* payload, std::size_t size) {
                 const auto frameBytes = encoded.size() + size;
@@ -1073,8 +1150,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     auto reserved = executor->startIo(*lease, frameBytes);
                     if (!reserved.isOk()) return reserved;
                 }
+                checkpoint::OptionalManifestTimer socketWriting(timing.rangeObservationEnabled ? &timing.socketWriteSeconds : nullptr);
+                if (timing.rangeObservationEnabled) ++timing.socketWriteCalls;
                 auto written = socket->writeAll(encoded.data(), encoded.size());
                 if (written.isOk()) written = socket->writeAll(payload, size);
+                socketWriting.stop();
                 if (written.isOk() && ready) written = executor->finishIo(*lease, frameBytes);
                 return written;
             };
@@ -1099,6 +1179,13 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (writeFailed)
             pipeline.cancel(status.isOk() ? Status::runtimeError("persistent data write failed") : status);
         producer.join();
+        timing.laneThreadCpuSeconds = threadCpuSeconds(timing.rangeObservationEnabled)-laneCpuStarted;
+        timing.pipelineBudgetBytes = pipelineBudget;
+        timing.pipelineHighWatermarkBytes = pipeline.highWatermarkBytes();
+        timing.pipelineProducerWaits = pipeline.producerWaitCount();
+        timing.pipelineConsumerWaits = pipeline.consumerWaitCount();
+        timing.pipelineProducerWaitSeconds = pipeline.producerWaitSeconds();
+        timing.pipelineConsumerWaitSeconds = pipeline.consumerWaitSeconds();
         timing.readSeconds += producerReadSeconds;
         timing.checksumSeconds += producerChecksumSeconds;
         stats->payloadPipelineHighWatermarkBytes = std::max<std::uint64_t>(
@@ -1307,6 +1394,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (!status.isOk()) return finishTransport(status);
         PersistentFileTiming timing;
         timing.file = id; timing.channel = channelIndex;
+        timing.rangeObservationEnabled = observeRanges(*stats);
+        auto* observation = timing.rangeObservationEnabled ? &timing.rangeObservation : nullptr;
+        const auto laneCpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
         const auto fileStarted = Clock::now();
         const auto manifestStarted = Clock::now();
         status = notify(callback, id, Status::ok(), false);
@@ -1316,7 +1406,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         std::shared_ptr<FileTransaction> transaction;
         Status fileStatus = Status::ok();
         if (id.rangeId != 0) {
-            auto started = RangeFileCoordinator::begin(*context, root, id, download, remoteRoot, resume);
+            auto started = RangeFileCoordinator::begin(*context, root, id, download, remoteRoot, resume, observation);
             if (!started.isOk()) {
                 // Write the semantic rejection before callbacks can cancel sibling sockets.
                 auto rejected = PersistentDataSession::writeResumeResponse(socket,id,{},fileFailureCode(started.status()));
@@ -1379,7 +1469,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 if (fileStatus.isOk() && rangeEntry) {
                     Timer finalized{&timing.finalizeSeconds};
                     fileStatus = RangeFileCoordinator::complete(rangeEntry, ended.value(), ended.value().checksum,
-                        (data.value().header.flags & protocol::kRangeSkipped) != 0);
+                        (data.value().header.flags & protocol::kRangeSkipped) != 0, observation);
                 }
                 break;
             }
@@ -1424,7 +1514,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             if (fileStatus.isOk()) {
                 Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
                 fileStatus = rangeEntry ? RangeFileCoordinator::write(rangeEntry, id, data.value().header.offset,
-                                                                       logical)
+                                                                       logical, observation)
                                          : transaction->write(data.value().header.offset, logical);
                 stats->payloadBytes += logical.size();
                 if (context->policy.options.maxChunks &&
@@ -1468,6 +1558,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             leaseGuard.finished = true;
         }
         stats->wireBytes += protocol::kFrameHeaderSize;
+        timing.laneThreadCpuSeconds = threadCpuSeconds(timing.rangeObservationEnabled)-laneCpuStarted;
         timing.fileResultSeconds = secondsSince(resultStarted);
         timing.wallSeconds = secondsSince(fileStarted);
         if (stats->phaseTiming) stats->fileTimings.push_back(std::move(timing));
@@ -1499,7 +1590,7 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
         if (!first) out << ',';
         first = false;
         out << "{\"file_id\":" << t.file.fileId << ",\"generation\":" << t.file.generation
-            << ",\"size\":" << t.file.totalSize << ",\"channel_index\":" << t.channel << ",\"relative_path\":";
+            << ",\"chunk_size\":" << t.file.chunkSize << ",\"size\":" << t.file.totalSize << ",\"channel_index\":" << t.channel << ",\"relative_path\":";
         quoted(out,t.file.relativePath);
         out << ",\"transfer_id\":"; quoted(out,t.file.transferId);
         out << ",\"range_id\":" << t.file.rangeId << ",\"attempt\":" << t.file.attempt
@@ -1524,6 +1615,42 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"manifest_seconds\":" << t.manifestSeconds << ",\"checksum_seconds\":"
             << t.checksumSeconds << ",\"finalize_seconds\":";
         if (!t.sender) out << t.finalizeSeconds; else out << "null";
+        out << ",\"range_observation_enabled\":" << (t.rangeObservationEnabled ? "true" : "false")
+            << ",\"range_observation_scope\":\"local_range_begin_write_complete_subintervals_overlap_not_wall\""
+            << ",\"lane_thread_cpu_seconds\":" << t.laneThreadCpuSeconds
+            << ",\"lane_thread_cpu_scope\":\"" << (t.sender ? "payload_prepare_send_and_join" : "file_begin_through_result") << "\""
+            << ",\"producer_thread_cpu_seconds\":" << t.producerThreadCpuSeconds
+            << ",\"frame_prepare_seconds\":" << t.framePrepareSeconds
+            << ",\"socket_write_seconds\":" << t.socketWriteSeconds
+            << ",\"socket_write_frame_calls\":" << t.socketWriteCalls
+            << ",\"socket_write_scope\":\"DATA_header_and_payload_writeAll_includes_TLS_when_enabled\""
+            << ",\"pipeline_wait_scope\":\"condition_wait_through_mutex_reacquire_subintervals_not_wall\""
+            << ",\"write_seconds_scope\":\"" << (t.file.rangeId ? "range_coordinator_includes_entry_wait_crc_checkpoint" : "writer_write_only") << "\""
+            << ",\"payload_pipeline_depth\":" << t.payloadPipelineDepth
+            << ",\"pipeline_budget_bytes\":" << t.pipelineBudgetBytes
+            << ",\"pipeline_high_watermark_bytes\":" << t.pipelineHighWatermarkBytes
+            << ",\"pipeline_producer_waits\":" << t.pipelineProducerWaits
+            << ",\"pipeline_consumer_waits\":" << t.pipelineConsumerWaits
+            << ",\"pipeline_producer_wait_seconds\":" << t.pipelineProducerWaitSeconds
+            << ",\"pipeline_consumer_wait_seconds\":" << t.pipelineConsumerWaitSeconds;
+        const auto& r = t.rangeObservation;
+        const auto& m = r.manifestSave;
+        out << ",\"range_observation\":{\"entry_lock_calls\":" << r.entryLockCalls
+            << ",\"entry_lock_wait_seconds\":" << r.entryLockWaitSeconds
+            << ",\"entry_lock_hold_seconds\":" << r.entryLockHoldSeconds
+            << ",\"offset_write_calls\":" << r.offsetWriteCalls
+            << ",\"offset_write_seconds\":" << r.offsetWriteSeconds
+            << ",\"chunk_flush_calls\":" << r.chunkFlushCalls
+            << ",\"chunk_flush_seconds\":" << r.chunkFlushSeconds
+            << ",\"chunk_checksum_seconds\":" << r.chunkChecksumSeconds
+            << ",\"checkpoint_seconds\":" << r.checkpointSeconds
+            << ",\"manifest_save\":{\"attempts\":" << m.attempts
+            << ",\"serialized_bytes\":" << m.serializedBytes
+            << ",\"rename_calls\":" << m.renameCalls
+            << ",\"failures\":" << m.failures
+            << ",\"serialize_seconds\":" << m.serializeSeconds
+            << ",\"temp_write_seconds\":" << m.tempWriteSeconds
+            << ",\"rename_seconds\":" << m.renameSeconds << "}}";
         out << ",\"wall_seconds\":" << t.wallSeconds << '}';
     }
     out << ']';

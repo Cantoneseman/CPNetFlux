@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
 #include "cpnetflux/config/file_transfer_options.h"
 #include <memory>
 #include <cstdint>
@@ -31,10 +32,26 @@ inline constexpr std::uint32_t kUnknownPersistentFileCount = UINT32_MAX;
         (fileId - 1) % channelCount == channelIndex;
 }
 
+struct RangeObservation {
+    std::uint64_t entryLockCalls = 0, offsetWriteCalls = 0, chunkFlushCalls = 0;
+    double entryLockWaitSeconds = 0, entryLockHoldSeconds = 0;
+    double offsetWriteSeconds = 0, chunkFlushSeconds = 0, chunkChecksumSeconds = 0;
+    double checkpointSeconds = 0;
+    checkpoint::ManifestSaveStats manifestSave;
+};
 struct PersistentFileTiming {
     PersistentFileIdentity file;
     std::uint32_t channel = 0;
     bool sender = false;
+    bool rangeObservationEnabled = false;
+    RangeObservation rangeObservation;
+    std::uint32_t payloadPipelineDepth = 0;
+    std::uint64_t pipelineBudgetBytes = 0, pipelineHighWatermarkBytes = 0;
+    std::uint64_t pipelineProducerWaits = 0, pipelineConsumerWaits = 0;
+    double pipelineProducerWaitSeconds = 0, pipelineConsumerWaitSeconds = 0;
+    double producerThreadCpuSeconds = 0, laneThreadCpuSeconds = 0;
+    double framePrepareSeconds = 0, socketWriteSeconds = 0;
+    std::uint64_t socketWriteCalls = 0;
     std::optional<double> queueWaitSeconds, firstPayloadSeconds;
     double readSeconds = 0, writeSeconds = 0, payloadIoSeconds = 0;
     double fileResultSeconds = 0, manifestSeconds = 0, checksumSeconds = 0,

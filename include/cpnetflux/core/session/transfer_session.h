@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
 
 #include "cpnetflux/checkpoint/transfer_manifest.h"
 #include "cpnetflux/checksum/checksum.h"
@@ -61,6 +62,7 @@ class TransferSession {
     [[nodiscard]] std::uint64_t manifestFlushIntervalChunks() const noexcept;
     [[nodiscard]] const checkpoint::TransferManifest& manifest() const noexcept;
     [[nodiscard]] const std::string& manifestPath() const noexcept;
+    void setManifestSaveStats(checkpoint::ManifestSaveStats* stats) noexcept { manifestSaveStats_ = stats; }
     void setPhaseStats(metrics::TransferPhaseStats* phaseStats) noexcept;
 
    private:
@@ -73,6 +75,7 @@ class TransferSession {
     std::uint64_t dirtyVerifiedChunks_ = 0;
     TransferSessionStats stats_;
     metrics::TransferPhaseStats* phaseStats_ = nullptr;
+    checkpoint::ManifestSaveStats* manifestSaveStats_ = nullptr;
 };
 
 }  // namespace cpnetflux::core::session

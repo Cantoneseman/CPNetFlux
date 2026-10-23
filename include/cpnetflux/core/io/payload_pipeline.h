@@ -19,11 +19,13 @@ struct PreparedPayload {
 
 class BoundedPayloadPipeline {
    public:
-    BoundedPayloadPipeline(std::size_t maxBytes, std::size_t maxChunks);
+    BoundedPayloadPipeline(std::size_t maxBytes, std::size_t maxChunks, bool observeWaits = false);
 
     [[nodiscard]] common::Status push(PreparedPayload payload);
     [[nodiscard]] common::Result<std::optional<PreparedPayload>> pop();
 
+    [[nodiscard]] double producerWaitSeconds() const;
+    [[nodiscard]] double consumerWaitSeconds() const;
     void close();
     void cancel(common::Status reason);
 

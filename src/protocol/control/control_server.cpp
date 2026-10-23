@@ -1183,7 +1183,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
                     << "\",\"channel_index\":" << channelIndex << ",\"files\":";
         core::io::appendPersistentFileTimings(observation,stats.fileTimings);
         observation << "}\n";
-        std::osyncstream(std::cout) << observation.str();
+        std::osyncstream(std::cout) << observation.str() << std::flush_emit;
         guard.success = status.isOk();
         guard.detach();
     }

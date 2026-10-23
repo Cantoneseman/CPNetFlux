@@ -193,7 +193,7 @@ common::Status TransferSession::save() {
     manifest_.completedRanges = completed_.ranges();
     sortVerifiedChunks(&manifest_.verifiedChunks);
     metrics::ScopedPhaseTimer timer(phaseStats_, metrics::TransferPhase::ManifestFlush);
-    const common::Status status = checkpoint::ManifestStore::saveAtomic(manifestPath_, manifest_);
+    const common::Status status = checkpoint::ManifestStore::saveAtomic(manifestPath_, manifest_, manifestSaveStats_);
     timer.stop();
     if (status.isOk()) {
         dirtyVerifiedChunks_ = 0;

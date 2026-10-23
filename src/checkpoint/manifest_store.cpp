@@ -41,11 +41,16 @@ common::Status writeAll(int fd, const char* data, std::size_t length) {
 }  // namespace
 
 common::Status ManifestStore::saveAtomic(const std::string& path,
-                                         const TransferManifest& manifest) {
+                                         const TransferManifest& manifest, ManifestSaveStats* stats) {
+    ManifestSaveAttempt attempt(stats);
+    OptionalManifestTimer serialization(stats ? &stats->serializeSeconds : nullptr);
     auto serialized = serializeTransferManifest(manifest);
+    serialization.stop();
     if (!serialized.isOk()) {
         return serialized.status();
     }
+    if (stats) stats->serializedBytes += serialized.value().size();
+    OptionalManifestTimer tempWrite(stats ? &stats->tempWriteSeconds : nullptr);
 
     const std::string tempPath = path + ".tmp." + std::to_string(::getpid());
     const int fd = ::open(tempPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
@@ -67,11 +72,16 @@ common::Status ManifestStore::saveAtomic(const std::string& path,
         return systemStatus("close manifest temp", closeError);
     }
 
+    tempWrite.stop();
+    if (stats) ++stats->renameCalls;
+    OptionalManifestTimer renaming(stats ? &stats->renameSeconds : nullptr);
     const common::Status renameStatus = storage::PosixFile::renamePath(tempPath, path);
+    renaming.stop();
     if (!renameStatus.isOk()) {
         (void)storage::PosixFile::removePath(tempPath);
         return renameStatus;
     }
+    attempt.succeed();
     return common::Status::ok();
 }
 

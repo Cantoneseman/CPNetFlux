@@ -1224,3 +1224,45 @@ TEST(PersistentTreeResourceTest, ReleasesCommittedFileDescriptorsUnderDefaultLim
         EXPECT_EQ(std::filesystem::file_size(output), fileSize);
     }
 }
+
+TEST(BoundedPayloadPipelineTest, MeasuresRealProducerAndConsumerWaitIncludingCancellation) {
+    BoundedPayloadPipeline full(4, 1, true);
+    ASSERT_TRUE(full.push(PreparedPayload{0,{1,2,3,4}}).isOk());
+    auto producer = std::async(std::launch::async,[&] { return full.push(PreparedPayload{4,{5}}); });
+    EXPECT_EQ(producer.wait_for(std::chrono::milliseconds(50)),std::future_status::timeout);
+    ASSERT_TRUE(full.pop().isOk());
+    ASSERT_TRUE(producer.get().isOk());
+    EXPECT_GE(full.producerWaitSeconds(),0.03);
+    EXPECT_EQ(full.consumerWaitSeconds(),0);
+    BoundedPayloadPipeline empty(4, 1, true);
+    auto consumer = std::async(std::launch::async,[&] { return empty.pop(); });
+    EXPECT_EQ(consumer.wait_for(std::chrono::milliseconds(50)),std::future_status::timeout);
+    empty.cancel(cpnetflux::common::Status::runtimeError("observed cancellation"));
+    EXPECT_FALSE(consumer.get().isOk());
+    EXPECT_GE(empty.consumerWaitSeconds(),0.03);
+    EXPECT_EQ(empty.producerWaitSeconds(),0);
+}
+
+TEST(BoundedPayloadPipelineTest, DisabledObservationKeepsWaitCountersWithoutTiming) {
+    BoundedPayloadPipeline empty(4,1);
+    auto consumer = std::async(std::launch::async,[&] { return empty.pop(); });
+    EXPECT_EQ(consumer.wait_for(std::chrono::milliseconds(30)),std::future_status::timeout);
+    empty.close();
+    ASSERT_TRUE(consumer.get().isOk());
+    EXPECT_EQ(empty.consumerWaitCount(),1U);
+    EXPECT_EQ(empty.consumerWaitSeconds(),0);
+}
+
+TEST(PersistentTreeRangeTest, RejectsUnboundedDiagnosticDepthBeforeWritingAnyFrame) {
+    SocketPair pair;
+    PersistentTreeStats stats;
+    const auto* previous = std::getenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
+    const std::optional<std::string> saved = previous ? std::optional<std::string>(previous) : std::nullopt;
+    ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH","999999999",1);
+    const auto status=sendPersistentTree(&pair.sender,"",{},&stats);
+    if (saved) ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH",saved->c_str(),1);
+    else ::unsetenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
+    EXPECT_FALSE(status.isOk());
+    EXPECT_NE(status.message().find("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH"),std::string::npos);
+    EXPECT_EQ(stats.payloadBytes,0U);
+}
