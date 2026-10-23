@@ -24,7 +24,7 @@ tools/test/run_cpnetflux_range_observability_smoke.py、性能采样脚本、CMa
 4. 实际检查 CPU 栈工具/权限，保留每线程 CPU；不可用则写明原因，不虚构 profile。
 5. 精确文件提交推送回读，固定同一 commit 同步上海并构建/核对二进制；
    任何互传都在双端版本一致后开始。大文件 payload 仅在 /tmp。
-状态：开发中。实际命令、输出证据、后续决策在验收后填写。
+状态：已完成实现与本机诊断验收；pipeline 深度候选均 no-go，默认保持 2。最终物理机器性能门仍待阶段 8。
 
 ## 实现与回归
 - per-range file_timings 新增 range_observation、pipeline 等待/预算/水位、
@@ -63,3 +63,62 @@ pilot 第一条完整 process wall=72.4797 秒，core=47.0407 秒，且额外独
 4 MiB chunk、64 KiB frame、receiver verified_chunks/final_only/commit_sync=none 不变。
 这是阶段 4 的软件诊断矩阵；阶段 8 的物理机器 4 GiB 与 GridFTP 对照仍保留。
 脚本报告缓存为“预读一次、未清系统缓存、不保证驻留”，并保存 RAM 信息，避免宣称整文件热缓存。
+
+## 正式实验结果与下一步
+固定 source commit f180d3a9ca36d11046a5c2e7347c4555fc20aa6c；
+运行时代码 commit 2e509b3a432a53dc987b0511cb821e881dcd89fe（均已推送并回读同 SHA）。
+命令：
+python3 tools/perf/run_cpnetflux_range_observation.py --build-dir /tmp/cpnetflux-build-fd-release-01 --evidence-dir /tmp/cpnetflux-range-perf-512m-01 --bytes 536870912 --rounds 5
+40 次传输全部成功、独立 SHA-256 一致；每候选 5 组交错配对。TLS 控制/数据均 required，
+CRC Auto、无压缩，receiver final_only/verified_chunks/commit_sync=none；
+独立 SHA 在计时之外，process wall 包含客户端 summary，不更改 core elapsed。
+结果（秒，process wall 中位数与范围）：
+
+| 组别 | 深度 2 | 候选 | 对深度 2 中位数变化 |
+| --- | --- | --- | --- |
+| 深度 4 | 1.513294 [1.481294, 1.557847] | 1.522290 [1.518047, 1.531713] | +0.594% |
+| 深度 8 | 1.515302 [1.503791, 1.520161] | 1.514130 [1.509995, 1.522411] | -0.077% |
+| 深度 16 | 1.503022 [1.411333, 1.518583] | 1.501584 [1.208317, 1.860615] | -0.096% |
+
+均未达到稳定 ≥10% 改善；深度 16 个别样本正负波动明显，不能选择最快单条当作收益。
+queue budget 从深度 2 的每 lane 131064 B 增至深度 16 的 1048512 B，仍无稳定提速，故默认保持 2。
+诊断开销校准 5 组：关闭中位 1.518635 秒，开启 1.435741 秒；样本存在明显波动
+（关闭范围 1.328181–3.276877，开启 1.154352–1.912607）。本轮未观察到持续减速，
+不能将开启更快解释成负开销，也不能据此给出精确探针开销上限。
+
+depth=2 观测样本共 20 条，各线程累计秒数的中位数：
+- sender 源读取约 0.081 秒、CRC 0.134 秒、DATA socket/TLS writeAll 2.971 秒；
+  producer 满队列等待 3.050 秒、consumer 空队列等待 0.393 秒。
+- receiver Entry 等锁 2.455 秒、持锁 0.961 秒、offset writer 0.251 秒、
+  chunk CRC 0.067 秒、checkpoint 0.625 秒。
+- 每个 512 MiB 文件 128 次块 flush，131 次 manifest 保存/rename（块 128 + 初始化/提交 3）；
+  manifest 序列化约 0.004 秒、rename 约 0.626 秒（跨样本独立中位数不能当作同一条相加）。
+- 4 GiB 两条 pilot 均完成独立 SHA；开启观测样本记录 1024 块 flush、1027 次保存、
+  Entry wait 8.569 秒、hold 6.966 秒、offset writer 2.643 秒、checkpoint 3.747 秒、
+  manifest rename 3.534 秒。core 47.359 秒、完整 process 72.381 秒，
+  含云盘/cache 容量限制，不是原 R730/R750 吞吐复测。pilot 在两条完成后主动停止，
+  后续中断条目不作结果，原始 report 的 running 状态不能称为完整矩阵通过。
+- perf 可执行文件不存在，perf_event_paranoid=4；未取得 CPU 栈、未修改系统权限。
+  每 lane/producer CPU 秒和全部分项保存在 evidence，不能据此声称已定位 TLS 内部 CPU 栈热点。
+
+判断：本机证据支持先执行阶段 5，降低锁内逐块 checkpoint rename 次数；
+producer 等待较多且加深队列无收益，优先处理下游 checkpoint/Entry 串行段。
+这是下一项实验假设，不是已证明批处理一定能提速，也不替代阶段 6 的并发正确性设计。
+
+## 双端版本与备份
+上海同步前逐一核对旧提交归档的 619 个文件，未覆盖未知改动。以固定 source commit
+f180d3a9ca36d11046a5c2e7347c4555fc20aa6c 生成归档，双端 SHA-256：
+08e307f5a513e07790c11eaa656b8c3d8ee58b65b3e843519cf940c8b22d174b。
+上海 /root/projects/CPNetFlux/SOURCE_COMMIT 同 SHA；Release 完整构建成功，18 项专项 CTest 全通过。
+深圳/上海关键二进制 SHA 完全一致：
+- cpnetflux-gridftp-server: 942b34e04f100b29f7f47fd4f2b31add59a2a3199da1d395d234e8133b2fa31e
+- cpnetflux-tree-upload-client: 2a87b92e1164793a73f41d585ec57347a396299574a228a142401d1404360ca6
+- cpnetflux-tree-download-client: 1da20943ead0fab3874bb847d89134f978d4d68f15f654013150ef0167ebe004
+
+本项性能传输都在深圳本机完成；上海专项双向 smoke 在上海本机完成，
+不冒称已经完成本轮公网互传或最终 R730/R750 对照。现有系统服务未替换。
+源码与该阶段证据均按明确文件提交 GitHub；最终证据提交 SHA 由聊天和 Git remote 回读记录，
+避免在提交中写入其自身 SHA。
+下一步：V3-RANGE-CHECKPOINT-BATCH-01，保持先 flush 数据再记录 verified chunk，
+有界合并 per-file manifest 保存；候选每 1/4/16 块、100 ms 触发和提交屏障需恢复回归。
+当前路线 4/8 完成，剩余 checkpoint 合并、range 并行写、profile 热点优化和最终双机验收 4 项。
