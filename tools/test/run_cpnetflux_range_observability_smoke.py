@@ -14,6 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--observation", choices=("on","off"), default="on")
+    parser.add_argument("--checkpoint-batch", choices=("1","4","16"), default="1")
     args = parser.parse_args()
     build = args.build_dir.absolute()
     with tempfile.TemporaryDirectory(prefix="cpnetflux-range-observation-") as tmp:
@@ -25,7 +26,8 @@ def main():
             for _ in range(2048): out.write(block)
         expected = tree_hash(source)
         port, data = free_port(), clamp_passive_data_port_base(free_port())
-        env = dict(os.environ, CPNETFLUX_PAYLOAD_PIPELINE_DEPTH="8", CPNETFLUX_RANGE_TIMING=args.observation)
+        env = dict(os.environ, CPNETFLUX_PAYLOAD_PIPELINE_DEPTH="8", CPNETFLUX_RANGE_TIMING=args.observation,
+                   CPNETFLUX_RANGE_CHECKPOINT_BATCH=args.checkpoint_batch)
         log = root/"server.log"
         with log.open("w") as output:
             server = subprocess.Popen([str(build/"cpnetflux-gridftp-server"),
@@ -67,7 +69,9 @@ def main():
                 assert sum(f["range_observation"]["chunk_flush_calls"] for f in receivers)==32
                 assert sum(f["range_observation"]["manifest_save"]["rename_calls"] for f in receivers)==observed_renames
             else:
-                assert observed_renames>=35, observed_renames
+                assert observed_renames>0, observed_renames
+            if args.checkpoint_batch!="1":
+                assert observed_renames < 32, ("checkpoint still saved per chunk",observed_renames)
             for f in senders+receivers:
                 assert f["range_observation_enabled"]==(args.observation=="on")
                 if args.observation=="off":

@@ -202,7 +202,7 @@ common::Status DownloadSession::flushManifest() { return save(); }
 
 common::Status DownloadSession::recordVerifiedChunk(std::uint64_t chunkId, std::uint64_t offset,
                                                     std::uint64_t length,
-                                                    checksum::ChecksumValue checksumValue) {
+                                                    checksum::ChecksumValue checksumValue, bool deferManifestFlush) {
     if (checksumValue.algorithm != manifest_.checksumAlgorithm) {
         return common::Status::invalidArgument(
             "download chunk checksum algorithm does not match manifest");
@@ -238,7 +238,7 @@ common::Status DownloadSession::recordVerifiedChunk(std::uint64_t chunkId, std::
     stats_.resentBytes += length;
     stats_.verifiedBytes = completed_.bytesCompleted();
     stats_.missingChunks = completed_.missingRanges(manifest_.totalSize).size();
-    if (manifestFlushPolicy_ == ManifestFlushPolicy::EveryNChunks &&
+    if (!deferManifestFlush && manifestFlushPolicy_ == ManifestFlushPolicy::EveryNChunks &&
         dirtyVerifiedChunks_ >= manifestFlushIntervalChunks_) {
         return flushManifest();
     }

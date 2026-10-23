@@ -325,6 +325,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/frame_test.cpp
         tests/unit/range_planner_test.cpp
         tests/unit/persistent_data_session_test.cpp
+        tests/unit/range_checkpoint_batch_test.cpp
         tests/unit/dynamic_file_queue_test.cpp
         tests/unit/hot_path_compression_test.cpp
         tests/unit/manifest_store_test.cpp
@@ -665,6 +666,9 @@ if(CPNETFLUX_BUILD_TESTS)
     add_test(NAME cpnetflux_range_observability_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_range_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_checkpoint_batch_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --checkpoint-batch 16)
+    set_tests_properties(cpnetflux_range_checkpoint_batch_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME cpnetflux_range_observability_disabled_smoke
         COMMAND ${CMAKE_COMMAND} -E env python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --observation off)
     set_tests_properties(cpnetflux_range_observability_disabled_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)

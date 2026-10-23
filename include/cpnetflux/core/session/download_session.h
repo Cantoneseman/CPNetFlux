@@ -46,9 +46,11 @@ class DownloadSession {
 
     [[nodiscard]] common::Status save();
     [[nodiscard]] common::Status flushManifest();
+    // A batching owner may defer autosave; it must flush before acknowledging completion.
     [[nodiscard]] common::Status recordVerifiedChunk(std::uint64_t chunkId, std::uint64_t offset,
                                                      std::uint64_t length,
-                                                     checksum::ChecksumValue checksumValue);
+                                                     checksum::ChecksumValue checksumValue,
+                                                     bool deferManifestFlush = false);
     [[nodiscard]] common::Status verifyTempChunks(const storage::PosixFile& tempFile);
     [[nodiscard]] common::Status markFailed();
     [[nodiscard]] common::Status markCommitted();

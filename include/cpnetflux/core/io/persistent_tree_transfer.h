@@ -16,6 +16,8 @@ namespace cpnetflux::core::io {
 struct PersistentTransferPolicy {
     config::FileTransferOptions options;
     std::string outputPath;
+    // Internal policy override; 0 selects the tested default/environment setting.
+    std::uint32_t rangeCheckpointBatchChunks = 0;
 };
 struct PersistentTransferContext;
 [[nodiscard]] std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(
@@ -37,6 +39,7 @@ struct RangeObservation {
     double entryLockWaitSeconds = 0, entryLockHoldSeconds = 0;
     double offsetWriteSeconds = 0, chunkFlushSeconds = 0, chunkChecksumSeconds = 0;
     double checkpointSeconds = 0;
+    double backgroundCheckpointCpuSeconds = 0; // separate thread; attributed at receiver boundaries
     checkpoint::ManifestSaveStats manifestSave;
 };
 struct PersistentFileTiming {

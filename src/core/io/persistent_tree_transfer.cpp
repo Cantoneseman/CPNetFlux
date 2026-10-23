@@ -33,11 +33,55 @@
 #include "cpnetflux/core/protocol/compressed_data.h"
 
 namespace cpnetflux::core::io {
+// One worker per transfer context; never hold the queue lock across a file lock.
+// Callbacks own weak file references, so shutdown joins before files are destroyed.
+class RangeCheckpointQueue {
+    using Clock = std::chrono::steady_clock;
+    struct Job { Clock::time_point deadline; std::function<void()> run; };
+    std::mutex mutex_;
+    std::condition_variable changed_;
+    std::unordered_map<const void*, Job> jobs_;
+    bool stopping_ = false;
+    std::thread worker_{[this] {
+        std::unique_lock lock(mutex_);
+        while (!stopping_) {
+            if (jobs_.empty()) { changed_.wait(lock); continue; }
+            auto next = std::min_element(jobs_.begin(), jobs_.end(),
+                [](const auto& a, const auto& b) { return a.second.deadline < b.second.deadline; });
+            if (Clock::now() < next->second.deadline) {
+                const auto deadline = next->second.deadline;
+                changed_.wait_until(lock, deadline);
+                continue;
+            }
+            auto run = std::move(next->second.run);
+            jobs_.erase(next);
+            lock.unlock();
+            run();
+            lock.lock();
+        }
+    }};
+ public:
+    void schedule(const void* key, Clock::time_point deadline, std::function<void()> run) {
+        std::lock_guard lock(mutex_);
+        jobs_.insert_or_assign(key, Job{deadline, std::move(run)});
+        changed_.notify_one();
+    }
+    void cancel(const void* key) {
+        std::lock_guard lock(mutex_);
+        jobs_.erase(key);
+        changed_.notify_one();
+    }
+    ~RangeCheckpointQueue() {
+        { std::lock_guard lock(mutex_); stopping_ = true; changed_.notify_one(); }
+        worker_.join();
+    }
+};
 struct PersistentTransferContext {
     std::mutex mutex;
     std::unordered_map<std::string, std::shared_ptr<void>> files;
     std::vector<std::function<common::Status()>> integrityChecks;
     PersistentTransferPolicy policy;
+    std::shared_ptr<RangeCheckpointQueue> checkpoints; // destroyed/joined before files
 };
 std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(const PersistentTransferPolicy& policy) {
     auto context = std::make_shared<PersistentTransferContext>();
@@ -84,6 +128,18 @@ common::Result<std::size_t> diagnosticPipelineDepth() {
     if (text == "8") return std::size_t{8};
     if (text == "16") return std::size_t{16};
     return Status::invalidArgument("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH must be 2, 4, 8 or 16");
+}
+common::Result<std::uint32_t> rangeCheckpointBatch(const PersistentTransferPolicy& policy) {
+    if (policy.rangeCheckpointBatchChunks) {
+        const auto n = policy.rangeCheckpointBatchChunks;
+        if (n == 1 || n == 4 || n == 16) return n;
+        return Status::invalidArgument("range checkpoint batch must be 1, 4 or 16");
+    }
+    const auto* setting = std::getenv("CPNETFLUX_RANGE_CHECKPOINT_BATCH");
+    if (!setting || std::string_view(setting) == "1") return std::uint32_t{1};
+    if (std::string_view(setting) == "4") return std::uint32_t{4};
+    if (std::string_view(setting) == "16") return std::uint32_t{16};
+    return Status::invalidArgument("CPNETFLUX_RANGE_CHECKPOINT_BATCH must be 1, 4 or 16");
 }
 double threadCpuSeconds(bool enabled) {
     if (!enabled) return 0;
@@ -450,7 +506,7 @@ class FileTransaction {
         return status;
     }
     Status recordRange(std::uint64_t rangeId, std::uint64_t offset, std::uint64_t length,
-                       checksum::ChecksumValue checksum, RangeObservation* observation) {
+                       checksum::ChecksumValue checksum, RangeObservation* observation, std::uint32_t batch) {
         ScopedManifestObservation observing(session_, observation);
         if (skipped_) return Status::ok();
         if (!active_ || rangeId == 0 || length == 0 || offset > identity_.totalSize ||
@@ -472,10 +528,25 @@ class FileTransaction {
             return next;
         },session_);
         if (recordId==UINT64_MAX) return Status::invalidArgument("checkpoint record ID exhausted");
-        auto status = std::visit([&](auto& s) { return s.recordVerifiedChunk(recordId, offset, length, checksum); }, session_);
+        auto status = std::visit([&](auto& s) { return s.recordVerifiedChunk(recordId, offset, length, checksum, batch > 1); }, session_);
         if (!status.isOk()) return status;
-        // A range result acknowledges a durable checkpoint, including on disconnect.
-        return std::visit([](auto& s) { return s.flushManifest(); }, session_);
+        checkpointing.stop();
+        if (pendingRangeChunks_++ == 0) oldestRangeChunk_ = Clock::now();
+        if (pendingRangeChunks_ >= batch || Clock::now() >= rangeCheckpointDeadline())
+            return flushRangeCheckpoint(observation);
+        return Status::ok();
+    }
+    bool hasPendingRangeCheckpoint() const { return pendingRangeChunks_ != 0; }
+    Clock::time_point rangeCheckpointDeadline() const {
+        return oldestRangeChunk_ + std::chrono::milliseconds(100);
+    }
+    Status flushRangeCheckpoint(RangeObservation* observation) {
+        if (!pendingRangeChunks_) return Status::ok();
+        ScopedManifestObservation observing(session_, observation);
+        checkpoint::OptionalManifestTimer checkpointing(observation ? &observation->checkpointSeconds : nullptr);
+        auto status = std::visit([](auto& s) { return s.flushManifest(); }, session_);
+        if (status.isOk()) pendingRangeChunks_ = 0;
+        return status;
     }
     ~FileTransaction() {
         // Partial files/checkpoints remain readable by the V3 persistent resume path.
@@ -493,6 +564,8 @@ class FileTransaction {
     PersistentFileIdentity identity_;
     checksum::ChecksumComputer checksumComputer_{checksum::ChecksumAlgorithm::None};
     std::string output_, temp_;
+    std::uint64_t pendingRangeChunks_ = 0;
+    Clock::time_point oldestRangeChunk_{};
     std::uint64_t recorded_ = 0;
     std::uint64_t chunkBytes_ = 0;
     bool active_ = false, published_ = false, skipped_ = false, download_ = false;
@@ -531,6 +604,12 @@ class RangeFileCoordinator {
         std::uint64_t loadedVerifiedChunks = 0;
         std::uint64_t removedCorruptChunks = 0;
         bool statsReported = false;
+        std::uint32_t checkpointBatch = 1;
+        std::uint64_t checkpointEpoch = 0;
+        std::weak_ptr<RangeCheckpointQueue> checkpointQueue;
+        RangeObservation background;
+        bool observeBackground = false;
+        Status checkpointFailure;
     };
     static common::Result<std::shared_ptr<Entry>> begin(PersistentTransferContext& context,
         const std::string& root, const PersistentFileIdentity& id, bool download,
@@ -539,6 +618,8 @@ class RangeFileCoordinator {
             !id.rangeLength || id.rangeOffset > id.totalSize ||
             id.rangeLength > id.totalSize-id.rangeOffset)
             return Status::invalidArgument("invalid range identity/bounds");
+        auto batch = rangeCheckpointBatch(context.policy);
+        if (!batch.isOk()) return batch.status();
         const auto key = (fs::path(root) / id.relativePath).lexically_normal().string();
         std::shared_ptr<Entry> entry;
         {
@@ -551,6 +632,12 @@ class RangeFileCoordinator {
                 entry->base.rangeId = entry->base.rangeOffset = entry->base.rangeLength =
                     entry->base.rangeCount = entry->base.attempt = 0;
                 entry->rangeCount = id.rangeCount;
+                entry->checkpointBatch = batch.value();
+                entry->observeBackground = observation != nullptr;
+                if (entry->checkpointBatch > 1) {
+                    if (!context.checkpoints) context.checkpoints = std::make_shared<RangeCheckpointQueue>();
+                    entry->checkpointQueue = context.checkpoints;
+                }
                 // The transaction outlives any channel's stack timing object.
                 entry->transaction = std::make_unique<FileTransaction>(nullptr,context.policy);
                 auto status = entry->transaction->begin(root,entry->base,download,remoteRoot,resume,observation);
@@ -563,11 +650,13 @@ class RangeFileCoordinator {
                     auto current = weakEntry.lock();
                     if (!current) return Status::ok();
                     std::lock_guard entryLock(current->mutex);
+                    if (!current->checkpointFailure.isOk()) return current->checkpointFailure;
                     return current->transaction->verifyPublished();
                 });
             }
         }
         ObservedEntryLock lock(entry->mutex, observation);
+        if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
         auto base = id;
         base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
         // A recovered file can become fully verified before every original range
@@ -616,6 +705,7 @@ class RangeFileCoordinator {
     static Status write(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
                         std::uint64_t offset, const std::vector<std::uint8_t>& bytes, RangeObservation* observation) {
         ObservedEntryLock lock(entry->mutex, observation);
+        if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
         const auto slot = entry->slots.find(id.rangeId);
         if (entry->committed || slot == entry->slots.end() || !slot->second.active ||
             !samePersistentIdentity(slot->second.id,id) || offset < id.rangeOffset ||
@@ -634,8 +724,9 @@ class RangeFileCoordinator {
         lease.position+=bytes.size();
         if (lease.position==lease.missing[lease.next].end) {
             const auto piece=lease.missing[lease.next];
-            status=entry->transaction->recordRange(id.rangeId,piece.begin,piece.end-piece.begin,lease.checksum.finalize(),observation);
-            if (!status.isOk()) return status;
+            status=entry->transaction->recordRange(id.rangeId,piece.begin,piece.end-piece.begin,lease.checksum.finalize(),observation,entry->checkpointBatch);
+            if (!status.isOk()) { entry->checkpointFailure = status; return status; }
+            scheduleCheckpoint(entry);
             ++lease.next;
             lease.position=lease.next==lease.missing.size() ? id.rangeOffset+id.rangeLength : lease.missing[lease.next].begin;
             lease.checksum=checksum::ChecksumComputer(id.checksumAlgorithm);
@@ -658,9 +749,63 @@ class RangeFileCoordinator {
         std::lock_guard lock(entry->mutex);
         return entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength);
     }
+    // Called on all receiver exits, including malformed input and clean disconnect.
+    static Status flush(const std::shared_ptr<Entry>& entry, RangeObservation* observation) {
+        if (!entry) return Status::ok();
+        ObservedEntryLock lock(entry->mutex, observation);
+        return flushLocked(entry, observation);
+    }
+ private:
+    static void mergeBackground(Entry& entry, RangeObservation* observation) {
+        if (!observation) return;
+        auto& a = *observation; auto& b = entry.background;
+        a.entryLockCalls += b.entryLockCalls;
+        a.entryLockWaitSeconds += b.entryLockWaitSeconds;
+        a.entryLockHoldSeconds += b.entryLockHoldSeconds;
+        a.checkpointSeconds += b.checkpointSeconds;
+        a.backgroundCheckpointCpuSeconds += b.backgroundCheckpointCpuSeconds;
+        a.manifestSave.attempts += b.manifestSave.attempts;
+        a.manifestSave.serializedBytes += b.manifestSave.serializedBytes;
+        a.manifestSave.renameCalls += b.manifestSave.renameCalls;
+        a.manifestSave.failures += b.manifestSave.failures;
+        a.manifestSave.serializeSeconds += b.manifestSave.serializeSeconds;
+        a.manifestSave.tempWriteSeconds += b.manifestSave.tempWriteSeconds;
+        a.manifestSave.renameSeconds += b.manifestSave.renameSeconds;
+        b = {};
+    }
+    static Status flushLocked(const std::shared_ptr<Entry>& entry, RangeObservation* observation) {
+        ++entry->checkpointEpoch;
+        if (auto queue = entry->checkpointQueue.lock()) queue->cancel(entry.get());
+        mergeBackground(*entry, observation);
+        if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
+        auto status = entry->transaction->flushRangeCheckpoint(observation);
+        if (!status.isOk()) entry->checkpointFailure = status;
+        return status;
+    }
+    static void scheduleCheckpoint(const std::shared_ptr<Entry>& entry) {
+        auto queue = entry->checkpointQueue.lock();
+        if (!queue) return; // batch=1 needs no thread
+        const auto epoch = ++entry->checkpointEpoch;
+        if (!entry->transaction->hasPendingRangeCheckpoint()) { queue->cancel(entry.get()); return; }
+        std::weak_ptr<Entry> weakEntry = entry;
+        queue->schedule(entry.get(), entry->transaction->rangeCheckpointDeadline(), [weakEntry, epoch] {
+            auto current = weakEntry.lock();
+            if (!current) return;
+            auto* observation = current->observeBackground ? &current->background : nullptr;
+            ObservedEntryLock lock(current->mutex, observation);
+            if (epoch != current->checkpointEpoch || !current->checkpointFailure.isOk()) return;
+            const auto cpu = threadCpuSeconds(observation != nullptr);
+            const auto status = current->transaction->flushRangeCheckpoint(observation);
+            if (!status.isOk()) current->checkpointFailure = status;
+            if (observation) observation->backgroundCheckpointCpuSeconds += threadCpuSeconds(true)-cpu;
+        });
+    }
+ public:
     static Status complete(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
                            checksum::ChecksumValue checksum, bool skipped, RangeObservation* observation) {
         ObservedEntryLock lock(entry->mutex, observation);
+        auto flushed = flushLocked(entry, observation);
+        if (!flushed.isOk()) return flushed;
         const auto slot = entry->slots.find(id.rangeId);
         if (slot == entry->slots.end() || !samePersistentIdentity(slot->second.id,id))
             return Status::invalidArgument("invalid or duplicate range completion");
@@ -1403,6 +1548,12 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) return finishTransport(status);
         std::shared_ptr<RangeFileCoordinator::Entry> rangeEntry;
+        struct RangeExitFlush {
+            std::shared_ptr<RangeFileCoordinator::Entry>& entry;
+            RangeObservation* observation;
+            bool armed = true;
+            ~RangeExitFlush() { if (armed) (void)RangeFileCoordinator::flush(entry, observation); }
+        } rangeExitFlush{rangeEntry, observation};
         std::shared_ptr<FileTransaction> transaction;
         Status fileStatus = Status::ok();
         if (id.rangeId != 0) {
@@ -1521,6 +1672,11 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     stats->payloadBytes >= context->policy.options.maxChunks*id.chunkSize)
                     return Status::runtimeError("transfer interrupted by max-chunks");
             }
+        }
+        if (rangeEntry) {
+            const auto checkpoint = RangeFileCoordinator::flush(rangeEntry, observation);
+            if (!checkpoint.isOk()) fileStatus = checkpoint;
+            rangeExitFlush.armed = false; // do not flush another lane after our result
         }
         if (fileStatus.isOk() && transaction) {
             Timer timer{&timing.finalizeSeconds};
@@ -1644,6 +1800,7 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"chunk_flush_seconds\":" << r.chunkFlushSeconds
             << ",\"chunk_checksum_seconds\":" << r.chunkChecksumSeconds
             << ",\"checkpoint_seconds\":" << r.checkpointSeconds
+            << ",\"background_checkpoint_cpu_seconds\":" << r.backgroundCheckpointCpuSeconds
             << ",\"manifest_save\":{\"attempts\":" << m.attempts
             << ",\"serialized_bytes\":" << m.serializedBytes
             << ",\"rename_calls\":" << m.renameCalls

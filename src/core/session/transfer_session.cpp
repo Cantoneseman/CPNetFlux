@@ -211,7 +211,7 @@ common::Status TransferSession::recordCompletedRange(std::uint64_t offset, std::
 
 common::Status TransferSession::recordVerifiedChunk(std::uint64_t chunkId, std::uint64_t offset,
                                                     std::uint64_t length,
-                                                    checksum::ChecksumValue checksumValue) {
+                                                    checksum::ChecksumValue checksumValue, bool deferManifestFlush) {
     if (checksumValue.algorithm != manifest_.checksumAlgorithm) {
         return common::Status::invalidArgument("chunk checksum algorithm does not match manifest");
     }
@@ -246,7 +246,7 @@ common::Status TransferSession::recordVerifiedChunk(std::uint64_t chunkId, std::
     dirtyVerifiedChunks_ += 1;
     stats_.verifiedBytes = completed_.bytesCompleted();
     stats_.missingChunks = completed_.missingRanges(manifest_.totalSize).size();
-    if (manifestFlushPolicy_ == ManifestFlushPolicy::EveryNChunks &&
+    if (!deferManifestFlush && manifestFlushPolicy_ == ManifestFlushPolicy::EveryNChunks &&
         dirtyVerifiedChunks_ >= manifestFlushIntervalChunks_) {
         return flushManifest();
     }

@@ -44,6 +44,7 @@ def main():
     p.add_argument("--bytes",type=int,default=536870912)
     p.add_argument("--rounds",type=int,default=5)
     p.add_argument("--quick",action="store_true",help="one calibration and depth pair for harness validation only")
+    p.add_argument("--experiment",choices=("pipeline","checkpoint"),default="pipeline")
     a=p.parse_args()
     if a.bytes<134217728 or a.bytes%65536: p.error("--bytes must be a multiple of 65536 and >=128 MiB")
     if a.rounds<5 and not a.quick:p.error("acceptance needs >=5 paired rounds")
@@ -74,22 +75,30 @@ def main():
             available_cpus=os.cpu_count(),meminfo=Path("/proc/meminfo").read_text(),lane_cpu="CLOCK_THREAD_CPUTIME_ID in producer and lane"),
         runs=[])
     plan=[]
-    for i in range(1 if a.quick else a.rounds):
-        arms=[("off",2),("on",2)]
-        if i%2:arms.reverse()
-        plan.append(("calibration",i,arms))
-    for depth in ([4] if a.quick else [4,8,16]):
+    if a.experiment=="pipeline":
         for i in range(1 if a.quick else a.rounds):
-            arms=[("on",2),("on",depth)]
+            arms=[("off",2,1),("on",2,1)]
             if i%2:arms.reverse()
-            plan.append(("depth-"+str(depth),i,arms))
+            plan.append(("calibration",i,arms))
+        for depth in ([4] if a.quick else [4,8,16]):
+            for i in range(1 if a.quick else a.rounds):
+                arms=[("on",2,1),("on",depth,1)]
+                if i%2:arms.reverse()
+                plan.append(("depth-"+str(depth),i,arms))
+    else:
+        for batch in ([4] if a.quick else [4,16]):
+            for i in range(1 if a.quick else a.rounds):
+                arms=[("on",2,1),("on",2,batch)]
+                if i%2:arms.reverse()
+                plan.append(("checkpoint-"+str(batch),i,arms))
+    report["experiment"]=a.experiment
     for group,index,arms in plan:
-        for observation,depth in arms:
-            label=f"{group}-{index}-{observation}-{depth}"
+        for observation,depth,batch in arms:
+            label=f"{group}-{index}-{observation}-{depth}"+(f"-batch{batch}" if a.experiment=="checkpoint" else "")
             case=root/label;case.mkdir()
             peer=case/"peer";peer.mkdir()
             env=dict(os.environ,CPNETFLUX_RANGE_TIMING=observation,
-                     CPNETFLUX_PAYLOAD_PIPELINE_DEPTH=str(depth))
+                     CPNETFLUX_PAYLOAD_PIPELINE_DEPTH=str(depth),CPNETFLUX_RANGE_CHECKPOINT_BATCH=str(batch))
             port,data=free_port(),clamp_passive_data_port_base(free_port())
             log=case/"server.log"
             server_cmd=[str(build/"cpnetflux-gridftp-server"),"--host","127.0.0.1",
@@ -139,7 +148,7 @@ def main():
                 marker="CPNETFLUX_PERSISTENT_TIMING "
                 if marker in line:remote.extend(json.loads(line.split(marker,1)[1])["files"])
             assert remote and all(f["range_id"] for f in remote),"range observation missing"
-            row=dict(label=label,group=group,pair_index=index,observation=observation,depth=depth,
+            row=dict(label=label,group=group,pair_index=index,observation=observation,depth=depth,checkpoint_batch=batch,
                 process_wall_seconds=wall,elapsed_seconds=observed["elapsed_seconds"],
                 summary_hash_seconds=observed["summary_tree_hash_seconds"],
                 client_cpu=dict(user_seconds=after.ru_utime-before.ru_utime,system_seconds=after.ru_stime-before.ru_stime),
@@ -155,10 +164,11 @@ def main():
     for group in sorted({r["group"] for r in report["runs"]}):
         rows=[r for r in report["runs"] if r["group"]==group]
         arms={}
-        for observation,depth in sorted({(r["observation"],r["depth"]) for r in rows}):
-            values=[r["process_wall_seconds"] for r in rows if r["observation"]==observation and r["depth"]==depth]
-            core=[r["elapsed_seconds"] for r in rows if r["observation"]==observation and r["depth"]==depth]
-            arms[f"{observation}-{depth}"]=dict(n=len(values),median=statistics.median(values),
+        for observation,depth,batch in sorted({(r["observation"],r["depth"],r["checkpoint_batch"]) for r in rows}):
+            values=[r["process_wall_seconds"] for r in rows if r["observation"]==observation and r["depth"]==depth and r["checkpoint_batch"]==batch]
+            core=[r["elapsed_seconds"] for r in rows if r["observation"]==observation and r["depth"]==depth and r["checkpoint_batch"]==batch]
+            key=f"{observation}-{depth}"+(f"-batch{batch}" if a.experiment=="checkpoint" else "")
+            arms[key]=dict(n=len(values),median=statistics.median(values),
                 minimum=min(values),maximum=max(values),core_median=statistics.median(core))
         aggregates[group]=arms
     assert binary_hashes=={name:file_sha256(build/name) for name in binary_hashes},"binaries changed"
