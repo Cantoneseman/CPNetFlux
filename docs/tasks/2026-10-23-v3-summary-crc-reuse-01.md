@@ -12,6 +12,12 @@
 
 不改传输协议/TLS/CRC校验、checkpoint batching、pipeline、网络接口、外部完整性验证和计时边界。不允许未证明全覆盖时复用，也不以关闭校验获得收益。预计涉及 include/cpnetflux/checksum/crc32c.h、src/checksum/crc32c.cpp、checksum tests、persistent_tree_transfer.h/.cpp、tree_transfer_client.cpp 和对应单元/集成测试；开工先核实所有权，尽量缩小文件范围。
 
+## 当前实现说明
+
+传输成功后，上传端记录已经成功发送并校验的 CRC32C 分块，下载端记录已经校验并写入的 CRC32C 分块；文件提交时保存 device/inode/size/mtime/ctime 快照。摘要阶段先检查文件集合、身份和分块是否无洞/无重叠/无冲突，再使用 finalized CRC32C combine 重建原 tree_hash。目录总大小小于 128 MiB 时直接走原始全文件读取，因为实测索引与快照检查成本可能超过收益。恢复、跳过、失败、取消或任何身份变化都会回退原算法。
+
+性能矩阵使用深圳同机 loopback TCP、控制和数据 TLS、4 条连接、4 MiB 分块、CRC32C Auto、无压缩、独立 SHA-256；基线为提交 `0d4686cc21f1d8083c189119df576906ce419ae4`，候选为当前工作区构建。4 GiB 5 组配对的完整进程中位数从约 69.39 s 降到 47.56 s，改善 31.31%；摘要阶段约 23.80 s 降到 2.03 s，传输阶段保持约 45.8 s。128 MiB 级 dense 约改善 5.86%；约 72 MiB mixed 在门槛后回退全读，复测中位改善 -0.94%，满足不超过 5% 退化。所有结果独立 SHA-256 一致。原始未设门槛的 mixed 候选曾退化约 5.67%，因此未直接采用，已由门槛修正。
+
 ## 验收
 
 1. combine先有失败测试；覆盖空、1字节、短尾、大小边界、4 MiB及多种切分顺序，结果逐位等于crc32c软件计算。
@@ -20,3 +26,7 @@
 4. upload/download fresh、resume、skip、取消/失败和文件提交后变化分别验证复用或fallback；最终SHA仍正确。
 5. Release完整CTest/脚本门禁通过；4 GiB至少5组交错配对，dense/mixed各5组，独立SHA置于原计时边界外。进程wall中位改善至少10%、其他集合退化不超5%才采纳，否则撤下并记no-go。
 6. 深圳提交/push/readback后先把相同源码归档同步上海，两端构建并核对server/upload/download二进制SHA；完成后才能跨服务器传payload。
+
+阶段结果：CRC combine、聚合器拒绝非法覆盖、fresh upload/download 复用、resume/skip/failure fallback、独立 SHA 和性能矩阵均已通过；本任务达到性能门槛，待提交、GitHub 回读和上海同提交构建验收。
+
+阶段结果：CRC combine、聚合器拒绝非法覆盖、fresh upload/download 复用、resume/skip/failure fallback、独立 SHA 和性能矩阵均已通过；本任务达到性能门槛，待提交、GitHub 回读和上海同提交构建验收。

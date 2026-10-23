@@ -20,9 +20,21 @@ struct PersistentTransferPolicy {
     std::uint32_t rangeCheckpointBatchChunks = 0;
 };
 struct PersistentTransferContext;
+struct PersistentTreeChunkCrc {
+    std::string relativePath;
+    std::uint64_t totalSize = 0, offset = 0, length = 0;
+    std::uint32_t crc32c = 0;
+};
+struct PersistentTreeFileMetadata {
+    std::string relativePath;
+    std::uint64_t size = 0, device = 0, inode = 0;
+    std::int64_t mtimeNanoseconds = 0, ctimeNanoseconds = 0;
+};
 [[nodiscard]] std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(
     const PersistentTransferPolicy& policy = {});
 [[nodiscard]] common::Status verifyCommittedPersistentOutputs(
+    const std::shared_ptr<PersistentTransferContext>& context);
+[[nodiscard]] std::vector<PersistentTreeFileMetadata> persistentTreePublishedFiles(
     const std::shared_ptr<PersistentTransferContext>& context);
 inline constexpr std::uint32_t kPersistentTreeMaxChannels = 10;
 inline constexpr std::uint32_t kUnifiedFileMaxChannels = 64;
@@ -71,6 +83,8 @@ struct PersistentTreeStats {
     std::uint64_t bytes = 0;
     std::uint64_t payloadBytes = 0, skippedBytes = 0, loadedVerifiedChunks = 0, removedCorruptChunks = 0;
     storage::FileIoStats fileIoStats;
+    std::vector<PersistentTreeChunkCrc> verifiedChunkCrcs;
+    std::vector<PersistentTreeFileMetadata> verifiedFileMetadata;
     TransferRuntimeMetrics runtime;
     std::uint64_t wireBytes = 0;  // Application frames, both directions; excludes TCP/IP.
     double completeWaitSeconds = 0;

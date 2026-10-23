@@ -138,6 +138,7 @@ add_library(cpnetflux_core STATIC
     src/core/session/manifest_flush_policy.cpp
     src/core/session/transfer_session.cpp
     src/core/tree/tree_manifest.cpp
+    src/core/tree/tree_hash.cpp
     src/core/tree/tree_manifest_writer.cpp
     src/core/tree/tree_scan.cpp
     src/protocol/control/control_command.cpp
@@ -309,6 +310,7 @@ if(CPNETFLUX_BUILD_TESTS)
 
     add_executable(cpnetflux_unit_tests
         tests/unit/checksum_test.cpp
+        tests/unit/tree_hash_test.cpp
         tests/unit/chunk_planner_test.cpp
         tests/unit/connection_context_test.cpp
         tests/unit/control_auth_test.cpp

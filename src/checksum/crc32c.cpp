@@ -25,6 +25,24 @@ constexpr std::array<std::uint32_t, 256> makeTable() {
 
 constexpr auto kCrc32cTable = makeTable();
 
+using Gf2Matrix = std::array<std::uint32_t, 32>;
+
+std::uint32_t matrixTimes(const Gf2Matrix& matrix, std::uint32_t vector) noexcept {
+    std::uint32_t sum = 0;
+    std::size_t index = 0;
+    while (vector != 0) {
+        if ((vector & 1U) != 0U) sum ^= matrix[index];
+        vector >>= 1U;
+        ++index;
+    }
+    return sum;
+}
+
+void matrixSquare(Gf2Matrix& square, const Gf2Matrix& matrix) noexcept {
+    for (std::size_t index = 0; index < square.size(); ++index)
+        square[index] = matrixTimes(matrix, matrix[index]);
+}
+
 }  // namespace
 
 std::uint32_t crc32cInitialState() noexcept { return 0xFFFFFFFFU; }
@@ -57,6 +75,32 @@ std::uint32_t crc32cUpdate(std::uint32_t state, const std::uint8_t* data, std::s
     return crc32cUpdateSoftware(state, data, size);
 }
 
+
+std::uint32_t crc32cCombine(std::uint32_t left, std::uint32_t right,
+                            std::uint64_t rightLength) noexcept {
+    if (rightLength == 0) return left;
+
+    Gf2Matrix odd{}, even{};
+    odd[0] = kCrc32cPolynomial;
+    std::uint32_t row = 1;
+    for (std::size_t index = 1; index < odd.size(); ++index) {
+        odd[index] = row;
+        row <<= 1U;
+    }
+    matrixSquare(even, odd);
+    matrixSquare(odd, even);
+
+    do {
+        matrixSquare(even, odd);
+        if ((rightLength & 1U) != 0U) left = matrixTimes(even, left);
+        rightLength >>= 1U;
+        if (rightLength == 0) break;
+        matrixSquare(odd, even);
+        if ((rightLength & 1U) != 0U) left = matrixTimes(odd, left);
+        rightLength >>= 1U;
+    } while (rightLength != 0);
+    return left ^ right;
+}
 std::uint32_t crc32cFinalize(std::uint32_t state) noexcept { return state ^ 0xFFFFFFFFU; }
 
 std::uint32_t crc32c(const std::uint8_t* data, std::size_t size, ChecksumBackend backend) noexcept {

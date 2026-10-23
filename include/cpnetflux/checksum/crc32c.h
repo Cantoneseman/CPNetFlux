@@ -19,5 +19,8 @@ namespace cpnetflux::checksum {
 [[nodiscard]] std::uint32_t crc32cFinalize(std::uint32_t state) noexcept;
 [[nodiscard]] std::uint32_t crc32c(const std::uint8_t* data, std::size_t size,
                                    ChecksumBackend backend = ChecksumBackend::Auto) noexcept;
+// Combines finalized CRC32C values for A and B into CRC32C(A || B).
+[[nodiscard]] std::uint32_t crc32cCombine(std::uint32_t left, std::uint32_t right,
+                                          std::uint64_t rightLength) noexcept;
 
 }  // namespace cpnetflux::checksum

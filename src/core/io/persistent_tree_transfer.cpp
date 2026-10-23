@@ -80,6 +80,7 @@ struct PersistentTransferContext {
     std::mutex mutex;
     std::unordered_map<std::string, std::shared_ptr<void>> files;
     std::vector<std::function<common::Status()>> integrityChecks;
+    std::vector<PersistentTreeFileMetadata> publishedFiles;
     PersistentTransferPolicy policy;
     std::shared_ptr<RangeCheckpointQueue> checkpoints; // destroyed/joined before files
 };
@@ -87,6 +88,12 @@ std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(const P
     auto context = std::make_shared<PersistentTransferContext>();
     context->policy = policy;
     return context;
+}
+std::vector<PersistentTreeFileMetadata> persistentTreePublishedFiles(
+    const std::shared_ptr<PersistentTransferContext>& context) {
+    if (!context) return {};
+    std::lock_guard lock(context->mutex);
+    return context->publishedFiles;
 }
 namespace {
 using common::Status;
@@ -182,8 +189,10 @@ class ScopedManifestObservation {
 class FileTransaction {
  public:
     explicit FileTransaction(PersistentFileTiming* timing, const PersistentTransferPolicy& policy = {},
-                             storage::FileIoStats* ioStats = nullptr)
-        : timing_(timing), policy_(policy), ioContext_(policy.options.fileIo), ioStats_(ioStats) {}
+                             storage::FileIoStats* ioStats = nullptr,
+                             PersistentTransferContext* context = nullptr)
+        : timing_(timing), policy_(policy), ioContext_(policy.options.fileIo), ioStats_(ioStats),
+          context_(context) {}
     Status begin(const std::string& root, const PersistentFileIdentity& id,
                  bool download, const std::string& remoteRoot, bool resume, RangeObservation* observation = nullptr) {
         std::lock_guard publicationLock(publicationMutex_);
@@ -415,6 +424,24 @@ class FileTransaction {
         if (!status.isOk()) return status;
         if (!policy_.options.overwrite && ::unlink(temp_.c_str()) != 0)
             return Status::runtimeError("persistent temp unlink failed");
+        struct stat publishedMetadata{};
+        if (context_ && ::fstat(file_.fd(), &publishedMetadata) == 0 &&
+            S_ISREG(publishedMetadata.st_mode) && publishedMetadata.st_size >= 0) {
+            const auto toNanoseconds = [](std::int64_t seconds, long nanoseconds) {
+                return seconds * 1'000'000'000LL + nanoseconds;
+            };
+            PersistentTreeFileMetadata snapshot;
+            snapshot.relativePath = identity_.relativePath;
+            snapshot.size = static_cast<std::uint64_t>(publishedMetadata.st_size);
+            snapshot.device = static_cast<std::uint64_t>(publishedMetadata.st_dev);
+            snapshot.inode = static_cast<std::uint64_t>(publishedMetadata.st_ino);
+            snapshot.mtimeNanoseconds = toNanoseconds(publishedMetadata.st_mtim.tv_sec,
+                                                       publishedMetadata.st_mtim.tv_nsec);
+            snapshot.ctimeNanoseconds = toNanoseconds(publishedMetadata.st_ctim.tv_sec,
+                                                       publishedMetadata.st_ctim.tv_nsec);
+            std::lock_guard lock(context_->mutex);
+            context_->publishedFiles.push_back(std::move(snapshot));
+        }
         active_ = false;
         // The batch context retains committed transactions for its final audit,
         // but their output handles are no longer needed. The audit reopens the
@@ -558,6 +585,7 @@ class FileTransaction {
     PersistentTransferPolicy policy_;
     storage::FileIoContext ioContext_;
     storage::FileIoStats* ioStats_;
+    PersistentTransferContext* context_;
     std::unique_ptr<storage::BufferedFileWriter> writer_;
     Session session_;
     storage::PosixFile file_;
@@ -639,7 +667,7 @@ class RangeFileCoordinator {
                     entry->checkpointQueue = context.checkpoints;
                 }
                 // The transaction outlives any channel's stack timing object.
-                entry->transaction = std::make_unique<FileTransaction>(nullptr,context.policy);
+                entry->transaction = std::make_unique<FileTransaction>(nullptr,context.policy,nullptr,&context);
                 auto status = entry->transaction->begin(root,entry->base,download,remoteRoot,resume,observation);
                 if (!status.isOk()) return status;
                 entry->loadedVerifiedChunks = entry->transaction->loadedVerifiedChunks();
@@ -1317,6 +1345,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 writeFailed = true;
                 break;
             }
+            if (id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c) {
+                stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
+                    id.relativePath, id.totalSize, offset, static_cast<std::uint64_t>(length),
+                    frameDigest});
+            }
             payloadSent += length;
             stats->payloadBytes += length;
             addWire(protocol::kFrameHeaderSize + wireLength);
@@ -1352,6 +1385,16 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             before.st_ctim.tv_nsec != after.st_ctim.tv_nsec)) {
             status = Status::runtimeError("persistent source changed during transfer");
             writeFailed = true;
+        }
+        if (!writeFailed && stats) {
+            const auto toNanoseconds = [](std::int64_t seconds, long nanoseconds) {
+                return seconds * 1'000'000'000LL + nanoseconds;
+            };
+            stats->verifiedFileMetadata.push_back(PersistentTreeFileMetadata{
+                id.relativePath, static_cast<std::uint64_t>(after.st_size),
+                static_cast<std::uint64_t>(after.st_dev), static_cast<std::uint64_t>(after.st_ino),
+                toNanoseconds(after.st_mtim.tv_sec, after.st_mtim.tv_nsec),
+                toNanoseconds(after.st_ctim.tv_sec, after.st_ctim.tv_nsec)});
         }
         if (!writeFailed) status = PersistentDataSession::writeEnd(socket, id,
             skipRange ? checksum::ChecksumValue{} : checksumComputer.finalize(), skipRange);
@@ -1578,7 +1621,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 if (!status.isOk()) fileStatus = status;
             }
         } else {
-            transaction = std::make_shared<FileTransaction>(stats->phaseTiming ? &timing : nullptr,context->policy,&stats->fileIoStats);
+            transaction = std::make_shared<FileTransaction>(stats->phaseTiming ? &timing : nullptr,
+                context->policy, &stats->fileIoStats, context.get());
             {
                 std::lock_guard lock(context->mutex);
                 context->integrityChecks.emplace_back([transaction] {
@@ -1668,6 +1712,12 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                                                                        logical, observation)
                                          : transaction->write(data.value().header.offset, logical);
                 stats->payloadBytes += logical.size();
+                if (fileStatus.isOk() && expectedDigest &&
+                    id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c) {
+                    stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
+                        id.relativePath, id.totalSize, data.value().header.offset,
+                        static_cast<std::uint64_t>(logical.size()), *expectedDigest});
+                }
                 if (context->policy.options.maxChunks &&
                     stats->payloadBytes >= context->policy.options.maxChunks*id.chunkSize)
                     return Status::runtimeError("transfer interrupted by max-chunks");

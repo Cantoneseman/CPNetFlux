@@ -107,3 +107,55 @@ TEST(ChecksumTest, ParsesAlgorithms) {
     EXPECT_EQ(backend.value(), cpnetflux::checksum::ChecksumBackend::Auto);
     EXPECT_FALSE(cpnetflux::checksum::parseChecksumBackend("fast").isOk());
 }
+
+TEST(ChecksumTest, Crc32cCombineMatchesWholeInputAtBoundaryLengths) {
+    using cpnetflux::checksum::ChecksumBackend;
+    using cpnetflux::checksum::ChecksumComputer;
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::crc32cCombine;
+
+    std::vector<std::uint8_t> input(4U * 1024U * 1024U + 37U);
+    for (std::size_t index = 0; index < input.size(); ++index)
+        input[index] = static_cast<std::uint8_t>((index * 31U + 17U) % 251U);
+
+    const auto crcOf = [&](std::size_t offset, std::size_t length) {
+        ChecksumComputer computer(ChecksumAlgorithm::Crc32c, ChecksumBackend::Software);
+        computer.update(input.data() + offset, length);
+        return computer.finalize().value;
+    };
+    const auto whole = crcOf(0, input.size());
+    const std::array<std::size_t, 13> splits{
+        0, 1, 2, 7, 63, 64, 65535, 65536, 65537,
+        4U * 1024U * 1024U - 1U, 4U * 1024U * 1024U,
+        input.size() - 1U, input.size()};
+    for (const auto split : splits) {
+        ASSERT_LE(split, input.size());
+        EXPECT_EQ(crc32cCombine(crcOf(0, split), crcOf(split, input.size() - split),
+                                input.size() - split), whole)
+            << "split=" << split;
+    }
+}
+
+TEST(ChecksumTest, Crc32cCombineSupportsMultipleUnevenSegments) {
+    using cpnetflux::checksum::ChecksumBackend;
+    using cpnetflux::checksum::ChecksumComputer;
+    using cpnetflux::checksum::ChecksumAlgorithm;
+
+    std::vector<std::uint8_t> input(131173);
+    for (std::size_t index = 0; index < input.size(); ++index)
+        input[index] = static_cast<std::uint8_t>((index * 13U + 5U) % 251U);
+    ChecksumComputer whole(ChecksumAlgorithm::Crc32c, ChecksumBackend::Software);
+    whole.update(input.data(), input.size());
+
+    std::uint32_t combined = 0;
+    std::size_t offset = 0;
+    const std::array<std::size_t, 6> lengths{1, 63, 65536, 17, 65536, 20};
+    for (const auto length : lengths) {
+        ChecksumComputer part(ChecksumAlgorithm::Crc32c, ChecksumBackend::Software);
+        part.update(input.data() + offset, length);
+        combined = cpnetflux::checksum::crc32cCombine(combined, part.finalize().value, length);
+        offset += length;
+    }
+    ASSERT_EQ(offset, input.size());
+    EXPECT_EQ(combined, whole.finalize().value);
+}

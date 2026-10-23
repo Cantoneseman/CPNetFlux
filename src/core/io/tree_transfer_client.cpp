@@ -52,6 +52,7 @@
 #include "cpnetflux/core/io/tree_pipeline_control_io.h"
 #include "cpnetflux/core/scheduler/scheduler.h"
 #include "cpnetflux/core/tree/tree_manifest.h"
+#include "cpnetflux/core/tree/tree_hash.h"
 #include "cpnetflux/core/tree/tree_manifest_writer.h"
 #include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/protocol/control/control_auth.h"
@@ -958,6 +959,8 @@ struct TreeRunStats {
     std::optional<double> scanSeconds;
     std::size_t queueHighWatermark = 0;
     std::vector<PersistentFileTiming> fileTimings;
+    std::vector<PersistentTreeChunkCrc> verifiedChunkCrcs;
+    std::vector<PersistentTreeFileMetadata> verifiedFileMetadata;
     std::atomic<std::uint64_t> phaseASecondsNs{0};
     std::atomic<std::uint64_t> phaseBSecondsNs{0};
     std::atomic<std::uint64_t> phaseCSecondsNs{0};
@@ -1194,6 +1197,78 @@ common::Result<std::string> computeTreeVerificationHash(
     return "crc32c:" + hex32(computer.finalize().value);
 }
 
+common::Result<std::string> computeTreeVerificationHashFromChunks(
+    const std::string& root, const std::vector<PersistentTreeChunkCrc>& chunks,
+    const std::vector<PersistentTreeFileMetadata>& metadata, std::uint64_t skippedFiles,
+    checksum::ChecksumBackend requestedBackend, checksum::ChecksumBackend* actualBackend) {
+    if (skippedFiles) return common::Status::invalidArgument("tree hash reuse has skipped files");
+    std::unordered_map<std::string, PersistentTreeFileMetadata> snapshots;
+    for (const auto& m : metadata) {
+        auto [it, inserted] = snapshots.emplace(m.relativePath, m);
+        if (!inserted && (it->second.size != m.size || it->second.device != m.device ||
+            it->second.inode != m.inode || it->second.mtimeNanoseconds != m.mtimeNanoseconds ||
+            it->second.ctimeNanoseconds != m.ctimeNanoseconds))
+            return common::Status::invalidArgument("tree hash reuse has conflicting snapshots");
+    }
+    std::unordered_map<std::string, std::vector<core::tree::TreeHashChunkCrc>> byPath;
+    std::unordered_map<std::string, std::uint64_t> sizes;
+    for (const auto& c : chunks) {
+        auto [it, inserted] = sizes.emplace(c.relativePath, c.totalSize);
+        if (!inserted && it->second != c.totalSize)
+            return common::Status::invalidArgument("tree hash reuse has conflicting sizes");
+        byPath[c.relativePath].push_back({c.offset,c.length,c.crc32c});
+    }
+    std::error_code ec;
+    const std::filesystem::path rootPath(root);
+    if (!std::filesystem::exists(rootPath, ec) || ec ||
+        !std::filesystem::is_directory(rootPath, ec) || ec)
+        return common::Status::invalidArgument("tree hash root is not a directory");
+    const auto ns = [](std::int64_t s, long n) { return s * 1'000'000'000LL + n; };
+    std::vector<core::tree::TreeHashFileCrc> files;
+    std::unordered_set<std::string> seen;
+    for (std::filesystem::recursive_directory_iterator it(rootPath,
+             std::filesystem::directory_options::none, ec);
+         it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+        if (ec) return common::Status::systemError("tree hash reuse scan failed: "+ec.message(),ec.value());
+        const auto& entry=*it;
+        if (entry.is_symlink(ec)) return common::Status::invalidArgument("tree hash reuse rejects symlink");
+        if (ec) return common::Status::systemError("tree hash reuse entry failed: "+ec.message(),ec.value());
+        if (!entry.is_regular_file(ec)) {
+            if (ec) return common::Status::systemError("tree hash reuse entry failed: "+ec.message(),ec.value());
+            if (!entry.is_directory(ec)) return common::Status::invalidArgument("tree hash reuse rejects non-regular file");
+            continue;
+        }
+        auto relative=std::filesystem::relative(entry.path(),rootPath,ec);
+        if (ec) return common::Status::systemError("tree hash relative path failed: "+ec.message(),ec.value());
+        const auto name=relative.generic_string();
+        if (name.find(".cpnetflux.")!=std::string::npos || name.find(".part.")!=std::string::npos) continue;
+        auto found=snapshots.find(name);
+        if (found==snapshots.end()) return common::Status::invalidArgument("tree hash reuse has no file snapshot");
+        struct stat st{};
+        if (::lstat(entry.path().c_str(),&st)!=0 || !S_ISREG(st.st_mode) || st.st_size<0)
+            return common::Status::invalidArgument("tree hash reuse file type changed");
+        const auto& m=found->second;
+        if (static_cast<std::uint64_t>(st.st_size)!=m.size ||
+            static_cast<std::uint64_t>(st.st_dev)!=m.device || static_cast<std::uint64_t>(st.st_ino)!=m.inode ||
+            ns(st.st_mtim.tv_sec,st.st_mtim.tv_nsec)!=m.mtimeNanoseconds ||
+            ns(st.st_ctim.tv_sec,st.st_ctim.tv_nsec)!=m.ctimeNanoseconds)
+            return common::Status::invalidArgument("tree hash reuse file changed after transfer");
+        core::tree::TreeHashFileCrc file{name,m.size,{}};
+        auto part=byPath.find(name);
+        if (part!=byPath.end()) {
+            auto size=sizes.find(name);
+            if (size==sizes.end() || size->second!=m.size)
+                return common::Status::invalidArgument("tree hash reuse chunk size mismatch");
+            file.chunks=std::move(part->second); byPath.erase(part); sizes.erase(size);
+        }
+        files.push_back(std::move(file)); seen.insert(name);
+    }
+    if (ec) return common::Status::systemError("tree hash reuse scan failed: "+ec.message(),ec.value());
+    if (seen.size()!=snapshots.size() || !byPath.empty() || !sizes.empty())
+        return common::Status::invalidArgument("tree hash reuse file set is incomplete");
+    return core::tree::treeHashFromVerifiedChunks(std::move(files),requestedBackend,actualBackend);
+}
+
 TreeSummary summarizeManifest(const core::tree::TreeManifest& manifest) {
     TreeSummary summary;
     for (const auto& file : manifest.files) {
@@ -1284,11 +1359,26 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         else compressionDecision = "raw_fallback";
     }
     std::string treeHash;
+    std::string summaryTreeHashSource = "filesystem_read";
     checksum::ChecksumBackend summaryTreeHashBackend = checksum::ChecksumBackend::Auto;
     const std::string hashRoot = std::string(direction) == "upload" ? options.sourceDir : options.destDir;
     const auto summaryTreeHashStartedAt = std::chrono::steady_clock::now();
-    auto hash = computeTreeVerificationHash(hashRoot, options.checksumBackend,
-                                            &summaryTreeHashBackend);
+    common::Result<std::string> hash = common::Status::runtimeError("tree hash not computed");
+    // Metadata/indexing overhead is not worthwhile for small trees. The paired
+    // matrix showed the raw read path wins below 128 MiB, while 128 MiB dense
+    // and 4 GiB trees benefit from reusing transfer CRCs.
+    constexpr std::uint64_t kMinimumSummaryCrcReuseBytes = 128ULL * 1024ULL * 1024ULL;
+    if (status.isOk() && totalBytes(manifest) >= kMinimumSummaryCrcReuseBytes) {
+        hash = computeTreeVerificationHashFromChunks(hashRoot, stats.verifiedChunkCrcs,
+            stats.verifiedFileMetadata, stats.skippedFiles.load(), options.checksumBackend,
+            &summaryTreeHashBackend);
+        if (hash.isOk()) summaryTreeHashSource = "verified_chunks";
+    }
+    if (!hash.isOk()) {
+        hash = computeTreeVerificationHash(hashRoot, options.checksumBackend,
+                                           &summaryTreeHashBackend);
+        summaryTreeHashSource = "filesystem_read";
+    }
     const double summaryTreeHashSeconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - summaryTreeHashStartedAt)
             .count();
@@ -1511,6 +1601,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"summary_tree_hash_backend\": \""
            << (hash.isOk() ? checksum::checksumBackendName(summaryTreeHashBackend) : "unavailable")
            << "\",\n";
+    output << "  \"summary_tree_hash_source\": \"" << summaryTreeHashSource << "\",\n";
     if (status.isOk()) {
         output << "  \"error\": null\n";
     } else {
@@ -2530,6 +2621,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             stats->scanSeconds = std::max(stats->scanSeconds.value_or(0),channel->remoteScan);
         stats->queueHighWatermark = std::max(stats->queueHighWatermark,channel->remoteQueueHigh);
         stats->fileTimings.insert(stats->fileTimings.end(),channel->observed.fileTimings.begin(),channel->observed.fileTimings.end());
+        stats->verifiedChunkCrcs.insert(stats->verifiedChunkCrcs.end(),
+            channel->observed.verifiedChunkCrcs.begin(), channel->observed.verifiedChunkCrcs.end());
+        stats->verifiedFileMetadata.insert(stats->verifiedFileMetadata.end(),
+            channel->observed.verifiedFileMetadata.begin(), channel->observed.verifiedFileMetadata.end());
         const auto laneIndex = index % options.linkSetLinks;
         if (laneIndex < stats->persistentLaneRangeCompletions.size()) {
             stats->persistentLaneRangeCompletions[laneIndex] += channel->observed.rangeCompletions;
@@ -2552,6 +2647,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             channel->observed.payloadPipelineHighWatermarkBytes);
         payloadPipelineProducerWaits += channel->observed.payloadPipelineProducerWaits;
         payloadPipelineConsumerWaits += channel->observed.payloadPipelineConsumerWaits;
+    }
+    if (!upload) {
+        const auto publishedFiles = persistentTreePublishedFiles(transactions);
+        stats->verifiedFileMetadata.insert(stats->verifiedFileMetadata.end(),
+            publishedFiles.begin(), publishedFiles.end());
     }
     stats->transferredBytes.fetch_add(transferredBytes);
     if (options.reconnectAttempt != 0) stats->recoveryPayloadBytes += transferredBytes;
