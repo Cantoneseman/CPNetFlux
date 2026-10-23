@@ -1,7 +1,6 @@
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
 #include "cpnetflux/core/io/payload_pipeline.h"
 #include <cstdlib>
-#include <atomic>
 #include <ctime>
 #include <string_view>
 #include "cpnetflux/core/io/work_executor.h"
@@ -142,47 +141,33 @@ common::Result<std::uint32_t> rangeCheckpointBatch(const PersistentTransferPolic
     if (std::string_view(setting) == "16") return std::uint32_t{16};
     return Status::invalidArgument("CPNETFLUX_RANGE_CHECKPOINT_BATCH must be 1, 4 or 16");
 }
-common::Result<bool> parallelRangeWrites() {
-    const auto* setting = std::getenv("CPNETFLUX_RANGE_WRITE_MODE");
-    if (!setting || std::string_view(setting) == "serial") return false;
-    if (std::string_view(setting) == "parallel") return true;
-    return Status::invalidArgument("CPNETFLUX_RANGE_WRITE_MODE must be serial or parallel");
-}
 double threadCpuSeconds(bool enabled) {
     if (!enabled) return 0;
     timespec now{};
     if (::clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now) != 0) return 0;
     return static_cast<double>(now.tv_sec) + static_cast<double>(now.tv_nsec)*1e-9;
 }
-enum class RangeLock { State, Slot, Checkpoint };
 class ObservedEntryLock {
  public:
-    ObservedEntryLock(std::mutex& mutex, RangeObservation* observation, RangeLock kind=RangeLock::State)
-        : observation_(observation), kind_(kind), lock_(mutex, std::defer_lock) {
-        const auto start = observation ? Clock::now() : Clock::time_point{};
+    ObservedEntryLock(std::mutex& mutex, RangeObservation* observation)
+        : observation_(observation), lock_(mutex, std::defer_lock) {
+        const auto started = observation_ ? Clock::now() : Clock::time_point{};
         lock_.lock();
-        if (!observation) return;
-        acquired_ = Clock::now();
-        auto& r=*observation;
-        auto& calls=kind==RangeLock::State ? r.entryLockCalls :
-                    kind==RangeLock::Slot ? r.slotLockCalls : r.checkpointLockCalls;
-        auto& wait=kind==RangeLock::State ? r.entryLockWaitSeconds :
-                   kind==RangeLock::Slot ? r.slotLockWaitSeconds : r.checkpointLockWaitSeconds;
-        ++calls;wait+=std::chrono::duration<double>(acquired_-start).count();
+        if (observation_) {
+            acquired_ = Clock::now();
+            ++observation_->entryLockCalls;
+            observation_->entryLockWaitSeconds += std::chrono::duration<double>(acquired_-started).count();
+        }
     }
     ~ObservedEntryLock() {
-        if (!observation_) return;
-        auto& r=*observation_;
-        auto& hold=kind_==RangeLock::State ? r.entryLockHoldSeconds :
-                   kind_==RangeLock::Slot ? r.slotLockHoldSeconds : r.checkpointLockHoldSeconds;
-        hold+=secondsSince(acquired_);
+        if (observation_) observation_->entryLockHoldSeconds += secondsSince(acquired_);
     }
  private:
     RangeObservation* observation_;
-    RangeLock kind_;
     std::unique_lock<std::mutex> lock_;
     Clock::time_point acquired_{};
 };
+// The shared transaction must never retain a lane's stack observation pointer.
 class ScopedManifestObservation {
  public:
     ScopedManifestObservation(Session& session, RangeObservation* observation) : session_(session) {
@@ -509,25 +494,16 @@ class FileTransaction {
         }
         return true;
     }
-    std::unique_ptr<storage::BufferedFileWriter> makeRangeWriter(storage::FileIoStats* stats) {
-        return std::make_unique<storage::BufferedFileWriter>(file_,ioContext_,stats);
-    }
-    Status writeRange(storage::BufferedFileWriter& writer, std::uint64_t offset,
-                      const std::vector<std::uint8_t>& bytes, RangeObservation* observation) {
+    Status writeRange(std::uint64_t offset, const std::vector<std::uint8_t>& bytes, RangeObservation* observation) {
         if (skipped_) return Status::ok();
         if (!active_ || offset > identity_.totalSize || bytes.size() > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range write exceeds file boundary");
         if (observation) ++observation->offsetWriteCalls;
         checkpoint::OptionalManifestTimer writing(observation ? &observation->offsetWriteSeconds : nullptr);
         const auto started = Clock::now();
-        auto status = writer.write(offset, bytes.data(), bytes.size());
+        auto status = writer_->write(offset, bytes.data(), bytes.size());
         if (timing_) timing_->writeSeconds += secondsSince(started);
         return status;
-    }
-    static Status flushRangeWriter(storage::BufferedFileWriter& writer, RangeObservation* observation) {
-        if (observation) ++observation->chunkFlushCalls;
-        checkpoint::OptionalManifestTimer flushing(observation ? &observation->chunkFlushSeconds : nullptr);
-        return writer.flush();
     }
     Status recordRange(std::uint64_t rangeId, std::uint64_t offset, std::uint64_t length,
                        checksum::ChecksumValue checksum, RangeObservation* observation, std::uint32_t batch) {
@@ -537,8 +513,12 @@ class FileTransaction {
             length > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range completion is invalid");
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
-        // The slot writer was flushed before entering the checkpoint critical section.
+        if (observation) ++observation->chunkFlushCalls;
+        checkpoint::OptionalManifestTimer flushing(observation ? &observation->chunkFlushSeconds : nullptr);
+        auto flushed = writer_->flush();
+        flushing.stop();
         checkpoint::OptionalManifestTimer checkpointing(observation ? &observation->checkpointSeconds : nullptr);
+        if (!flushed.isOk()) return flushed;
         const auto recordId=std::visit([](const auto& s) {
             std::uint64_t next=0;
             for (const auto& r:s.manifest().verifiedChunks) {
@@ -607,231 +587,181 @@ Status verifyCommittedFilesInternal(const std::shared_ptr<PersistentTransferCont
 class RangeFileCoordinator {
  public:
     struct Slot {
-        // Immutable identity: replacement attempts get new stable shared slots.
-        std::mutex mutex;
         PersistentFileIdentity id;
-        bool active=true, completed=false; // Entry state lock
-        std::vector<chunk::CompletedRange> missing; // slot lock
-        std::size_t next=0;
-        std::uint64_t position=0;
+        bool active = true, completed = false;
+        std::vector<chunk::CompletedRange> missing;
+        std::size_t next = 0;
+        std::uint64_t position = 0;
         checksum::ChecksumComputer checksum{checksum::ChecksumAlgorithm::None};
-        storage::FileIoStats ioStats;
-        bool ioStatsReported=false;
-        std::unique_ptr<storage::BufferedFileWriter> writer;
     };
     struct Entry {
-        std::mutex mutex, checkpointMutex, serialWrites;
-        std::condition_variable changed;
+        std::mutex mutex;
         std::unique_ptr<FileTransaction> transaction;
         PersistentFileIdentity base;
-        std::unordered_map<std::uint64_t,std::shared_ptr<Slot>> slots;
-        std::uint64_t rangeCount=0, completed=0, activeWrites=0, highWatermark=0;
-        bool closing=false, committed=false, parallel=false, statsReported=false;
-        std::atomic<bool> failed{false};
-        std::uint64_t loadedVerifiedChunks=0, removedCorruptChunks=0;
-        // All mutable fields below use checkpointMutex.
-        std::uint32_t checkpointBatch=1;
-        std::uint64_t checkpointEpoch=0;
+        std::unordered_map<std::uint64_t, Slot> slots;
+        std::uint64_t rangeCount = 0, completed = 0;
+        bool committed = false;
+        std::uint64_t loadedVerifiedChunks = 0;
+        std::uint64_t removedCorruptChunks = 0;
+        bool statsReported = false;
+        std::uint32_t checkpointBatch = 1;
+        std::uint64_t checkpointEpoch = 0;
         std::weak_ptr<RangeCheckpointQueue> checkpointQueue;
         RangeObservation background;
-        bool observeBackground=false;
+        bool observeBackground = false;
         Status checkpointFailure;
     };
-    struct Claim {std::shared_ptr<Entry> entry;std::shared_ptr<Slot> slot;};
-    static common::Result<std::shared_ptr<Claim>> begin(PersistentTransferContext& context,
-        const std::string& root,const PersistentFileIdentity& id,bool download,
-        const std::string& remoteRoot,bool resume,RangeObservation* observation) {
-        if(!id.rangeId || !id.rangeCount || id.rangeId>id.rangeCount ||
-            !id.rangeLength || id.rangeOffset>id.totalSize || id.rangeLength>id.totalSize-id.rangeOffset)
+    static common::Result<std::shared_ptr<Entry>> begin(PersistentTransferContext& context,
+        const std::string& root, const PersistentFileIdentity& id, bool download,
+        const std::string& remoteRoot, bool resume, RangeObservation* observation) {
+        if (!id.rangeId || !id.rangeCount || id.rangeId > id.rangeCount ||
+            !id.rangeLength || id.rangeOffset > id.totalSize ||
+            id.rangeLength > id.totalSize-id.rangeOffset)
             return Status::invalidArgument("invalid range identity/bounds");
-        auto batch=rangeCheckpointBatch(context.policy);
-        if(!batch.isOk())return batch.status();
-        auto parallel=parallelRangeWrites();
-        if(!parallel.isOk())return parallel.status();
-        const auto key=(fs::path(root)/id.relativePath).lexically_normal().string();
+        auto batch = rangeCheckpointBatch(context.policy);
+        if (!batch.isOk()) return batch.status();
+        const auto key = (fs::path(root) / id.relativePath).lexically_normal().string();
         std::shared_ptr<Entry> entry;
         {
             std::lock_guard lock(context.mutex);
-            auto found=context.files.find(key);
-            if(found!=context.files.end())entry=std::static_pointer_cast<Entry>(found->second);
-            if(!entry) {
-                entry=std::make_shared<Entry>();entry->base=id;
-                entry->base.rangeId=entry->base.rangeOffset=entry->base.rangeLength=
-                    entry->base.rangeCount=entry->base.attempt=0;
-                entry->rangeCount=id.rangeCount;entry->parallel=parallel.value();
-                entry->checkpointBatch=batch.value();entry->observeBackground=observation!=nullptr;
-                if(batch.value()>1) {
-                    if(!context.checkpoints)context.checkpoints=std::make_shared<RangeCheckpointQueue>();
-                    entry->checkpointQueue=context.checkpoints;
+            auto found = context.files.find(key);
+            if (found != context.files.end()) entry = std::static_pointer_cast<Entry>(found->second);
+            if (!entry) {
+                entry = std::make_shared<Entry>();
+                entry->base = id;
+                entry->base.rangeId = entry->base.rangeOffset = entry->base.rangeLength =
+                    entry->base.rangeCount = entry->base.attempt = 0;
+                entry->rangeCount = id.rangeCount;
+                entry->checkpointBatch = batch.value();
+                entry->observeBackground = observation != nullptr;
+                if (entry->checkpointBatch > 1) {
+                    if (!context.checkpoints) context.checkpoints = std::make_shared<RangeCheckpointQueue>();
+                    entry->checkpointQueue = context.checkpoints;
                 }
-                entry->transaction=std::make_unique<FileTransaction>(nullptr,context.policy);
-                const auto status=entry->transaction->begin(root,entry->base,download,remoteRoot,resume,observation);
-                if(!status.isOk())return status;
-                entry->loadedVerifiedChunks=entry->transaction->loadedVerifiedChunks();
-                entry->removedCorruptChunks=entry->transaction->removedCorruptChunks();
+                // The transaction outlives any channel's stack timing object.
+                entry->transaction = std::make_unique<FileTransaction>(nullptr,context.policy);
+                auto status = entry->transaction->begin(root,entry->base,download,remoteRoot,resume,observation);
+                if (!status.isOk()) return status;
+                entry->loadedVerifiedChunks = entry->transaction->loadedVerifiedChunks();
+                entry->removedCorruptChunks = entry->transaction->removedCorruptChunks();
                 context.files.emplace(key,entry);
-                std::weak_ptr<Entry> weak=entry;
-                context.integrityChecks.emplace_back([weak] {
-                    auto current=weak.lock();if(!current)return Status::ok();
-                    std::lock_guard lock(current->checkpointMutex);
-                    if(!current->checkpointFailure.isOk())return current->checkpointFailure;
+                std::weak_ptr<Entry> weakEntry = entry;
+                context.integrityChecks.emplace_back([weakEntry] {
+                    auto current = weakEntry.lock();
+                    if (!current) return Status::ok();
+                    std::lock_guard entryLock(current->mutex);
+                    if (!current->checkpointFailure.isOk()) return current->checkpointFailure;
                     return current->transaction->verifyPublished();
                 });
             }
         }
-        auto base=id;
-        base.rangeId=base.rangeOffset=base.rangeLength=base.rangeCount=base.attempt=0;
-        auto slot=std::make_shared<Slot>();slot->id=id;
-        std::unique_lock newSlotLock(slot->mutex);
-        for(;;) {
-            std::shared_ptr<Slot> previous;
-            {
-                std::unique_lock lock(entry->mutex);
-                entry->changed.wait(lock,[&]{return !entry->closing;});
-                if(!samePersistentIdentity(entry->base,base) || entry->rangeCount!=id.rangeCount)
-                    return Status::invalidArgument("range coordinator identity mismatch or replay");
-                auto found=entry->slots.find(id.rangeId);
-                if(found!=entry->slots.end())previous=found->second;
+        ObservedEntryLock lock(entry->mutex, observation);
+        if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
+        auto base = id;
+        base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
+        // A recovered file can become fully verified before every original range
+        // is replayed. Later ranges may only receive an empty missing-set handshake;
+        // write() still rejects all DATA after publication.
+        if (!samePersistentIdentity(entry->base,base) || entry->rangeCount != id.rangeCount)
+            return Status::invalidArgument("range coordinator identity mismatch or replay");
+        auto found = entry->slots.find(id.rangeId);
+        if (found == entry->slots.end()) {
+            for (const auto& [rangeId, slot] : entry->slots) {
+                if (slot.id.rangeOffset < id.rangeOffset+id.rangeLength &&
+                    id.rangeOffset < slot.id.rangeOffset+slot.id.rangeLength)
+                    return Status::invalidArgument("overlapping range claim");
             }
-            // No Entry lock while waiting: the old attempt must be able to drain.
-            std::unique_lock<std::mutex> previousLock;
-            if(previous)previousLock=std::unique_lock(previous->mutex);
-            {
-                ObservedEntryLock lock(entry->mutex,observation);
-                if(entry->closing)continue;
-                auto found=entry->slots.find(id.rangeId);
-                if((found==entry->slots.end()) != !previous ||
-                    (found!=entry->slots.end() && found->second!=previous))continue;
-                if(previous && (id.attempt<=previous->id.attempt ||
-                    id.rangeOffset!=previous->id.rangeOffset || id.rangeLength!=previous->id.rangeLength))
-                    return Status::invalidArgument("range slot already claimed or changed geometry");
-                for(const auto& [range,other]:entry->slots) {
-                    if(range!=id.rangeId && other->id.rangeOffset<id.rangeOffset+id.rangeLength &&
-                        id.rangeOffset<other->id.rangeOffset+other->id.rangeLength)
-                        return Status::invalidArgument("overlapping range claim");
-                }
-                if(previous) {
-                    previous->active=false;
-                    if(previous->completed && entry->committed) {
-                        slot->completed=true;slot->active=false;
-                    } else if(previous->completed && entry->completed)--entry->completed;
-                }
-                entry->slots[id.rangeId]=slot;
+            found = entry->slots.emplace(id.rangeId, Slot{}).first;
+        } else {
+            auto& previous = found->second;
+            if (id.attempt <= previous.id.attempt)
+                return Status::invalidArgument("range slot already claimed");
+            // A data reset leaves the receiver's slot in the batch context. A
+            // later lane attempt may reclaim it; checkpointed bytes remain in the
+            // transaction and are excluded when the missing set is rebuilt.
+            if (entry->committed && previous.completed) {
+                previous.id = id;
+                return entry;
             }
-            // Discard an unverified buffered tail; never flush it after replacement.
-            if(previous)previous->writer.reset();
-            break;
+            if (previous.completed && entry->completed != 0) --entry->completed;
         }
-        {
-            ObservedEntryLock lock(entry->checkpointMutex,observation,RangeLock::Checkpoint);
-            if(!entry->checkpointFailure.isOk())return entry->checkpointFailure;
-            slot->checksum=checksum::ChecksumComputer(id.checksumAlgorithm);
-            for(const auto& missing:entry->transaction->missingRanges()) {
-                const auto begin=std::max(missing.begin,id.rangeOffset);
-                const auto end=std::min(missing.end,id.rangeOffset+id.rangeLength);
-                for(auto pos=begin;pos<end;) {
-                    auto next=std::min(end,(pos/id.chunkSize+1)*id.chunkSize);
-                    if(next<=pos)next=end;
-                    slot->missing.push_back({pos,next});pos=next;
-                }
+        auto& slot = found->second;
+        slot = Slot{};
+        slot.id = id;
+        slot.checksum = checksum::ChecksumComputer(id.checksumAlgorithm);
+        for (const auto& missing:entry->transaction->missingRanges()) {
+            const auto begin=std::max(missing.begin,id.rangeOffset);
+            const auto end=std::min(missing.end,id.rangeOffset+id.rangeLength);
+            // V3 range resumes reuse chunk-sized records from its own checkpoints.
+            for (auto pos=begin;pos<end;) {
+                auto next=std::min(end,(pos/id.chunkSize+1)*id.chunkSize);
+                if (next<=pos) next=end;
+                slot.missing.push_back({pos,next});pos=next;
             }
-            if(!slot->missing.empty())slot->writer=entry->transaction->makeRangeWriter(&slot->ioStats);
         }
-        slot->position=slot->missing.empty()?id.rangeOffset+id.rangeLength:slot->missing.front().begin;
-        return std::make_shared<Claim>(Claim{entry,slot});
+        slot.position=slot.missing.empty() ? id.rangeOffset+id.rangeLength : slot.missing[0].begin;
+        return entry;
     }
- private:
-    static bool current(const Entry& entry,const Slot& slot,const PersistentFileIdentity& id) {
-        auto found=entry.slots.find(id.rangeId);
-        return found!=entry.slots.end() && found->second.get()==&slot && samePersistentIdentity(slot.id,id);
-    }
-    static void failLocked(Entry& entry,const Status& status) {
-        if(entry.checkpointFailure.isOk())entry.checkpointFailure=status;
-        entry.failed=true;
-    }
-    static Status fail(const std::shared_ptr<Entry>& entry,const Status& status,RangeObservation* observation) {
-        ObservedEntryLock lock(entry->checkpointMutex,observation,RangeLock::Checkpoint);
-        failLocked(*entry,status);return status;
-    }
- public:
-    static Status write(const std::shared_ptr<Claim>& claim,const PersistentFileIdentity& id,
-        std::uint64_t offset,const std::vector<std::uint8_t>& bytes,RangeObservation* observation) {
-        auto& entry=*claim->entry;auto& slot=*claim->slot;
-        std::unique_lock serial(entry.serialWrites,std::defer_lock);
-        if(!entry.parallel)serial.lock();
-        ObservedEntryLock slotLock(slot.mutex,observation,RangeLock::Slot);
-        {
-            ObservedEntryLock lock(entry.mutex,observation);
-            if(entry.closing || entry.committed || entry.failed || !current(entry,slot,id) || !slot.active ||
-                offset<id.rangeOffset || offset>id.rangeOffset+id.rangeLength ||
-                bytes.size()>id.rangeOffset+id.rangeLength-offset)
-                return Status::invalidArgument("range write without exclusive valid slot");
-            if(slot.next>=slot.missing.size() || offset!=slot.position ||
-                bytes.size()>slot.missing[slot.next].end-slot.position || !slot.writer)
-                return Status::invalidArgument("range DATA touches already verified bytes");
-            ++entry.activeWrites;entry.highWatermark=std::max(entry.highWatermark,entry.activeWrites);
-            if(observation)observation->activeWritesHighWatermark=std::max(
-                observation->activeWritesHighWatermark,entry.highWatermark);
-        }
-        struct ActiveWrite {
-            Entry& entry;
-            ~ActiveWrite(){std::lock_guard lock(entry.mutex);--entry.activeWrites;entry.changed.notify_all();}
-        } active{entry};
-        auto status=entry.transaction->writeRange(*slot.writer,offset,bytes,observation);
-        if(!status.isOk())return fail(claim->entry,status,observation);
-        checkpoint::OptionalManifestTimer checksumming(observation?&observation->chunkChecksumSeconds:nullptr);
-        slot.checksum.update(bytes.data(),bytes.size());checksumming.stop();
-        slot.position+=bytes.size();
-        if(slot.position==slot.missing[slot.next].end) {
-            status=FileTransaction::flushRangeWriter(*slot.writer,observation);
-            if(!status.isOk())return fail(claim->entry,status,observation);
-            const auto piece=slot.missing[slot.next];
-            {
-                ObservedEntryLock lock(entry.checkpointMutex,observation,RangeLock::Checkpoint);
-                if(!entry.checkpointFailure.isOk())return entry.checkpointFailure;
-                status=entry.transaction->recordRange(id.rangeId,piece.begin,piece.end-piece.begin,
-                    slot.checksum.finalize(),observation,entry.checkpointBatch);
-                if(!status.isOk()){failLocked(entry,status);return status;}
-                scheduleCheckpoint(claim->entry);
-            }
-            ++slot.next;
-            slot.position=slot.next==slot.missing.size()?id.rangeOffset+id.rangeLength:slot.missing[slot.next].begin;
-            slot.checksum=checksum::ChecksumComputer(id.checksumAlgorithm);
+    static Status write(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
+                        std::uint64_t offset, const std::vector<std::uint8_t>& bytes, RangeObservation* observation) {
+        ObservedEntryLock lock(entry->mutex, observation);
+        if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
+        const auto slot = entry->slots.find(id.rangeId);
+        if (entry->committed || slot == entry->slots.end() || !slot->second.active ||
+            !samePersistentIdentity(slot->second.id,id) || offset < id.rangeOffset ||
+            offset > id.rangeOffset+id.rangeLength ||
+            bytes.size() > id.rangeOffset+id.rangeLength-offset)
+            return Status::invalidArgument("range write without exclusive valid slot");
+        auto& lease=slot->second;
+        if (lease.next>=lease.missing.size() || offset!=lease.position ||
+            bytes.size()>lease.missing[lease.next].end-lease.position)
+            return Status::invalidArgument("range DATA touches already verified bytes");
+        auto status=entry->transaction->writeRange(offset,bytes,observation);
+        if (!status.isOk()) return status;
+        checkpoint::OptionalManifestTimer checksumming(observation ? &observation->chunkChecksumSeconds : nullptr);
+        lease.checksum.update(bytes.data(),bytes.size());
+        checksumming.stop();
+        lease.position+=bytes.size();
+        if (lease.position==lease.missing[lease.next].end) {
+            const auto piece=lease.missing[lease.next];
+            status=entry->transaction->recordRange(id.rangeId,piece.begin,piece.end-piece.begin,lease.checksum.finalize(),observation,entry->checkpointBatch);
+            if (!status.isOk()) { entry->checkpointFailure = status; return status; }
+            scheduleCheckpoint(entry);
+            ++lease.next;
+            lease.position=lease.next==lease.missing.size() ? id.rangeOffset+id.rangeLength : lease.missing[lease.next].begin;
+            lease.checksum=checksum::ChecksumComputer(id.checksumAlgorithm);
         }
         return Status::ok();
     }
-    static std::pair<std::uint64_t,std::uint64_t> takeStats(const std::shared_ptr<Claim>& claim) {
-        auto& entry=*claim->entry;std::lock_guard lock(entry.mutex);
-        if(entry.statsReported)return {0,0};
-        entry.statsReported=true;return {entry.loadedVerifiedChunks,entry.removedCorruptChunks};
+    static std::pair<std::uint64_t, std::uint64_t> takeStats(
+        const std::shared_ptr<Entry>& entry) {
+        std::lock_guard lock(entry->mutex);
+        if (entry->statsReported) return {0, 0};
+        entry->statsReported = true;
+        return {entry->loadedVerifiedChunks, entry->removedCorruptChunks};
     }
-    static std::vector<chunk::CompletedRange> missingRanges(const std::shared_ptr<Claim>& claim,
-        const PersistentFileIdentity&) {
-        std::lock_guard lock(claim->slot->mutex);return claim->slot->missing;
+    static std::vector<chunk::CompletedRange> missingRanges(const std::shared_ptr<Entry>& entry,
+                                                           const PersistentFileIdentity& id) {
+        std::lock_guard lock(entry->mutex);
+        return entry->slots.at(id.rangeId).missing;
     }
-    static bool parallel(const std::shared_ptr<Claim>& claim){return claim->entry->parallel;}
-    // Keep the exact attempt alive, including its counters, across a replacement.
-    static Status flush(const std::shared_ptr<Claim>& claim,RangeObservation* observation,storage::FileIoStats* stats) {
-        if(!claim)return Status::ok();
-        ObservedEntryLock slotLock(claim->slot->mutex,observation,RangeLock::Slot);
-        Status status;
-        {
-            ObservedEntryLock lock(claim->entry->checkpointMutex,observation,RangeLock::Checkpoint);
-            status=flushLocked(claim->entry,observation);
-        }
-        if(stats && !claim->slot->ioStatsReported) {
-            stats->mergeFrom(claim->slot->ioStats);claim->slot->ioStatsReported=true;
-        }
-        claim->slot->writer.reset();
-        return status;
+    static bool rangeComplete(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id) {
+        std::lock_guard lock(entry->mutex);
+        return entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength);
+    }
+    // Called on all receiver exits, including malformed input and clean disconnect.
+    static Status flush(const std::shared_ptr<Entry>& entry, RangeObservation* observation) {
+        if (!entry) return Status::ok();
+        ObservedEntryLock lock(entry->mutex, observation);
+        return flushLocked(entry, observation);
     }
  private:
     static void mergeBackground(Entry& entry, RangeObservation* observation) {
         if (!observation) return;
         auto& a = *observation; auto& b = entry.background;
-        a.checkpointLockCalls += b.checkpointLockCalls;
-        a.checkpointLockWaitSeconds += b.checkpointLockWaitSeconds;
-        a.checkpointLockHoldSeconds += b.checkpointLockHoldSeconds;
+        a.entryLockCalls += b.entryLockCalls;
+        a.entryLockWaitSeconds += b.entryLockWaitSeconds;
+        a.entryLockHoldSeconds += b.entryLockHoldSeconds;
         a.checkpointSeconds += b.checkpointSeconds;
         a.backgroundCheckpointCpuSeconds += b.backgroundCheckpointCpuSeconds;
         a.manifestSave.attempts += b.manifestSave.attempts;
@@ -843,90 +773,72 @@ class RangeFileCoordinator {
         a.manifestSave.renameSeconds += b.manifestSave.renameSeconds;
         b = {};
     }
-    static Status flushLocked(const std::shared_ptr<Entry>& entry,RangeObservation* observation) {
+    static Status flushLocked(const std::shared_ptr<Entry>& entry, RangeObservation* observation) {
         ++entry->checkpointEpoch;
-        if(auto queue=entry->checkpointQueue.lock())queue->cancel(entry.get());
-        mergeBackground(*entry,observation);
-        if(!entry->checkpointFailure.isOk())return entry->checkpointFailure;
-        auto status=entry->transaction->flushRangeCheckpoint(observation);
-        if(!status.isOk())failLocked(*entry,status);
+        if (auto queue = entry->checkpointQueue.lock()) queue->cancel(entry.get());
+        mergeBackground(*entry, observation);
+        if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
+        auto status = entry->transaction->flushRangeCheckpoint(observation);
+        if (!status.isOk()) entry->checkpointFailure = status;
         return status;
     }
     static void scheduleCheckpoint(const std::shared_ptr<Entry>& entry) {
-        auto queue=entry->checkpointQueue.lock();if(!queue)return;
-        const auto epoch=++entry->checkpointEpoch;
-        if(!entry->transaction->hasPendingRangeCheckpoint()){queue->cancel(entry.get());return;}
-        std::weak_ptr<Entry> weak=entry;
-        queue->schedule(entry.get(),entry->transaction->rangeCheckpointDeadline(),[weak,epoch] {
-            auto current=weak.lock();if(!current)return;
-            auto* observation=current->observeBackground?&current->background:nullptr;
-            ObservedEntryLock lock(current->checkpointMutex,observation,RangeLock::Checkpoint);
-            if(epoch!=current->checkpointEpoch || !current->checkpointFailure.isOk())return;
-            const auto cpu=threadCpuSeconds(observation!=nullptr);
-            const auto status=current->transaction->flushRangeCheckpoint(observation);
-            if(!status.isOk())failLocked(*current,status);
-            if(observation)observation->backgroundCheckpointCpuSeconds+=threadCpuSeconds(true)-cpu;
+        auto queue = entry->checkpointQueue.lock();
+        if (!queue) return; // batch=1 needs no thread
+        const auto epoch = ++entry->checkpointEpoch;
+        if (!entry->transaction->hasPendingRangeCheckpoint()) { queue->cancel(entry.get()); return; }
+        std::weak_ptr<Entry> weakEntry = entry;
+        queue->schedule(entry.get(), entry->transaction->rangeCheckpointDeadline(), [weakEntry, epoch] {
+            auto current = weakEntry.lock();
+            if (!current) return;
+            auto* observation = current->observeBackground ? &current->background : nullptr;
+            ObservedEntryLock lock(current->mutex, observation);
+            if (epoch != current->checkpointEpoch || !current->checkpointFailure.isOk()) return;
+            const auto cpu = threadCpuSeconds(observation != nullptr);
+            const auto status = current->transaction->flushRangeCheckpoint(observation);
+            if (!status.isOk()) current->checkpointFailure = status;
+            if (observation) observation->backgroundCheckpointCpuSeconds += threadCpuSeconds(true)-cpu;
         });
     }
  public:
-    static Status complete(const std::shared_ptr<Claim>& claim,const PersistentFileIdentity& id,
-        checksum::ChecksumValue,bool skipped,RangeObservation* observation) {
-        auto& entry=*claim->entry;auto& slot=*claim->slot;
-        ObservedEntryLock slotLock(slot.mutex,observation,RangeLock::Slot);
-        bool alreadyCommitted=false;
-        {
-            ObservedEntryLock lock(entry.mutex,observation);
-            if(!current(entry,slot,id))return Status::invalidArgument("stale range completion");
-            if(slot.completed) {
-                if(entry.committed && skipped)return Status::ok();
-                return Status::invalidArgument("invalid or duplicate range completion");
-            }
-            if(!slot.active || (entry.committed && !skipped))
-                return Status::invalidArgument("invalid or duplicate range completion");
-            if(slot.next!=slot.missing.size())return Status::invalidArgument("range completion has missing bytes");
-            alreadyCommitted=entry.committed;
+    static Status complete(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
+                           checksum::ChecksumValue checksum, bool skipped, RangeObservation* observation) {
+        ObservedEntryLock lock(entry->mutex, observation);
+        auto flushed = flushLocked(entry, observation);
+        if (!flushed.isOk()) return flushed;
+        const auto slot = entry->slots.find(id.rangeId);
+        if (slot == entry->slots.end() || !samePersistentIdentity(slot->second.id,id))
+            return Status::invalidArgument("invalid or duplicate range completion");
+        if (slot->second.completed) {
+            // A retry can replay FILE_END after the receiver committed the
+            // checkpoint before the data socket reset. The empty resume mask
+            // makes this completion idempotent.
+            if (entry->committed && skipped) return Status::ok();
+            return Status::invalidArgument("invalid or duplicate range completion");
         }
-        {
-            ObservedEntryLock lock(entry.checkpointMutex,observation,RangeLock::Checkpoint);
-            const auto status=flushLocked(claim->entry,observation);
-            if(!status.isOk())return status;
-            if(skipped && !alreadyCommitted && !entry.transaction->rangeComplete(id.rangeOffset,id.rangeLength))
-                return Status::invalidArgument("skipped range is not verified");
+        if (!slot->second.active || (entry->committed && !skipped))
+            return Status::invalidArgument("invalid or duplicate range completion");
+        if (skipped && !entry->committed &&
+            !entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength))
+            return Status::invalidArgument("skipped range is not verified");
+        if (slot->second.next!=slot->second.missing.size())
+            return Status::invalidArgument("range completion has missing bytes");
+        auto status = Status::ok();
+        slot->second.completed = true;
+        slot->second.active = false;
+        ++entry->completed;
+        const bool drained = std::all_of(entry->slots.begin(), entry->slots.end(),
+            [](const auto& item) { return !item.second.active; });
+        const bool verified = entry->transaction->rangeComplete(0, entry->base.totalSize);
+        // Prior checkpointed ranges need not be dispatched again in this epoch.
+        // Full verified coverage plus no active writer is sufficient to publish.
+        if (!entry->committed &&
+            (entry->completed == entry->rangeCount || (drained && verified))) {
+            status = entry->transaction->commit(observation);
+            if (!status.isOk()) return status;
+            entry->committed = true;
         }
-        slot.writer.reset(); // every verified piece has already been flushed
-        bool evaluate=false, allCompleted=false;
-        {
-            std::unique_lock lock(entry.mutex);
-            slot.completed=true;slot.active=false;++entry.completed;
-            const bool drained=std::all_of(entry.slots.begin(),entry.slots.end(),
-                [](const auto& item){return !item.second->active;});
-            allCompleted=entry.completed==entry.rangeCount;
-            if(!entry.committed && (allCompleted || drained)) {
-                entry.closing=true;
-                entry.changed.wait(lock,[&]{return entry.activeWrites==0;});
-                evaluate=true;
-            }
-            if(observation)observation->activeWritesHighWatermark=std::max(
-                observation->activeWritesHighWatermark,entry.highWatermark);
-        }
-        if(!evaluate)return Status::ok();
-        Status status;bool published=false;
-        {
-            ObservedEntryLock lock(entry.checkpointMutex,observation,RangeLock::Checkpoint);
-            if(!entry.checkpointFailure.isOk())status=entry.checkpointFailure;
-            // Recheck coverage AFTER closing the write/claim gate; a prior snapshot
-            // could become stale while another range completes.
-            else if(allCompleted || entry.transaction->rangeComplete(0,entry.base.totalSize)) {
-                status=entry.transaction->commit(observation);published=status.isOk();
-            }
-            if(!status.isOk())failLocked(entry,status);
-        }
-        {
-            std::lock_guard lock(entry.mutex);
-            if(published)entry.committed=true;
-            entry.closing=false;entry.changed.notify_all();
-        }
-        return status;
+        return Status::ok();
     }
 };
 
@@ -1635,14 +1547,13 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         status = notify(callback, id, Status::ok(), false);
         timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) return finishTransport(status);
-        std::shared_ptr<RangeFileCoordinator::Claim> rangeEntry;
+        std::shared_ptr<RangeFileCoordinator::Entry> rangeEntry;
         struct RangeExitFlush {
-            std::shared_ptr<RangeFileCoordinator::Claim>& entry;
+            std::shared_ptr<RangeFileCoordinator::Entry>& entry;
             RangeObservation* observation;
-            storage::FileIoStats* ioStats;
             bool armed = true;
-            ~RangeExitFlush() { if (armed) (void)RangeFileCoordinator::flush(entry, observation, ioStats); }
-        } rangeExitFlush{rangeEntry, observation, &stats->fileIoStats};
+            ~RangeExitFlush() { if (armed) (void)RangeFileCoordinator::flush(entry, observation); }
+        } rangeExitFlush{rangeEntry, observation};
         std::shared_ptr<FileTransaction> transaction;
         Status fileStatus = Status::ok();
         if (id.rangeId != 0) {
@@ -1654,7 +1565,6 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 return finishTransport(rejected.isOk() ? started.status() : rejected);
             } else {
                 rangeEntry = std::move(started.value());
-                timing.rangeWriteMode = RangeFileCoordinator::parallel(rangeEntry) ? "parallel" : "serial";
                 const auto rangeStats = RangeFileCoordinator::takeStats(rangeEntry);
                 stats->loadedVerifiedChunks += rangeStats.first;
                 stats->removedCorruptChunks += rangeStats.second;
@@ -1764,7 +1674,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             }
         }
         if (rangeEntry) {
-            const auto checkpoint = RangeFileCoordinator::flush(rangeEntry, observation, &stats->fileIoStats);
+            const auto checkpoint = RangeFileCoordinator::flush(rangeEntry, observation);
             if (!checkpoint.isOk()) fileStatus = checkpoint;
             rangeExitFlush.armed = false; // do not flush another lane after our result
         }
@@ -1881,8 +1791,6 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"pipeline_consumer_wait_seconds\":" << t.pipelineConsumerWaitSeconds;
         const auto& r = t.rangeObservation;
         const auto& m = r.manifestSave;
-        out << ",\"range_write_mode\":";
-        quoted(out,t.rangeWriteMode);
         out << ",\"range_observation\":{\"entry_lock_calls\":" << r.entryLockCalls
             << ",\"entry_lock_wait_seconds\":" << r.entryLockWaitSeconds
             << ",\"entry_lock_hold_seconds\":" << r.entryLockHoldSeconds
@@ -1891,13 +1799,6 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"chunk_flush_calls\":" << r.chunkFlushCalls
             << ",\"chunk_flush_seconds\":" << r.chunkFlushSeconds
             << ",\"chunk_checksum_seconds\":" << r.chunkChecksumSeconds
-            << ",\"checkpoint_lock_calls\":" << r.checkpointLockCalls
-            << ",\"checkpoint_lock_wait_seconds\":" << r.checkpointLockWaitSeconds
-            << ",\"checkpoint_lock_hold_seconds\":" << r.checkpointLockHoldSeconds
-            << ",\"slot_lock_calls\":" << r.slotLockCalls
-            << ",\"slot_lock_wait_seconds\":" << r.slotLockWaitSeconds
-            << ",\"slot_lock_hold_seconds\":" << r.slotLockHoldSeconds
-            << ",\"active_range_writes_high_watermark\":" << r.activeWritesHighWatermark
             << ",\"checkpoint_seconds\":" << r.checkpointSeconds
             << ",\"background_checkpoint_cpu_seconds\":" << r.backgroundCheckpointCpuSeconds
             << ",\"manifest_save\":{\"attempts\":" << m.attempts

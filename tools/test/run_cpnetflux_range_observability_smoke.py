@@ -83,9 +83,8 @@ def main():
                 assert f["lane_thread_cpu_seconds"]>0
                 if f["measurement_scope"]=="local_receiver":
                     m=f["range_observation"]
-                    assert f["range_write_mode"] in ("serial","parallel")
-                    assert m["slot_lock_hold_seconds"]>=m["offset_write_seconds"]
-                    assert m["checkpoint_lock_hold_seconds"]>=m["checkpoint_seconds"]
+                    assert m["entry_lock_hold_seconds"]>=m["offset_write_seconds"]
+                    assert m["entry_lock_hold_seconds"]>=m["checkpoint_seconds"]
                     assert m["manifest_save"]["failures"]==0
                 else:
                     assert f["pipeline_high_watermark_bytes"]<=f["pipeline_budget_bytes"]

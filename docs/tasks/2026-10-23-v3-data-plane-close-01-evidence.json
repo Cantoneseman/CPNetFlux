@@ -1,0 +1,78 @@
+{
+  "schema": "cpnetflux_range_writer_no_go_evidence_v1",
+  "machine": {
+    "name": "Shenzhen Aliyun ECS",
+    "vcpus": 2,
+    "memory_mib": 3495,
+    "source_and_destination": "/tmp on same non-tmpfs filesystem",
+    "high_io_pressure": true,
+    "physical_link_test": false
+  },
+  "conditions": {
+    "transport": "loopback TCP",
+    "tls": "control+data required",
+    "checksum": "CRC32C Auto",
+    "compression": "off",
+    "connections": 4,
+    "chunk_size": 4194304,
+    "buffer_size": 65536,
+    "checkpoint_batch": 1,
+    "independent_sha256": true
+  },
+  "commits": {
+    "baseline": "0d4686cc21f1d8083c189119df576906ce419ae4",
+    "candidate": "3a943db5b0ba3b84b99c54d1af253370229fdfb5"
+  },
+  "binary_sha256": {
+    "baseline": {
+      "server": "2e8b27f22905404fd52a4dbe5b8582faee20cf41e642a088693a62b974e16797",
+      "upload": "b2ea06292ff11d769cc121c946a3c4d19ae56fefc9b1e487b1dfab7fd745629c",
+      "download": "92f2597a833dce470b0b28ba507bdb37d7a6ad94e36ebf3be0024084f11aa310"
+    },
+    "candidate": {
+      "server": "4d0a0ef121e0def951b852ddc2cac05cbd875f93d197e9efcea415dd0022d44c",
+      "upload": "0890eacf35c93a8b08a792cba00586c199c59051d3149cf90b56d5c04cd56b3a",
+      "download": "9516320fd9532b9251598ea11ba9451c608dfdd65246d04deeaa4e952d4d902e"
+    }
+  },
+  "datasets": {
+    "512m": {
+      "files": 1,
+      "bytes": 536870912,
+      "sha256": "49c11f4ba0b35c0b64894e18b4ae62ea703b307667bf4ceb91ef7175a66adae3",
+      "baseline_wall_median_s": 1.4444562308,
+      "candidate_wall_median_s": 1.4432503814,
+      "paired_improvement_percent": 0.083481
+    },
+    "4g": {
+      "files": 1,
+      "bytes": 4294967296,
+      "sha256": "af45c6e6e36e9cd191a4b96530845c63e78ad930644306b18789159c134a8129",
+      "baseline_wall_median_s": 72.3351403531,
+      "candidate_wall_median_s": 72.3334024716,
+      "baseline_transfer_median_s": 47.081921711,
+      "candidate_transfer_median_s": 46.970835512,
+      "baseline_summary_hash_median_s": 25.390819696,
+      "candidate_summary_hash_median_s": 25.372365413,
+      "paired_improvement_percent": -0.011224
+    },
+    "dense_2048x64k": {
+      "files": 2048,
+      "bytes": 134217728,
+      "sha256": "0146ea0c40350787b2e4f1846ec4ad3dbec395210f5e72a24e8e3a5890004940",
+      "baseline_wall_median_s": 1.2193540921,
+      "candidate_wall_median_s": 1.2357160151,
+      "paired_improvement_percent": -1.516616
+    },
+    "mixed_129": {
+      "files": 129,
+      "bytes": 134217728,
+      "sha256": "2df1b36f4fbbd698f0c75daa69b48320e7371abc4f0118659078fa1a6cb19a60",
+      "baseline_wall_median_s": 0.3277728818,
+      "candidate_wall_median_s": 0.324208023,
+      "paired_improvement_percent": 3.105228
+    }
+  },
+  "all_run_output_sha256_matches_input": true,
+  "all_runs": "pass"
+}

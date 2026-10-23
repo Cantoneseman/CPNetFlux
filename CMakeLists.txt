@@ -360,9 +360,6 @@ if(CPNETFLUX_BUILD_TESTS)
             GTest::gtest_main
     )
 
-    add_executable(cpnetflux_range_writer_tests tests/unit/range_writer_test.cpp)
-    target_link_libraries(cpnetflux_range_writer_tests PRIVATE CPNetFlux::core GTest::gtest_main)
-    gtest_discover_tests(cpnetflux_range_writer_tests)
     gtest_discover_tests(cpnetflux_unit_tests)
     add_test(NAME cpnetflux_v1_retirement_gate
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/check_v1_retired.py)

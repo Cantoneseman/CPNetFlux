@@ -36,10 +36,7 @@ inline constexpr std::uint32_t kUnknownPersistentFileCount = UINT32_MAX;
 
 struct RangeObservation {
     std::uint64_t entryLockCalls = 0, offsetWriteCalls = 0, chunkFlushCalls = 0;
-    double entryLockWaitSeconds = 0, entryLockHoldSeconds = 0; // state only, never data/checkpoint I/O
-    std::uint64_t checkpointLockCalls = 0, slotLockCalls = 0, activeWritesHighWatermark = 0;
-    double checkpointLockWaitSeconds = 0, checkpointLockHoldSeconds = 0;
-    double slotLockWaitSeconds = 0, slotLockHoldSeconds = 0;
+    double entryLockWaitSeconds = 0, entryLockHoldSeconds = 0;
     double offsetWriteSeconds = 0, chunkFlushSeconds = 0, chunkChecksumSeconds = 0;
     double checkpointSeconds = 0;
     double backgroundCheckpointCpuSeconds = 0; // separate thread; attributed at receiver boundaries
@@ -50,7 +47,6 @@ struct PersistentFileTiming {
     std::uint32_t channel = 0;
     bool sender = false;
     bool rangeObservationEnabled = false;
-    std::string rangeWriteMode = "none";
     RangeObservation rangeObservation;
     std::uint32_t payloadPipelineDepth = 0;
     std::uint64_t pipelineBudgetBytes = 0, pipelineHighWatermarkBytes = 0;
