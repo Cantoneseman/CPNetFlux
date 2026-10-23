@@ -54,3 +54,12 @@ tools/test/run_cpnetflux_range_observability_smoke.py、性能采样脚本、CMa
 - TLS 性能脚本 128 MiB quick harness 完成 4 次传输和独立 SHA，仅用于脚本验收，
   /tmp/cpnetflux-range-harness-02/result.json，不作为深度收益证据。
 后续：固定本轮代码提交，4 GiB 五组诊断校准与各候选五组配对；再同步上海构建。
+
+## 参数实验环境修订
+实测深圳为 2 vCPU、总 RAM 3495 MiB、可用约 2417 MiB。4 GiB 输入大于缓存容量；
+pilot 第一条完整 process wall=72.4797 秒，core=47.0407 秒，且额外独立 SHA 涉及磁盘。
+因此本项保留两条 4 GiB 开/关观测 pilot 后停止扩大该矩阵；它不是原 R730/R750 热缓存复测。
+正式 40 次参数/开销实验改用 512 MiB 固定输入，四路、TLS/CRC/resume/外部 SHA、
+4 MiB chunk、64 KiB frame、receiver verified_chunks/final_only/commit_sync=none 不变。
+这是阶段 4 的软件诊断矩阵；阶段 8 的物理机器 4 GiB 与 GridFTP 对照仍保留。
+脚本报告缓存为“预读一次、未清系统缓存、不保证驻留”，并保存 RAM 信息，避免宣称整文件热缓存。

@@ -41,7 +41,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--build-dir",type=Path,required=True)
     p.add_argument("--evidence-dir",type=Path,required=True)
-    p.add_argument("--bytes",type=int,default=4294967296)
+    p.add_argument("--bytes",type=int,default=536870912)
     p.add_argument("--rounds",type=int,default=5)
     p.add_argument("--quick",action="store_true",help="one calibration and depth pair for harness validation only")
     a=p.parse_args()
@@ -66,12 +66,12 @@ def main():
         profile=dict(transport="loopback_TCP",tls="control_and_data_required",crc="crc32c_auto",
             compression="off",lanes=4,chunk_bytes=4194304,buffer_bytes=65536,
             manifest_flush="final_only",final_verify="verified_chunks",commit_sync="none",
-            cache="warm_source",process_wall="client_spawn_through_exit_includes_summary",
+            cache="source_read_once_no_cache_drop_no_residency_guarantee",process_wall="client_spawn_through_exit_includes_summary",
             hash_validation="independent_SHA256_outside_timed_wall"),
         cpu_profile=dict(perf_path=shutil.which("perf"),
             perf_event_paranoid=Path("/proc/sys/kernel/perf_event_paranoid").read_text().strip(),
             stack_status="unavailable: perf executable absent" if not shutil.which("perf") else "not_collected",
-            available_cpus=os.cpu_count(),lane_cpu="CLOCK_THREAD_CPUTIME_ID in producer and lane"),
+            available_cpus=os.cpu_count(),meminfo=Path("/proc/meminfo").read_text(),lane_cpu="CLOCK_THREAD_CPUTIME_ID in producer and lane"),
         runs=[])
     plan=[]
     for i in range(1 if a.quick else a.rounds):
