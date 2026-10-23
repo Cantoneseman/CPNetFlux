@@ -122,3 +122,5 @@ f180d3a9ca36d11046a5c2e7347c4555fc20aa6c 生成归档，双端 SHA-256：
 下一步：V3-RANGE-CHECKPOINT-BATCH-01，保持先 flush 数据再记录 verified chunk，
 有界合并 per-file manifest 保存；候选每 1/4/16 块、100 ms 触发和提交屏障需恢复回归。
 当前路线 4/8 完成，剩余 checkpoint 合并、range 并行写、profile 热点优化和最终双机验收 4 项。
+
+收尾资源：已清理本任务 quick/pilot/正式矩阵的确定性输入及残留 peer payload，保留原始 JSON、summary 和双方日志；清单 /tmp/cpnetflux-range-cleanup-01.json。深圳 /tmp 空闲 13.61→18.36 GiB。实验 driver/临时 server 均已退出；未停止现有服务。Git 仅保留原有两个未跟踪 worker-state 文档。
