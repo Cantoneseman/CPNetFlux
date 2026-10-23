@@ -52,6 +52,7 @@
 #include "cpnetflux/core/io/tree_pipeline_control_io.h"
 #include "cpnetflux/core/scheduler/scheduler.h"
 #include "cpnetflux/core/tree/tree_manifest.h"
+#include "cpnetflux/core/tree/tree_manifest_writer.h"
 #include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/protocol/control/control_auth.h"
 
@@ -934,6 +935,8 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> recoveryBudgetUsed{0};
     std::atomic<std::uint64_t> dataTransferCount{0};
     std::atomic<std::uint64_t> laneLocalRecoveryCount{0};
+    core::tree::TreeManifestWriteStats treeManifestWrites;
+    double treeManifestCallbackLockWaitSeconds = 0;
     bool persistentData = false;
     bool perFileStarted = false;
     std::uint64_t persistentDataConnectCount = 0;
@@ -1312,6 +1315,16 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"source\": \"" << jsonEscape(options.sourceDir) << "\",\n";
     output << "  \"dest\": \"" << jsonEscape(options.destDir) << "\",\n";
     output << "  \"file_count\": " << manifest.files.size() << ",\n";
+    output << "  \"tree_manifest_state_events\": " << stats.treeManifestWrites.generation << ",\n";
+    output << "  \"tree_manifest_generation\": " << stats.treeManifestWrites.generation << ",\n";
+    output << "  \"tree_manifest_persisted_generation\": " << stats.treeManifestWrites.persistedGeneration << ",\n";
+    output << "  \"tree_manifest_snapshots\": " << stats.treeManifestWrites.snapshots << ",\n";
+    output << "  \"tree_manifest_serialized_bytes\": " << stats.treeManifestWrites.serializedBytes << ",\n";
+    output << "  \"tree_manifest_write_seconds\": " << stats.treeManifestWrites.writeSeconds << ",\n";
+    output << "  \"tree_manifest_state_lock_wait_seconds\": "
+           << stats.treeManifestCallbackLockWaitSeconds + stats.treeManifestWrites.stateLockWaitSeconds << ",\n";
+    output << "  \"tree_manifest_metrics_scope\": \"persistent_callbacks_and_final_sum_attempts_excludes_preflight\",\n";
+
     output << "  \"completed_files\": " << summary.completedFiles << ",\n";
     output << "  \"skipped_files\": " << stats.skippedFiles.load() << ",\n";
     output << "  \"failed_files\": " << summary.failedFiles << ",\n";
@@ -1840,7 +1853,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         files.reserve(manifest->files.size());
         for (std::size_t index = 0; index < manifest->files.size(); ++index) {
             const auto& file = manifest->files[index];
-            if (options.resume && file.status == core::tree::TreeFileStatus::Completed) continue;
+            // Replaying the identity lets V3 verify committed output/checkpoint.
+            // The tree snapshot is an index, not proof that remote bytes are intact.
             const auto id = static_cast<std::uint32_t>(index + 1);
             files.push_back({id, id, file.size, file.relativePath, file.transferId,
                              options.chunkSize, file.mtimeUnixSeconds, options.checksumAlgorithm, {}});
@@ -1882,7 +1896,16 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     if (upload && options.dynamicFileScheduling) {
         std::vector<WorkItem> boundWork;
         if (globalScheduler) {
-            auto plans = globalScheduler->planManifest(*manifest, options.sourceDir,
+            // Completed tree records must also obtain a V3 work lease for
+            // committed-output revalidation on process restart.
+            auto schedulingManifest = *manifest;
+            if (options.resume) {
+                for (auto& file : schedulingManifest.files) {
+                    if (file.status == core::tree::TreeFileStatus::Completed)
+                        file.status = core::tree::TreeFileStatus::Pending;
+                }
+            }
+            auto plans = globalScheduler->planManifest(schedulingManifest, options.sourceDir,
                 core::scheduler::SchedulerDirection::Upload, true);
             if (!plans.isOk()) return plans.status();
             auto bound = bindScheduledPlans(plans.value(), files);
@@ -2148,6 +2171,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     if (!firstFailure.isOk()) return firstFailure;
 
     std::mutex manifestMutex;
+    core::tree::TreeManifestWriter manifestWriter(*manifest, manifestMutex,
+        [&](const auto& snapshot, std::uint64_t* bytes) {
+            return core::tree::saveTreeManifestAtomic(manifestPath, snapshot, bytes);
+        });
     std::unordered_map<std::uint32_t, std::size_t> downloadRecords;
     struct ActiveIdentity {
         PersistentFileIdentity base;
@@ -2159,7 +2186,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     std::unordered_set<std::string> downloadPaths;
     auto callback = [&](const PersistentFileIdentity& id, const common::Status& fileStatus,
                         bool complete) {
+        const auto lockStarted = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> lock(manifestMutex);
+        stats->treeManifestCallbackLockWaitSeconds += std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - lockStarted).count();
         // Sibling socket cancellation is a consequence of a terminal target
         // conflict. Preserve the semantic cause even if that cancellation was
         // observed first by a different worker.
@@ -2274,7 +2304,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         }
         if (complete && logicalComplete && fileStatus.isOk()) stats->completedThisRun.fetch_add(1);
         if (!complete && id.rangeId == 0) stats->dataTransferCount.fetch_add(1);
-        return saveManifest(manifest, manifestPath);
+        return manifestWriter.markDirtyLocked();
     };
 
     config::FileTransferOptions transferOptions;
@@ -2541,23 +2571,35 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             firstFileFailure.message().find("output already exists") != std::string::npos;
         result = targetConflict || firstFailure.isOk() ? firstFileFailure : firstFailure;
     }
-    if (!upload) {
-        if (result.isOk() && expectedTotalFiles != kUnknownPersistentFileCount &&
-            manifest->files.size() != expectedTotalFiles)
-            result = common::Status::invalidArgument("persistent download file count mismatch");
-        std::sort(manifest->files.begin(), manifest->files.end(),
-            [](const auto& left, const auto& right) { return left.relativePath < right.relativePath; });
-    }
-    if (!result.isOk()) {
+    {
+        // Producers have stopped. The snapshot worker still owns disk writes,
+        // so final sorting/failure reconciliation uses the same state mutex.
         std::lock_guard<std::mutex> lock(manifestMutex);
-        for (auto& file : manifest->files) {
-            if (file.status == core::tree::TreeFileStatus::Transferring) {
-                file.status = core::tree::TreeFileStatus::Failed;
-                file.error = result.message();
+        if (!upload) {
+            if (result.isOk() && expectedTotalFiles != kUnknownPersistentFileCount &&
+                manifest->files.size() != expectedTotalFiles)
+                result = common::Status::invalidArgument("persistent download file count mismatch");
+            std::sort(manifest->files.begin(), manifest->files.end(),
+                [](const auto& left, const auto& right) { return left.relativePath < right.relativePath; });
+        }
+        if (!result.isOk()) {
+            for (auto& file : manifest->files) {
+                if (file.status == core::tree::TreeFileStatus::Transferring) {
+                    file.status = core::tree::TreeFileStatus::Failed;
+                    file.error = result.message();
+                }
             }
         }
+        (void)manifestWriter.markDirtyLocked();
     }
-    const auto saved = saveManifest(manifest, manifestPath);
+    const auto saved = manifestWriter.finish();
+    const auto writes = manifestWriter.stats();
+    stats->treeManifestWrites.generation += writes.generation;
+    stats->treeManifestWrites.persistedGeneration += writes.persistedGeneration;
+    stats->treeManifestWrites.snapshots += writes.snapshots;
+    stats->treeManifestWrites.serializedBytes += writes.serializedBytes;
+    stats->treeManifestWrites.writeSeconds += writes.writeSeconds;
+    stats->treeManifestWrites.stateLockWaitSeconds += writes.stateLockWaitSeconds;
     if (!saved.isOk()) return saved;
     if (globalScheduler) {
         const auto summaryStatus = writeGlobalSchedulerSummary(

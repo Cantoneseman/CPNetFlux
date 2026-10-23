@@ -404,11 +404,13 @@ common::Result<TreeManifest> parseTreeManifest(const std::string& text) {
     return manifest;
 }
 
-common::Status saveTreeManifestAtomic(const std::string& path, const TreeManifest& manifest) {
+common::Status saveTreeManifestAtomic(const std::string& path, const TreeManifest& manifest,
+                                      std::uint64_t* serializedBytes) {
     auto serialized = serializeTreeManifest(manifest);
     if (!serialized.isOk()) {
         return serialized.status();
     }
+    if (serializedBytes != nullptr) *serializedBytes = serialized.value().size();
     const std::string tempPath = path + ".tmp." + std::to_string(::getpid());
     {
         std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);

@@ -54,7 +54,8 @@ struct TreeManifest {
 [[nodiscard]] common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest);
 [[nodiscard]] common::Result<TreeManifest> parseTreeManifest(const std::string& text);
 [[nodiscard]] common::Status saveTreeManifestAtomic(const std::string& path,
-                                                    const TreeManifest& manifest);
+                                                    const TreeManifest& manifest,
+                                                    std::uint64_t* serializedBytes = nullptr);
 [[nodiscard]] common::Result<TreeManifest> loadTreeManifest(const std::string& path);
 
 }  // namespace cpnetflux::core::tree

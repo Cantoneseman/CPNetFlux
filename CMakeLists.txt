@@ -138,6 +138,7 @@ add_library(cpnetflux_core STATIC
     src/core/session/manifest_flush_policy.cpp
     src/core/session/transfer_session.cpp
     src/core/tree/tree_manifest.cpp
+    src/core/tree/tree_manifest_writer.cpp
     src/core/tree/tree_scan.cpp
     src/protocol/control/control_command.cpp
     src/protocol/control/control_auth.cpp
@@ -343,6 +344,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/transfer_session_test.cpp
         tests/unit/transfer_progress_test.cpp
         tests/unit/tree_manifest_test.cpp
+        tests/unit/tree_manifest_writer_test.cpp
         tests/unit/tree_scan_test.cpp
         tests/unit/tree_transfer_options_test.cpp
         tests/unit/tree_pipeline_control_io_test.cpp
@@ -655,6 +657,11 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_summary_crc_auto_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     set_tests_properties(cpnetflux_summary_crc_auto_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_tree_manifest_coalesce_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_manifest_coalesce_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_tree_manifest_coalesce_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_tree_control_reuse_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_control_reuse_smoke.py --build-dir ${CMAKE_BINARY_DIR}
