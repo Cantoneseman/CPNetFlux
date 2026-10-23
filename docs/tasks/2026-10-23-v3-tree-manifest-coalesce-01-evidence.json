@@ -1,0 +1,528 @@
+{
+  "input_commit": "618c5dabeff4b95bb3d311ba3cdad861545817b7",
+  "scope": "single Shenzhen host TCP loopback; TLS off for both variants; CRC32C Auto; no compression; 4 lanes; not final two-host acceptance",
+  "files": 2048,
+  "file_size_bytes": 65536,
+  "logical_bytes": 134217728,
+  "rounds": 5,
+  "ordering": "old/new on even rounds; new/old on odd rounds; upload then download for each variant",
+  "baseline_build": "/tmp/cpnetflux-pre-coalesce-618c5da",
+  "candidate_build": "/tmp/cpnetflux-build-fd-release-01",
+  "baseline_upload_sha256": "7ba966e885d305910b20170cfdc4a8704af70aa2a8056cde632aac262d166e53",
+  "candidate_upload_sha256": "44c2d05438ab7022380ee00fd15677cbbb87ebe499e2a8d966fb84bddfa6dffc",
+  "medians": {
+    "upload": {
+      "old": {
+        "wall_median_seconds": 5.4560535084456205,
+        "wall_min_seconds": 5.326852663420141,
+        "wall_max_seconds": 5.880205341614783,
+        "manifest_renames": [
+          4098,
+          4098,
+          4098,
+          4098,
+          4098
+        ]
+      },
+      "new": {
+        "wall_median_seconds": 1.2447030115872622,
+        "wall_min_seconds": 1.1776985945180058,
+        "wall_max_seconds": 1.4150615697726607,
+        "manifest_renames": [
+          128,
+          129,
+          128,
+          128,
+          129
+        ]
+      },
+      "speedup": 4.3834179379770175
+    },
+    "download": {
+      "old": {
+        "wall_median_seconds": 3.6279406445100904,
+        "wall_min_seconds": 3.5300897685810924,
+        "wall_max_seconds": 3.8193611316382885,
+        "manifest_renames": [
+          4098,
+          4098,
+          4098,
+          4098,
+          4098
+        ]
+      },
+      "new": {
+        "wall_median_seconds": 1.1938096787780523,
+        "wall_min_seconds": 1.1562744611874223,
+        "wall_max_seconds": 1.1989506902173162,
+        "manifest_renames": [
+          129,
+          129,
+          129,
+          129,
+          129
+        ]
+      },
+      "speedup": 3.03896065595945
+    }
+  },
+  "runs": [
+    {
+      "label": "old-0",
+      "direction": "upload",
+      "wall_seconds": 5.326852663420141,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 5.06518,
+        "summary_tree_hash_seconds": 0.255888
+      }
+    },
+    {
+      "label": "old-0",
+      "direction": "download",
+      "wall_seconds": 3.8193611316382885,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 3.54735,
+        "summary_tree_hash_seconds": 0.268098
+      }
+    },
+    {
+      "label": "new-0",
+      "direction": "upload",
+      "wall_seconds": 1.1776985945180058,
+      "manifest_renames": 128,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 0.91899,
+        "summary_tree_hash_seconds": 0.254935,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 127,
+        "tree_manifest_serialized_bytes": 20588519,
+        "tree_manifest_write_seconds": 0.19878,
+        "tree_manifest_state_lock_wait_seconds": 0.00961003
+      }
+    },
+    {
+      "label": "new-0",
+      "direction": "download",
+      "wall_seconds": 1.1672082794830203,
+      "manifest_renames": 129,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 0.888509,
+        "summary_tree_hash_seconds": 0.275658,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 128,
+        "tree_manifest_serialized_bytes": 10654362,
+        "tree_manifest_write_seconds": 0.130147,
+        "tree_manifest_state_lock_wait_seconds": 0.0194539
+      }
+    },
+    {
+      "label": "new-1",
+      "direction": "upload",
+      "wall_seconds": 1.4150615697726607,
+      "manifest_renames": 129,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 0.972383,
+        "summary_tree_hash_seconds": 0.439273,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 128,
+        "tree_manifest_serialized_bytes": 20751967,
+        "tree_manifest_write_seconds": 0.204977,
+        "tree_manifest_state_lock_wait_seconds": 0.0123107
+      }
+    },
+    {
+      "label": "new-1",
+      "direction": "download",
+      "wall_seconds": 1.1961765512824059,
+      "manifest_renames": 129,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 0.917969,
+        "summary_tree_hash_seconds": 0.273295,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 128,
+        "tree_manifest_serialized_bytes": 10656872,
+        "tree_manifest_write_seconds": 0.139084,
+        "tree_manifest_state_lock_wait_seconds": 0.0124748
+      }
+    },
+    {
+      "label": "old-1",
+      "direction": "upload",
+      "wall_seconds": 5.392732648178935,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 5.11837,
+        "summary_tree_hash_seconds": 0.268199
+      }
+    },
+    {
+      "label": "old-1",
+      "direction": "download",
+      "wall_seconds": 3.5480786710977554,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 3.26914,
+        "summary_tree_hash_seconds": 0.271537
+      }
+    },
+    {
+      "label": "old-2",
+      "direction": "upload",
+      "wall_seconds": 5.4560535084456205,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 5.19743,
+        "summary_tree_hash_seconds": 0.254439
+      }
+    },
+    {
+      "label": "old-2",
+      "direction": "download",
+      "wall_seconds": 3.5300897685810924,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 3.25296,
+        "summary_tree_hash_seconds": 0.271739
+      }
+    },
+    {
+      "label": "new-2",
+      "direction": "upload",
+      "wall_seconds": 1.3582585752010345,
+      "manifest_renames": 128,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 1.09966,
+        "summary_tree_hash_seconds": 0.252926,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 127,
+        "tree_manifest_serialized_bytes": 20588378,
+        "tree_manifest_write_seconds": 0.198081,
+        "tree_manifest_state_lock_wait_seconds": 0.00933225
+      }
+    },
+    {
+      "label": "new-2",
+      "direction": "download",
+      "wall_seconds": 1.1562744611874223,
+      "manifest_renames": 129,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 0.879444,
+        "summary_tree_hash_seconds": 0.271925,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 128,
+        "tree_manifest_serialized_bytes": 10697340,
+        "tree_manifest_write_seconds": 0.137718,
+        "tree_manifest_state_lock_wait_seconds": 0.0129853
+      }
+    },
+    {
+      "label": "new-3",
+      "direction": "upload",
+      "wall_seconds": 1.2323514698073268,
+      "manifest_renames": 128,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 0.974655,
+        "summary_tree_hash_seconds": 0.252841,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 127,
+        "tree_manifest_serialized_bytes": 20589497,
+        "tree_manifest_write_seconds": 0.215816,
+        "tree_manifest_state_lock_wait_seconds": 0.0165649
+      }
+    },
+    {
+      "label": "new-3",
+      "direction": "download",
+      "wall_seconds": 1.1938096787780523,
+      "manifest_renames": 129,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 0.912341,
+        "summary_tree_hash_seconds": 0.272366,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 128,
+        "tree_manifest_serialized_bytes": 10639601,
+        "tree_manifest_write_seconds": 0.128477,
+        "tree_manifest_state_lock_wait_seconds": 0.00865565
+      }
+    },
+    {
+      "label": "old-3",
+      "direction": "upload",
+      "wall_seconds": 5.484632805921137,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 5.219,
+        "summary_tree_hash_seconds": 0.261606
+      }
+    },
+    {
+      "label": "old-3",
+      "direction": "download",
+      "wall_seconds": 3.630120045505464,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 3.35264,
+        "summary_tree_hash_seconds": 0.272243
+      }
+    },
+    {
+      "label": "old-4",
+      "direction": "upload",
+      "wall_seconds": 5.880205341614783,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 5.17765,
+        "summary_tree_hash_seconds": 0.69645
+      }
+    },
+    {
+      "label": "old-4",
+      "direction": "download",
+      "wall_seconds": 3.6279406445100904,
+      "manifest_renames": 4098,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 3.34943,
+        "summary_tree_hash_seconds": 0.274203
+      }
+    },
+    {
+      "label": "new-4",
+      "direction": "upload",
+      "wall_seconds": 1.2447030115872622,
+      "manifest_renames": 129,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 0.978826,
+        "summary_tree_hash_seconds": 0.259003,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 128,
+        "tree_manifest_serialized_bytes": 20752162,
+        "tree_manifest_write_seconds": 0.206246,
+        "tree_manifest_state_lock_wait_seconds": 0.00844478
+      }
+    },
+    {
+      "label": "new-4",
+      "direction": "download",
+      "wall_seconds": 1.1989506902173162,
+      "manifest_renames": 129,
+      "sha256_tree": [
+        "92d6ba12f757324e33f1267595200b72fd225079239f4ecf7731efec49e9e4b5",
+        2048,
+        134217728
+      ],
+      "metrics": {
+        "elapsed_seconds": 0.915605,
+        "summary_tree_hash_seconds": 0.273447,
+        "tree_manifest_state_events": 4097,
+        "tree_manifest_generation": 4097,
+        "tree_manifest_persisted_generation": 4097,
+        "tree_manifest_snapshots": 128,
+        "tree_manifest_serialized_bytes": 10660842,
+        "tree_manifest_write_seconds": 0.140154,
+        "tree_manifest_state_lock_wait_seconds": 0.0153772
+      }
+    }
+  ],
+  "raw_evidence": "/tmp/cpnetflux-coalesce-paired-01/result.json",
+  "note": "Final resume-only global scheduler planning fix does not change this fresh-transfer scheduler=off path.",
+  "correctness": {
+    "crash_resume": [
+      {
+        "direction": "upload",
+        "kill_after_files": 2,
+        "observed_committed_files": 2,
+        "persisted_completed_files": 0,
+        "result": "pass",
+        "generation": 513,
+        "persisted_generation": 513
+      },
+      {
+        "direction": "upload",
+        "kill_after_files": 40,
+        "observed_committed_files": 40,
+        "persisted_completed_files": 37,
+        "result": "pass",
+        "generation": 513,
+        "persisted_generation": 513
+      },
+      {
+        "direction": "download",
+        "kill_after_files": 2,
+        "observed_committed_files": 2,
+        "persisted_completed_files": 0,
+        "result": "pass",
+        "generation": 513,
+        "persisted_generation": 513
+      },
+      {
+        "direction": "download",
+        "kill_after_files": 40,
+        "observed_committed_files": 40,
+        "persisted_completed_files": 37,
+        "result": "pass",
+        "generation": 513,
+        "persisted_generation": 513
+      }
+    ],
+    "save_failure": {
+      "result": "fail",
+      "tree_manifest_generation": 12,
+      "tree_manifest_persisted_generation": 0,
+      "error": {
+        "error_code": "io_error",
+        "message": "rename tree manifest failed: Is a directory"
+      }
+    },
+    "completed_upload_resume": {
+      "completed_upload_resume": {
+        "valid_skip_bytes": 16777216,
+        "valid_transferred_bytes": 0,
+        "corrupt_result": "fail",
+        "corrupt_error": {
+          "error_code": "protocol_error",
+          "message": "persistent range resume rejected"
+        }
+      },
+      "global_completed_upload_resume": {
+        "valid_skip_bytes": 16777216,
+        "valid_transferred_bytes": 0,
+        "corrupt_result": "fail",
+        "corrupt_error": {
+          "error_code": "protocol_error",
+          "message": "persistent range resume rejected"
+        }
+      }
+    },
+    "ctest": "426 total, 0 failed, 1 io_uring unavailable skip; 151.43 seconds",
+    "log": "/tmp/cpnetflux-coalesce-ctest-final.log"
+  },
+  "runtime_commit": "0b2a3a77815b4e97e15fb2970f03429e0374fbf9",
+  "peer_sync": {
+    "source_commit": "0b2a3a77815b4e97e15fb2970f03429e0374fbf9",
+    "source_archive_sha256": "014fe28f72983dd8e8d7cfc48cfb3e579a1744f2c78e347f3584b0d8edc97821",
+    "shanghai_source": "/root/projects/CPNetFlux",
+    "build_on_both": "/tmp/cpnetflux-build-fd-release-01",
+    "build_result": "Release build completed on both; Shanghai targeted CTest 9/9 passed",
+    "cross_host_payload_test": false,
+    "binary_sha256_equal": {
+      "cpnetflux-tree-upload-client": "44c2d05438ab7022380ee00fd15677cbbb87ebe499e2a8d966fb84bddfa6dffc",
+      "cpnetflux-tree-download-client": "84af0f2235b0a7c966f2906844817b5f9705ce13a25ae246d6ee2bf1b4f96179",
+      "cpnetflux-gridftp-server": "f2e4c4badc5138524d38abe3c17b31d64400a79cdc4a0f5d9388aeac060efcc9"
+    }
+  }
+}

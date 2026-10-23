@@ -1,7 +1,7 @@
 # V3-RAW-PERFORMANCE-NEXT-PLAN-01
 
 日期：2026-10-22
-状态：前 2/8 项实现与回归验收完成；其余 6 项待串行执行。
+状态：前 3/8 项实现与本机回归验收完成；其余 5 项待串行执行；最终双机性能结论仍待第 8 项。
 权威工作区：深圳 /root/projects/CPNetFlux
 分支：codex/V3-DESKTOP-NETWORK-BINDING-01
 输入代码：运行时基线 55f7a21bb970cc0528d21a52901627aa96660b44；初版计划 HEAD f7d2959；本轮细化基于文档提交 3a2ff9ccbfa2581a22f15356e7eaf94efb1f631a。
@@ -54,9 +54,9 @@ FileTransaction::commit() 在输出发布、committed manifest 成功和临时�
 
 ### 3. V3-TREE-MANIFEST-COALESCE-01：避免每个文件都重写整棵树
 
-将状态变更与全目录序列化/原子替换解耦。采用单后台写者和 generation 快照，状态锁不跨序列化/磁盘 I/O；先按 32 个状态事件或 100 ms 做候选，终态强制写到最新 generation。错误退出要报告最后已写 generation，不能把内存状态说成已经落盘。
+实现与本机验收完成，详情见 docs/tasks/2026-10-23-v3-tree-manifest-coalesce-01.md。唯一后台写者按 32 个事件或最早事件等待 100 ms 取 generation 快照，序列化/I/O 在状态锁外；终态等待最新快照，保存失败返回错误并记录内存/已落盘 generation。100 ms 为触发等待窗口，不承诺慢盘持久化完成时限。
 
-验收：dense 场景的事件数、快照数、序列化字节、锁等待可核查；在不同合并窗口 SIGKILL 后重启，正确依靠 per-file checkpoint/resume 重建文件状态，不因陈旧 Completed 跳过。tree manifest 只原子 rename、没有 fsync 保证，测试只宣称进程退出/重启语义，不宣称断电语义。
+深圳本机 2048 × 64 KiB、5 组旧/新交错配对：tree manifest rename 从 4098 降为约 128–129；上传进程 wall 中位 5.4561→1.2447 s，下载 3.6279→1.1938 s，SHA-256 全部一致。此处两组均 TLS off，不代表 R730→R750/TLS/GridFTP 最终验收。上传/下载四个 SIGKILL 窗口与恢复、普通/全局调度的 Completed 核验、真实保存失败传播均通过；完整 426 项 CTest 无失败（1 项 io_uring 条件 skip）。文件格式和 per-file checkpoint 不变，不声称断电安全。
 
 ### 4. V3-RANGE-OBSERVABILITY-01：先把大文件阶段计时做对
 
@@ -97,7 +97,7 @@ FileTransaction::commit() 在输出发布、committed manifest 成功和临时�
 - 任何正确性/恢复失败都是 no-go；性能目标没达到时，本阶段不能标成收尾，需按新增分解指标另制定下一项瓶颈任务。
 - 正式样本开始前确认两端运行同一源码提交、分别构建，并核对构建产物 SHA；性能结果同时保留输入目录 hash 和运行配置。
 
-当前还剩 6 个执行门：tree manifest 合并、range 观测、per-file checkpoint 合并、range 并行写、profile 驱动的热点优化、最终双机验收。第 1 项 FD 生命周期和第 2 项 summary CRC 实现均已完成；第 4 项可在测试证明无收益时以有证据的 no-go 结论完成；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
+当前还剩 5 个执行门：range 观测、per-file checkpoint 合并、range 并行写、profile 驱动的热点优化、最终双机验收。第 1–3 项 FD 生命周期、summary CRC、tree manifest 合并均已实现并验收；第 4 项可在测试证明无收益时以有证据的 no-go 结论完成；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
 
 ## 执行和交付约束
 
@@ -105,4 +105,4 @@ FileTransaction::commit() 在输出发布、committed manifest 成功和临时�
 - 深圳 /root/projects/CPNetFlux 是唯一 Git/构建工作区，沿用当前分支并保留已有未跟踪 worker-state 文档。每阶段只提交本阶段明确文件，推送到已核实的 origin 并回读远端 SHA。
 - 任何跨服务器传输测试之前，先把同一提交同步到深圳和上海、两端构建，再比对源码归档和关键二进制 SHA-256；构建未完成或 SHA 不同不开始传输。
 - GridFTP/CPNetFlux 对照复用相同输入、接收策略和阶段定义；不把 iperf 短探测、热缓存结果或线程累计秒数解释成持续物理链路上限。
-- 当前开发阶段还剩 6 个执行门：tree manifest 合并、range/pipeline 观测、per-file checkpoint 合并、大文件数据面解除串行化、profile 驱动的热点优化、最终重跑验收。FD 释放与 summary CRC 实现已完成。第 4 项可在测试证明无收益时以有证据的 no-go 结论完成；第 6 项必须基于第 4 项证据实施，不强行加复杂度。
+- 当前开发阶段还剩 5 个执行门：range/pipeline 观测、per-file checkpoint 合并、大文件数据面解除串行化、profile 驱动的热点优化、最终重跑验收。FD 释放、summary CRC、tree manifest 合并均已实现。第 4 项可在测试证明无收益时以有证据的 no-go 结论完成；第 6 项必须基于第 4 项证据实施，不强行加复杂度。

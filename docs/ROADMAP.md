@@ -1,7 +1,7 @@
 # CPNetFlux 路线图
 ## 2026-10-22 无压缩阶段对比后的后端性能路线
 
-依据 docs/tasks/2026-10-22-v3-gridftp-raw-stage-01-result.md，后端性能计划细化在 docs/tasks/2026-10-22-v3-raw-performance-next-plan-01.md。八个串行门依次覆盖 FD 生命周期、summary 重扫、tree manifest 合并、range/pipeline 观测、每 4 MiB per-file checkpoint 合并、range 并行 offset 写、profile 驱动的 CRC/TLS/复制/调度优化，以及最终双机对照。第 1 项 FD 生命周期已完成：已完成事务发布后关闭写句柄，1024 FD 限制下真实传输 2048 个 64 KiB 文件并通过完整性审计；全套 CTest 417/417 通过（1 项 io_uring 环境条件跳过），记录见 docs/tasks/2026-10-23-v3-fd-release-01.md。剩余 7 项按计划串行推进。第 2 项 summary CRC 实现已完成：汇总树哈希使用配置的 CRC backend，并记录实际 backend/耗时；软件、硬件、Auto 哈希一致，全套 CTest 418/418 通过（1 项 io_uring 条件测试跳过）。4 GiB/mixed 性能收益待最终配对矩阵测量，记录见 docs/tasks/2026-10-23-v3-summary-crc-auto-01.md。当前剩余 6 项按计划串行推进。桌面后端 peer mapping 已按 docs/tasks/2026-10-22-v3-desktop-peer-mapping-01-result.md 验收；桌面 UI 可独立按 API 3 合同继续。
+依据 docs/tasks/2026-10-22-v3-gridftp-raw-stage-01-result.md，后端性能计划细化在 docs/tasks/2026-10-22-v3-raw-performance-next-plan-01.md。八个串行门依次覆盖 FD 生命周期、summary 重扫、tree manifest 合并、range/pipeline 观测、每 4 MiB per-file checkpoint 合并、range 并行 offset 写、profile 驱动的 CRC/TLS/复制/调度优化，以及最终双机对照。前 3 项已实现并通过本机验收：FD 生命周期（1024 FD 下 2048 小文件）、summary CRC Auto/独立耗时、tree manifest 单写者合并。第 3 项本机 5 组配对中，rename 4098→约 128–129，上传进程 wall 中位 5.4561→1.2447 s、下载 3.6279→1.1938 s；两组均 TLS off，不替代最终 R730→R750/TLS/GridFTP 对照。四个 SIGKILL 恢复窗口、Completed 重核验和保存失败传播通过；全套 426 项 CTest 无失败（1 项 io_uring 环境条件 skip）。详情见 docs/tasks/2026-10-23-v3-tree-manifest-coalesce-01.md。当前剩余 5 个执行门，从 range/pipeline 观测继续。桌面后端 peer mapping 已按 docs/tasks/2026-10-22-v3-desktop-peer-mapping-01-result.md 验收；桌面 UI 可独立按 API 3 合同继续。
 
 目标是让本轮无压缩热缓存工作负载达到明确的对照门槛，不代表已达成，也不代表冷盘或跨地域网络 readiness。恢复语义、数据正确性、1024 FD 下 2048 小文件稳定性和可重复性能证据都是阶段验收条件。物理网卡配置继续暂缓。
 
