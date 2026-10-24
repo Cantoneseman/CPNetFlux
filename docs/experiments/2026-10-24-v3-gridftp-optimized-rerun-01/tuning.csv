@@ -1,0 +1,15 @@
+system,dataset,channels,wall_s,hash_match
+gridftp,dense,10,3.8504426439999406,True
+gridftp,dense,16,5.338247547000265,True
+gridftp,dense,4,1.966425858999628,True
+gridftp,dense,8,3.1447687730001235,True
+gridftp,large-random,10,6.90743912500011,True
+gridftp,large-random,16,7.092295333000038,True
+gridftp,large-random,4,6.569017978999909,True
+gridftp,large-random,8,6.604384074999871,True
+cpnetflux-v3,dense,10,1.4683258569998543,True
+cpnetflux-v3,dense,4,1.5184458919998178,True
+cpnetflux-v3,dense,8,1.6689878980000685,True
+cpnetflux-v3,large-random,10,12.949308140000085,True
+cpnetflux-v3,large-random,4,10.497845443999722,True
+cpnetflux-v3,large-random,8,13.146140319000096,True

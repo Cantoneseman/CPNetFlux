@@ -1,0 +1,20 @@
+Internal ctest changing into directory: /tmp/cpnetflux-runs/V3-DESKTOP-NETWORK-BINDING-01-build
+Test project /tmp/cpnetflux-runs/V3-DESKTOP-NETWORK-BINDING-01-build
+    Start 410: cpnetflux_tree_upload_smoke
+1/7 Test #410: cpnetflux_tree_upload_smoke ..............   Passed    0.19 sec
+    Start 416: cpnetflux_tree_resume_smoke
+2/7 Test #416: cpnetflux_tree_resume_smoke ..............   Passed    0.43 sec
+    Start 418: cpnetflux_tree_data_reuse_smoke
+3/7 Test #418: cpnetflux_tree_data_reuse_smoke ..........   Passed    3.79 sec
+    Start 419: cpnetflux_tree_pending_window_smoke
+4/7 Test #419: cpnetflux_tree_pending_window_smoke ......   Passed    3.70 sec
+    Start 421: cpnetflux_tree_manifest_coalesce_smoke
+5/7 Test #421: cpnetflux_tree_manifest_coalesce_smoke ...   Passed    5.00 sec
+    Start 423: cpnetflux_range_checkpoint_batch_smoke
+6/7 Test #423: cpnetflux_range_checkpoint_batch_smoke ...   Passed    0.93 sec
+    Start 425: cpnetflux_tree_control_reuse_smoke
+7/7 Test #425: cpnetflux_tree_control_reuse_smoke .......   Passed    0.25 sec
+
+100% tests passed, 0 tests failed out of 7
+
+Total Test time (real) =  14.29 sec

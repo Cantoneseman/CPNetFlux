@@ -1,0 +1,39 @@
+{
+  "source_commit": "aa20229e0844aa2a5ec80c5b372d5448931b856d",
+  "experiment_branch": "codex/V3-GRIDFTP-OPTIMIZED-RERUN-01",
+  "build_info": {
+    "project": "CPNetFlux",
+    "version": "0.1.0+git.aa20229e0844",
+    "source_revision": "aa20229e0844aa2a5ec80c5b372d5448931b856d",
+    "tls": 1,
+    "desktop": "OFF",
+    "architecture": "x86_64",
+    "public_release_ready": false
+  },
+  "binary_sha256": {
+    "cpnetflux-gridftp-server": "9ea1bbb9457fd64e93308837cdb3489deda1c1d960afca8865a47594cdf5692e",
+    "cpnetflux-tree-upload-client": "9fb16945de6c1a2edf76afd6f77608feeba1e90b33c26926b3e2d9d85ca05c60",
+    "cpnetflux-tree-download-client": "91028a90f647cf8c9f0eacddae80e2529b6f5c82700553ea5114b363dd24bafc"
+  },
+  "runtime_diff_against_aa20229": false,
+  "unit_tests": {
+    "passed": 388,
+    "suites": 60
+  },
+  "ctest_targeted": {
+    "passed": 7,
+    "failed": 0
+  },
+  "analyzer_tests": {
+    "passed": 6,
+    "failed": 0
+  },
+  "full_ctest": "not rerun in this experiment-only task",
+  "raw_archives": {
+    "/tmp/cpnetflux-runs/cpnetflux-v3-optimized-aa20229-evidence-20261024.tgz": "514c6c927999f3c698225546c1c2e1e5f45cfd732fac62fe11aa987e21ec9c5a",
+    "/tmp/cpnetflux-runs/cpnetflux-aa20229-environment-tuning.tgz": "98ea896f07af448254af2f79f39ea7d0d799b4e45bf5ddf0cbc451ccf63324b1",
+    "/tmp/cpnetflux-runs/cpnetflux-aa20229-cleanup-evidence.tgz": "f4816ef52c98e2a9042589110d25c2b3eed4627552de8f56ec6903dc410b888e"
+  },
+  "binary_sha256_parity_r730_r750_verified": true,
+  "peer_uploaded_client_binary_location": "run root; receiver server binary is in bin/"
+}
