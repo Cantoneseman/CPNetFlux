@@ -46,7 +46,8 @@ No frame format/version/size change, CRC strength or prefix change, TLS staging 
 
 ## Status
 
-Implementation and focused tests complete; full-suite acceptance, same-commit peer build, and backup are being recorded in the result document.
+Implementation, full software acceptance (466 passes and one capability skip), implementation GitHub backup, and same-commit Shanghai build/hash comparison are complete. See `2026-10-29-v3-frame-sendmsg-01-result.md` for revision, commands, evidence, limitations, and next work. Physical-pair performance acceptance remains deferred.
+
 ## Regression discovered during acceptance
 
 The first full CTest run had 465 passes, one intentional io_uring skip, and one existing interrupted static-upload checkpoint assertion failure. Static receive transactions remain owned by integrity-check closures until the local context is destroyed. runPersistentDirectory sent the terminal 550 before that destruction, so a client could observe a checkpoint before its failed state was saved. A separate 12-case immediate/20-ms diagnostic did not reproduce the race; do not claim deterministic reproduction or attribute its origin to sendmsg. The fix releases the exclusively owned static context before the terminal reply. Dynamic batch contexts retain their shared lifetime for sibling channels and recovery. The existing strict immediate assertion is preserved, with observed checkpoint text added to failures. The focused 11-case socket/interrupted-transfer regression passed after the fix. This is an acceptance fix, with no protocol change.
