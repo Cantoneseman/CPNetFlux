@@ -879,7 +879,21 @@ core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& 
     p.options.preallocateMode=options.preallocateMode;p.options.resume=resume;
     return p;
 }
-struct DirectoryLifetime { std::atomic<bool> released{false}, terminalError{false}; };
+struct DirectoryLifetime {
+    std::atomic<bool> released{false};
+    void recordTerminal(const common::Status& status) {
+        if (status.isOk() || status.code() == common::StatusCode::TransportError) return;
+        std::lock_guard lock(terminalMutex);
+        if (terminalStatus.isOk()) terminalStatus = status;
+    }
+    common::Status terminal() {
+        std::lock_guard lock(terminalMutex);
+        return terminalStatus;
+    }
+ private:
+    std::mutex terminalMutex;
+    common::Status terminalStatus;
+};
 struct DynamicDirectory {
     std::shared_ptr<DirectoryLifetime> lifetime = std::make_shared<DirectoryLifetime>();
     ~DynamicDirectory() {
@@ -901,20 +915,21 @@ struct DirectoryRegistration {
 };
 std::mutex directoryRegistryMutex;
 std::unordered_map<std::string, DirectoryRegistration> directoryRegistry;
-struct DirectoryDrainResult { bool drained = true; bool terminal = false; };
+struct DirectoryDrainResult { bool drained = true; common::Status terminalStatus; };
 DirectoryDrainResult drainDynamicDirectory(const std::string& key) {
     std::lock_guard lock(directoryRegistryMutex);
     const auto found = directoryRegistry.find(key);
     if (found == directoryRegistry.end()) return {};
     auto& registration = found->second;
-    const bool terminal = registration.lifetime->terminalError.load(std::memory_order_acquire);
     if (registration.lifetime->released.load(std::memory_order_acquire))
-        return {true, terminal};
+        return {true, registration.lifetime->terminal()};
     if (!registration.directory) {
         registration.lifetime->released.store(true, std::memory_order_release);
-        return {true, terminal};
+        return {true, registration.lifetime->terminal()};
     }
-    if (!registration.directory->batch->allChannelsDetached()) return {false, false};
+    if (!registration.directory->batch->allChannelsDetached()) return {false, {}};
+    // Read after detachment: every channel records its terminal error before unbinding.
+    const auto terminal = registration.lifetime->terminal();
     registration.lifetime->released.store(true, std::memory_order_release);
     registration.directory.reset();
     return {true, terminal};
@@ -927,7 +942,7 @@ void releaseCompletedDynamicDirectory(
     if (found == directoryRegistry.end() || found->second.directory != directory) return;
     const bool complete = directory->batch->completeAndDetached();
     const bool terminalAndDetached =
-        found->second.lifetime->terminalError.load(std::memory_order_acquire) &&
+        !found->second.lifetime->terminal().isOk() &&
         directory->batch->allChannelsDetached();
     if (!complete && !terminalAndDetached) return;
     found->second.lifetime->released.store(true, std::memory_order_release);
@@ -1006,7 +1021,7 @@ struct DynamicDirectoryGuard {
             const auto batchStatus = directory->batch->status();
             if (batchStatus.code() != common::StatusCode::Ok &&
                 batchStatus.code() != common::StatusCode::TransportError)
-                directory->lifetime->terminalError.store(true, std::memory_order_release);
+                directory->lifetime->recordTerminal(batchStatus);
             auto error = common::Status::runtimeError("dynamic directory channel failed/cancelled");
             (void)directory->batch->failChannel(channel, error);
         }
@@ -1117,7 +1132,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
                 << batchId << " channel=" << channelIndex << " status=" << status.message() << "\n";
             const auto integrity = core::io::verifyCommittedPersistentOutputs(guard.directory->transactions);
             if (!integrity.isOk()) {
-                guard.directory->lifetime->terminalError.store(true,std::memory_order_release);
+                guard.directory->lifetime->recordTerminal(integrity);
                 guard.handled = true;
                 const auto reply = sendLine(control,formatReply(550,integrity.message()));
                 guard.directory->batch->cancel(integrity);
@@ -1153,7 +1168,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
             original.message().find("output already exists") != std::string::npos)
             status = original;
         if (!original.isOk() && original.code() != common::StatusCode::TransportError)
-            guard.directory->lifetime->terminalError.store(true, std::memory_order_release);
+            guard.directory->lifetime->recordTerminal(original);
         if (!status.isOk()) {
             if (status.code() == common::StatusCode::TransportError) {
                 (void)guard.directory->batch->failChannel(channelIndex, status);
@@ -1249,9 +1264,9 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             const auto key = options.host + ":" + std::to_string(options.port) + ":" + root.value().fullPath + "/" + id;
             const auto drain = drainDynamicDirectory(key);
             const bool drained = drain.drained;
-            const bool terminal = drained && drain.terminal;
+            const bool terminal = drained && !drain.terminalStatus.isOk();
             (void)sendLine(&control, formatReply(terminal ? 550 : (drained ? 200 : 450),
-                terminal ? "CPNetFlux prior batch has a non-retryable error" :
+                terminal ? drain.terminalStatus.message() :
                 (drained ? "CPNetFlux batch drained" : "CPNetFlux batch still active")));
             continue;
         }

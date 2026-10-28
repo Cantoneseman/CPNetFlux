@@ -125,6 +125,19 @@ common::Status PersistentDataSession::match(const protocol::FrameHeader& header)
 common::Status PersistentDataSession::data(const protocol::FrameHeader& header,
                                             std::size_t logicalBytes,
                                             const std::uint8_t* payload) {
+    return acceptData(header, logicalBytes, payload, nullptr);
+}
+
+common::Status PersistentDataSession::dataWithChecksum(const protocol::FrameHeader& header,
+                                                       std::size_t logicalBytes,
+                                                       checksum::ChecksumValue verifiedChecksum) {
+    return acceptData(header, logicalBytes, nullptr, &verifiedChecksum);
+}
+
+common::Status PersistentDataSession::acceptData(const protocol::FrameHeader& header,
+                                                std::size_t logicalBytes,
+                                                const std::uint8_t* payload,
+                                                const checksum::ChecksumValue* verifiedChecksum) {
     const common::Status identity = match(header);
     if (!identity.isOk()) {
         return identity;
@@ -139,10 +152,17 @@ common::Status PersistentDataSession::data(const protocol::FrameHeader& header,
         receivedBytes_ > rangeEnd || logicalBytes > rangeEnd - receivedBytes_) {
         return common::Status::invalidArgument("persistent DATA exceeds file boundary");
     }
+    if (verifiedChecksum != nullptr) {
+        if (checksumAlgorithm_ == checksum::ChecksumAlgorithm::None ||
+            !checksumComputer_.combine(*verifiedChecksum, logicalBytes)) {
+            return common::Status::invalidArgument("persistent DATA checksum algorithm mismatch");
+        }
+    } else {
+        if (checksumAlgorithm_ != checksum::ChecksumAlgorithm::None && payload == nullptr)
+            return common::Status::invalidArgument("persistent checksum payload missing");
+        checksumComputer_.update(payload, logicalBytes);
+    }
     receivedBytes_ += logicalBytes;
-    if (checksumAlgorithm_ != checksum::ChecksumAlgorithm::None && payload == nullptr)
-        return common::Status::invalidArgument("persistent checksum payload missing");
-    checksumComputer_.update(payload, logicalBytes);
     if (sparse_ && receivedBytes_ == missing_[missingIndex_].end) {
         ++missingIndex_;
         receivedBytes_ = missingIndex_ == missing_.size()

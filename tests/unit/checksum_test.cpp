@@ -186,6 +186,74 @@ TEST(ChecksumTest, Crc32cCombineMatchesWholeInputAtBoundaryLengths) {
     }
 }
 
+
+TEST(ChecksumTest, AccumulatorCombinesFinalizedFrameChecksums) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumBackend;
+    using cpnetflux::checksum::ChecksumComputer;
+
+    std::vector<std::uint8_t> input(131173);
+    for (std::size_t index = 0; index < input.size(); ++index)
+        input[index] = static_cast<std::uint8_t>((index * 17U + 9U) % 251U);
+    ChecksumComputer expected(ChecksumAlgorithm::Crc32c, ChecksumBackend::Software);
+    expected.update(input.data(), input.size());
+    ChecksumComputer combined(ChecksumAlgorithm::Crc32c, ChecksumBackend::Software);
+
+    const std::array<std::size_t, 6> lengths{1, 63, 65536, 17, 65536, 20};
+    std::size_t offset = 0;
+    for (const auto length : lengths) {
+        ChecksumComputer frame(ChecksumAlgorithm::Crc32c, ChecksumBackend::Software);
+        frame.update(input.data() + offset, length);
+        ASSERT_TRUE(combined.combine(frame.finalize(), length));
+        offset += length;
+    }
+    ASSERT_EQ(offset, input.size());
+    EXPECT_EQ(combined.finalize().value, expected.finalize().value);
+}
+
+TEST(ChecksumTest, AccumulatorRejectsMismatchedChecksumWithoutMutation) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    using cpnetflux::checksum::ChecksumValue;
+
+    const std::uint8_t bytes[]{'o', 'k'};
+    ChecksumComputer computer(ChecksumAlgorithm::Crc32c);
+    computer.update(bytes, sizeof(bytes));
+    const auto before = computer.finalize();
+
+    EXPECT_FALSE(computer.combine(ChecksumValue{ChecksumAlgorithm::None, 0}, 2));
+    EXPECT_EQ(computer.finalize().value, before.value);
+    ChecksumComputer none(ChecksumAlgorithm::None);
+    EXPECT_TRUE(none.combine(ChecksumValue{ChecksumAlgorithm::None, 0}, 2));
+    EXPECT_FALSE(none.combine(ChecksumValue{ChecksumAlgorithm::None, 1}, 2));
+}
+TEST(ChecksumTest, AccumulatorCombinesBetweenRawUpdatesAndResets) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumBackend;
+    using cpnetflux::checksum::ChecksumComputer;
+
+    std::vector<std::uint8_t> input(65539, 0x5a);
+    ChecksumComputer expected(ChecksumAlgorithm::Crc32c, ChecksumBackend::Software);
+    expected.update(input.data(), input.size());
+    for (const auto backend : {ChecksumBackend::Software, ChecksumBackend::Auto}) {
+        ChecksumComputer combined(ChecksumAlgorithm::Crc32c, backend);
+        combined.update(input.data(), 3);
+        ChecksumComputer frame(ChecksumAlgorithm::Crc32c, backend);
+        frame.update(input.data() + 3, 65532);
+        ASSERT_TRUE(combined.combine(frame.finalize(), 65532));
+        const auto beforeEmpty = combined.finalize().value;
+        ChecksumComputer empty(ChecksumAlgorithm::Crc32c, backend);
+        ASSERT_TRUE(combined.combine(empty.finalize(), 0));
+        EXPECT_EQ(combined.finalize().value, beforeEmpty);
+        combined.update(input.data() + 65535, 4);
+        EXPECT_EQ(combined.finalize().value, expected.finalize().value);
+        combined.reset();
+        EXPECT_EQ(combined.finalize().value, 0U);
+        ASSERT_TRUE(combined.combine(expected.finalize(), input.size()));
+        EXPECT_EQ(combined.finalize().value, expected.finalize().value);
+    }
+}
+
 TEST(ChecksumTest, Crc32cCombineSupportsMultipleUnevenSegments) {
     using cpnetflux::checksum::ChecksumBackend;
     using cpnetflux::checksum::ChecksumComputer;

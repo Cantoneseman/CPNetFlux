@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real client/server TCP faults: content, recovery budget, TLS, range and terminal loss."""
 import argparse, contextlib, json, os, shutil, socket, subprocess, tempfile, time
+import ftplib
 from pathlib import Path
 from cpnetflux_fault_proxy import FaultProxy
 from tree_smoke_common import free_port, tree_hash, wait_for_control, stop_server
@@ -126,6 +127,28 @@ def main():
                         assert time.monotonic()-started < 3, data
                         assert "committed output " in result.stderr and "mismatch" in result.stderr, data
                         assert data["data_connect_count"] <= 2, data
+                        events = [json.loads(line) for line in (case/"proxy.jsonl").read_text().splitlines()]
+                        batch_id = next(event["batch_id"] for event in events
+                                        if event["event"] == "directory_channel_mapped")
+                        # Detached batches must retain the authoritative integrity error.
+                        with ftplib.FTP() as control:
+                            control.connect("127.0.0.1", port, timeout=2)
+                            control.login("cpnetflux", "cpnetflux")
+                            drain_deadline = time.monotonic() + 2
+                            while True:
+                                try:
+                                    reply = control.sendcmd("XCPNETFLUX DRAIN " + batch_id)
+                                except ftplib.error_temp as error:
+                                    assert str(error).startswith("450"), error
+                                    assert time.monotonic() < drain_deadline, error
+                                    time.sleep(0.01)
+                                    continue
+                                except ftplib.error_perm as error:
+                                    reply = str(error)
+                                    break
+                                raise AssertionError("corrupt batch lost its terminal error: " + reply)
+                        assert reply.startswith("550"), reply
+                        assert "committed output " in reply and "mismatch" in reply, reply
                     else: assert data["reconnect_attempts"]==0, data
                 else:
                     actual=tree_hash(target); assert actual==expected,(actual,expected)

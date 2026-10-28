@@ -35,6 +35,20 @@ void ChecksumComputer::update(const std::uint8_t* data, std::size_t size) noexce
     }
 }
 
+bool ChecksumComputer::combine(ChecksumValue right, std::uint64_t rightLength) noexcept {
+    if (right.algorithm != algorithm_) return false;
+    switch (algorithm_) {
+        case ChecksumAlgorithm::None:
+            return right.value == 0;
+        case ChecksumAlgorithm::Crc32c:
+            // Combine takes finalized CRCs; restore the accumulator's internal state.
+            state_ = crc32cCombine(crc32cFinalize(state_), right.value, rightLength) ^
+                crc32cInitialState();
+            return true;
+    }
+    return false;
+}
+
 ChecksumValue ChecksumComputer::finalize() const noexcept {
     switch (algorithm_) {
         case ChecksumAlgorithm::None:

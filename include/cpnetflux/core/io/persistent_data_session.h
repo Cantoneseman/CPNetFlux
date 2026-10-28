@@ -49,6 +49,10 @@ class PersistentDataSession {
     [[nodiscard]] common::Status data(const protocol::FrameHeader& header,
                                       std::size_t logicalBytes,
                                       const std::uint8_t* payload = nullptr);
+    // The caller must validate the frame CRC against its logical payload first.
+    [[nodiscard]] common::Status dataWithChecksum(const protocol::FrameHeader& header,
+                                                  std::size_t logicalBytes,
+                                                  checksum::ChecksumValue verifiedChecksum);
     [[nodiscard]] common::Result<PersistentFileIdentity> end(const protocol::FrameHeader& header,
                                                              const std::uint8_t* digest = nullptr,
                                                              std::size_t digestSize = 0);
@@ -84,6 +88,10 @@ class PersistentDataSession {
     [[nodiscard]] std::uint64_t receivedBytes() const noexcept { return receivedBytes_; }
 
    private:
+    [[nodiscard]] common::Status acceptData(const protocol::FrameHeader& header,
+                                            std::size_t logicalBytes,
+                                            const std::uint8_t* payload,
+                                            const checksum::ChecksumValue* verifiedChecksum);
     [[nodiscard]] common::Status match(const protocol::FrameHeader& header) const;
     [[nodiscard]] static bool safeRelativePath(const std::string& path) noexcept;
     [[nodiscard]] static common::Status writeFrame(FramedDataSocket* socket,

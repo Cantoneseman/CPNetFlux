@@ -352,7 +352,8 @@ class FileTransaction {
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
         return resume ? common::Status::ok() : std::visit([](auto& s) { return s.save(); }, session_);
     }
-    Status write(std::uint64_t offset, const std::vector<std::uint8_t>& bytes) {
+    Status write(std::uint64_t offset, const std::vector<std::uint8_t>& bytes,
+                 checksum::ChecksumValue verifiedChecksum) {
         if (skipped_) return Status::ok();
         const auto writing = Clock::now();
         auto status = writer_->write(offset, bytes.data(), bytes.size());
@@ -366,7 +367,13 @@ class FileTransaction {
             if (chunkOffset != recorded_) return Status::invalidArgument("persistent chunk order mismatch");
             const auto length = std::min<std::uint64_t>(identity_.chunkSize, identity_.totalSize - recorded_);
             const auto part = std::min<std::size_t>(length - chunkBytes_, bytes.size() - consumed);
-            checksumComputer_.update(bytes.data() + consumed, part);
+            if (part == bytes.size()) {
+                if (!checksumComputer_.combine(verifiedChecksum, part))
+                    return Status::invalidArgument("persistent chunk checksum algorithm mismatch");
+            } else {
+                // A frame spanning chunks needs a separate CRC for each chunk piece.
+                checksumComputer_.update(bytes.data() + consumed, part);
+            }
             chunkBytes_ += part;
             consumed += part;
             if (chunkBytes_ != length) continue;
@@ -731,7 +738,8 @@ class RangeFileCoordinator {
         return entry;
     }
     static Status write(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
-                        std::uint64_t offset, const std::vector<std::uint8_t>& bytes, RangeObservation* observation) {
+                        std::uint64_t offset, const std::vector<std::uint8_t>& bytes,
+                        checksum::ChecksumValue verifiedChecksum, RangeObservation* observation) {
         ObservedEntryLock lock(entry->mutex, observation);
         if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
         const auto slot = entry->slots.find(id.rangeId);
@@ -747,7 +755,8 @@ class RangeFileCoordinator {
         auto status=entry->transaction->writeRange(offset,bytes,observation);
         if (!status.isOk()) return status;
         checkpoint::OptionalManifestTimer checksumming(observation ? &observation->chunkChecksumSeconds : nullptr);
-        lease.checksum.update(bytes.data(),bytes.size());
+        if (!lease.checksum.combine(verifiedChecksum, bytes.size()))
+            return Status::invalidArgument("range chunk checksum algorithm mismatch");
         checksumming.stop();
         lease.position+=bytes.size();
         if (lease.position==lease.missing[lease.next].end) {
@@ -1219,11 +1228,16 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                         return;
                     }
                     const auto checksumStarted = Clock::now();
-                    checksumComputer.update(producerBuffer.data(), length);
                     checksum::ChecksumComputer frameChecksum(id.checksumAlgorithm,
                         options.checksumBackend);
                     frameChecksum.update(producerBuffer.data(), length);
-                    const auto frameDigest = frameChecksum.finalize().value;
+                    const auto verifiedChecksum = frameChecksum.finalize();
+                    if (!checksumComputer.combine(verifiedChecksum, length)) {
+                        producerStatus = Status::invalidArgument("persistent DATA checksum algorithm mismatch");
+                        pipeline.cancel(producerStatus);
+                        return;
+                    }
+                    const auto frameDigest = verifiedChecksum.value;
                     producerChecksumSeconds += secondsSince(checksumStarted);
                     const auto chunkIndex = offset / id.chunkSize;
                     if (options.hasCorruptChunk && chunkIndex == options.corruptChunk)
@@ -1703,14 +1717,18 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             }
             auto logicalHeader=data.value().header;
             logicalHeader.flags=0;logicalHeader.payloadSize=logical.size();
-            status = state.data(logicalHeader, logical.size(), logical.data());
+            status = expectedDigest
+                ? state.dataWithChecksum(logicalHeader, logical.size(),
+                    checksum::ChecksumValue{id.checksumAlgorithm, *expectedDigest})
+                : state.data(logicalHeader, logical.size(), logical.data());
             timing.checksumSeconds += secondsSince(checksumStarted);
             if (!status.isOk()) return finishTransport(status);
             if (fileStatus.isOk()) {
                 Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
+                const checksum::ChecksumValue verifiedChecksum{id.checksumAlgorithm, expectedDigest.value_or(0)};
                 fileStatus = rangeEntry ? RangeFileCoordinator::write(rangeEntry, id, data.value().header.offset,
-                                                                       logical, observation)
-                                         : transaction->write(data.value().header.offset, logical);
+                                                                       logical, verifiedChecksum, observation)
+                                         : transaction->write(data.value().header.offset, logical, verifiedChecksum);
                 stats->payloadBytes += logical.size();
                 if (fileStatus.isOk() && expectedDigest &&
                     id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c) {

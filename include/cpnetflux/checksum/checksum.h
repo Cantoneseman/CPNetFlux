@@ -31,6 +31,8 @@ class ChecksumComputer {
 
     void reset() noexcept;
     void update(const std::uint8_t* data, std::size_t size) noexcept;
+    // Append the checksum of the next rightLength bytes without scanning them again.
+    [[nodiscard]] bool combine(ChecksumValue right, std::uint64_t rightLength) noexcept;
     [[nodiscard]] ChecksumValue finalize() const noexcept;
     [[nodiscard]] ChecksumAlgorithm algorithm() const noexcept;
     [[nodiscard]] ChecksumBackend backend() const noexcept;

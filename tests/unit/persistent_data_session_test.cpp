@@ -1,6 +1,7 @@
 #include "cpnetflux/core/io/persistent_data_session.h"
 
 #include <gtest/gtest.h>
+#include <array>
 #include <future>
 #include <string>
 #include <chrono>
@@ -133,6 +134,125 @@ TEST(PersistentSessionTest, CarriesChecksumAlgorithmAndFileEndDigest) {
     ASSERT_TRUE(completed.isOk()) << completed.status().message();
     EXPECT_EQ(completed.value().checksum.algorithm, expected.algorithm);
     EXPECT_EQ(completed.value().checksum.value, expected.value);
+}
+
+TEST(PersistentSessionTest, BuildsFileEndChecksumFromVerifiedFrameChecksums) {
+    PersistentFileIdentity id{1, 1, 7, "combined.bin", "combined-transfer"};
+    id.checksumAlgorithm = cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(beginHeader(7), id).isOk());
+
+    const std::uint8_t bytes[]{'a', 'b', 'c', 'd', 'e', 'f', 'g'};
+    const std::array<std::size_t, 2> lengths{2, 5};
+    std::size_t offset = 0;
+    for (const auto length : lengths) {
+        auto header = beginHeader(7);
+        header.type = FrameType::Data;
+        header.offset = offset;
+        header.payloadSize = length;
+        cpnetflux::checksum::ChecksumComputer frame(id.checksumAlgorithm);
+        frame.update(bytes + offset, length);
+        ASSERT_TRUE(state.dataWithChecksum(header, length, frame.finalize()).isOk());
+        offset += length;
+    }
+
+    cpnetflux::checksum::ChecksumComputer expected(id.checksumAlgorithm);
+    expected.update(bytes, sizeof(bytes));
+    const auto digest = expected.finalize();
+    const std::uint8_t digestBytes[]{static_cast<std::uint8_t>(digest.value >> 24U),
+        static_cast<std::uint8_t>(digest.value >> 16U),
+        static_cast<std::uint8_t>(digest.value >> 8U), static_cast<std::uint8_t>(digest.value)};
+    auto end = beginHeader(7);
+    end.type = FrameType::FileEnd;
+    end.offset = 7;
+    end.payloadSize = sizeof(digestBytes);
+    auto completed = state.end(end, digestBytes, sizeof(digestBytes));
+    ASSERT_TRUE(completed.isOk()) << completed.status().message();
+    EXPECT_EQ(completed.value().checksum.value, digest.value);
+}
+
+TEST(PersistentSessionTest, ChecksumAlgorithmMismatchDoesNotAdvanceSession) {
+    PersistentFileIdentity id{1, 1, 3, "mismatch.bin", "mismatch-transfer"};
+    id.checksumAlgorithm = cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(beginHeader(3), id).isOk());
+
+    const std::uint8_t bytes[]{'x', 'y', 'z'};
+    auto header = beginHeader(3);
+    header.type = FrameType::Data;
+    header.payloadSize = sizeof(bytes);
+    EXPECT_FALSE(state.dataWithChecksum(header, sizeof(bytes),
+        cpnetflux::checksum::ChecksumValue{cpnetflux::checksum::ChecksumAlgorithm::None, 0}).isOk());
+    EXPECT_EQ(state.receivedBytes(), 0U);
+
+    cpnetflux::checksum::ChecksumComputer frame(id.checksumAlgorithm);
+    frame.update(bytes, sizeof(bytes));
+    ASSERT_TRUE(state.dataWithChecksum(header, sizeof(bytes), frame.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), sizeof(bytes));
+}
+
+TEST(PersistentSessionTest, MissingChecksumPayloadDoesNotAdvanceSession) {
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(beginHeader(3), "missing.bin",
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c).isOk());
+    auto header = beginHeader(3);
+    header.type = FrameType::Data;
+    header.payloadSize = 3;
+    EXPECT_FALSE(state.data(header, 3).isOk());
+    EXPECT_EQ(state.receivedBytes(), 0U);
+    const std::uint8_t bytes[]{'x', 'y', 'z'};
+    ASSERT_TRUE(state.data(header, sizeof(bytes), bytes).isOk());
+    EXPECT_EQ(state.receivedBytes(), sizeof(bytes));
+}
+
+TEST(PersistentSessionTest, CombinesOnlyMissingRangeFramesInTransferOrder) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    PersistentFileIdentity id{1, 1, 16, "sparse.bin", "sparse-crc", 4, 0,
+        ChecksumAlgorithm::Crc32c, {}, 2, 4, 8, 2};
+    auto header = beginHeader(id.totalSize);
+    header.rangeId = id.rangeId;
+    header.flags = kFileResume;
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(header, id).isOk());
+    ASSERT_TRUE(state.setMissingRanges({{4, 6}, {9, 12}}).isOk());
+    const std::uint8_t missing[]{'e', 'f', 'j', 'k', 'l'};
+    ChecksumComputer first(ChecksumAlgorithm::Crc32c);
+    first.update(missing, 2);
+    header.type = FrameType::Data;
+    header.flags = 0;
+    header.payloadSize = 2;
+    header.offset = 9;
+    EXPECT_FALSE(state.dataWithChecksum(header, 2, first.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), 4U);
+    header.offset = 4;
+    ASSERT_TRUE(state.dataWithChecksum(header, 2, first.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), 9U);
+    EXPECT_FALSE(state.dataWithChecksum(header, 2, first.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), 9U);
+    ChecksumComputer second(ChecksumAlgorithm::Crc32c);
+    second.update(missing + 2, 3);
+    header.offset = 9;
+    header.payloadSize = 3;
+    ASSERT_TRUE(state.dataWithChecksum(header, 3, second.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), 12U);
+
+    ChecksumComputer expected(ChecksumAlgorithm::Crc32c);
+    expected.update(missing, sizeof(missing));
+    const auto value = expected.finalize().value;
+    std::uint8_t digest[]{static_cast<std::uint8_t>(value >> 24U),
+        static_cast<std::uint8_t>(value >> 16U),
+        static_cast<std::uint8_t>(value >> 8U), static_cast<std::uint8_t>(value)};
+    header.type = FrameType::FileEnd;
+    header.offset = 12;
+    header.payloadSize = sizeof(digest);
+    digest[0] ^= 0xffU;
+    EXPECT_FALSE(state.end(header, digest, sizeof(digest)).isOk());
+    EXPECT_TRUE(state.active());
+    digest[0] ^= 0xffU;
+    auto completed = state.end(header, digest, sizeof(digest));
+    ASSERT_TRUE(completed.isOk()) << completed.status().message();
+    EXPECT_EQ(completed.value().checksum.value, value);
 }
 
 TEST(PersistentSessionTest, OversizedFrameRejectedBeforePayloadRead) {
@@ -609,6 +729,46 @@ TEST(PersistentTreeRangeTest, RangeResumeConsumesCurrentChunkManifestAndSendsOnl
     EXPECT_EQ(sent.payloadBytes,4U);EXPECT_EQ(sent.skippedBytes,4U);
     std::ifstream output(destination.path/"old.bin");
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),"ABCDEFGH");
+}
+
+TEST(PersistentTreeRangeTest, FramesCrossingChunkBoundariesKeepPerChunkChecksums) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    SocketPair pair;
+    TempRoot destination;
+    PersistentFileIdentity id{1, 1, 10, "cross-chunk.bin", "cross-chunk", 4, 0,
+        ChecksumAlgorithm::Crc32c};
+    const std::uint8_t bytes[]{'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'};
+    ASSERT_TRUE(PersistentDataSession::setTimeout(&pair.receiver, 2).isOk());
+    ASSERT_TRUE(PersistentDataSession::setTimeout(&pair.sender, 2).isOk());
+    PersistentTreeStats stats;
+    cpnetflux::common::Status result;
+    std::jthread receiver([&] {
+        result = receivePersistentTree(&pair.receiver, destination.path.string(), false, "", &stats);
+    });
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, bytes, 6).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 6, bytes + 6, 4).isOk());
+    ChecksumComputer whole(id.checksumAlgorithm);
+    whole.update(bytes, sizeof(bytes));
+    ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, whole.finalize()).isOk());
+    auto completed = PersistentDataSession::readResult(&pair.sender, id);
+    ASSERT_TRUE(completed.isOk()) << completed.status().message();
+    EXPECT_EQ(completed.value(), FrameStatusCode::Ok);
+    ASSERT_TRUE(PersistentDataSession::writeDirectoryEnd(&pair.sender, 1).isOk());
+    receiver.join();
+    ASSERT_TRUE(result.isOk()) << result.message();
+    auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+        cpnetflux::checkpoint::manifestPathForOutput((destination.path / id.relativePath).string()));
+    ASSERT_TRUE(manifest.isOk()) << manifest.status().message();
+    ASSERT_EQ(manifest.value().verifiedChunks.size(), 3U);
+    for (const auto& record : manifest.value().verifiedChunks) {
+        ChecksumComputer chunk(id.checksumAlgorithm);
+        chunk.update(bytes + record.offset, record.length);
+        EXPECT_EQ(record.checksum.value, chunk.finalize().value);
+    }
+    std::ifstream output(destination.path / id.relativePath, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), "abcdefghij");
 }
 
 TEST(PersistentTreeRangeTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {

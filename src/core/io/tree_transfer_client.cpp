@@ -145,6 +145,9 @@ class ControlClient {
         if (!reply.isOk()) return reply.status();
         if (reply.value().code == 200) return true;
         if (reply.value().code == 450) return false;
+        if (reply.value().code == 550)
+            return common::Status::invalidArgument(reply.value().lines.empty()
+                ? "CPNetFlux prior batch failed" : reply.value().lines.back());
         return common::Status::invalidArgument("server does not support safe batch drain");
     }
 
