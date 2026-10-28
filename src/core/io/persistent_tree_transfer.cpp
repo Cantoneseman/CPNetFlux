@@ -1339,8 +1339,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 }
                 checkpoint::OptionalManifestTimer socketWriting(timing.rangeObservationEnabled ? &timing.socketWriteSeconds : nullptr);
                 if (timing.rangeObservationEnabled) ++timing.socketWriteCalls;
-                auto written = socket->writeAll(encoded.data(), encoded.size());
-                if (written.isOk()) written = socket->writeAll(payload, size);
+                auto written = socket->writeFrame(encoded.data(), encoded.size(), payload, size);
                 socketWriting.stop();
                 if (written.isOk() && ready) written = executor->finishIo(*lease, frameBytes);
                 return written;
@@ -1847,7 +1846,7 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"frame_prepare_seconds\":" << t.framePrepareSeconds
             << ",\"socket_write_seconds\":" << t.socketWriteSeconds
             << ",\"socket_write_frame_calls\":" << t.socketWriteCalls
-            << ",\"socket_write_scope\":\"DATA_header_and_payload_writeAll_includes_TLS_when_enabled\""
+            << ",\"socket_write_scope\":\"DATA_header_and_payload_writeFrame_includes_TLS_when_enabled\""
             << ",\"pipeline_wait_scope\":\"condition_wait_through_mutex_reacquire_subintervals_not_wall\""
             << ",\"write_seconds_scope\":\"" << (t.file.rangeId ? "range_coordinator_includes_entry_wait_crc_checkpoint" : "writer_write_only") << "\""
             << ",\"payload_pipeline_depth\":" << t.payloadPipelineDepth

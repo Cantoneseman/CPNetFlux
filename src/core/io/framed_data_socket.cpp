@@ -2,9 +2,11 @@
 
 #include <netdb.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 
 #include <cerrno>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -63,6 +65,53 @@ common::Status FramedDataSocket::writeAll(const std::uint8_t* data, std::size_t 
             return systemStatus("send", errno);
         }
         return common::Status::transportError("send returned zero bytes");
+    }
+    return common::Status::ok();
+}
+
+common::Status FramedDataSocket::writeFrame(const std::uint8_t* header,
+                                           std::size_t headerLength,
+                                           const std::uint8_t* payload,
+                                           std::size_t payloadLength) {
+    const auto maxLength = static_cast<std::size_t>(std::numeric_limits<ssize_t>::max());
+    if ((headerLength != 0 && header == nullptr) ||
+        (payloadLength != 0 && payload == nullptr) ||
+        headerLength > maxLength || payloadLength > maxLength - headerLength) {
+        return common::Status::invalidArgument("invalid frame output spans");
+    }
+    if (tlsMode_) {
+        auto status = writeAll(header, headerLength);
+        if (!status.isOk()) return status;
+        return writeAll(payload, payloadLength);
+    }
+    iovec buffers[2]{};
+    std::size_t count = 0;
+    if (headerLength != 0) buffers[count++] = {const_cast<std::uint8_t*>(header), headerLength};
+    if (payloadLength != 0) buffers[count++] = {const_cast<std::uint8_t*>(payload), payloadLength};
+    std::size_t current = 0;
+    while (current < count) {
+        msghdr message{};
+        message.msg_iov = buffers + current;
+        message.msg_iovlen = count - current;
+        const auto sent = ::sendmsg(fd_.get(), &message, MSG_NOSIGNAL);
+        if (sent > 0) {
+            auto completed = static_cast<std::size_t>(sent);
+            // A short write may end inside either span or exactly between them.
+            while (completed != 0) {
+                if (completed >= buffers[current].iov_len) {
+                    completed -= buffers[current].iov_len;
+                    ++current;
+                } else {
+                    buffers[current].iov_base = static_cast<std::uint8_t*>(buffers[current].iov_base) + completed;
+                    buffers[current].iov_len -= completed;
+                    completed = 0;
+                }
+            }
+            continue;
+        }
+        if (sent < 0 && errno == EINTR) continue;
+        if (sent < 0) return systemStatus("sendmsg", errno);
+        return common::Status::transportError("sendmsg returned zero bytes");
     }
     return common::Status::ok();
 }

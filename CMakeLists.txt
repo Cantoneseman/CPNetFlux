@@ -363,6 +363,15 @@ if(CPNETFLUX_BUILD_TESTS)
     )
 
     gtest_discover_tests(cpnetflux_unit_tests)
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(cpnetflux_framed_socket_tests tests/unit/framed_data_socket_test.cpp)
+        target_link_libraries(cpnetflux_framed_socket_tests PRIVATE CPNetFlux::core GTest::gtest_main)
+        target_link_options(cpnetflux_framed_socket_tests PRIVATE
+            "-Wl,--wrap=sendmsg" "-Wl,--wrap=send")
+        gtest_discover_tests(cpnetflux_framed_socket_tests)
+    endif()
+
     add_test(NAME cpnetflux_v1_retirement_gate
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/check_v1_retired.py)
 

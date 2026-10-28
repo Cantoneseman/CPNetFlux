@@ -1,4 +1,13 @@
 # CPNetFlux 路线图
+
+## 2026-10-29 V3 performance route: P0-3
+
+P0-1 (CRC combine cache) and P0-2 (verified frame CRC reuse) have software acceptance records in docs/tasks. P0-3 now implements plain-socket frame scatter/gather, reducing two uncontended DATA send calls to one sendmsg without changing bytes. TLS follows its existing SSL writes. Scope and acceptance: `docs/tasks/2026-10-29-v3-frame-sendmsg-01.md`; results: `docs/tasks/2026-10-29-v3-frame-sendmsg-01-result.md`. Physical-pair throughput/CPU acceptance is deferred at the user's request; these implementation steps do not establish the route's projected Gbps gains.
+
+Next: P0-4, reduce CRC-prefix buffer allocation/copying. The supplied route's claim that the current 64-byte header has eight unused bytes is incorrect: rangeId occupies bytes 48..55 and attempt occupies bytes 56..63. The entire header is assigned. Do not overwrite those fields or silently change the wire layout. Design the first copy reduction around payload views and scatter/gather while retaining the current prefix; any later header change needs an explicit protocol design, capability validation, and corresponding tests.
+
+This update is the current P0 status; the dated implementation counts below are historical snapshots.
+
 ## 2026-10-22 无压缩阶段对比后的后端性能路线
 
 依据 docs/tasks/2026-10-22-v3-gridftp-raw-stage-01-result.md，后端性能计划细化在 docs/tasks/2026-10-22-v3-raw-performance-next-plan-01.md。八个串行门依次覆盖 FD 生命周期、summary 重扫、tree manifest 合并、range/pipeline 观测、每 4 MiB per-file checkpoint 合并、range 并行 offset 写、profile 驱动的 CRC/TLS/复制/调度优化，以及最终双机对照。前 3 项已实现并通过本机验收：FD 生命周期（1024 FD 下 2048 小文件）、summary CRC Auto/独立耗时、tree manifest 单写者合并。第 3 项本机 5 组配对中，rename 4098→约 128–129，上传进程 wall 中位 5.4561→1.2447 s、下载 3.6279→1.1938 s；两组均 TLS off，不替代最终 R730→R750/TLS/GridFTP 对照。四个 SIGKILL 恢复窗口、Completed 重核验和保存失败传播通过；全套 426 项 CTest 无失败（1 项 io_uring 环境条件 skip）。详情见 docs/tasks/2026-10-23-v3-tree-manifest-coalesce-01.md。第 4 项 range 观测现已实现并以 TLS/CRC 矩阵验收：432 项 CTest 无失败（1 环境 skip），512 MiB 共 40 次独立 SHA 校验，深度 4/8/16 均未达稳定 10% 改善，默认保持 2；上海同提交构建及 18 项专项通过、关键二进制相同。新指标支持优先减少锁内 checkpoint 保存，详情见 docs/tasks/2026-10-23-v3-range-observability-01.md。当前前 4 项完成、剩余 4 个执行门，从 per-file checkpoint 合并继续。桌面后端 peer mapping 已按 docs/tasks/2026-10-22-v3-desktop-peer-mapping-01-result.md 验收；桌面 UI 可独立按 API 3 合同继续。

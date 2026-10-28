@@ -25,6 +25,10 @@ class FramedDataSocket {
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] bool tlsEnabled() const noexcept;
     [[nodiscard]] common::Status writeAll(const std::uint8_t* data, std::size_t length);
+    [[nodiscard]] common::Status writeFrame(const std::uint8_t* header,
+                                            std::size_t headerLength,
+                                            const std::uint8_t* payload,
+                                            std::size_t payloadLength);
     [[nodiscard]] common::Result<std::size_t> readSome(std::uint8_t* data, std::size_t length);
     [[nodiscard]] common::Status readAll(std::uint8_t* data, std::size_t length);
 

@@ -1202,6 +1202,9 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         guard.success = status.isOk();
         guard.detach();
     }
+    // Static transactions persist their final checkpoint state during cleanup.
+    // Complete it before clients can act on the terminal control reply.
+    if (!guard.directory) transactions.reset();
     return sendLine(control, formatReply(status.isOk() ? 226 : 550,
         status.isOk() ? "Persistent directory complete" + details : status.message()));
 }

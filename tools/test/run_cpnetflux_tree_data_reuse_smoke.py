@@ -236,7 +236,9 @@ def main():
                 partial = server_root / 'interrupted' / 'partial.bin'
                 checkpoint = Path(str(partial) + '.cpnetflux.manifest')
                 assert checkpoint.exists(), 'V2 checkpoint must survive disconnect'
-                assert 'state=failed\n' in checkpoint.read_text()
+                interrupted_checkpoint = checkpoint.read_text()
+                assert 'state=failed\n' in interrupted_checkpoint, (
+                    f'terminal failure reply preceded failed checkpoint: {interrupted_checkpoint}')
                 original = root / 'resume-source.bin'
                 original.write_bytes(bytes([19]) * 65536 + bytes([27]) * 65536)
                 passive = int(re.search(rb'\(\|\|\|(\d+)\|\)', cmd('EPSV'))[1])

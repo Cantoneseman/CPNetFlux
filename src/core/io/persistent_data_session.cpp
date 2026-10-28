@@ -259,9 +259,13 @@ common::Status PersistentDataSession::writeFrame(FramedDataSocket* socket,
     auto valid = protocol::validateFrameHeader(header, kMaxPayload);
     if (!valid.isOk()) return valid;
     const auto encoded = protocol::encodeFrameHeader(header);
-    std::vector<std::uint8_t> bytes(encoded.begin(), encoded.end());
-    if (length != 0) bytes.insert(bytes.end(), payload, payload + length);
-    return socket->writeAll(bytes.data(), bytes.size());
+    if (socket->tlsEnabled()) {
+        // Preserve the existing single TLS write for these small metadata frames.
+        std::vector<std::uint8_t> bytes(encoded.begin(), encoded.end());
+        if (length != 0) bytes.insert(bytes.end(), payload, payload + length);
+        return socket->writeAll(bytes.data(), bytes.size());
+    }
+    return socket->writeFrame(encoded.data(), encoded.size(), payload, length);
 }
 
 common::Status PersistentDataSession::writeBegin(FramedDataSocket* socket,
