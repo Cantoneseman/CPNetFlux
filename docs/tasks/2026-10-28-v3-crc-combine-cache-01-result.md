@@ -3,7 +3,9 @@
 - Date: 2026-10-28
 - Input commit: `8e36a11d17480c421a13e8c179508e4cecdd880f`
 - Branch: `codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
-- Implementation commit and remote readback: pending finalization.
+- Implementation commit: `5352b9006f9b43afe43a6e084c0f92fd5452434a`
+- GitHub branch readback: `5352b9006f9b43afe43a6e084c0f92fd5452434a`
+- Shanghai source archive SHA-256: `a8dfd675f2620cd0db4e5c7806b08de04c4200ca7ce7389b69e3d2837e28a1d1`
 
 ## Result
 
@@ -13,7 +15,7 @@ The supplied route said the matrix depends on left length and suggested caching 
 
 ## Performance Evidence
 
-On Shenzhen, 4 GiB combined as 65,541 data-frame CRC records of 65,532 bytes plus the final tail:
+On Shenzhen, the 4 GiB input combined 65,540 full frame CRC records of 65,532 bytes and one 16-byte tail record (65,541 calls total):
 
 | Measurement | Original | Cached | Change |
 |---|---:|---:|---:|
@@ -29,14 +31,25 @@ Evidence is retained outside the repository at `/tmp/cpnetflux-crc-combine-cache
 
 ## Verification
 
-- New reference test compares the cached function with the prior GF(2) algorithm for lengths 0, 1, 2, 255, 65,536, 4 MiB, (2^{32}), (2^{32}+37), (2^{63}), and `UINT64_MAX), across multiple CRC pairs.
+- New reference test compares the cached function with the prior GF(2) algorithm for lengths 0, 1, 2, 255, 65,536, 4 MiB, `2^32`, `2^32+37`, `2^63`, and `UINT64_MAX`, across multiple CRC pairs.
 - Existing combine boundary tests and tree-hash tests passed.
+- Checksum/tree-hash CTest subset: 15/15 passed after final test-source layout.
 - `cpnetflux_summary_crc_auto_smoke`: passed, 94.66 s.
-- Full Release CTest: 449 tests; 446 passed, one io_uring capability test skipped, and two initially failed because `CPNETFLUX_TEST_TOKEN` was unset. Those two token/event-log tests were then rerun with a process-only random test token and both passed.
+- Full Release CTest: 449 tests; 446 passed, one io_uring capability test skipped, and two initially failed because `CPNETFLUX_TEST_TOKEN` was unset. Those two token/event-log tests were rerun with a process-only random test token and both passed, for 448 passing tests and one skip overall.
+- Shenzhen and Shanghai both built commit `5352b9006f9b43afe43a6e084c0f92fd5452434a` in Release with GCC 11.4 and `-O3 -DNDEBUG`. Server SHA-256 matched at `caee34d3cd95ccd4cd656a2e253d1abb1d64b2001a5152b5a487664d78bd88ab`; tree upload client SHA-256 matched at `926f064de21662c1aa46b2e88fbd8d415871c4458d85512e6f1788161f780992`.
 - `git -c core.whitespace=cr-at-eol diff --check`: passed.
+
+Relevant commands:
+```sh
+cmake --build /tmp/cpnetflux-build-fd-release-01 --target cpnetflux_unit_tests cpnetflux-gridftp-server cpnetflux-tree-upload-client -j2
+ctest --test-dir /tmp/cpnetflux-build-fd-release-01 -R 'ChecksumTest|TreeHashTest' --output-on-failure
+ctest --test-dir /tmp/cpnetflux-build-fd-release-01 --output-on-failure -j2
+```
+
+The paired integration evidence is in `/tmp/cpnetflux-crc-combine-cache-01-20261028/result.json`; the run driver used the existing summary matrix's `run_one` helper and required `verified_chunks` for both arms. Token/event-log reruns used a process-local random token that was not saved.
 
 ## Next Work
 
-1. Commit and push the named files on the current branch, then sync that exact commit to Shanghai and verify matching Release build hashes.
+1. Completed: implementation commit pushed, GitHub SHA read back, and same-commit Release builds match on Shenzhen and Shanghai.
 2. Rerun the 4 GiB summary measurement on the R730/R750 pair before claiming the route's cross-machine expected wall improvement.
 3. Continue with P0-2 duplicate CRC analysis as a separate change; preserve the existing per-frame corruption detection and chunk verification semantics.

@@ -30,4 +30,4 @@ The combine operator depends on the number of bytes appended on the right (`righ
 
 ## Status
 
-Implemented and locally measured. See docs/tasks/2026-10-28-v3-crc-combine-cache-01-result.md. Pending named-file commit, GitHub readback, and Shanghai same-commit build.
+Implemented, measured, committed, pushed, read back from GitHub, and built on Shenzhen and Shanghai from the same source commit. See docs/tasks/2026-10-28-v3-crc-combine-cache-01-result.md.
