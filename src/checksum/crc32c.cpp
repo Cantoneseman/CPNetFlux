@@ -43,6 +43,32 @@ void matrixSquare(Gf2Matrix& square, const Gf2Matrix& matrix) noexcept {
         square[index] = matrixTimes(matrix, matrix[index]);
 }
 
+constexpr std::size_t kCrc32cCombinePowerCount = 64;
+using Crc32cBytePowers = std::array<Gf2Matrix, kCrc32cCombinePowerCount>;
+
+Crc32cBytePowers makeCrc32cBytePowers() noexcept {
+    Crc32cBytePowers powers{};
+    Gf2Matrix odd{}, even{};
+    odd[0] = kCrc32cPolynomial;
+    std::uint32_t row = 1;
+    for (std::size_t index = 1; index < odd.size(); ++index) {
+        odd[index] = row;
+        row <<= 1U;
+    }
+    // These squares reach the operator for appending one zero byte.
+    matrixSquare(even, odd);
+    matrixSquare(odd, even);
+    matrixSquare(even, odd);
+    powers[0] = even;
+    for (std::size_t index = 1; index < powers.size(); ++index)
+        matrixSquare(powers[index], powers[index - 1]);
+    return powers;
+}
+
+const Crc32cBytePowers& crc32cBytePowers() noexcept {
+    static const auto powers = makeCrc32cBytePowers();
+    return powers;
+}
 }  // namespace
 
 std::uint32_t crc32cInitialState() noexcept { return 0xFFFFFFFFU; }
@@ -80,25 +106,13 @@ std::uint32_t crc32cCombine(std::uint32_t left, std::uint32_t right,
                             std::uint64_t rightLength) noexcept {
     if (rightLength == 0) return left;
 
-    Gf2Matrix odd{}, even{};
-    odd[0] = kCrc32cPolynomial;
-    std::uint32_t row = 1;
-    for (std::size_t index = 1; index < odd.size(); ++index) {
-        odd[index] = row;
-        row <<= 1U;
+    const auto& powers = crc32cBytePowers();
+    std::size_t power = 0;
+    while (rightLength != 0) {
+        if ((rightLength & 1U) != 0U) left = matrixTimes(powers[power], left);
+        rightLength >>= 1U;
+        ++power;
     }
-    matrixSquare(even, odd);
-    matrixSquare(odd, even);
-
-    do {
-        matrixSquare(even, odd);
-        if ((rightLength & 1U) != 0U) left = matrixTimes(even, left);
-        rightLength >>= 1U;
-        if (rightLength == 0) break;
-        matrixSquare(odd, even);
-        if ((rightLength & 1U) != 0U) left = matrixTimes(odd, left);
-        rightLength >>= 1U;
-    } while (rightLength != 0);
     return left ^ right;
 }
 std::uint32_t crc32cFinalize(std::uint32_t state) noexcept { return state ^ 0xFFFFFFFFU; }

@@ -3,10 +3,60 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <iostream>
+#include <limits>
 #include <vector>
 
 #include "cpnetflux/checksum/crc32c.h"
+
+namespace {
+
+using Gf2Matrix = std::array<std::uint32_t, 32>;
+
+std::uint32_t referenceMatrixTimes(const Gf2Matrix& matrix, std::uint32_t vector) {
+    std::uint32_t sum = 0;
+    std::size_t index = 0;
+    while (vector != 0) {
+        if ((vector & 1U) != 0U) sum ^= matrix[index];
+        vector >>= 1U;
+        ++index;
+    }
+    return sum;
+}
+
+void referenceMatrixSquare(Gf2Matrix& square, const Gf2Matrix& matrix) {
+    for (std::size_t index = 0; index < square.size(); ++index)
+        square[index] = referenceMatrixTimes(matrix, matrix[index]);
+}
+
+std::uint32_t referenceCrc32cCombine(std::uint32_t left, std::uint32_t right,
+                                    std::uint64_t rightLength) {
+    constexpr std::uint32_t polynomial = 0x82F63B78U;
+    if (rightLength == 0) return left;
+    Gf2Matrix odd{}, even{};
+    odd[0] = polynomial;
+    std::uint32_t row = 1;
+    for (std::size_t index = 1; index < odd.size(); ++index) {
+        odd[index] = row;
+        row <<= 1U;
+    }
+    referenceMatrixSquare(even, odd);
+    referenceMatrixSquare(odd, even);
+    do {
+        referenceMatrixSquare(even, odd);
+        if ((rightLength & 1U) != 0U) left = referenceMatrixTimes(even, left);
+        rightLength >>= 1U;
+        if (rightLength == 0) break;
+        referenceMatrixSquare(odd, even);
+        if ((rightLength & 1U) != 0U) left = referenceMatrixTimes(odd, left);
+        rightLength >>= 1U;
+    } while (rightLength != 0);
+    return left ^ right;
+}
+
+}  // namespace
 
 TEST(ChecksumTest, Crc32cMatchesKnownVectors) {
     cpnetflux::checksum::ChecksumComputer empty(cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
@@ -158,4 +208,69 @@ TEST(ChecksumTest, Crc32cCombineSupportsMultipleUnevenSegments) {
     }
     ASSERT_EQ(offset, input.size());
     EXPECT_EQ(combined, whole.finalize().value);
+}
+TEST(ChecksumTest, Crc32cCombineMatchesReferenceAcross64BitLengths) {
+    using cpnetflux::checksum::crc32cCombine;
+    constexpr std::array<std::uint64_t, 10> lengths{
+        0, 1, 2, 255, 65536, 4U * 1024U * 1024U, 1ULL << 32U,
+        (1ULL << 32U) + 37U, 1ULL << 63U, std::numeric_limits<std::uint64_t>::max()};
+    constexpr std::array<std::uint32_t, 3> crcs{0, 0xE3069283U, 0x12345678U};
+    for (const auto length : lengths) {
+        for (const auto left : crcs) {
+            for (const auto right : crcs) {
+                EXPECT_EQ(crc32cCombine(left, right, length),
+                          referenceCrc32cCombine(left, right, length))
+                    << "rightLength=" << length << " left=" << left << " right=" << right;
+            }
+        }
+    }
+}
+
+TEST(ChecksumTest, Crc32cCombineRepeated4MiBLengthBenchmark) {
+    using cpnetflux::checksum::crc32cCombine;
+    constexpr std::uint64_t rightLength = 4U * 1024U * 1024U;
+    constexpr std::uint32_t right = 0xA5C39E17U;
+    constexpr int iterations = 1024;
+    std::uint32_t value = 0x13579BDFU;
+    const auto start = std::chrono::steady_clock::now();
+    for (int index = 0; index < iterations; ++index)
+        value = crc32cCombine(value, right, rightLength);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - start);
+    std::uint32_t reference = 0x13579BDFU;
+    for (int index = 0; index < iterations; ++index)
+        reference = referenceCrc32cCombine(reference, right, rightLength);
+    EXPECT_EQ(value, reference);
+    EXPECT_GT(value, 0U);
+    std::cout << "crc32c_combine_benchmark iterations=" << iterations
+              << " right_length=" << rightLength
+              << " elapsed_us=" << elapsed.count() << '\n';
+}
+
+TEST(ChecksumTest, Crc32cCombine4GiBFrameCountBenchmark) {
+    using cpnetflux::checksum::crc32cCombine;
+    constexpr std::uint64_t totalBytes = 4ULL * 1024U * 1024U * 1024U;
+    constexpr std::uint64_t frameBytes = 65532;
+    constexpr std::uint64_t fullFrames = totalBytes / frameBytes;
+    constexpr std::uint64_t tailBytes = totalBytes % frameBytes;
+    constexpr std::uint32_t right = 0xA5C39E17U;
+
+    std::uint32_t value = 0x13579BDFU;
+    const auto start = std::chrono::steady_clock::now();
+    for (std::uint64_t frame = 0; frame < fullFrames; ++frame)
+        value = crc32cCombine(value, right, frameBytes);
+    if constexpr (tailBytes != 0)
+        value = crc32cCombine(value, right, tailBytes);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - start);
+
+    std::uint32_t reference = 0x13579BDFU;
+    for (std::uint64_t frame = 0; frame < fullFrames; ++frame)
+        reference = referenceCrc32cCombine(reference, right, frameBytes);
+    if constexpr (tailBytes != 0)
+        reference = referenceCrc32cCombine(reference, right, tailBytes);
+    EXPECT_EQ(value, reference);
+    std::cout << "crc32c_combine_4gib_benchmark frames="
+              << fullFrames + (tailBytes != 0 ? 1 : 0)
+              << " frame_bytes=" << frameBytes << " elapsed_us=" << elapsed.count() << '\n';
 }
