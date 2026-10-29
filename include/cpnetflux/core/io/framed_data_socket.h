@@ -32,6 +32,12 @@ class FramedDataSocket {
     [[nodiscard]] common::Result<std::size_t> readSome(std::uint8_t* data, std::size_t length);
     [[nodiscard]] common::Status readAll(std::uint8_t* data, std::size_t length);
 
+    [[nodiscard]] common::Status writeFrame(const std::uint8_t* header,
+                                            std::size_t headerLength,
+                                            const std::uint8_t* prefix,
+                                            std::size_t prefixLength,
+                                            const std::uint8_t* payload,
+                                            std::size_t payloadLength);
    private:
     bool tlsMode_ = false;
     UniqueFd fd_;

@@ -1,5 +1,6 @@
 #include "cpnetflux/core/io/persistent_data_session.h"
 
+#include <algorithm>
 #include <gtest/gtest.h>
 #include <array>
 #include <future>
@@ -125,6 +126,16 @@ TEST(PersistentSessionTest, CarriesChecksumAlgorithmAndFileEndDigest) {
     auto logicalHeader=data.value().header;
     auto prefix=(logicalHeader.flags&kDataChecksum)?4U:0U;
     logicalHeader.flags=0;logicalHeader.payloadSize-=prefix;
+    ASSERT_EQ(data.value().header.flags & kDataChecksum, kDataChecksum);
+    ASSERT_EQ(data.value().payload.size(), sizeof(bytes) + 4U);
+    const auto& wirePayload = data.value().payload;
+    const std::uint32_t wireCrc =
+        (static_cast<std::uint32_t>(wirePayload[0]) << 24U) |
+        (static_cast<std::uint32_t>(wirePayload[1]) << 16U) |
+        (static_cast<std::uint32_t>(wirePayload[2]) << 8U) |
+        static_cast<std::uint32_t>(wirePayload[3]);
+    EXPECT_EQ(wireCrc, expected.value);
+    EXPECT_TRUE(std::equal(wirePayload.begin() + 4, wirePayload.end(), bytes));
     ASSERT_TRUE(state.data(logicalHeader, data.value().payload.size()-prefix,
         data.value().payload.data()+prefix).isOk());
     ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, expected).isOk());

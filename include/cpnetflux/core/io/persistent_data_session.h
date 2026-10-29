@@ -98,6 +98,12 @@ class PersistentDataSession {
                                                    protocol::FrameHeader header,
                                                    const std::uint8_t* payload,
                                                    std::size_t length);
+    [[nodiscard]] static common::Status writeFrame(FramedDataSocket* socket,
+                                                   protocol::FrameHeader header,
+                                                   const std::uint8_t* prefix,
+                                                   std::size_t prefixLength,
+                                                   const std::uint8_t* payload,
+                                                   std::size_t length);
 
     bool unordered_ = false;
     std::unordered_set<std::uint32_t> seenFiles_;

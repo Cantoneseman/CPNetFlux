@@ -4,7 +4,7 @@ project(
     CPNetFlux
     VERSION 0.1.0
     DESCRIPTION "GridFTP-compatible high-performance transfer foundation"
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -14,6 +14,7 @@ endif()
 option(CPNETFLUX_BUILD_DESKTOP "Build and package the Qt desktop and local agent" OFF)
 
 option(CPNETFLUX_BUILD_TESTS "Build CPNetFlux tests" ON)
+option(CPNETFLUX_ENABLE_ISAL "Enable Intel ISA-L CRC32C acceleration when available" ON)
 option(CPNETFLUX_ENABLE_IO_URING "Enable optional file-IO-only io_uring backend" OFF)
 option(CPNETFLUX_ENABLE_TLS "Enable optional OpenSSL control-plane TLS alpha support when available" ON)
 option(CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS "Enable SSH-driven Shenzhen/Shanghai interoperability tests" OFF)
@@ -36,6 +37,25 @@ FetchContent_Declare(
     GIT_TAG v1.17.0
 )
 
+set(CPNETFLUX_HAS_ISAL 0)
+if(CPNETFLUX_ENABLE_ISAL AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i[3-6]86")
+    FetchContent_Declare(
+        isal
+        GIT_REPOSITORY https://github.com/intel/isa-l.git
+        GIT_TAG 7c3479e0a9dac17f448603ec1ad64c7c625f530c
+    )
+    set(ISAL_BUILD_TESTS OFF CACHE BOOL "Disable ISA-L tests in CPNetFlux" FORCE)
+    set(ISAL_BUILD_PERF_TESTS OFF CACHE BOOL "Disable ISA-L perf tests in CPNetFlux" FORCE)
+    set(ISAL_BUILD_FUZZ_TESTS OFF CACHE BOOL "Disable ISA-L fuzz tests in CPNetFlux" FORCE)
+    set(ISAL_BUILD_ISAL_SHIM OFF CACHE BOOL "Disable ISA-L shim in CPNetFlux" FORCE)
+    set(ISAL_BUILD_IGZIP_CLI OFF CACHE BOOL "Disable ISA-L CLI in CPNetFlux" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build ISA-L statically in CPNetFlux" FORCE)
+    FetchContent_MakeAvailable(isal)
+    if(TARGET isal)
+        set(CPNETFLUX_HAS_ISAL 1)
+        message(STATUS "CPNetFlux ISA-L CRC32C acceleration enabled")
+    endif()
+endif()
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
@@ -90,6 +110,7 @@ add_library(cpnetflux_core STATIC
     src/checksum/checksum.cpp
     src/checksum/crc32c.cpp
     ${CPNETFLUX_CRC32C_HW_SOURCE}
+    src/checksum/crc32c_isal.cpp
     src/common/throughput_counter.cpp
     src/common/version.cpp
     src/config/file_transfer_options.cpp
@@ -165,10 +186,16 @@ target_link_libraries(cpnetflux_core
     PRIVATE
         ZLIB::ZLIB
 )
+if(CPNETFLUX_HAS_ISAL)
+    target_link_libraries(cpnetflux_core PRIVATE isal)
+endif()
+
 
 target_compile_definitions(cpnetflux_core
     PUBLIC
         CPNETFLUX_HAS_IO_URING=${CPNETFLUX_HAS_IO_URING}
+
+        CPNETFLUX_HAS_ISAL=${CPNETFLUX_HAS_ISAL}
         CPNETFLUX_HAS_TLS=${CPNETFLUX_HAS_TLS}
 )
 

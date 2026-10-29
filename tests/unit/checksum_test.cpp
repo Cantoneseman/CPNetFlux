@@ -131,6 +131,30 @@ TEST(ChecksumTest, SoftwareHardwareAndAutoBackendsAgreeWhenAvailable) {
     }
 }
 
+TEST(ChecksumTest, HardwareCrc32cMatchesSoftwareAcrossChunkBoundaries) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumBackend;
+    using cpnetflux::checksum::ChecksumComputer;
+
+    if (!cpnetflux::checksum::crc32cHardwareAvailable()) GTEST_SKIP();
+    constexpr std::array<std::size_t, 9> sizes{
+        0, 1, 7, 8, 15, 16, 65535, 65536, 1024U * 1024U + 17U};
+    for (const auto size : sizes) {
+        SCOPED_TRACE(size);
+        std::vector<std::uint8_t> input(size);
+        for (std::size_t index = 0; index < size; ++index)
+            input[index] = static_cast<std::uint8_t>((index * 37U + 13U) % 251U);
+
+        ChecksumComputer software(ChecksumAlgorithm::Crc32c, ChecksumBackend::Software);
+        ChecksumComputer hardware(ChecksumAlgorithm::Crc32c, ChecksumBackend::Hardware);
+        software.update(input.data(), input.size());
+        const auto split = size / 3U;
+        hardware.update(input.data(), split);
+        hardware.update(input.data() + split, size - split);
+        EXPECT_EQ(hardware.finalize().value, software.finalize().value);
+    }
+}
+
 TEST(ChecksumTest, NoneAlwaysFinalizesToZero) {
     const std::vector<std::uint8_t> input{'d', 'a', 't', 'a'};
     cpnetflux::checksum::ChecksumComputer computer(cpnetflux::checksum::ChecksumAlgorithm::None);

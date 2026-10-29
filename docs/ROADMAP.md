@@ -1,12 +1,26 @@
 # CPNetFlux 路线图
 
-## 2026-10-29 V3 performance route: P0-3
+## 当前主线：2026-10-29 V3 性能路线 S0-S8
 
-P0-1 (CRC combine cache) and P0-2 (verified frame CRC reuse) have software acceptance records in docs/tasks. P0-3 now implements plain-socket frame scatter/gather, reducing two uncontended DATA send calls to one sendmsg without changing bytes. TLS follows its existing SSL writes. Scope and acceptance: `docs/tasks/2026-10-29-v3-frame-sendmsg-01.md`; results: `docs/tasks/2026-10-29-v3-frame-sendmsg-01-result.md`. Physical-pair throughput/CPU acceptance is deferred at the user's request; these implementation steps do not establish the route's projected Gbps gains.
+当前性能优化统一按 2026-10-29 修订方案中的 S0-S8 顺序推进。S0 服务端观测和证据导出已完成；当前开发阶段是 S1：CRC32C 加速并移除 DATA CRC 前缀引发的整块 payload 复制。此前 P0-1 至 P0-3 的结果是可复用的实现基础，不是另一条并行主线。
 
-Next: P0-4, reduce CRC-prefix buffer allocation/copying. The supplied route's claim that the current 64-byte header has eight unused bytes is incorrect: rangeId occupies bytes 48..55 and attempt occupies bytes 56..63. The entire header is assigned. Do not overwrite those fields or silently change the wire layout. Design the first copy reduction around payload views and scatter/gather while retaining the current prefix; any later header change needs an explicit protocol design, capability validation, and corresponding tests.
+| 阶段 | 内容 | 状态与边界 |
+|---|---|---|
+| S0 | 服务端 range 观测和实验数据导出 | 已完成；loopback A/B 的性能扰动结论不确定，不能据此直接改锁或 checkpoint |
+| S1 | ISA-L/PCLMUL CRC32C 加速；去掉 CRC 前缀造成的 payload 全量复制 | 当前阶段；原 P0-4 的前缀复制优化并入本阶段 |
+| S2 | 传输单元放大、批量提交 | 待 S1 验收 |
+| S3 | range 所有权、锁竞争和 checkpoint 组提交 | 待 S0 数据及后续受控实验支持 |
+| S4 | TLS 数据路径批量化与是否采用 kTLS 的测量决策 | 待 S0 数据支持 |
+| S5 | 小文件提交水位 | 待开发 |
+| S6 | 每核 worker、ring 和 NUMA | 依赖前序阶段的实测证据 |
+| S7 | 冷盘和 O_DIRECT 对照 | 待独立冷盘实验 |
+| S8 | 多链路和跨域调度 | 需要目标物理网络环境；物理网卡验证仍暂缓 |
 
-This update is the current P0 status; the dated implementation counts below are historical snapshots.
+当前轮次只按 S1 范围验收；不到路线设定的性能门槛时记录 no-go，不以正确性改进代替吞吐结论。S1 范围与验收记录：`docs/tasks/2026-10-29-v3-crc-prefix-copy-01.md`。
+
+## 历史基础实现：P0-1 至 P0-3
+
+下文中的旧 P0/阶段记录是历史快照，不再定义当前开发顺序。原 P0-4 的 CRC 前缀复制工作已并入 S1。
 
 ## 2026-10-22 无压缩阶段对比后的后端性能路线
 

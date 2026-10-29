@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
+#include <array>
 #include <cerrno>
 #include <cstring>
 #include <limits>
@@ -73,20 +74,45 @@ common::Status FramedDataSocket::writeFrame(const std::uint8_t* header,
                                            std::size_t headerLength,
                                            const std::uint8_t* payload,
                                            std::size_t payloadLength) {
+    return writeFrame(header, headerLength, nullptr, 0, payload, payloadLength);
+}
+
+common::Status FramedDataSocket::writeFrame(const std::uint8_t* header,
+                                           std::size_t headerLength,
+                                           const std::uint8_t* prefix,
+                                           std::size_t prefixLength,
+                                           const std::uint8_t* payload,
+                                           std::size_t payloadLength) {
     const auto maxLength = static_cast<std::size_t>(std::numeric_limits<ssize_t>::max());
     if ((headerLength != 0 && header == nullptr) ||
+        (prefixLength != 0 && prefix == nullptr) ||
         (payloadLength != 0 && payload == nullptr) ||
-        headerLength > maxLength || payloadLength > maxLength - headerLength) {
+        headerLength > maxLength || prefixLength > maxLength - headerLength ||
+        payloadLength > maxLength - headerLength - prefixLength) {
         return common::Status::invalidArgument("invalid frame output spans");
     }
     if (tlsMode_) {
-        auto status = writeAll(header, headerLength);
-        if (!status.isOk()) return status;
+        constexpr std::size_t kTlsCombinedPrefixCapacity = 68;
+        if (headerLength + prefixLength <= kTlsCombinedPrefixCapacity) {
+            std::array<std::uint8_t, kTlsCombinedPrefixCapacity> combined{};
+            if (headerLength != 0)
+                std::memcpy(combined.data(), header, headerLength);
+            if (prefixLength != 0)
+                std::memcpy(combined.data() + headerLength, prefix, prefixLength);
+            auto status = writeAll(combined.data(), headerLength + prefixLength);
+            if (!status.isOk()) return status;
+        } else {
+            auto status = writeAll(header, headerLength);
+            if (!status.isOk()) return status;
+            status = writeAll(prefix, prefixLength);
+            if (!status.isOk()) return status;
+        }
         return writeAll(payload, payloadLength);
     }
-    iovec buffers[2]{};
+    iovec buffers[3]{};
     std::size_t count = 0;
     if (headerLength != 0) buffers[count++] = {const_cast<std::uint8_t*>(header), headerLength};
+    if (prefixLength != 0) buffers[count++] = {const_cast<std::uint8_t*>(prefix), prefixLength};
     if (payloadLength != 0) buffers[count++] = {const_cast<std::uint8_t*>(payload), payloadLength};
     std::size_t current = 0;
     while (current < count) {

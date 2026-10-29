@@ -1,6 +1,7 @@
 #include "cpnetflux/core/io/persistent_data_session.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <limits>
 #include <sys/socket.h>
@@ -251,21 +252,33 @@ common::Status PersistentDataSession::writeFrame(FramedDataSocket* socket,
                                                   protocol::FrameHeader header,
                                                   const std::uint8_t* payload,
                                                   std::size_t length) {
-    if (socket == nullptr || !socket->valid() || length > kMaxPayload ||
+    return writeFrame(socket, header, nullptr, 0, payload, length);
+}
+
+common::Status PersistentDataSession::writeFrame(FramedDataSocket* socket,
+                                                  protocol::FrameHeader header,
+                                                  const std::uint8_t* prefix,
+                                                  std::size_t prefixLength,
+                                                  const std::uint8_t* payload,
+                                                  std::size_t length) {
+    if (socket == nullptr || !socket->valid() || prefixLength > kMaxPayload ||
+        length > kMaxPayload - prefixLength ||
+        (prefixLength != 0 && prefix == nullptr) ||
         (length != 0 && payload == nullptr)) {
         return common::Status::invalidArgument("invalid persistent frame output");
     }
-    header.payloadSize = static_cast<std::uint32_t>(length);
+    header.payloadSize = static_cast<std::uint32_t>(prefixLength + length);
     auto valid = protocol::validateFrameHeader(header, kMaxPayload);
     if (!valid.isOk()) return valid;
     const auto encoded = protocol::encodeFrameHeader(header);
-    if (socket->tlsEnabled()) {
+    if (prefixLength == 0 && socket->tlsEnabled()) {
         // Preserve the existing single TLS write for these small metadata frames.
         std::vector<std::uint8_t> bytes(encoded.begin(), encoded.end());
         if (length != 0) bytes.insert(bytes.end(), payload, payload + length);
         return socket->writeAll(bytes.data(), bytes.size());
     }
-    return socket->writeFrame(encoded.data(), encoded.size(), payload, length);
+    return socket->writeFrame(encoded.data(), encoded.size(), prefix, prefixLength,
+                              payload, length);
 }
 
 common::Status PersistentDataSession::writeBegin(FramedDataSocket* socket,
@@ -327,16 +340,15 @@ common::Status PersistentDataSession::writeData(FramedDataSocket* socket,
     header.attempt = identity.attempt;
     header.offset = offset;
     header.totalSize = identity.totalSize;
-    if (identity.checksumAlgorithm!=checksum::ChecksumAlgorithm::None) {
+    if (identity.checksumAlgorithm != checksum::ChecksumAlgorithm::None) {
         checksum::ChecksumComputer checksum(identity.checksumAlgorithm);
-        checksum.update(payload,length);
-        const auto value=checksum.finalize().value;
-        std::vector<std::uint8_t> protectedPayload{
-            static_cast<std::uint8_t>(value>>24),static_cast<std::uint8_t>(value>>16),
-            static_cast<std::uint8_t>(value>>8),static_cast<std::uint8_t>(value)};
-        protectedPayload.insert(protectedPayload.end(),payload,payload+length);
-        header.flags=protocol::kDataChecksum;
-        return writeFrame(socket,header,protectedPayload.data(),protectedPayload.size());
+        checksum.update(payload, length);
+        const auto value = checksum.finalize().value;
+        const std::array<std::uint8_t, 4> prefix{
+            static_cast<std::uint8_t>(value >> 24U), static_cast<std::uint8_t>(value >> 16U),
+            static_cast<std::uint8_t>(value >> 8U), static_cast<std::uint8_t>(value)};
+        header.flags = protocol::kDataChecksum;
+        return writeFrame(socket, header, prefix.data(), prefix.size(), payload, length);
     }
     return writeFrame(socket, header, payload, length);
 }

@@ -116,32 +116,61 @@ extern "C" ssize_t __wrap_sendmsg(int fd, const msghdr* message, int flags) {
     return __real_sendmsg(fd, &limited, flags);
 }
 
-TEST(FramedDataSocketTest, BatchesFrameIntoOneSyscallWithIdenticalBytes) {
+TEST(FramedDataSocketTest, BatchesThreeSpansIntoOneSyscallWithIdenticalBytes) {
     const auto header = testBytes(64);
+    const auto prefix = testBytes(4);
     const auto payload = testBytes(257);
     SocketPair reference, candidate;
     SendScript oldCalls, newCalls;
     {
         ObserveSends observe(oldCalls);
         ASSERT_TRUE(reference.sender.writeAll(header.data(), header.size()).isOk());
+        ASSERT_TRUE(reference.sender.writeAll(prefix.data(), prefix.size()).isOk());
         ASSERT_TRUE(reference.sender.writeAll(payload.data(), payload.size()).isOk());
     }
     {
         ObserveSends observe(newCalls);
         ASSERT_TRUE(candidate.sender.writeFrame(header.data(), header.size(),
+                                                prefix.data(), prefix.size(),
                                                 payload.data(), payload.size()).isOk());
     }
     auto expected = header;
+    expected.reserve(header.size() + prefix.size() + payload.size());
+    expected.insert(expected.end(), prefix.begin(), prefix.end());
     expected.insert(expected.end(), payload.begin(), payload.end());
     EXPECT_EQ(readBytes(reference.receiver.get(), expected.size()), expected);
     EXPECT_EQ(readBytes(candidate.receiver.get(), expected.size()), expected);
-    EXPECT_EQ(oldCalls.sendCalls, 2U);
+    EXPECT_EQ(oldCalls.sendCalls, 3U);
     EXPECT_EQ(oldCalls.sendmsgCalls, 0U);
     EXPECT_EQ(newCalls.sendCalls, 0U);
     EXPECT_EQ(newCalls.sendmsgCalls, 1U);
     EXPECT_TRUE(newCalls.noSignal);
     std::cout << "frame_syscalls reference_send=" << oldCalls.sendCalls
               << " candidate_sendmsg=" << newCalls.sendmsgCalls << '\n';
+}
+
+TEST(FramedDataSocketTest, ThreeSpansHandleShortWritesAndEintrAcrossBoundaries) {
+    const auto header = testBytes(64);
+    const auto prefix = testBytes(4);
+    const auto payload = testBytes(257);
+    auto expected = header;
+    expected.insert(expected.end(), prefix.begin(), prefix.end());
+    expected.reserve(header.size() + prefix.size() + payload.size());
+    expected.insert(expected.end(), payload.begin(), payload.end());
+
+    for (const auto firstWrite : {1, 63, 64, 65, 67, 68, 69, 324}) {
+        SCOPED_TRACE(firstWrite);
+        SocketPair pair;
+        SendScript script{{firstWrite, -EINTR}};
+        ObserveSends observe(script);
+        const auto status = pair.sender.writeFrame(
+            header.data(), header.size(), prefix.data(), prefix.size(),
+            payload.data(), payload.size());
+        ASSERT_TRUE(status.isOk()) << status.message();
+        EXPECT_EQ(readBytes(pair.receiver.get(), expected.size()), expected);
+        EXPECT_EQ(script.sendmsgCalls, 3U);
+        EXPECT_TRUE(script.noSignal);
+    }
 }
 
 TEST(FramedDataSocketTest, PartialWritesAndEintrPreserveEveryByte) {

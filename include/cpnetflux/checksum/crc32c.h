@@ -9,6 +9,8 @@ namespace cpnetflux::checksum {
 
 [[nodiscard]] std::uint32_t crc32cInitialState() noexcept;
 [[nodiscard]] bool crc32cHardwareAvailable() noexcept;
+[[nodiscard]] std::uint32_t crc32cUpdateIsal(std::uint32_t state, const std::uint8_t* data,
+                                             std::size_t size) noexcept;
 [[nodiscard]] std::uint32_t crc32cUpdateSoftware(std::uint32_t state, const std::uint8_t* data,
                                                  std::size_t size) noexcept;
 [[nodiscard]] std::uint32_t crc32cUpdateHardware(std::uint32_t state, const std::uint8_t* data,
