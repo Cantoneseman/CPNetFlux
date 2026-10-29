@@ -10,6 +10,10 @@ import statistics
 from collections import defaultdict
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from range_observation import export_range_observations
+
 
 def percentile(values, q):
     if not values: return None
@@ -78,9 +82,29 @@ def sample_metrics(path):
         'system_iowait_fraction':delta[4]/denominator if denominator else None}
 
 
+def range_observation_summary(export, server_log):
+    source_name=f"logs/{Path(server_log).name}"
+    source=next((row for row in export.get("source_logs",[]) if row.get("name")==source_name),None)
+    rows=[row for row in export.get("observations",[]) if row.get("source_log")==source_name]
+    counts={}
+    for row in rows:
+        status=row.get("observation_status","missing")
+        counts[status]=counts.get(status,0)+1
+    if not rows or source is None or source.get("status")=="missing":
+        status="missing"
+    elif (counts.get("enabled")==len(rows) and
+          source.get("malformed_records",0)==0):
+        status="complete"
+    else:
+        status="partial"
+    return {"status":status,"records":len(rows),"counts":counts}
+
+
 def analyze(root):
     root=Path(root); peer=root/'peer'; grid=grid_records(peer/'gridftp/transfer.log')
     output=[]; stages=[]; diagnostics=[]
+    server_logs=sorted((root/'logs').glob('*-v3-server.log')) if (root/'logs').exists() else []
+    range_export=export_range_observations(server_logs, root)
     for filename in sorted(root.glob('formal*-results.jsonl')):
         group=filename.stem.removesuffix('-results')
         receiver_batches=defaultdict(list)
@@ -117,6 +141,10 @@ def analyze(root):
             if prefix=='v3':
                 received=next(receivers,[])
                 detail['receiver_timing_records']=len(received)
+                range_summary=range_observation_summary(range_export,server_log.name)
+                detail['range_observation_status']=range_summary['status']
+                detail['receiver_range_observation_records']=range_summary['records']
+                detail['receiver_range_observation_counts']=range_summary['counts']
                 detail['receiver_stages']={k:describe([f.get(k)for f in received])for k in (
                     'write_seconds','checksum_seconds','manifest_seconds','finalize_seconds','payload_io_seconds','file_result_seconds','wall_seconds')}
             if prefix=='v3' and row['profile']['summary_mode']=='on':

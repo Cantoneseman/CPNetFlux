@@ -8,6 +8,7 @@
 #include <vector>
 #include <optional>
 #include <iosfwd>
+#include "cpnetflux/storage/file_io.h"
 #include "cpnetflux/core/io/dynamic_file_queue.h"
 #include "cpnetflux/core/io/persistent_data_session.h"
 #include "cpnetflux/core/tree/tree_scan.h"
@@ -47,11 +48,17 @@ inline constexpr std::uint32_t kUnknownPersistentFileCount = UINT32_MAX;
 }
 
 struct RangeObservation {
+    std::uint64_t dataFrameCount = 0, effectiveDataBytes = 0;
     std::uint64_t entryLockCalls = 0, offsetWriteCalls = 0, chunkFlushCalls = 0;
+    std::uint64_t writerCallCount = 0, dataFlushCalls = 0;
+    std::uint64_t recordUpdateCalls = 0, checkpointManifestFlushCalls = 0;
     double entryLockWaitSeconds = 0, entryLockHoldSeconds = 0;
     double offsetWriteSeconds = 0, chunkFlushSeconds = 0, chunkChecksumSeconds = 0;
+    double writerCallSeconds = 0, dataFlushSeconds = 0;
+    double recordUpdateSeconds = 0, checkpointManifestFlushSeconds = 0;
     double checkpointSeconds = 0;
     double backgroundCheckpointCpuSeconds = 0; // separate thread; attributed at receiver boundaries
+    storage::FileWriteObservation fileWrite;
     checkpoint::ManifestSaveStats manifestSave;
 };
 struct PersistentFileTiming {
@@ -75,6 +82,7 @@ struct PersistentFileTiming {
     std::uint64_t rawFallbackFrames = 0, compressionFailures = 0;
 };
 void appendPersistentFileTimings(std::ostream& out, const std::vector<PersistentFileTiming>& files);
+void appendRangeObservationContract(std::ostream& out);
 struct PersistentTreeStats {
     bool phaseTiming = false;
     std::vector<PersistentFileTiming> fileTimings;

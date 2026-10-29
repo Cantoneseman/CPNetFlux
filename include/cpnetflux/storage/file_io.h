@@ -112,6 +112,13 @@ class FileIoStats {
     std::atomic<std::uint64_t> posixWriteZeroCount_{0};
 };
 
+struct FileWriteObservation {
+    std::uint64_t writeAtAllCalls = 0;
+    std::uint64_t writeAtAllBytes = 0;
+    std::uint64_t writeAtAllFailures = 0;
+    double writeAtAllSeconds = 0;
+};
+
 [[nodiscard]] common::Result<FileIoBackendKind> parseFileIoBackendKind(std::string_view value);
 [[nodiscard]] const char* fileIoBackendName(FileIoBackendKind backend);
 [[nodiscard]] common::Result<FileIoAdvice> parseFileIoAdvice(std::string_view value);
@@ -132,10 +139,11 @@ class FileIoStats {
                                        const FileIoContext& context, FileIoStats* stats);
 [[nodiscard]] common::Status writeAtAll(const PosixFile& file, std::uint64_t offset,
                                         const std::uint8_t* data, std::size_t length,
-                                        FileIoStats* stats);
+                                        FileIoStats* stats, FileWriteObservation* observation = nullptr);
 [[nodiscard]] common::Status writeAtAll(const PosixFile& file, std::uint64_t offset,
                                         const std::uint8_t* data, std::size_t length,
-                                        const FileIoContext& context, FileIoStats* stats);
+                                        const FileIoContext& context, FileIoStats* stats,
+                                        FileWriteObservation* observation = nullptr);
 
 [[nodiscard]] common::Status ioUringReadAtAll(const PosixFile& file, std::uint64_t offset,
                                               std::uint8_t* data, std::size_t length,
@@ -170,8 +178,8 @@ class BufferedFileWriter {
     BufferedFileWriter& operator=(const BufferedFileWriter&) = delete;
 
     [[nodiscard]] common::Status write(std::uint64_t offset, const std::uint8_t* data,
-                                       std::size_t length);
-    [[nodiscard]] common::Status flush();
+                                       std::size_t length, FileWriteObservation* observation = nullptr);
+    [[nodiscard]] common::Status flush(FileWriteObservation* observation = nullptr);
 
    private:
     [[nodiscard]] bool canAppend(std::uint64_t offset, std::size_t length) const noexcept;

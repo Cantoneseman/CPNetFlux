@@ -58,6 +58,9 @@ def main():
                     observer.close()
                 assert tree_hash(peer/"received" if direction=="upload" else dest)==expected
                 rows[direction]=json.loads(summary.read_text())
+            contract=rows["download"].get("range_observation_contract")
+            assert contract and contract["schema"]=="cpnetflux_range_observation_v2", \
+                "missing versioned range observation contract"
             # Old code silently ignores diagnostic depth and lacks these observations.
             senders=rows["upload"]["file_timings"]
             assert senders and all(f.get("payload_pipeline_depth")==8 for f in senders), \
@@ -65,6 +68,11 @@ def main():
             receivers=rows["download"]["file_timings"]
             assert all(f["range_id"] for f in receivers), "fixture must exercise striped ranges"
             if args.observation=="on":
+                assert sum(f["range_observation"]["data_frame_count"] for f in receivers)>0
+                assert sum(f["range_observation"]["effective_data_bytes"] for f in receivers)==134217728
+                assert sum(f["range_observation"]["writer_call_count"] for f in receivers)>0
+                assert sum(f["range_observation"]["file_write_at_all_calls"] for f in receivers)>0
+                assert sum(f["range_observation"]["file_write_at_all_bytes"] for f in receivers)==134217728
                 assert sum(f["range_observation"]["offset_write_calls"] for f in receivers)>0
                 assert sum(f["range_observation"]["chunk_flush_calls"] for f in receivers)==32
                 assert sum(f["range_observation"]["manifest_save"]["rename_calls"] for f in receivers)==observed_renames
@@ -91,14 +99,21 @@ def main():
                     assert f["producer_thread_cpu_seconds"]>0
                     assert f["socket_write_seconds"]>0
             remote=[]
+            server_contract=None
             for line in log.read_text().splitlines():
                 if line.startswith("CPNETFLUX_PERSISTENT_TIMING "):
-                    remote.extend(json.loads(line.split(" ",1)[1])["files"])
+                    record=json.loads(line.split(" ",1)[1])
+                    server_contract=record.get("range_observation_contract")
+                    remote.extend(record["files"])
             assert remote
+            assert server_contract and server_contract["schema"]=="cpnetflux_range_observation_v2"
+            server_receivers=[f for f in remote if f.get("measurement_scope")=="local_receiver"]
+            assert server_receivers
             if args.observation=="on":
-                assert any(f["range_observation"]["offset_write_calls"] for f in remote)
+                assert any(f["range_observation"]["data_frame_count"] for f in server_receivers)
             else:
                 assert not any(f["range_observation_enabled"] for f in remote)
+                assert all(f["range_observation"]["data_frame_count"]==0 for f in remote)
             print(json.dumps(dict(result="pass",bytes=expected[2] if len(expected)>2 else 134217728,
                 sender_ranges=len(senders),receiver_ranges=len(receivers),server_ranges=len(remote))))
         finally:

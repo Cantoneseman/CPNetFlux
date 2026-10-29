@@ -532,11 +532,19 @@ class FileTransaction {
         if (skipped_) return Status::ok();
         if (!active_ || offset > identity_.totalSize || bytes.size() > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range write exceeds file boundary");
-        if (observation) ++observation->offsetWriteCalls;
-        checkpoint::OptionalManifestTimer writing(observation ? &observation->offsetWriteSeconds : nullptr);
+        if (observation) {
+            ++observation->offsetWriteCalls;
+            ++observation->writerCallCount;
+        }
         const auto started = Clock::now();
-        auto status = writer_->write(offset, bytes.data(), bytes.size());
-        if (timing_) timing_->writeSeconds += secondsSince(started);
+        auto status = writer_->write(offset, bytes.data(), bytes.size(),
+                                     observation ? &observation->fileWrite : nullptr);
+        const auto elapsed = secondsSince(started);
+        if (observation) {
+            observation->offsetWriteSeconds += elapsed;
+            observation->writerCallSeconds += elapsed;
+        }
+        if (timing_) timing_->writeSeconds += elapsed;
         return status;
     }
     Status recordRange(std::uint64_t rangeId, std::uint64_t offset, std::uint64_t length,
@@ -547,10 +555,17 @@ class FileTransaction {
             length > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range completion is invalid");
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
-        if (observation) ++observation->chunkFlushCalls;
-        checkpoint::OptionalManifestTimer flushing(observation ? &observation->chunkFlushSeconds : nullptr);
-        auto flushed = writer_->flush();
-        flushing.stop();
+        if (observation) {
+            ++observation->chunkFlushCalls;
+            ++observation->dataFlushCalls;
+        }
+        const auto flushStarted = observation ? Clock::now() : Clock::time_point{};
+        auto flushed = writer_->flush(observation ? &observation->fileWrite : nullptr);
+        if (observation) {
+            const auto elapsed = secondsSince(flushStarted);
+            observation->chunkFlushSeconds += elapsed;
+            observation->dataFlushSeconds += elapsed;
+        }
         checkpoint::OptionalManifestTimer checkpointing(observation ? &observation->checkpointSeconds : nullptr);
         if (!flushed.isOk()) return flushed;
         const auto recordId=std::visit([](const auto& s) {
@@ -562,7 +577,15 @@ class FileTransaction {
             return next;
         },session_);
         if (recordId==UINT64_MAX) return Status::invalidArgument("checkpoint record ID exhausted");
+        const double savedSecondsBefore = observation ? observation->manifestSave.saveSeconds : 0.0;
+        const auto recordStarted = observation ? Clock::now() : Clock::time_point{};
+        if (observation) ++observation->recordUpdateCalls;
         auto status = std::visit([&](auto& s) { return s.recordVerifiedChunk(recordId, offset, length, checksum, batch > 1); }, session_);
+        if (observation) {
+            const double elapsed = secondsSince(recordStarted);
+            const double nestedSave = observation->manifestSave.saveSeconds - savedSecondsBefore;
+            observation->recordUpdateSeconds += std::max(0.0, elapsed - nestedSave);
+        }
         if (!status.isOk()) return status;
         checkpointing.stop();
         if (pendingRangeChunks_++ == 0) oldestRangeChunk_ = Clock::now();
@@ -578,7 +601,11 @@ class FileTransaction {
         if (!pendingRangeChunks_) return Status::ok();
         ScopedManifestObservation observing(session_, observation);
         checkpoint::OptionalManifestTimer checkpointing(observation ? &observation->checkpointSeconds : nullptr);
+        if (observation) ++observation->checkpointManifestFlushCalls;
+        const auto started = observation ? Clock::now() : Clock::time_point{};
         auto status = std::visit([](auto& s) { return s.flushManifest(); }, session_);
+        if (observation)
+            observation->checkpointManifestFlushSeconds += secondsSince(started);
         if (status.isOk()) pendingRangeChunks_ = 0;
         return status;
     }
@@ -799,12 +826,31 @@ class RangeFileCoordinator {
         a.entryLockCalls += b.entryLockCalls;
         a.entryLockWaitSeconds += b.entryLockWaitSeconds;
         a.entryLockHoldSeconds += b.entryLockHoldSeconds;
+        a.dataFrameCount += b.dataFrameCount;
+        a.effectiveDataBytes += b.effectiveDataBytes;
+        a.writerCallCount += b.writerCallCount;
+        a.writerCallSeconds += b.writerCallSeconds;
+        a.fileWrite.writeAtAllCalls += b.fileWrite.writeAtAllCalls;
+        a.fileWrite.writeAtAllBytes += b.fileWrite.writeAtAllBytes;
+        a.fileWrite.writeAtAllFailures += b.fileWrite.writeAtAllFailures;
+        a.fileWrite.writeAtAllSeconds += b.fileWrite.writeAtAllSeconds;
+        a.dataFlushCalls += b.dataFlushCalls;
+        a.dataFlushSeconds += b.dataFlushSeconds;
+        a.recordUpdateCalls += b.recordUpdateCalls;
+        a.recordUpdateSeconds += b.recordUpdateSeconds;
+        a.checkpointManifestFlushCalls += b.checkpointManifestFlushCalls;
+        a.checkpointManifestFlushSeconds += b.checkpointManifestFlushSeconds;
         a.checkpointSeconds += b.checkpointSeconds;
         a.backgroundCheckpointCpuSeconds += b.backgroundCheckpointCpuSeconds;
         a.manifestSave.attempts += b.manifestSave.attempts;
+        a.manifestSave.serializeCalls += b.manifestSave.serializeCalls;
         a.manifestSave.serializedBytes += b.manifestSave.serializedBytes;
+        a.manifestSave.tempWriteCalls += b.manifestSave.tempWriteCalls;
         a.manifestSave.renameCalls += b.manifestSave.renameCalls;
+        a.manifestSave.publishCalls += b.manifestSave.publishCalls;
+        a.manifestSave.publishSuccesses += b.manifestSave.publishSuccesses;
         a.manifestSave.failures += b.manifestSave.failures;
+        a.manifestSave.saveSeconds += b.manifestSave.saveSeconds;
         a.manifestSave.serializeSeconds += b.manifestSave.serializeSeconds;
         a.manifestSave.tempWriteSeconds += b.manifestSave.tempWriteSeconds;
         a.manifestSave.renameSeconds += b.manifestSave.renameSeconds;
@@ -1729,6 +1775,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                                                                        logical, verifiedChecksum, observation)
                                          : transaction->write(data.value().header.offset, logical, verifiedChecksum);
                 stats->payloadBytes += logical.size();
+                if (fileStatus.isOk() && observation && id.rangeId != 0) {
+                    ++observation->dataFrameCount;
+                    observation->effectiveDataBytes += logical.size();
+                }
                 if (fileStatus.isOk() && expectedDigest &&
                     id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c) {
                     stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
@@ -1858,25 +1908,95 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"pipeline_consumer_wait_seconds\":" << t.pipelineConsumerWaitSeconds;
         const auto& r = t.rangeObservation;
         const auto& m = r.manifestSave;
-        out << ",\"range_observation\":{\"entry_lock_calls\":" << r.entryLockCalls
+        out << ",\"range_observation\":{\"schema_version\":2,\"data_frame_count\":" << r.dataFrameCount
+            << ",\"effective_data_bytes\":" << r.effectiveDataBytes
+            << ",\"entry_lock_calls\":" << r.entryLockCalls
             << ",\"entry_lock_wait_seconds\":" << r.entryLockWaitSeconds
             << ",\"entry_lock_hold_seconds\":" << r.entryLockHoldSeconds
             << ",\"offset_write_calls\":" << r.offsetWriteCalls
             << ",\"offset_write_seconds\":" << r.offsetWriteSeconds
+            << ",\"writer_call_count\":" << r.writerCallCount
+            << ",\"writer_call_seconds\":" << r.writerCallSeconds
+            << ",\"file_write_at_all_calls\":" << r.fileWrite.writeAtAllCalls
+            << ",\"file_write_at_all_bytes\":" << r.fileWrite.writeAtAllBytes
+            << ",\"file_write_at_all_failures\":" << r.fileWrite.writeAtAllFailures
+            << ",\"file_write_at_all_seconds\":" << r.fileWrite.writeAtAllSeconds
+            << ",\"data_flush_calls\":" << r.dataFlushCalls
+            << ",\"data_flush_seconds\":" << r.dataFlushSeconds
             << ",\"chunk_flush_calls\":" << r.chunkFlushCalls
             << ",\"chunk_flush_seconds\":" << r.chunkFlushSeconds
             << ",\"chunk_checksum_seconds\":" << r.chunkChecksumSeconds
             << ",\"checkpoint_seconds\":" << r.checkpointSeconds
+            << ",\"checkpoint_manifest_flush_calls\":" << r.checkpointManifestFlushCalls
+            << ",\"checkpoint_manifest_flush_seconds\":" << r.checkpointManifestFlushSeconds
+            << ",\"background_checkpoint_thread_cpu_seconds\":" << r.backgroundCheckpointCpuSeconds
             << ",\"background_checkpoint_cpu_seconds\":" << r.backgroundCheckpointCpuSeconds
             << ",\"manifest_save\":{\"attempts\":" << m.attempts
+            << ",\"serialize_calls\":" << m.serializeCalls
             << ",\"serialized_bytes\":" << m.serializedBytes
+            << ",\"save_seconds\":" << m.saveSeconds
+            << ",\"temp_write_calls\":" << m.tempWriteCalls
             << ",\"rename_calls\":" << m.renameCalls
+            << ",\"publish_calls\":" << m.publishCalls
+            << ",\"publish_successes\":" << m.publishSuccesses
             << ",\"failures\":" << m.failures
             << ",\"serialize_seconds\":" << m.serializeSeconds
             << ",\"temp_write_seconds\":" << m.tempWriteSeconds
+            << ",\"publish_seconds\":" << m.renameSeconds
             << ",\"rename_seconds\":" << m.renameSeconds << "}}";
         out << ",\"wall_seconds\":" << t.wallSeconds << '}';
     }
     out << ']';
+}
+void appendRangeObservationContract(std::ostream& out) {
+    out <<
+        R"obs({"schema":"cpnetflux_range_observation_v2",)obs"
+        R"obs("default_switch":"CPNETFLUX_RANGE_TIMING (on by default when phase timing is enabled; off disables detailed range timers and counters)",)obs"
+        R"obs("clock":"steady_clock elapsed wall time unless metric unit says thread_cpu_seconds",)obs"
+        R"obs("common_scope":"DATA and writer metrics belong to one receiver range attempt; Entry-lock and deferred checkpoint metrics are accumulated per file entry and merged into the next reporting range, so they are not exact range attribution; concurrent timer sums can exceed transfer wall time",)obs"
+        R"obs("metrics":{"data_frame_count":{"unit":"frames","scope":"successfully validated DATA frames accepted by this range writer","overlap":"not applicable"},)obs"
+        R"obs("effective_data_bytes":{"unit":"logical bytes","scope":"decompressed payload after checksum prefix removal, accepted by this range writer","overlap":"not applicable"},)obs"
+        R"obs("entry_lock_calls":{"unit":"calls","scope":"Entry mutex acquisitions during this range plus deferred checkpoint acquisitions merged since the preceding reporting boundary","overlap":"not applicable"},)obs"
+        R"obs("entry_lock_wait_seconds":{"unit":"seconds","scope":"steady_clock wait summed over those Entry lock acquisitions","overlap":"may overlap other ranges and range wall time"},)obs"
+        R"obs("entry_lock_hold_seconds":{"unit":"seconds","scope":"steady_clock hold summed over those Entry lock acquisitions","overlap":"contains nested writer, data flush, record update and manifest flush intervals; concurrent ranges overlap"},)obs"
+        R"obs("writer_call_count":{"unit":"calls","scope":"BufferedFileWriter::write attempts for this range","overlap":"not applicable"},)obs"
+        R"obs("writer_call_seconds":{"unit":"seconds","scope":"BufferedFileWriter::write elapsed time summed for this range","overlap":"contains file_write_at_all_seconds when a write occurs"},)obs"
+        R"obs("file_write_at_all_calls":{"unit":"calls","scope":"lower-level storage writeAtAll attempts reached by this range","overlap":"not applicable"},)obs"
+        R"obs("file_write_at_all_bytes":{"unit":"requested bytes","scope":"length requested by each writeAtAll attempt, including failed attempts; when BufferedFileWriter coalesces data, bytes may originate from earlier range calls","overlap":"not applicable"},)obs"
+        R"obs("file_write_at_all_failures":{"unit":"calls","scope":"writeAtAll attempts that returned failure","overlap":"not applicable"},)obs"
+        R"obs("file_write_at_all_seconds":{"unit":"seconds","scope":"writeAtAll elapsed wall time for the attempt, attributed to the call that triggered it; buffered bytes may have been staged by earlier range calls","overlap":"nested inside writer_call_seconds or data_flush_seconds"},)obs"
+        R"obs("data_flush_calls":{"unit":"calls","scope":"BufferedFileWriter::flush invocations at verified chunk boundaries; some may be no-op when the buffer is empty","overlap":"not applicable"},)obs"
+        R"obs("data_flush_seconds":{"unit":"seconds","scope":"BufferedFileWriter::flush elapsed wall time; writes buffered bytes to the OS but does not call fsync/fdatasync","overlap":"may contain file_write_at_all_seconds"},)obs"
+        R"obs("record_update_calls":{"unit":"calls","scope":"manifest verified-record update attempts","overlap":"not applicable"},)obs"
+        R"obs("record_update_seconds":{"unit":"seconds","scope":"record update elapsed time with nested full manifest save time subtracted","overlap":"nested in entry_lock_hold_seconds; excludes measured saveAtomic intervals"},)obs"
+        R"obs("checkpoint_manifest_flush_calls":{"unit":"calls","scope":"synchronous and deferred flushManifest attempts observed for this file entry","overlap":"not applicable"},)obs"
+        R"obs("checkpoint_manifest_flush_seconds":{"unit":"seconds","scope":"synchronous and deferred flushManifest elapsed wall time observed for this file entry","overlap":"contains nested manifest_save phase timers"},)obs"
+        R"obs("manifest_save_attempts":{"unit":"calls","scope":"synchronous and deferred saveAtomic attempts, including failed attempts, observed for this file entry","overlap":"not applicable"},)obs"
+        R"obs("manifest_serialize_calls":{"unit":"calls","scope":"synchronous and deferred manifest serialization attempts observed for this file entry","overlap":"not applicable"},)obs"
+        R"obs("manifest_serialized_bytes":{"unit":"bytes","scope":"synchronous and deferred serialized manifest bytes produced for this file entry","overlap":"not applicable"},)obs"
+        R"obs("manifest_save_seconds":{"unit":"seconds","scope":"synchronous and deferred whole saveAtomic elapsed wall time observed for this file entry","overlap":"contains serialize, temp-write and publication timers"},)obs"
+        R"obs("manifest_temp_write_calls":{"unit":"calls","scope":"synchronous and deferred temporary manifest writeAll attempts after temp file open","overlap":"not applicable"},)obs"
+        R"obs("manifest_temp_write_seconds":{"unit":"seconds","scope":"synchronous and deferred temporary manifest open/write/close interval","overlap":"part of manifest_save_seconds and checkpoint_manifest_flush_seconds"},)obs"
+        R"obs("manifest_publish_calls":{"unit":"calls","scope":"synchronous and deferred manifest rename publication attempts","overlap":"not applicable"},)obs"
+        R"obs("manifest_publish_successes":{"unit":"calls","scope":"synchronous and deferred successful manifest rename publications","overlap":"not applicable"},)obs"
+        R"obs("manifest_publish_seconds":{"unit":"seconds","scope":"elapsed wall time for manifest rename publication; does not include directory fsync or imply durable-media completion","overlap":"part of manifest_save_seconds and checkpoint_manifest_flush_seconds"},)obs"
+        R"obs("manifest_failures":{"unit":"calls","scope":"synchronous and deferred failed saveAtomic attempts","overlap":"not applicable"},)obs"
+        R"obs("background_checkpoint_thread_cpu_seconds":{"unit":"thread_cpu_seconds","scope":"CLOCK_THREAD_CPUTIME_ID from before Entry mutex acquisition through deferred flush/status handling; merged at a later receiver boundary and not exact per-range attribution","overlap":"not a wall timer; do not add to elapsed timers"}},)obs"
+        R"obs("legacy_timers":{"checkpoint_seconds":"compatibility aggregate described under additional_metrics; do not add to subintervals",)obs"
+        R"obs("chunk_flush_seconds":"compatibility alias listed in metric_aliases",)obs"
+        R"obs("background_checkpoint_cpu_seconds":"compatibility alias listed in metric_aliases",)obs"
+        R"obs("manifest_rename_calls":"compatibility alias listed in metric_aliases",)obs"
+        R"obs("manifest_rename_seconds":"compatibility alias listed in metric_aliases"},)obs"
+        R"obs("metric_aliases":{"offset_write_calls":"alias of writer_call_count",)obs"
+        R"obs("offset_write_seconds":"alias of writer_call_seconds",)obs"
+        R"obs("chunk_flush_calls":"alias of data_flush_calls",)obs"
+        R"obs("chunk_flush_seconds":"alias of data_flush_seconds",)obs"
+        R"obs("manifest_rename_calls":"alias of manifest_publish_calls",)obs"
+        R"obs("manifest_rename_seconds":"alias of manifest_publish_seconds",)obs"
+        R"obs("background_checkpoint_cpu_seconds":"alias of background_checkpoint_thread_cpu_seconds"},)obs"
+        R"obs("additional_metrics":{"chunk_checksum_seconds":{"unit":"seconds","scope":"checksum combination/finalization for a verified chunk","overlap":"inside Entry lock hold and record update path; overlaps legacy checkpoint_seconds"},)obs"
+        R"obs("checkpoint_seconds":{"unit":"seconds","scope":"legacy aggregate around range record/checkpoint work","overlap":"contains record_update_seconds and checkpoint_manifest_flush_seconds; do not add"},)obs"
+        R"obs("manifest_serialize_seconds":{"unit":"seconds","scope":"synchronous and deferred manifest serialization elapsed wall time","overlap":"part of manifest_save_seconds and checkpoint_manifest_flush_seconds"},)obs"
+        R"obs("manifest_temp_write_seconds":{"unit":"seconds","scope":"synchronous and deferred temp manifest open/write/close elapsed wall time","overlap":"part of manifest_save_seconds and checkpoint_manifest_flush_seconds"}}})obs";
 }
 }  // namespace cpnetflux::core::io

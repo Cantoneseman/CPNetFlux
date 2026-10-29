@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from analyze import describe, grid_records, percentile, union_seconds
+from analyze import describe, grid_records, percentile, range_observation_summary, union_seconds
 
 
 class AnalysisContract(unittest.TestCase):
@@ -25,6 +25,26 @@ class AnalysisContract(unittest.TestCase):
             rows=grid_records(path)['test']
             self.assertEqual(len(rows),1);self.assertEqual(rows[0]['bytes'],0)
             self.assertEqual(rows[0]['end']-rows[0]['start'],.25)
+
+    def test_range_observation_summary_preserves_legacy_and_missing_states(self):
+        source = {"name": "logs/run-v3-server.log", "status": "present", "malformed_records": 0}
+        export = {
+            "source_logs": [source],
+            "observations": [{
+                "source_log": source["name"],
+                "observation_status": "legacy_partial",
+            }],
+        }
+        summary = range_observation_summary(export, "run-v3-server.log")
+        self.assertEqual(summary, {
+            "status": "partial",
+            "records": 1,
+            "counts": {"legacy_partial": 1},
+        })
+        self.assertEqual(
+            range_observation_summary({"source_logs": [], "observations": []}, "absent.log"),
+            {"status": "missing", "records": 0, "counts": {}},
+        )
 
     def test_missing_sampling_is_not_zero_usage(self):
         from analyze import sample_metrics

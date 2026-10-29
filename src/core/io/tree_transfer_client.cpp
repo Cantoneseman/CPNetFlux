@@ -1544,6 +1544,9 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
             output << "  \"phase_timing_schema\": \"persistent_file_timing_v1\",\n";
             output << "  \"phase_timing_units\": \"seconds\",\n";
             output << "  \"phase_timing_scope\": \"local_monotonic_file_intervals_sums_overlap_not_directory_wall\",\n";
+            output << "  \"range_observation_contract\": ";
+            appendRangeObservationContract(output);
+            output << ",\n";
             output << "  \"file_timings\": ";
             appendPersistentFileTimings(output,stats.fileTimings);
             output << ",\n";

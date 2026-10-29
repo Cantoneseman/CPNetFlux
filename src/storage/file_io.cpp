@@ -450,18 +450,31 @@ common::Status readAtAll(const PosixFile& file, std::uint64_t offset, std::uint8
 }
 
 common::Status writeAtAll(const PosixFile& file, std::uint64_t offset, const std::uint8_t* data,
-                          std::size_t length, FileIoStats* stats) {
+                          std::size_t length, FileIoStats* stats, FileWriteObservation* observation) {
     FileIoContext context;
-    return writeAtAll(file, offset, data, length, context, stats);
+    return writeAtAll(file, offset, data, length, context, stats, observation);
 }
 
 common::Status writeAtAll(const PosixFile& file, std::uint64_t offset, const std::uint8_t* data,
-                          std::size_t length, const FileIoContext& context, FileIoStats* stats) {
+                          std::size_t length, const FileIoContext& context, FileIoStats* stats,
+                          FileWriteObservation* observation) {
+    const bool measure = stats != nullptr || observation != nullptr;
+    const auto start = measure ? std::chrono::steady_clock::now()
+                               : std::chrono::steady_clock::time_point{};
+    const auto recordObservation = [&](const common::Status& result,
+                                       std::chrono::steady_clock::time_point end) {
+        if (!observation || length == 0) return;
+        ++observation->writeAtAllCalls;
+        observation->writeAtAllBytes += length;
+        observation->writeAtAllSeconds += std::chrono::duration<double>(end - start).count();
+        if (!result.isOk()) ++observation->writeAtAllFailures;
+    };
     const common::Status available = context.validateAvailable();
     if (!available.isOk()) {
+        recordObservation(available, measure ? std::chrono::steady_clock::now()
+                                             : std::chrono::steady_clock::time_point{});
         return available;
     }
-    const auto start = std::chrono::steady_clock::now();
     common::Status status;
     switch (context.backend()) {
         case FileIoBackendKind::Posix:
@@ -471,10 +484,12 @@ common::Status writeAtAll(const PosixFile& file, std::uint64_t offset, const std
             status = ioUringWriteAtAll(file, offset, data, length, context.config(), stats);
             break;
     }
-    const auto end = std::chrono::steady_clock::now();
+    const auto end = measure ? std::chrono::steady_clock::now()
+                             : std::chrono::steady_clock::time_point{};
     if (stats != nullptr && length > 0) {
         stats->recordWrite(length, end - start);
     }
+    recordObservation(status, end);
     return status;
 }
 
@@ -500,19 +515,19 @@ bool BufferedFileWriter::canAppend(std::uint64_t offset, std::size_t length) con
 }
 
 common::Status BufferedFileWriter::write(std::uint64_t offset, const std::uint8_t* data,
-                                         std::size_t length) {
+                                         std::size_t length, FileWriteObservation* observation) {
     if (length == 0) {
         return common::Status::ok();
     }
     if (buffer_.empty() || length > buffer_.size()) {
-        const common::Status flushStatus = flush();
+        const common::Status flushStatus = flush(observation);
         if (!flushStatus.isOk()) {
             return flushStatus;
         }
-        return writeAtAll(file_, offset, data, length, context_, stats_);
+        return writeAtAll(file_, offset, data, length, context_, stats_, observation);
     }
     if (!canAppend(offset, length)) {
-        const common::Status flushStatus = flush();
+        const common::Status flushStatus = flush(observation);
         if (!flushStatus.isOk()) {
             return flushStatus;
         }
@@ -522,17 +537,17 @@ common::Status BufferedFileWriter::write(std::uint64_t offset, const std::uint8_
     std::copy_n(data, length, buffer_.data() + buffered_);
     buffered_ += length;
     if (buffered_ == buffer_.size()) {
-        return flush();
+        return flush(observation);
     }
     return common::Status::ok();
 }
 
-common::Status BufferedFileWriter::flush() {
+common::Status BufferedFileWriter::flush(FileWriteObservation* observation) {
     if (buffered_ == 0) {
         return common::Status::ok();
     }
     const common::Status status =
-        writeAtAll(file_, bufferOffset_, buffer_.data(), buffered_, context_, stats_);
+        writeAtAll(file_, bufferOffset_, buffer_.data(), buffered_, context_, stats_, observation);
     if (!status.isOk()) {
         return status;
     }

@@ -134,6 +134,41 @@ TEST(FileIoTest, TracksReadAndWriteCalls) {
     std::filesystem::remove(path);
 }
 
+TEST(FileIoTest, RangeWriteObservationCountsStorageCallsAndBufferedFlush) {
+    const std::filesystem::path path = tempPath("cpnetflux-file-io-range-observation-test.bin");
+    std::filesystem::remove(path);
+
+    auto fileResult = cpnetflux::storage::PosixFile::openWriteTruncate(path.string());
+    ASSERT_TRUE(fileResult.isOk()) << fileResult.status().message();
+    cpnetflux::storage::PosixFile file = std::move(fileResult.value());
+    const std::vector<std::uint8_t> data{'a', 'b', 'c', 'd'};
+    cpnetflux::storage::FileWriteObservation direct;
+    ASSERT_TRUE(cpnetflux::storage::writeAtAll(file, 0, data.data(), data.size(), nullptr, &direct)
+                    .isOk());
+    EXPECT_EQ(direct.writeAtAllCalls, 1U);
+    EXPECT_EQ(direct.writeAtAllBytes, data.size());
+    EXPECT_EQ(direct.writeAtAllFailures, 0U);
+    EXPECT_GE(direct.writeAtAllSeconds, 0.0);
+
+    cpnetflux::storage::FileIoConfig config;
+    config.bufferSize = 8;
+    cpnetflux::storage::FileWriteObservation buffered;
+    {
+        cpnetflux::storage::BufferedFileWriter writer(file, config, nullptr);
+        ASSERT_TRUE(writer.write(data.size(), data.data(), data.size(), &buffered).isOk());
+        EXPECT_EQ(buffered.writeAtAllCalls, 0U);
+        ASSERT_TRUE(writer.flush(&buffered).isOk());
+        EXPECT_EQ(buffered.writeAtAllCalls, 1U);
+        EXPECT_EQ(buffered.writeAtAllBytes, data.size());
+        EXPECT_EQ(buffered.writeAtAllFailures, 0U);
+        EXPECT_GE(buffered.writeAtAllSeconds, 0.0);
+    }
+
+    file = cpnetflux::storage::PosixFile();
+    std::filesystem::remove(path);
+}
+
+
 TEST(FileIoTest, PosixContextReadsAndWrites) {
     const std::filesystem::path path = tempPath("cpnetflux-file-io-context-posix-test.bin");
     std::filesystem::remove(path);

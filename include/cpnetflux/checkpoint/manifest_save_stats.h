@@ -5,8 +5,10 @@
 namespace cpnetflux::checkpoint {
 // Caller-owned, not shared between concurrent lanes. Counts include failed attempts.
 struct ManifestSaveStats {
-    std::uint64_t attempts = 0, serializedBytes = 0, renameCalls = 0, failures = 0;
-    double serializeSeconds = 0, tempWriteSeconds = 0, renameSeconds = 0;
+    std::uint64_t attempts = 0, serializeCalls = 0, serializedBytes = 0;
+    std::uint64_t tempWriteCalls = 0, renameCalls = 0, publishCalls = 0;
+    std::uint64_t publishSuccesses = 0, failures = 0;
+    double saveSeconds = 0, serializeSeconds = 0, tempWriteSeconds = 0, renameSeconds = 0;
 };
 class OptionalManifestTimer {
  public:

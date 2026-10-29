@@ -674,6 +674,10 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_manifest_coalesce_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     set_tests_properties(cpnetflux_tree_manifest_coalesce_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_observation_export_contract
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/perf/test_range_observation.py)
+    add_test(NAME cpnetflux_raw_stage_analyzer_contract
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/perf/experiments/v3_gridftp_raw_stage_01/test_analyze.py)
     add_test(NAME cpnetflux_range_observability_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_range_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)

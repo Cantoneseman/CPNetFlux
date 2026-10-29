@@ -1195,7 +1195,9 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         details = extra.str();
         std::ostringstream observation;
         observation << "CPNETFLUX_PERSISTENT_TIMING {\"batch_id\":\"" << batchId
-                    << "\",\"channel_index\":" << channelIndex << ",\"files\":";
+                    << "\",\"channel_index\":" << channelIndex << ",\"range_observation_contract\":";
+        core::io::appendRangeObservationContract(observation);
+        observation << ",\"files\":";
         core::io::appendPersistentFileTimings(observation,stats.fileTimings);
         observation << "}\n";
         std::osyncstream(std::cout) << observation.str() << std::flush_emit;
