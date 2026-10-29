@@ -1,0 +1,943 @@
+Internal ctest changing into directory: /tmp/cpnetflux-runs/V3-GRIDFTP-87B389-RERUN-01/build
+Test project /tmp/cpnetflux-runs/V3-GRIDFTP-87B389-RERUN-01/build
+        Start 451: cpnetflux_v3_interrupted_resume_smoke
+  1/467 Test #451: cpnetflux_v3_interrupted_resume_smoke .......................................................................................   Passed    7.02 sec
+        Start 409: FramedDataSocketTest.SmallSocketBufferHandlesRealBackpressure
+        Start 401: FramedDataSocketTest.PartialWritesAndEintrPreserveEveryByte
+  2/467 Test #401: FramedDataSocketTest.PartialWritesAndEintrPreserveEveryByte .................................................................   Passed    0.00 sec
+        Start 405: FramedDataSocketTest.EagainReturnsWithoutBusyRetry
+  3/467 Test #405: FramedDataSocketTest.EagainReturnsWithoutBusyRetry ..........................................................................   Passed    0.00 sec
+        Start 408: FramedDataSocketTest.PeerClosureDoesNotRaiseSigpipe
+  4/467 Test #408: FramedDataSocketTest.PeerClosureDoesNotRaiseSigpipe .........................................................................   Passed    0.00 sec
+        Start 402: FramedDataSocketTest.HandlesEmptyHeaderOrPayload
+  5/467 Test #402: FramedDataSocketTest.HandlesEmptyHeaderOrPayload ............................................................................   Passed    0.00 sec
+        Start 404: FramedDataSocketTest.ZeroProgressIsTransportFailure
+  6/467 Test #404: FramedDataSocketTest.ZeroProgressIsTransportFailure .........................................................................   Passed    0.00 sec
+        Start 400: FramedDataSocketTest.BatchesFrameIntoOneSyscallWithIdenticalBytes
+  7/467 Test #400: FramedDataSocketTest.BatchesFrameIntoOneSyscallWithIdenticalBytes ...........................................................   Passed    0.00 sec
+        Start 406: FramedDataSocketTest.ErrorAfterPartialHeaderRetainsWrittenPrefixOnly
+  8/467 Test #406: FramedDataSocketTest.ErrorAfterPartialHeaderRetainsWrittenPrefixOnly ........................................................   Passed    0.00 sec
+        Start 407: FramedDataSocketTest.InvalidSocketReturnsTransportFailure
+  9/467 Test #407: FramedDataSocketTest.InvalidSocketReturnsTransportFailure ...................................................................   Passed    0.00 sec
+        Start 403: FramedDataSocketTest.RejectsInvalidSpansAndOverflowBeforeSending
+ 10/467 Test #403: FramedDataSocketTest.RejectsInvalidSpansAndOverflowBeforeSending ............................................................   Passed    0.00 sec
+        Start   1: ChecksumTest.Crc32cMatchesKnownVectors
+ 11/467 Test   #1: ChecksumTest.Crc32cMatchesKnownVectors ......................................................................................   Passed    0.00 sec
+        Start   2: ChecksumTest.Crc32cSupportsMultipleUpdates
+ 12/467 Test   #2: ChecksumTest.Crc32cSupportsMultipleUpdates ..................................................................................   Passed    0.00 sec
+        Start   3: ChecksumTest.Crc32cHandlesLargeChunkedInput
+ 13/467 Test #409: FramedDataSocketTest.SmallSocketBufferHandlesRealBackpressure ...............................................................   Passed    0.03 sec
+        Start   4: ChecksumTest.SoftwareHardwareAndAutoBackendsAgreeWhenAvailable
+ 14/467 Test   #3: ChecksumTest.Crc32cHandlesLargeChunkedInput .................................................................................   Passed    0.00 sec
+        Start   5: ChecksumTest.NoneAlwaysFinalizesToZero
+ 15/467 Test   #4: ChecksumTest.SoftwareHardwareAndAutoBackendsAgreeWhenAvailable ..............................................................   Passed    0.01 sec
+        Start   6: ChecksumTest.ParsesAlgorithms
+ 16/467 Test   #5: ChecksumTest.NoneAlwaysFinalizesToZero ......................................................................................   Passed    0.01 sec
+        Start   7: ChecksumTest.Crc32cCombineMatchesWholeInputAtBoundaryLengths
+ 17/467 Test   #6: ChecksumTest.ParsesAlgorithms ...............................................................................................   Passed    0.00 sec
+        Start   8: ChecksumTest.AccumulatorCombinesFinalizedFrameChecksums
+ 18/467 Test   #8: ChecksumTest.AccumulatorCombinesFinalizedFrameChecksums .....................................................................   Passed    0.00 sec
+        Start   9: ChecksumTest.AccumulatorRejectsMismatchedChecksumWithoutMutation
+ 19/467 Test   #9: ChecksumTest.AccumulatorRejectsMismatchedChecksumWithoutMutation ............................................................   Passed    0.00 sec
+        Start  10: ChecksumTest.AccumulatorCombinesBetweenRawUpdatesAndResets
+ 20/467 Test  #10: ChecksumTest.AccumulatorCombinesBetweenRawUpdatesAndResets ..................................................................   Passed    0.00 sec
+        Start  11: ChecksumTest.Crc32cCombineSupportsMultipleUnevenSegments
+ 21/467 Test  #11: ChecksumTest.Crc32cCombineSupportsMultipleUnevenSegments ....................................................................   Passed    0.00 sec
+        Start  12: ChecksumTest.Crc32cCombineMatchesReferenceAcross64BitLengths
+ 22/467 Test  #12: ChecksumTest.Crc32cCombineMatchesReferenceAcross64BitLengths ................................................................   Passed    0.01 sec
+        Start  13: ChecksumTest.Crc32cCombineRepeated4MiBLengthBenchmark
+ 23/467 Test  #13: ChecksumTest.Crc32cCombineRepeated4MiBLengthBenchmark .......................................................................   Passed    0.07 sec
+        Start  14: ChecksumTest.Crc32cCombine4GiBFrameCountBenchmark
+ 24/467 Test   #7: ChecksumTest.Crc32cCombineMatchesWholeInputAtBoundaryLengths ................................................................   Passed    0.14 sec
+        Start  15: TreeHashTest.VerifiedChunksReproduceTheExactTreeHash
+ 25/467 Test  #15: TreeHashTest.VerifiedChunksReproduceTheExactTreeHash ........................................................................   Passed    0.05 sec
+        Start  16: TreeHashTest.EmptyTreeHasTheSameEmptyCrc
+ 26/467 Test  #16: TreeHashTest.EmptyTreeHasTheSameEmptyCrc ....................................................................................   Passed    0.00 sec
+        Start  17: TreeHashTest.MissingOverlappingOrConflictingChunksAreRejected
+ 27/467 Test  #17: TreeHashTest.MissingOverlappingOrConflictingChunksAreRejected ...............................................................   Passed    0.00 sec
+        Start  18: TreeHashTest.RejectsOutOfBoundsZeroLengthAndDuplicateFiles
+ 28/467 Test  #18: TreeHashTest.RejectsOutOfBoundsZeroLengthAndDuplicateFiles ..................................................................   Passed    0.00 sec
+        Start  19: ChunkPlannerTest.PlansExactChunks
+ 29/467 Test  #19: ChunkPlannerTest.PlansExactChunks ...........................................................................................   Passed    0.00 sec
+        Start  20: ChunkPlannerTest.PlansTailChunk
+ 30/467 Test  #20: ChunkPlannerTest.PlansTailChunk .............................................................................................   Passed    0.00 sec
+        Start  21: ChunkPlannerTest.HandlesFileSmallerThanChunk
+ 31/467 Test  #21: ChunkPlannerTest.HandlesFileSmallerThanChunk ................................................................................   Passed    0.00 sec
+        Start  22: ChunkPlannerTest.HandlesMoreConnectionsThanChunks
+ 32/467 Test  #22: ChunkPlannerTest.HandlesMoreConnectionsThanChunks ...........................................................................   Passed    0.00 sec
+        Start  23: ChunkPlannerTest.AssignsStreamsDeterministically
+ 33/467 Test  #23: ChunkPlannerTest.AssignsStreamsDeterministically ............................................................................   Passed    0.00 sec
+        Start  24: ChunkPlannerTest.HandlesEmptyFile
+ 34/467 Test  #24: ChunkPlannerTest.HandlesEmptyFile ...........................................................................................   Passed    0.00 sec
+        Start  25: ChunkPlannerTest.RejectsInvalidInputs
+ 35/467 Test  #25: ChunkPlannerTest.RejectsInvalidInputs .......................................................................................   Passed    0.00 sec
+        Start  26: ConnectionContextTest.TracksStateTransitions
+ 36/467 Test  #26: ConnectionContextTest.TracksStateTransitions ................................................................................   Passed    0.00 sec
+        Start  27: ConnectionContextTest.TracksEofAndErrors
+ 37/467 Test  #27: ConnectionContextTest.TracksEofAndErrors ....................................................................................   Passed    0.00 sec
+        Start  28: ConnectionContextTest.TracksByteCounters
+ 38/467 Test  #28: ConnectionContextTest.TracksByteCounters ....................................................................................   Passed    0.00 sec
+        Start  29: ControlAuthTest.ParsesAccessPolicies
+ 39/467 Test  #29: ControlAuthTest.ParsesAccessPolicies ........................................................................................   Passed    0.00 sec
+        Start  30: ControlAuthTest.ComparesCredentialsWithoutAcceptingDifferentLengths
+ 40/467 Test  #30: ControlAuthTest.ComparesCredentialsWithoutAcceptingDifferentLengths .........................................................   Passed    0.00 sec
+        Start  31: ControlCommandTest.ParsesCaseWhitespaceAndArguments
+ 41/467 Test  #31: ControlCommandTest.ParsesCaseWhitespaceAndArguments .........................................................................   Passed    0.00 sec
+        Start  32: ControlCommandTest.ParsesEmptyAndUnknown
+ 42/467 Test  #32: ControlCommandTest.ParsesEmptyAndUnknown ....................................................................................   Passed    0.00 sec
+        Start  33: ControlCommandTest.ParsesParallelismOptions
+ 43/467 Test  #33: ControlCommandTest.ParsesParallelismOptions .................................................................................   Passed    0.00 sec
+        Start  34: ControlCommandTest.ParsesExplicitPipelineOptIn
+ 44/467 Test  #34: ControlCommandTest.ParsesExplicitPipelineOptIn ..............................................................................   Passed    0.00 sec
+        Start  35: ControlCommandTest.ParsesRestMarker
+ 45/467 Test  #35: ControlCommandTest.ParsesRestMarker .........................................................................................   Passed    0.00 sec
+        Start  36: ControlOptionsTest.ParsesDefaultsAndRequiredRoot
+ 46/467 Test  #36: ControlOptionsTest.ParsesDefaultsAndRequiredRoot ............................................................................   Passed    0.00 sec
+        Start  37: ControlOptionsTest.ParsesAndValidatesDataTlsMode
+ 47/467 Test  #37: ControlOptionsTest.ParsesAndValidatesDataTlsMode ............................................................................   Passed    0.00 sec
+        Start  38: ControlOptionsTest.ParsesTlsOptionsAndRejectsUnsafeKeys
+ 48/467 Test  #38: ControlOptionsTest.ParsesTlsOptionsAndRejectsUnsafeKeys .....................................................................   Passed    0.00 sec
+        Start  39: ControlOptionsTest.ParsesMutualTlsAndAccessPolicy
+ 49/467 Test  #39: ControlOptionsTest.ParsesMutualTlsAndAccessPolicy ...........................................................................   Passed    0.00 sec
+        Start  40: ControlOptionsTest.ParsesTokenAuthAndRejectsBadTokenFiles
+ 50/467 Test  #40: ControlOptionsTest.ParsesTokenAuthAndRejectsBadTokenFiles ...................................................................   Passed    0.00 sec
+        Start  41: ControlOptionsTest.ParsesExplicitOptions
+ 51/467 Test  #41: ControlOptionsTest.ParsesExplicitOptions ....................................................................................   Passed    0.00 sec
+        Start  42: ControlOptionsTest.RejectsInvalidOptions
+ 52/467 Test  #42: ControlOptionsTest.RejectsInvalidOptions ....................................................................................   Passed    0.00 sec
+        Start  43: ControlOptionsTest.ResolvesStorPathInsideRoot
+ 53/467 Test  #43: ControlOptionsTest.ResolvesStorPathInsideRoot ...............................................................................   Passed    0.00 sec
+        Start  44: ControlOptionsTest.ResolvesRetrPathInsideRoot
+ 54/467 Test  #44: ControlOptionsTest.ResolvesRetrPathInsideRoot ...............................................................................   Passed    0.00 sec
+        Start  45: ControlOptionsTest.ResolvesPathsRelativeToWorkingDirectory
+ 55/467 Test  #45: ControlOptionsTest.ResolvesPathsRelativeToWorkingDirectory ..................................................................   Passed    0.00 sec
+        Start  46: ControlOptionsTest.RejectsSymlinkedStorTarget
+ 56/467 Test  #46: ControlOptionsTest.RejectsSymlinkedStorTarget ...............................................................................   Passed    0.00 sec
+        Start  47: ControlOptionsTest.RejectsSymlinkEscape
+ 57/467 Test  #47: ControlOptionsTest.RejectsSymlinkEscape .....................................................................................   Passed    0.00 sec
+        Start  48: ControlOptionsTest.FormatsMdtmAndListings
+ 58/467 Test  #48: ControlOptionsTest.FormatsMdtmAndListings ...................................................................................   Passed    0.00 sec
+        Start  49: ControlOptionsTest.ParsesExplicitLinkSetCapabilities
+ 59/467 Test  #49: ControlOptionsTest.ParsesExplicitLinkSetCapabilities ........................................................................   Passed    0.00 sec
+        Start  50: ControlSessionTest.RequiresLoginForTransferCommands
+ 60/467 Test  #50: ControlSessionTest.RequiresLoginForTransferCommands .........................................................................   Passed    0.00 sec
+        Start  51: ControlSessionTest.LogsInAndSetsType
+ 61/467 Test  #51: ControlSessionTest.LogsInAndSetsType ........................................................................................   Passed    0.00 sec
+        Start  52: ControlSessionTest.TokenAuthAllowsPublicCommandsAndProtectsTransfers
+ 62/467 Test  #52: ControlSessionTest.TokenAuthAllowsPublicCommandsAndProtectsTransfers ........................................................   Passed    0.00 sec
+        Start  53: ControlSessionTest.PassiveAndStorFlow
+ 63/467 Test  #53: ControlSessionTest.PassiveAndStorFlow .......................................................................................   Passed    0.00 sec
+        Start  54: ControlSessionTest.PassiveAndRetrFlow
+ 64/467 Test  #54: ControlSessionTest.PassiveAndRetrFlow .......................................................................................   Passed    0.00 sec
+        Start  55: ControlSessionTest.MetadataActionsAndWorkingDirectory
+ 65/467 Test  #55: ControlSessionTest.MetadataActionsAndWorkingDirectory .......................................................................   Passed    0.00 sec
+        Start  56: ControlSessionTest.ListAndNlstRequirePassive
+ 66/467 Test  #56: ControlSessionTest.ListAndNlstRequirePassive ................................................................................   Passed    0.00 sec
+        Start  57: ControlSessionTest.OptionsAndRestAffectNextStor
+ 67/467 Test  #57: ControlSessionTest.OptionsAndRestAffectNextStor .............................................................................   Passed    0.00 sec
+        Start  58: ControlSessionTest.PipelineOptInIsExplicitPerControlSession
+ 68/467 Test  #58: ControlSessionTest.PipelineOptInIsExplicitPerControlSession .................................................................   Passed    0.00 sec
+        Start  59: ControlSessionTest.ReadOnlyPolicyRejectsWritesButAllowsResumedDownloads
+ 69/467 Test  #59: ControlSessionTest.ReadOnlyPolicyRejectsWritesButAllowsResumedDownloads .....................................................   Passed    0.00 sec
+        Start  60: ControlSessionTest.WriteOnlyPolicyRejectsReadsAfterLogin
+ 70/467 Test  #60: ControlSessionTest.WriteOnlyPolicyRejectsReadsAfterLogin ....................................................................   Passed    0.00 sec
+        Start  61: ControlSessionTest.UnsupportedReturns502
+ 71/467 Test  #61: ControlSessionTest.UnsupportedReturns502 ....................................................................................   Passed    0.00 sec
+        Start  62: CompressedDataTest.RoundTripsWithNetworkOrderLengthPrefix
+ 72/467 Test  #62: CompressedDataTest.RoundTripsWithNetworkOrderLengthPrefix ...................................................................   Passed    0.00 sec
+        Start  63: CompressedDataTest.RejectsTruncatedMalformedAndLengthMismatchPayloads
+ 73/467 Test  #63: CompressedDataTest.RejectsTruncatedMalformedAndLengthMismatchPayloads .......................................................   Passed    0.00 sec
+        Start  64: CompressedDataTest.EnforcesOutputAndPayloadLimits
+ 74/467 Test  #64: CompressedDataTest.EnforcesOutputAndPayloadLimits ...........................................................................   Passed    0.00 sec
+        Start  65: CompressedDataTest.RejectsNullAndEmptyInputs
+ 75/467 Test  #65: CompressedDataTest.RejectsNullAndEmptyInputs ................................................................................   Passed    0.00 sec
+        Start  66: DownloadManifestTest.BuildsPaths
+ 76/467 Test  #66: DownloadManifestTest.BuildsPaths ............................................................................................   Passed    0.00 sec
+        Start  67: DownloadManifestTest.SerializesAndParsesStableTextFormat
+ 77/467 Test  #67: DownloadManifestTest.SerializesAndParsesStableTextFormat ....................................................................   Passed    0.00 sec
+        Start  68: DownloadManifestTest.RejectsCorruptBodyChecksum
+ 78/467 Test  #68: DownloadManifestTest.RejectsCorruptBodyChecksum .............................................................................   Passed    0.00 sec
+        Start  69: DownloadSessionTest.CreatesManifestAndComputesMissingRanges
+ 79/467 Test  #69: DownloadSessionTest.CreatesManifestAndComputesMissingRanges .................................................................   Passed    0.00 sec
+        Start  70: DownloadSessionTest.ResumesAndRejectsMetadataMismatch
+ 80/467 Test  #70: DownloadSessionTest.ResumesAndRejectsMetadataMismatch .......................................................................   Passed    0.00 sec
+        Start  71: DownloadSessionTest.VerifiesTempChunksAndMarksCorruptChunkMissing
+ 81/467 Test  #71: DownloadSessionTest.VerifiesTempChunksAndMarksCorruptChunkMissing ...........................................................   Passed    0.00 sec
+        Start  72: DownloadSessionTest.DuplicateChecksumIsIdempotentButMismatchFails
+ 82/467 Test  #72: DownloadSessionTest.DuplicateChecksumIsIdempotentButMismatchFails ...........................................................   Passed    0.00 sec
+        Start  73: DownloadSessionTest.FlushesManifestAfterConfiguredVerifiedChunkInterval
+ 83/467 Test  #73: DownloadSessionTest.FlushesManifestAfterConfiguredVerifiedChunkInterval .....................................................   Passed    0.00 sec
+        Start  74: DownloadSessionTest.FinalOnlyManifestFlushDefersUntilForcedFlush
+ 84/467 Test  #74: DownloadSessionTest.FinalOnlyManifestFlushDefersUntilForcedFlush ............................................................   Passed    0.00 sec
+        Start  75: DownloadSessionTest.FailureAndCommitForceManifestFlush
+ 85/467 Test  #75: DownloadSessionTest.FailureAndCommitForceManifestFlush ......................................................................   Passed    0.00 sec
+        Start  76: EventLogTest.WritesEscapedJsonlAndCreatesParentDirectory
+ 86/467 Test  #76: EventLogTest.WritesEscapedJsonlAndCreatesParentDirectory ....................................................................   Passed    0.00 sec
+        Start  77: EventLogTest.RejectsDirectoryAsLogPath
+ 87/467 Test  #77: EventLogTest.RejectsDirectoryAsLogPath ......................................................................................   Passed    0.00 sec
+        Start  78: EventLogTest.ClassifiesCommonErrors
+ 88/467 Test  #78: EventLogTest.ClassifiesCommonErrors .........................................................................................   Passed    0.00 sec
+        Start  79: EventLogTest.ThreadSafeMultiWriteSmoke
+ 89/467 Test  #79: EventLogTest.ThreadSafeMultiWriteSmoke ......................................................................................   Passed    0.02 sec
+        Start  80: FileDownloadOptionsTest.ParsesRequiredAndDefaults
+ 90/467 Test  #80: FileDownloadOptionsTest.ParsesRequiredAndDefaults ...........................................................................   Passed    0.00 sec
+        Start  81: FileDownloadOptionsTest.ParsesExplicitOptions
+ 91/467 Test  #81: FileDownloadOptionsTest.ParsesExplicitOptions ...............................................................................   Passed    0.00 sec
+        Start  82: FileDownloadOptionsTest.RejectsInvalidOptions
+ 92/467 Test  #82: FileDownloadOptionsTest.RejectsInvalidOptions ...............................................................................   Passed    0.00 sec
+        Start  83: FileIoTest.ParsesBackendAndAdvice
+ 93/467 Test  #83: FileIoTest.ParsesBackendAndAdvice ...........................................................................................   Passed    0.00 sec
+        Start  84: FileIoTest.DefaultsQueueDepthAndBatchSizeToOne
+ 94/467 Test  #84: FileIoTest.DefaultsQueueDepthAndBatchSizeToOne ..............................................................................   Passed    0.00 sec
+        Start  85: FileIoTest.RejectsCoalescedStrategyWithoutBuffer
+ 95/467 Test  #85: FileIoTest.RejectsCoalescedStrategyWithoutBuffer ............................................................................   Passed    0.00 sec
+        Start  86: FileIoTest.ContextReportsIoUringAvailability
+ 96/467 Test  #86: FileIoTest.ContextReportsIoUringAvailability ................................................................................   Passed    0.00 sec
+        Start  87: FileIoTest.TracksReadAndWriteCalls
+ 97/467 Test  #87: FileIoTest.TracksReadAndWriteCalls ..........................................................................................   Passed    0.00 sec
+        Start  88: FileIoTest.PosixContextReadsAndWrites
+ 98/467 Test  #88: FileIoTest.PosixContextReadsAndWrites .......................................................................................   Passed    0.00 sec
+        Start  89: FileIoTest.IoUringContextReadWriteSmokeWhenAvailable
+ 99/467 Test  #89: FileIoTest.IoUringContextReadWriteSmokeWhenAvailable ........................................................................***Skipped   0.00 sec
+        Start  90: FileIoTest.IoUringCompletionLoopHandlesPartialCompletions
+100/467 Test  #90: FileIoTest.IoUringCompletionLoopHandlesPartialCompletions ...................................................................   Passed    0.00 sec
+        Start  91: FileIoTest.IoUringBatchedCompletionLoopTracksStatsAndOutOfOrderSqes
+101/467 Test  #91: FileIoTest.IoUringBatchedCompletionLoopTracksStatsAndOutOfOrderSqes .........................................................   Passed    0.00 sec
+        Start  92: FileIoTest.IoUringBatchedCompletionLoopHandlesPartialAndRetry
+102/467 Test  #92: FileIoTest.IoUringBatchedCompletionLoopHandlesPartialAndRetry ...............................................................   Passed    0.00 sec
+        Start  93: FileIoTest.IoUringCompletionLoopPropagatesRetryAndSystemErrors
+103/467 Test  #93: FileIoTest.IoUringCompletionLoopPropagatesRetryAndSystemErrors ..............................................................   Passed    0.00 sec
+        Start  94: FileIoTest.BufferedWriterCoalescesContiguousWritesAndFlushesGaps
+104/467 Test  #94: FileIoTest.BufferedWriterCoalescesContiguousWritesAndFlushesGaps ............................................................   Passed    0.00 sec
+        Start  95: FileIoTest.DirectStrategyBypassesBufferedWriter
+105/467 Test  #95: FileIoTest.DirectStrategyBypassesBufferedWriter .............................................................................   Passed    0.00 sec
+        Start  96: FileIoTest.AppliesOffAndSequentialAdvice
+106/467 Test  #96: FileIoTest.AppliesOffAndSequentialAdvice ....................................................................................   Passed    0.00 sec
+        Start  97: FileTransferOptionsTest.AppliesServerDefaults
+107/467 Test  #97: FileTransferOptionsTest.AppliesServerDefaults ...............................................................................   Passed    0.00 sec
+        Start  98: FileTransferOptionsTest.AppliesClientDefaults
+108/467 Test  #98: FileTransferOptionsTest.AppliesClientDefaults ...............................................................................   Passed    0.00 sec
+        Start  99: FileTransferOptionsTest.ParsesClientDataFinalStatusTimeout
+109/467 Test  #99: FileTransferOptionsTest.ParsesClientDataFinalStatusTimeout ..................................................................   Passed    0.00 sec
+        Start 100: FileTransferOptionsTest.ParsesClientOptions
+110/467 Test #100: FileTransferOptionsTest.ParsesClientOptions .................................................................................   Passed    0.00 sec
+        Start 101: FileTransferOptionsTest.ParsesServerFlags
+111/467 Test #101: FileTransferOptionsTest.ParsesServerFlags ...................................................................................   Passed    0.00 sec
+        Start 102: FileTransferOptionsTest.ParsesClientResume
+112/467 Test #102: FileTransferOptionsTest.ParsesClientResume ..................................................................................   Passed    0.00 sec
+        Start 103: FileTransferOptionsTest.RejectsMissingPath
+113/467 Test #103: FileTransferOptionsTest.RejectsMissingPath ..................................................................................   Passed    0.00 sec
+        Start 104: FileTransferOptionsTest.RejectsWrongRolePathOptions
+114/467 Test #104: FileTransferOptionsTest.RejectsWrongRolePathOptions .........................................................................   Passed    0.00 sec
+        Start 105: FileTransferOptionsTest.RejectsServerOnlyFlagsForClient
+115/467 Test #105: FileTransferOptionsTest.RejectsServerOnlyFlagsForClient .....................................................................   Passed    0.00 sec
+        Start 106: FileTransferOptionsTest.RejectsInvalidNumericOptions
+116/467 Test #106: FileTransferOptionsTest.RejectsInvalidNumericOptions ........................................................................   Passed    0.00 sec
+        Start 107: FileTransferOptionsTest.RejectsResumeWithoutTransferIdForClient
+117/467 Test #107: FileTransferOptionsTest.RejectsResumeWithoutTransferIdForClient .............................................................   Passed    0.00 sec
+        Start 108: FrameTest.EncodesHeaderInNetworkByteOrder
+118/467 Test #108: FrameTest.EncodesHeaderInNetworkByteOrder ...................................................................................   Passed    0.00 sec
+        Start 109: FrameTest.RoundTripsValidHeader
+119/467 Test #109: FrameTest.RoundTripsValidHeader .............................................................................................   Passed    0.01 sec
+        Start 110: FrameTest.RoundTripsErrorStatusHeader
+120/467 Test #110: FrameTest.RoundTripsErrorStatusHeader .......................................................................................   Passed    0.00 sec
+        Start 111: FrameTest.ValidatesDataFinAndFinalStatusFrames
+121/467 Test #111: FrameTest.ValidatesDataFinAndFinalStatusFrames ..............................................................................   Passed    0.00 sec
+        Start 112: FrameTest.RejectsInvalidHeaders
+122/467 Test #112: FrameTest.RejectsInvalidHeaders .............................................................................................   Passed    0.00 sec
+        Start 113: FrameTest.ValidatesCompressedDataAgainstLogicalPayload
+123/467 Test #113: FrameTest.ValidatesCompressedDataAgainstLogicalPayload ......................................................................   Passed    0.00 sec
+        Start 114: FrameTest.KeepsCompressionFlagDataOnlyAndRawDataCompatible
+124/467 Test #114: FrameTest.KeepsCompressionFlagDataOnlyAndRawDataCompatible ..................................................................   Passed    0.00 sec
+        Start 115: FrameTest.RejectsUnknownTypeDuringDecode
+125/467 Test #115: FrameTest.RejectsUnknownTypeDuringDecode ....................................................................................   Passed    0.00 sec
+        Start 116: FrameTest.RetiredV1WireTypesCannotDecodeOrValidate
+126/467 Test #116: FrameTest.RetiredV1WireTypesCannotDecodeOrValidate ..........................................................................   Passed    0.00 sec
+        Start 117: SessionControlTest.EncodesAndDecodesFileBeginMetadata
+127/467 Test #117: SessionControlTest.EncodesAndDecodesFileBeginMetadata .......................................................................   Passed    0.00 sec
+        Start 118: SessionControlTest.EncodesAndDecodesRangeMetadataExtension
+128/467 Test #118: SessionControlTest.EncodesAndDecodesRangeMetadataExtension ..................................................................   Passed    0.00 sec
+        Start 119: SessionControlTest.EncodesAndDecodesMetadataSourcePathExtension
+129/467 Test #119: SessionControlTest.EncodesAndDecodesMetadataSourcePathExtension .............................................................   Passed    0.00 sec
+        Start 120: SessionControlTest.EncodesAndDecodesResumeResponsePayload
+130/467 Test #120: SessionControlTest.EncodesAndDecodesResumeResponsePayload ...................................................................   Passed    0.00 sec
+        Start 121: SessionControlTest.RejectsInvalidControlPayloads
+131/467 Test #121: SessionControlTest.RejectsInvalidControlPayloads ............................................................................   Passed    0.00 sec
+        Start 122: SessionControlTest.WholeFileRetryUsesExistingAttemptExtension
+132/467 Test #122: SessionControlTest.WholeFileRetryUsesExistingAttemptExtension ...............................................................   Passed    0.00 sec
+        Start 123: PersistentDataSessionTest.LoopbackCarriesTwoFilesOnOneSocket
+133/467 Test #123: PersistentDataSessionTest.LoopbackCarriesTwoFilesOnOneSocket ................................................................   Passed    0.00 sec
+        Start 124: PersistentDataSessionTest.LoopbackRejectsDuplicateGenerationAndOversizedPayload
+134/467 Test #124: PersistentDataSessionTest.LoopbackRejectsDuplicateGenerationAndOversizedPayload .............................................   Passed    0.00 sec
+        Start 125: RangePlannerTest.KeepsSmallFilesWhole
+135/467 Test #125: RangePlannerTest.KeepsSmallFilesWhole .......................................................................................   Passed    0.00 sec
+        Start 126: RangePlannerTest.CoversLargeFileWithoutOverlap
+136/467 Test #126: RangePlannerTest.CoversLargeFileWithoutOverlap ..............................................................................   Passed    0.00 sec
+        Start 127: RangePlannerTest.ThresholdRespondsToBdpAndOverhead
+137/467 Test #127: RangePlannerTest.ThresholdRespondsToBdpAndOverhead ..........................................................................   Passed    0.00 sec
+        Start 128: RangePlannerTest.RejectsInvalidInputs
+138/467 Test #128: RangePlannerTest.RejectsInvalidInputs .......................................................................................   Passed    0.00 sec
+        Start 129: RangePlannerTest.UnifiedPlannerUsesAdaptiveRangesOnlyAboveThreshold
+139/467 Test #129: RangePlannerTest.UnifiedPlannerUsesAdaptiveRangesOnlyAboveThreshold .........................................................   Passed    0.00 sec
+        Start 130: PersistentSessionTest.RejectsWrongDataOffsetWithoutAdvancing
+140/467 Test #130: PersistentSessionTest.RejectsWrongDataOffsetWithoutAdvancing ................................................................   Passed    0.00 sec
+        Start 131: PersistentSessionTest.RejectsCompletedGenerationReplay
+141/467 Test #131: PersistentSessionTest.RejectsCompletedGenerationReplay ......................................................................   Passed    0.00 sec
+        Start 132: PersistentSessionTest.RejectsNulInFilePath
+142/467 Test #132: PersistentSessionTest.RejectsNulInFilePath ..................................................................................   Passed    0.00 sec
+        Start 133: PersistentSessionTest.SuccessResultMustMatchGenerationAndTotalSize
+143/467 Test #133: PersistentSessionTest.SuccessResultMustMatchGenerationAndTotalSize ..........................................................   Passed    0.00 sec
+        Start 134: PersistentSessionTest.CarriesChecksumAlgorithmAndFileEndDigest
+144/467 Test #134: PersistentSessionTest.CarriesChecksumAlgorithmAndFileEndDigest ..............................................................   Passed    0.00 sec
+        Start 135: PersistentSessionTest.BuildsFileEndChecksumFromVerifiedFrameChecksums
+145/467 Test #135: PersistentSessionTest.BuildsFileEndChecksumFromVerifiedFrameChecksums .......................................................   Passed    0.00 sec
+        Start 136: PersistentSessionTest.ChecksumAlgorithmMismatchDoesNotAdvanceSession
+146/467 Test #136: PersistentSessionTest.ChecksumAlgorithmMismatchDoesNotAdvanceSession ........................................................   Passed    0.00 sec
+        Start 137: PersistentSessionTest.MissingChecksumPayloadDoesNotAdvanceSession
+147/467 Test #137: PersistentSessionTest.MissingChecksumPayloadDoesNotAdvanceSession ...........................................................   Passed    0.00 sec
+        Start 138: PersistentSessionTest.CombinesOnlyMissingRangeFramesInTransferOrder
+148/467 Test #138: PersistentSessionTest.CombinesOnlyMissingRangeFramesInTransferOrder .........................................................   Passed    0.00 sec
+        Start 139: PersistentSessionTest.OversizedFrameRejectedBeforePayloadRead
+149/467 Test #139: PersistentSessionTest.OversizedFrameRejectedBeforePayloadRead ...............................................................   Passed    0.01 sec
+        Start 140: PersistentSessionTest.IdleReadTimesOutAndDisconnectedReadFails
+150/467 Test #140: PersistentSessionTest.IdleReadTimesOutAndDisconnectedReadFails ..............................................................   Passed    1.03 sec
+        Start 141: PersistentSessionTest.DisconnectRetainsOnlyCompletedCheckpointRanges
+151/467 Test #141: PersistentSessionTest.DisconnectRetainsOnlyCompletedCheckpointRanges ........................................................   Passed    0.00 sec
+        Start 142: PersistentSessionTest.InterruptedDownloadCheckpointIsAcceptedByV3Resume
+152/467 Test #142: PersistentSessionTest.InterruptedDownloadCheckpointIsAcceptedByV3Resume .....................................................   Passed    0.00 sec
+        Start 143: PersistentSessionTest.ScannerKeepsUserFilesAndExcludesOwnedCheckpointAndPartial
+153/467 Test #143: PersistentSessionTest.ScannerKeepsUserFilesAndExcludesOwnedCheckpointAndPartial .............................................   Passed    0.00 sec
+        Start 144: PersistentSessionTest.RejectsTraversingPathAndChangedFileIdentity
+154/467 Test #144: PersistentSessionTest.RejectsTraversingPathAndChangedFileIdentity ...........................................................   Passed    0.00 sec
+        Start 145: PersistentSessionTest.ReceiverDrainsFailedMiddleFileAndCommitsNext
+155/467 Test #145: PersistentSessionTest.ReceiverDrainsFailedMiddleFileAndCommitsNext ..........................................................   Passed    0.00 sec
+        Start 146: PersistentSessionTest.StableFileIdsMapToExactlyOneBoundedChannel
+156/467 Test #146: PersistentSessionTest.StableFileIdsMapToExactlyOneBoundedChannel ............................................................   Passed    0.00 sec
+        Start 147: PersistentSessionTest.ReceiverRejectsFileAssignedToAnotherChannel
+157/467 Test #147: PersistentSessionTest.ReceiverRejectsFileAssignedToAnotherChannel ...........................................................   Passed    0.00 sec
+        Start 148: PersistentSessionTest.DynamicAcceptsDescendingIdsButRejectsReplayAndStaleGeneration
+158/467 Test #148: PersistentSessionTest.DynamicAcceptsDescendingIdsButRejectsReplayAndStaleGeneration .........................................   Passed    0.00 sec
+        Start 149: PersistentSessionTest.CarriesRangeIdentityAndAcceptsOffsetRelativeData
+159/467 Test #149: PersistentSessionTest.CarriesRangeIdentityAndAcceptsOffsetRelativeData ......................................................   Passed    0.00 sec
+        Start 150: PersistentSessionTest.RangeAttemptMakesRetryIdentityDistinct
+160/467 Test #150: PersistentSessionTest.RangeAttemptMakesRetryIdentityDistinct ................................................................   Passed    0.00 sec
+        Start 151: PersistentSessionTest.SkipsAlreadyCompletedRangeWithoutPayload
+161/467 Test #151: PersistentSessionTest.SkipsAlreadyCompletedRangeWithoutPayload ..............................................................   Passed    0.00 sec
+        Start 152: PersistentSessionTest.SparseResumeRejectsWritingVerifiedBytesAndRequiresAllMissingBytes
+162/467 Test #152: PersistentSessionTest.SparseResumeRejectsWritingVerifiedBytesAndRequiresAllMissingBytes .....................................   Passed    0.00 sec
+        Start 153: PersistentSessionTest.LogicalLinkMatrixRangesPartitionSourceExactlyOnce
+163/467 Test #153: PersistentSessionTest.LogicalLinkMatrixRangesPartitionSourceExactlyOnce .....................................................   Passed    0.00 sec
+        Start 154: PersistentTreeRecoveryTest.DirectoryEndCountsFilesOnCurrentConnectionAfterReconnect
+164/467 Test #154: PersistentTreeRecoveryTest.DirectoryEndCountsFilesOnCurrentConnectionAfterReconnect .........................................   Passed    0.00 sec
+        Start 155: PersistentTreeRangeTest.LoopbackTransfersTwoRangesAndPublishesAfterFinalRange
+165/467 Test #155: PersistentTreeRangeTest.LoopbackTransfersTwoRangesAndPublishesAfterFinalRange ...............................................   Passed    0.01 sec
+        Start 156: PersistentTreeRangeTest.IncompleteCoverageCannotPublishDespiteMatchingRangeCount
+166/467 Test #156: PersistentTreeRangeTest.IncompleteCoverageCannotPublishDespiteMatchingRangeCount ............................................   Passed    0.00 sec
+        Start 157: PersistentTreeRangeTest.DisconnectReleasesTransactionAndResumeRechecksCorruptCheckpoint
+167/467 Test #157: PersistentTreeRangeTest.DisconnectReleasesTransactionAndResumeRechecksCorruptCheckpoint .....................................   Passed    0.00 sec
+        Start 158: PersistentTreeRangeTest.SeparateChannelsShareOneTransactionAndCommitFullCoverage
+168/467 Test #158: PersistentTreeRangeTest.SeparateChannelsShareOneTransactionAndCommitFullCoverage ............................................   Passed    0.01 sec
+        Start 159: PersistentTreeRangeTest.UnifiedPolicySupportsCompressionBufferedIoPreallocationAndAtomicOverwrite
+169/467 Test #159: PersistentTreeRangeTest.UnifiedPolicySupportsCompressionBufferedIoPreallocationAndAtomicOverwrite ...........................   Passed    0.01 sec
+        Start 160: PersistentTreeRangeTest.RangeResumeConsumesCurrentChunkManifestAndSendsOnlyMissingBytes
+170/467 Test #160: PersistentTreeRangeTest.RangeResumeConsumesCurrentChunkManifestAndSendsOnlyMissingBytes .....................................   Passed    0.01 sec
+        Start 161: PersistentTreeRangeTest.FramesCrossingChunkBoundariesKeepPerChunkChecksums
+171/467 Test #161: PersistentTreeRangeTest.FramesCrossingChunkBoundariesKeepPerChunkChecksums ..................................................   Passed    0.00 sec
+        Start 162: PersistentTreeRangeTest.BadDataChecksumNeverBecomesAResumeCheckpoint
+172/467 Test #162: PersistentTreeRangeTest.BadDataChecksumNeverBecomesAResumeCheckpoint ........................................................   Passed    0.00 sec
+        Start 163: PersistentTreeRangeTest.RejectsUnboundedDiagnosticDepthBeforeWritingAnyFrame
+173/467 Test #163: PersistentTreeRangeTest.RejectsUnboundedDiagnosticDepthBeforeWritingAnyFrame ................................................   Passed    0.00 sec
+        Start 164: PersistentTreeLeaseTest.ReopenedWorkerUsesCurrentEpochThroughActualSender
+174/467 Test #164: PersistentTreeLeaseTest.ReopenedWorkerUsesCurrentEpochThroughActualSender ...................................................   Passed    0.00 sec
+        Start 165: PersistentTreeLeaseTest.UnreadResultReconcilesCommittedManifestWithoutPayloadRetry
+175/467 Test #165: PersistentTreeLeaseTest.UnreadResultReconcilesCommittedManifestWithoutPayloadRetry ..........................................   Passed    0.00 sec
+        Start 166: PersistentDirectoryBatchTest.DetectsDataResetDuringPeerReadyWaitAndAllowsReattach
+176/467 Test #166: PersistentDirectoryBatchTest.DetectsDataResetDuringPeerReadyWaitAndAllowsReattach ...........................................   Passed    0.00 sec
+        Start 167: PersistentDirectoryBatchTest.ReattachesOnlyFailedChannelAndKeepsCommittedRanges
+177/467 Test #167: PersistentDirectoryBatchTest.ReattachesOnlyFailedChannelAndKeepsCommittedRanges .............................................   Passed    0.01 sec
+        Start 168: PersistentDirectoryBatchTest.HealthyLaneFinishesBeforeFailedLaneReattach
+178/467 Test #168: PersistentDirectoryBatchTest.HealthyLaneFinishesBeforeFailedLaneReattach ....................................................   Passed    0.00 sec
+        Start 169: PersistentDirectoryBatchTest.RejectsDuplicatePathsForeignAndStaleCompletions
+179/467 Test #169: PersistentDirectoryBatchTest.RejectsDuplicatePathsForeignAndStaleCompletions ................................................   Passed    0.01 sec
+        Start 170: PersistentDirectoryBatchTest.MissingParticipantTimesOutAndReleasesSockets
+180/467 Test #170: PersistentDirectoryBatchTest.MissingParticipantTimesOutAndReleasesSockets ...................................................   Passed    0.01 sec
+        Start 171: PersistentDirectoryBatchTest.TargetConflictStopsDataButAllowsTerminalControlReply
+181/467 Test #171: PersistentDirectoryBatchTest.TargetConflictStopsDataButAllowsTerminalControlReply ...........................................   Passed    0.00 sec
+        Start 172: PersistentDirectoryBatchTest.WholeBatchCompletionRequiresEveryFileAndChannel
+182/467 Test #172: PersistentDirectoryBatchTest.WholeBatchCompletionRequiresEveryFileAndChannel ................................................   Passed    0.01 sec
+        Start 173: PersistentDirectoryBatchTest.CompletedLaneMayDisconnectBeforeSiblingFinishes
+183/467 Test #173: PersistentDirectoryBatchTest.CompletedLaneMayDisconnectBeforeSiblingFinishes ................................................   Passed    0.08 sec
+        Start 174: PersistentDirectoryBatchTest.ActiveControlDisconnectReclaimsIdleDataSocket
+184/467 Test #174: PersistentDirectoryBatchTest.ActiveControlDisconnectReclaimsIdleDataSocket ..................................................   Passed    0.00 sec
+        Start 175: PersistentDirectoryBatchTest.OneFileRangesHaveIndependentChannelLeases
+185/467 Test #175: PersistentDirectoryBatchTest.OneFileRangesHaveIndependentChannelLeases ......................................................   Passed    0.00 sec
+        Start 176: PersistentDirectoryBatchTest.TenLanesCommitDistinctRangesAndFinishTogether
+186/467 Test #176: PersistentDirectoryBatchTest.TenLanesCommitDistinctRangesAndFinishTogether ..................................................   Passed    0.00 sec
+        Start 177: PersistentDirectoryBatchTest.RejectsZeroAndAboveTenLanes
+187/467 Test #177: PersistentDirectoryBatchTest.RejectsZeroAndAboveTenLanes ....................................................................   Passed    0.00 sec
+        Start 178: BoundedPayloadPipelineTest.BlocksAtByteBudgetAndWakesWhenConsumerPops
+188/467 Test #178: BoundedPayloadPipelineTest.BlocksAtByteBudgetAndWakesWhenConsumerPops .......................................................   Passed    0.05 sec
+        Start 179: BoundedPayloadPipelineTest.CancellationWakesProducerAndConsumerWithoutLeakingBytes
+189/467 Test #179: BoundedPayloadPipelineTest.CancellationWakesProducerAndConsumerWithoutLeakingBytes ..........................................   Passed    0.05 sec
+        Start 180: BoundedPayloadPipelineTest.CloseDrainsQueuedChunksAndThenReturnsEndOfStream
+190/467 Test #180: BoundedPayloadPipelineTest.CloseDrainsQueuedChunksAndThenReturnsEndOfStream .................................................   Passed    0.00 sec
+        Start 181: BoundedPayloadPipelineTest.MeasuresRealProducerAndConsumerWaitIncludingCancellation
+191/467 Test #181: BoundedPayloadPipelineTest.MeasuresRealProducerAndConsumerWaitIncludingCancellation .........................................   Passed    0.10 sec
+        Start 182: BoundedPayloadPipelineTest.DisabledObservationKeepsWaitCountersWithoutTiming
+192/467 Test #182: BoundedPayloadPipelineTest.DisabledObservationKeepsWaitCountersWithoutTiming ................................................   Passed    0.03 sec
+        Start 183: PersistentTreeResourceTest.ReleasesCommittedFileDescriptorsUnderDefaultLimit
+193/467 Test  #14: ChecksumTest.Crc32cCombine4GiBFrameCountBenchmark ...........................................................................   Passed    2.33 sec
+        Start 184: RangeCheckpointBatchTest.ThresholdAndIdleTimerCoverUploadAndDownload
+194/467 Test #184: RangeCheckpointBatchTest.ThresholdAndIdleTimerCoverUploadAndDownload ........................................................   Passed    0.21 sec
+        Start 185: RangeCheckpointBatchTest.DisconnectFlushesEvenWhileContextRemainsAlive
+195/467 Test #185: RangeCheckpointBatchTest.DisconnectFlushesEvenWhileContextRemainsAlive ......................................................   Passed    0.01 sec
+        Start 186: RangeCheckpointBatchTest.RangeResultForcesCheckpointBeforeSuccess
+196/467 Test #186: RangeCheckpointBatchTest.RangeResultForcesCheckpointBeforeSuccess ...........................................................   Passed    0.00 sec
+        Start 187: RangeCheckpointBatchTest.TimerSaveFailureStaysFailedAfterDiskPathIsRepaired
+197/467 Test #183: PersistentTreeResourceTest.ReleasesCommittedFileDescriptorsUnderDefaultLimit ................................................   Passed    0.95 sec
+        Start 188: RangeCheckpointBatchTest.ForcedFlushFailureCannotAcknowledgeRange
+198/467 Test #188: RangeCheckpointBatchTest.ForcedFlushFailureCannotAcknowledgeRange ...........................................................   Passed    0.00 sec
+        Start 189: RangeCheckpointBatchTest.RejectsInvalidBatchBeforeCreatingOutput
+199/467 Test #189: RangeCheckpointBatchTest.RejectsInvalidBatchBeforeCreatingOutput ............................................................   Passed    0.00 sec
+        Start 190: RangeCheckpointBatchTest.SigkillReplaysOnlyDiskVerifiedCoverageBothDirections
+200/467 Test #190: RangeCheckpointBatchTest.SigkillReplaysOnlyDiskVerifiedCoverageBothDirections ...............................................   Passed    0.02 sec
+        Start 191: DynamicFileQueueTest.RingWrapsAndIdleChannelClaimsBeyondOldShard
+201/467 Test #191: DynamicFileQueueTest.RingWrapsAndIdleChannelClaimsBeyondOldShard ............................................................   Passed    0.00 sec
+        Start 192: DynamicFileQueueTest.CompletionChecksAllIdentityFieldsAndChannelCredit
+202/467 Test #192: DynamicFileQueueTest.CompletionChecksAllIdentityFieldsAndChannelCredit ......................................................   Passed    0.00 sec
+        Start 193: DynamicFileQueueTest.SharedDispatchWindowBoundsOutstandingLeasesAndReleasesOnResult
+203/467 Test #193: DynamicFileQueueTest.SharedDispatchWindowBoundsOutstandingLeasesAndReleasesOnResult .........................................   Passed    0.00 sec
+        Start 194: DynamicFileQueueTest.CancellationInvalidatesOutstandingLease
+204/467 Test #194: DynamicFileQueueTest.CancellationInvalidatesOutstandingLease ................................................................   Passed    0.00 sec
+        Start 195: DynamicFileQueueTest.ConcurrentClaimsAreUniqueAndCancellationStopsAllClaims
+205/467 Test #195: DynamicFileQueueTest.ConcurrentClaimsAreUniqueAndCancellationStopsAllClaims .................................................   Passed    0.01 sec
+        Start 196: DynamicFileQueueTest.RejectsInvalidBoundsAndDuplicateSourceMetadata
+206/467 Test #196: DynamicFileQueueTest.RejectsInvalidBoundsAndDuplicateSourceMetadata .........................................................   Passed    0.00 sec
+        Start 197: DynamicFileQueueTest.RangesMustShareBaseIdentityAndPartitionOneFile
+207/467 Test #197: DynamicFileQueueTest.RangesMustShareBaseIdentityAndPartitionOneFile .........................................................   Passed    0.00 sec
+        Start 198: DynamicFileQueueTest.RangeAffinityAssignsDistinctLaneIds
+208/467 Test #198: DynamicFileQueueTest.RangeAffinityAssignsDistinctLaneIds ....................................................................   Passed    0.00 sec
+        Start 199: DynamicFileQueueTest.GlobalSchedulerSelectsHealthyLogicalLaneAndPublishesRecovery
+209/467 Test #199: DynamicFileQueueTest.GlobalSchedulerSelectsHealthyLogicalLaneAndPublishesRecovery ...........................................   Passed    0.00 sec
+        Start 200: DynamicFileQueueTest.GlobalSchedulerTracksLeaseLoadAndChoosesIdleLane
+210/467 Test #200: DynamicFileQueueTest.GlobalSchedulerTracksLeaseLoadAndChoosesIdleLane .......................................................   Passed    0.00 sec
+        Start 201: DynamicFileQueueTest.DisconnectedLaneRetriesUnfinishedWorkOnHealthyLane
+211/467 Test #201: DynamicFileQueueTest.DisconnectedLaneRetriesUnfinishedWorkOnHealthyLane .....................................................   Passed    0.00 sec
+        Start 202: DynamicFileQueueTest.GlobalSchedulerCancellationReleasesLinkSetLeaseLoad
+212/467 Test #202: DynamicFileQueueTest.GlobalSchedulerCancellationReleasesLinkSetLeaseLoad ....................................................   Passed    0.00 sec
+        Start 203: DynamicFileQueueTest.RangeAffinityWaitsForUnadmittedWorkInsteadOfEndingLane
+213/467 Test #203: DynamicFileQueueTest.RangeAffinityWaitsForUnadmittedWorkInsteadOfEndingLane .................................................   Passed    0.05 sec
+        Start 204: DynamicFileQueueTest.RangeAffinityAdmissionWaitHonorsCancellationAndTimeout
+214/467 Test #187: RangeCheckpointBatchTest.TimerSaveFailureStaysFailedAfterDiskPathIsRepaired .................................................   Passed    0.60 sec
+        Start 205: WorkExecutionAdapterTest.BindsPlannerProjectionToFullV3Identity
+215/467 Test #205: WorkExecutionAdapterTest.BindsPlannerProjectionToFullV3Identity .............................................................   Passed    0.00 sec
+        Start 206: WorkExecutionAdapterTest.RejectsMalformedFullIdentityAndIncompleteRangePartition
+216/467 Test #206: WorkExecutionAdapterTest.RejectsMalformedFullIdentityAndIncompleteRangePartition ............................................   Passed    0.00 sec
+        Start 207: WorkExecutionAdapterTest.PreservesGlobalSchedulerPlanOrderInTheSharedQueue
+217/467 Test #207: WorkExecutionAdapterTest.PreservesGlobalSchedulerPlanOrderInTheSharedQueue ..................................................   Passed    0.00 sec
+        Start 208: WorkExecutionAdapterTest.IncomingLeaseUsesSchedulerIdentityAndEpoch
+218/467 Test #208: WorkExecutionAdapterTest.IncomingLeaseUsesSchedulerIdentityAndEpoch .........................................................   Passed    0.00 sec
+        Start 209: WorkExecutionAdapterTest.GlobalSchedulerUsesQueueLeaseOwnerAndEpoch
+219/467 Test #209: WorkExecutionAdapterTest.GlobalSchedulerUsesQueueLeaseOwnerAndEpoch .........................................................   Passed    0.00 sec
+        Start 210: WorkLeaseEdgeTest.RejectsInvalidWorkerTimeoutAndDeadlineOverflow
+220/467 Test #210: WorkLeaseEdgeTest.RejectsInvalidWorkerTimeoutAndDeadlineOverflow ............................................................   Passed    0.00 sec
+        Start 211: WorkLeaseEdgeTest.IoUnderflowOverflowAndResultRejectionPreserveLease
+221/467 Test #211: WorkLeaseEdgeTest.IoUnderflowOverflowAndResultRejectionPreserveLease ........................................................   Passed    0.00 sec
+        Start 212: WorkLeaseEdgeTest.SuccessfulIoRenewsIdleDeadlineWithoutRevivingExpiredWork
+222/467 Test #212: WorkLeaseEdgeTest.SuccessfulIoRenewsIdleDeadlineWithoutRevivingExpiredWork ..................................................   Passed    0.00 sec
+        Start 213: WorkLeaseEdgeTest.TcpResetMakesOnlyUncommittedLeaseReclaimable
+223/467 Test #213: WorkLeaseEdgeTest.TcpResetMakesOnlyUncommittedLeaseReclaimable ..............................................................   Passed    0.00 sec
+        Start 214: WorkLeaseEdgeTest.ForeignQueueCannotReuseHandleForIdenticalWork
+224/467 Test #214: WorkLeaseEdgeTest.ForeignQueueCannotReuseHandleForIdenticalWork .............................................................   Passed    0.00 sec
+        Start 215: WorkExecutorTest.FinalizeSharesSuccessAndFailureLeaseTransitions
+225/467 Test #215: WorkExecutorTest.FinalizeSharesSuccessAndFailureLeaseTransitions ............................................................   Passed    0.00 sec
+        Start 216: WorkExecutorTest.TerminalFailureReleasesCreditAndAllowsNextFile
+226/467 Test #216: WorkExecutorTest.TerminalFailureReleasesCreditAndAllowsNextFile .............................................................   Passed    0.00 sec
+        Start 217: WorkExecutorTest.StaticAffinityKeepsPersistentChannelOwnership
+227/467 Test #217: WorkExecutorTest.StaticAffinityKeepsPersistentChannelOwnership ..............................................................   Passed    0.00 sec
+        Start 218: WorkExecutorTest.StaticAffinityPreservesPerChannelFileOrderAcrossInterleaving
+228/467 Test #218: WorkExecutorTest.StaticAffinityPreservesPerChannelFileOrderAcrossInterleaving ...............................................   Passed    0.00 sec
+        Start 219: WorkExecutorTest.StaticIncomingLeaseRejectsWrongChannel
+229/467 Test #219: WorkExecutorTest.StaticIncomingLeaseRejectsWrongChannel .....................................................................   Passed    0.00 sec
+        Start 220: WorkExecutorTest.StopClaimsKeepsActiveLeaseUntilWorkerQuiesces
+230/467 Test #220: WorkExecutorTest.StopClaimsKeepsActiveLeaseUntilWorkerQuiesces ..............................................................   Passed    0.00 sec
+        Start 221: WorkExecutorTest.RejectsAnotherWorkersValidLeaseAtEveryBoundary
+231/467 Test #221: WorkExecutorTest.RejectsAnotherWorkersValidLeaseAtEveryBoundary .............................................................   Passed    0.00 sec
+        Start 222: WorkExecutorTest.RecoveredExecutorClaimsNewEpochAndRejectsOldHandles
+232/467 Test #222: WorkExecutorTest.RecoveredExecutorClaimsNewEpochAndRejectsOldHandles ........................................................   Passed    0.00 sec
+        Start 223: WorkRecoveryTest.ReconcilesOnlyMissingActiveWorkAndAdvancesEpochAndAttempt
+233/467 Test #223: WorkRecoveryTest.ReconcilesOnlyMissingActiveWorkAndAdvancesEpochAndAttempt ..................................................   Passed    0.00 sec
+        Start 224: WorkRecoveryTest.RejectsRetryBeyondBoundWithoutMutatingQueue
+234/467 Test #224: WorkRecoveryTest.RejectsRetryBeyondBoundWithoutMutatingQueue ................................................................   Passed    0.00 sec
+        Start 225: WorkRecoveryTest.RejectsAlteredFullIdentityAndForeignWorkerBeforeMutation
+235/467 Test #225: WorkRecoveryTest.RejectsAlteredFullIdentityAndForeignWorkerBeforeMutation ...................................................   Passed    0.00 sec
+        Start 226: WorkRecoveryTest.RequiresCompleteUniqueLedgerAndConfirmedTeardown
+236/467 Test #226: WorkRecoveryTest.RequiresCompleteUniqueLedgerAndConfirmedTeardown ...........................................................   Passed    0.00 sec
+        Start 227: WorkRecoveryTest.ZeroRetryBudgetAllowsConfirmedCommitButNeverMissingWork
+237/467 Test #227: WorkRecoveryTest.ZeroRetryBudgetAllowsConfirmedCommitButNeverMissingWork ....................................................   Passed    0.00 sec
+        Start 228: WorkRecoveryTest.EpochExhaustionAndCancellationLeaveRecoveryUnavailable
+238/467 Test #228: WorkRecoveryTest.EpochExhaustionAndCancellationLeaveRecoveryUnavailable .....................................................   Passed    0.00 sec
+        Start 229: WorkRecoveryTest.SchedulerAccountingTracksReconciliationAndMissingRetries
+239/467 Test #229: WorkRecoveryTest.SchedulerAccountingTracksReconciliationAndMissingRetries ...................................................   Passed    0.00 sec
+        Start 230: HotPathCompressionTest.DirectRetrCompressedDataRoundTripsThroughReceiver
+240/467 Test #230: HotPathCompressionTest.DirectRetrCompressedDataRoundTripsThroughReceiver ....................................................   Passed    0.03 sec
+        Start 231: HotPathCompressionTest.CorruptCompressedStorResumesWithRawPayload
+241/467 Test #204: DynamicFileQueueTest.RangeAffinityAdmissionWaitHonorsCancellationAndTimeout .................................................   Passed    0.12 sec
+        Start 232: HotPathCompressionTest.CompressionFailureFallsBackToRawData
+242/467 Test #232: HotPathCompressionTest.CompressionFailureFallsBackToRawData .................................................................   Passed    0.03 sec
+        Start 233: ManifestStoreTest.SavesAndLoadsManifestAtomically
+243/467 Test #233: ManifestStoreTest.SavesAndLoadsManifestAtomically ...........................................................................   Passed    0.00 sec
+        Start 234: ManifestStoreTest.RejectsMissingManifest
+244/467 Test #234: ManifestStoreTest.RejectsMissingManifest ....................................................................................   Passed    0.00 sec
+        Start 235: ManifestStoreTest.ObservesActualBytesAndFailedRenameForBothFormats
+245/467 Test #235: ManifestStoreTest.ObservesActualBytesAndFailedRenameForBothFormats ..........................................................   Passed    0.00 sec
+        Start 236: PosixFileTest.ReadsAndWritesAtOffsets
+246/467 Test #236: PosixFileTest.ReadsAndWritesAtOffsets .......................................................................................   Passed    0.00 sec
+        Start 237: PosixFileTest.ReportsUnexpectedEof
+247/467 Test #237: PosixFileTest.ReportsUnexpectedEof ..........................................................................................   Passed    0.00 sec
+        Start 238: PosixFileTest.SupportsExclusiveCreateRenameAndRemove
+248/467 Test #238: PosixFileTest.SupportsExclusiveCreateRenameAndRemove ........................................................................   Passed    0.00 sec
+        Start 239: PosixFileTest.OpensExistingFileForWriteOnlyResume
+249/467 Test #239: PosixFileTest.OpensExistingFileForWriteOnlyResume ...........................................................................   Passed    0.00 sec
+        Start 240: PosixFileTest.OpensExistingFileForReadWriteResume
+250/467 Test #240: PosixFileTest.OpensExistingFileForReadWriteResume ...........................................................................   Passed    0.00 sec
+        Start 241: PosixFileTest.PreallocatesFileSpace
+251/467 Test #241: PosixFileTest.PreallocatesFileSpace .........................................................................................   Passed    0.00 sec
+        Start 242: RangeListTest.InsertsAdjacentRangesAndReportsMissingGaps
+252/467 Test #231: HotPathCompressionTest.CorruptCompressedStorResumesWithRawPayload ...........................................................   Passed    0.06 sec
+        Start 243: RangeListTest.RejectsDuplicateAndOverlapOnStrictInsert
+253/467 Test #242: RangeListTest.InsertsAdjacentRangesAndReportsMissingGaps ....................................................................   Passed    0.00 sec
+        Start 244: RangeListTest.MergesOutOfOrderOverlapAndAdjacentRanges
+254/467 Test #243: RangeListTest.RejectsDuplicateAndOverlapOnStrictInsert ......................................................................   Passed    0.00 sec
+        Start 245: RangeListTest.RejectsInvalidRanges
+255/467 Test #244: RangeListTest.MergesOutOfOrderOverlapAndAdjacentRanges ......................................................................   Passed    0.00 sec
+        Start 246: RangeListTest.HandlesEmptyTotalSize
+256/467 Test #245: RangeListTest.RejectsInvalidRanges ..........................................................................................   Passed    0.00 sec
+        Start 247: SchedulerCompressionAdvisorTest.FallsBackToRawWhenSamplingUnavailable
+257/467 Test #246: RangeListTest.HandlesEmptyTotalSize .........................................................................................   Passed    0.00 sec
+        Start 248: SchedulerCompressionAdvisorTest.DetectsCompressionCandidateFromSample
+258/467 Test #247: SchedulerCompressionAdvisorTest.FallsBackToRawWhenSamplingUnavailable .......................................................   Passed    0.00 sec
+        Start 249: SchedulerFeedbackControllerTest.FixedPolicyDoesNotChangeTarget
+259/467 Test #248: SchedulerCompressionAdvisorTest.DetectsCompressionCandidateFromSample .......................................................   Passed    0.01 sec
+        Start 250: SchedulerFeedbackControllerTest.QueueLowRampsUpAdaptivePolicy
+260/467 Test #249: SchedulerFeedbackControllerTest.FixedPolicyDoesNotChangeTarget ..............................................................   Passed    0.01 sec
+        Start 251: SchedulerFeedbackControllerTest.QueueHighRampsDownAdaptivePolicy
+261/467 Test #250: SchedulerFeedbackControllerTest.QueueLowRampsUpAdaptivePolicy ...............................................................   Passed    0.00 sec
+        Start 252: SchedulerFeedbackControllerTest.PressureRampsDownAdaptivePolicy
+262/467 Test #251: SchedulerFeedbackControllerTest.QueueHighRampsDownAdaptivePolicy ............................................................   Passed    0.00 sec
+        Start 253: SchedulerFeedbackControllerTest.AdaptivePolicyUsesLowWatermarkHysteresis
+263/467 Test #252: SchedulerFeedbackControllerTest.PressureRampsDownAdaptivePolicy .............................................................   Passed    0.00 sec
+        Start 254: SchedulerLinkManagerTest.TracksQueueAndInflightState
+264/467 Test #253: SchedulerFeedbackControllerTest.AdaptivePolicyUsesLowWatermarkHysteresis ....................................................   Passed    0.00 sec
+        Start 255: SchedulerLinkManagerTest.RejectsDuplicateLinkIds
+265/467 Test #254: SchedulerLinkManagerTest.TracksQueueAndInflightState ........................................................................   Passed    0.00 sec
+        Start 256: SchedulerLinkSetTest.BuildsSupportedLinkCounts
+266/467 Test #255: SchedulerLinkManagerTest.RejectsDuplicateLinkIds ............................................................................   Passed    0.00 sec
+        Start 257: SchedulerLinkSetTest.RejectsInvalidIdentityAndEndpoint
+267/467 Test #256: SchedulerLinkSetTest.BuildsSupportedLinkCounts ..............................................................................   Passed    0.00 sec
+        Start 258: SchedulerLinkSetTest.AdvertisesAndDecodesStableCapabilitySummary
+268/467 Test #257: SchedulerLinkSetTest.RejectsInvalidIdentityAndEndpoint ......................................................................   Passed    0.00 sec
+        Start 259: SchedulerLinkSetTest.EncodesControlFieldsForOptionalV2Negotiation
+269/467 Test #258: SchedulerLinkSetTest.AdvertisesAndDecodesStableCapabilitySummary ............................................................   Passed    0.00 sec
+        Start 260: SchedulerLinkSetTest.RejectsMalformedControlFields
+270/467 Test #259: SchedulerLinkSetTest.EncodesControlFieldsForOptionalV2Negotiation ...........................................................   Passed    0.00 sec
+        Start 261: SchedulerLinkSetTest.RejectsMalformedCapabilityAdvertisement
+271/467 Test #260: SchedulerLinkSetTest.RejectsMalformedControlFields ..........................................................................   Passed    0.00 sec
+        Start 262: SchedulerLinkSetTest.NegotiatesPeerBoundsExplicitly
+272/467 Test #261: SchedulerLinkSetTest.RejectsMalformedCapabilityAdvertisement ................................................................   Passed    0.00 sec
+        Start 263: SchedulerLinkSetTest.ChoosesLeastLoadedHealthyLinkDeterministically
+273/467 Test #262: SchedulerLinkSetTest.NegotiatesPeerBoundsExplicitly .........................................................................   Passed    0.00 sec
+        Start 264: SchedulerLinkSetTest.UsesRangeAffinityToBreakEqualLoadTies
+274/467 Test #263: SchedulerLinkSetTest.ChoosesLeastLoadedHealthyLinkDeterministically .........................................................   Passed    0.00 sec
+        Start 265: SchedulerLinkSetTest.ReservesAndReleasesBytesExactlyOnce
+275/467 Test #264: SchedulerLinkSetTest.UsesRangeAffinityToBreakEqualLoadTies ..................................................................   Passed    0.00 sec
+        Start 266: SchedulerLinkSetTest.GlobalSchedulerExposesSingleLinkCompatibilityView
+276/467 Test #265: SchedulerLinkSetTest.ReservesAndReleasesBytesExactlyOnce ....................................................................   Passed    0.00 sec
+        Start 267: SchedulerLinkSetTest.GlobalSchedulerBuildsLogicalLinkSet
+277/467 Test #266: SchedulerLinkSetTest.GlobalSchedulerExposesSingleLinkCompatibilityView ......................................................   Passed    0.00 sec
+        Start 268: SchedulerMetricsWriterTest.WritesHeadersAndRecords
+278/467 Test #267: SchedulerLinkSetTest.GlobalSchedulerBuildsLogicalLinkSet ....................................................................   Passed    0.00 sec
+        Start 269: SchedulerTaskQueueTest.WeightedRoundRobinKeepsTaskOrder
+279/467 Test #268: SchedulerMetricsWriterTest.WritesHeadersAndRecords ..........................................................................   Passed    0.00 sec
+        Start 270: SchedulerWorkItemTest.PlansLargeFileIntoRangeWorkItems
+280/467 Test #269: SchedulerTaskQueueTest.WeightedRoundRobinKeepsTaskOrder .....................................................................   Passed    0.00 sec
+        Start 271: SchedulerWorkItemTest.PlansManifestAndSkipsCompletedFiles
+281/467 Test #270: SchedulerWorkItemTest.PlansLargeFileIntoRangeWorkItems ......................................................................   Passed    0.00 sec
+        Start 272: SinkOptionsTest.AppliesServerDefaults
+282/467 Test #271: SchedulerWorkItemTest.PlansManifestAndSkipsCompletedFiles ...................................................................   Passed    0.00 sec
+        Start 273: SinkOptionsTest.AppliesClientDefaults
+283/467 Test #272: SinkOptionsTest.AppliesServerDefaults .......................................................................................   Passed    0.00 sec
+        Start 274: SinkOptionsTest.ParsesAllOptions
+284/467 Test #273: SinkOptionsTest.AppliesClientDefaults .......................................................................................   Passed    0.00 sec
+        Start 275: SinkOptionsTest.RejectsMissingBytes
+285/467 Test #274: SinkOptionsTest.ParsesAllOptions ............................................................................................   Passed    0.00 sec
+        Start 276: SinkOptionsTest.RejectsInvalidPort
+286/467 Test #275: SinkOptionsTest.RejectsMissingBytes .........................................................................................   Passed    0.00 sec
+        Start 277: SinkOptionsTest.RejectsInvalidConnections
+287/467 Test #276: SinkOptionsTest.RejectsInvalidPort ..........................................................................................   Passed    0.00 sec
+        Start 278: SinkOptionsTest.RejectsInvalidBufferSize
+288/467 Test #278: SinkOptionsTest.RejectsInvalidBufferSize ....................................................................................   Passed    0.00 sec
+        Start 279: SinkOptionsTest.RejectsUnknownOption
+289/467 Test #277: SinkOptionsTest.RejectsInvalidConnections ...................................................................................   Passed    0.01 sec
+        Start 280: SocketBindTest.PeerObservesSelectedLocalSourceAddress
+290/467 Test #279: SinkOptionsTest.RejectsUnknownOption ........................................................................................   Passed    0.00 sec
+        Start 281: SocketBindTest.InvalidOrUnavailableSourceAddressDoesNotConnect
+291/467 Test #280: SocketBindTest.PeerObservesSelectedLocalSourceAddress .......................................................................   Passed    0.00 sec
+        Start 282: ThroughputCounterTest.ComputesRatesWithProvidedClock
+292/467 Test #281: SocketBindTest.InvalidOrUnavailableSourceAddressDoesNotConnect ..............................................................   Passed    0.00 sec
+        Start 283: ThroughputCounterTest.HandlesZeroElapsedTime
+293/467 Test #282: ThroughputCounterTest.ComputesRatesWithProvidedClock ........................................................................   Passed    0.00 sec
+        Start 284: TransferManifestTest.ValidatesTransferId
+294/467 Test #283: ThroughputCounterTest.HandlesZeroElapsedTime ................................................................................   Passed    0.00 sec
+        Start 285: TransferManifestTest.BuildsManifestAndTempPaths
+295/467 Test #285: TransferManifestTest.BuildsManifestAndTempPaths .............................................................................   Passed    0.00 sec
+        Start 286: TransferManifestTest.SerializesAndParsesStableTextFormat
+296/467 Test #284: TransferManifestTest.ValidatesTransferId ....................................................................................   Passed    0.00 sec
+        Start 287: TransferManifestTest.RejectsCorruptManifest
+297/467 Test #286: TransferManifestTest.SerializesAndParsesStableTextFormat ....................................................................   Passed    0.00 sec
+        Start 288: TransferManifestTest.RejectsModifiedBodyChecksum
+298/467 Test #287: TransferManifestTest.RejectsCorruptManifest .................................................................................   Passed    0.00 sec
+        Start 289: TransferManifestTest.RejectsPreV3ManifestSchema
+299/467 Test #288: TransferManifestTest.RejectsModifiedBodyChecksum ............................................................................   Passed    0.00 sec
+        Start 290: TransferSessionTest.CreatesManifestAndComputesMissingRanges
+300/467 Test #289: TransferManifestTest.RejectsPreV3ManifestSchema .............................................................................   Passed    0.00 sec
+        Start 291: TransferSessionTest.ResumesFromManifestAndRejectsOverlapRange
+301/467 Test #290: TransferSessionTest.CreatesManifestAndComputesMissingRanges .................................................................   Passed    0.00 sec
+        Start 292: TransferSessionTest.RejectsSizeMismatchOnResume
+302/467 Test #291: TransferSessionTest.ResumesFromManifestAndRejectsOverlapRange ...............................................................   Passed    0.00 sec
+        Start 293: TransferSessionTest.FlushesManifestAfterConfiguredVerifiedChunkInterval
+303/467 Test #292: TransferSessionTest.RejectsSizeMismatchOnResume .............................................................................   Passed    0.00 sec
+        Start 294: TransferSessionTest.FinalOnlyManifestFlushDefersUntilForcedFlush
+304/467 Test #293: TransferSessionTest.FlushesManifestAfterConfiguredVerifiedChunkInterval .....................................................   Passed    0.00 sec
+        Start 295: TransferSessionTest.FailureAndCommitForceManifestFlush
+305/467 Test #294: TransferSessionTest.FinalOnlyManifestFlushDefersUntilForcedFlush ............................................................   Passed    0.00 sec
+        Start 296: TransferSessionTest.VerifiesTempChunksAndMarksCorruptChunkMissing
+306/467 Test #295: TransferSessionTest.FailureAndCommitForceManifestFlush ......................................................................   Passed    0.00 sec
+        Start 297: TransferSessionTest.RejectsChecksumMismatchForDuplicateChunk
+307/467 Test #296: TransferSessionTest.VerifiesTempChunksAndMarksCorruptChunkMissing ...........................................................   Passed    0.00 sec
+        Start 298: TransferSessionTest.FinalVerifyPolicyEligibilityIsStrict
+308/467 Test #297: TransferSessionTest.RejectsChecksumMismatchForDuplicateChunk ................................................................   Passed    0.00 sec
+        Start 299: TransferProgressTest.TracksCompleteRanges
+309/467 Test #298: TransferSessionTest.FinalVerifyPolicyEligibilityIsStrict ....................................................................   Passed    0.00 sec
+        Start 300: TransferProgressTest.HandlesTailRange
+310/467 Test #299: TransferProgressTest.TracksCompleteRanges ...................................................................................   Passed    0.00 sec
+        Start 301: TransferProgressTest.RejectsDuplicateRange
+311/467 Test #300: TransferProgressTest.HandlesTailRange .......................................................................................   Passed    0.00 sec
+        Start 302: TransferProgressTest.RejectsOverlappingRange
+312/467 Test #301: TransferProgressTest.RejectsDuplicateRange ..................................................................................   Passed    0.00 sec
+        Start 303: TransferProgressTest.RejectsOutOfBoundsRange
+313/467 Test #302: TransferProgressTest.RejectsOverlappingRange ................................................................................   Passed    0.00 sec
+        Start 304: TransferProgressTest.RejectsZeroLengthDataRange
+314/467 Test #303: TransferProgressTest.RejectsOutOfBoundsRange ................................................................................   Passed    0.00 sec
+        Start 305: TransferProgressTest.DetectsMissingRangeAtFinish
+315/467 Test #304: TransferProgressTest.RejectsZeroLengthDataRange .............................................................................   Passed    0.00 sec
+        Start 306: TransferProgressTest.HandlesEmptyTransfer
+316/467 Test #305: TransferProgressTest.DetectsMissingRangeAtFinish ............................................................................   Passed    0.00 sec
+        Start 307: TreeManifestTest.BuildsManifestPaths
+317/467 Test #306: TransferProgressTest.HandlesEmptyTransfer ...................................................................................   Passed    0.00 sec
+        Start 308: TreeManifestTest.SerializesAndParsesRoundtrip
+318/467 Test #308: TreeManifestTest.SerializesAndParsesRoundtrip ...............................................................................   Passed    0.00 sec
+        Start 309: TreeManifestTest.RejectsCorruptBodyChecksum
+319/467 Test #307: TreeManifestTest.BuildsManifestPaths ........................................................................................   Passed    0.01 sec
+        Start 310: TreeManifestTest.SavesAndLoadsAtomicManifest
+320/467 Test #309: TreeManifestTest.RejectsCorruptBodyChecksum .................................................................................   Passed    0.00 sec
+        Start 311: TreeManifestTest.DetectsCompleteManifest
+321/467 Test #310: TreeManifestTest.SavesAndLoadsAtomicManifest ................................................................................   Passed    0.00 sec
+        Start 312: TreeManifestWriterTest.EventThresholdCoalescesChangesAndFinalBarrierPersistsLatest
+322/467 Test #311: TreeManifestTest.DetectsCompleteManifest ....................................................................................   Passed    0.00 sec
+        Start 313: TreeManifestWriterTest.TimerPersistsBelowThresholdWithoutFinish
+323/467 Test #312: TreeManifestWriterTest.EventThresholdCoalescesChangesAndFinalBarrierPersistsLatest ..........................................   Passed    0.00 sec
+        Start 314: TreeManifestWriterTest.EventThresholdPersistsWithoutWaitingForTimerOrFinish
+324/467 Test #314: TreeManifestWriterTest.EventThresholdPersistsWithoutWaitingForTimerOrFinish .................................................   Passed    0.00 sec
+        Start 315: TreeManifestWriterTest.SlowSaveDoesNotHoldStateLockAndCannotOverwriteNewerGeneration
+325/467 Test #313: TreeManifestWriterTest.TimerPersistsBelowThresholdWithoutFinish .............................................................   Passed    0.02 sec
+        Start 316: TreeManifestWriterTest.ConcurrentProducersKeepLatestStateAndSingleSaveOrder
+326/467 Test #316: TreeManifestWriterTest.ConcurrentProducersKeepLatestStateAndSingleSaveOrder .................................................   Passed    0.00 sec
+        Start 317: TreeManifestWriterTest.SaveFailureRemainsVisibleAtFinalBarrier
+327/467 Test #315: TreeManifestWriterTest.SlowSaveDoesNotHoldStateLockAndCannotOverwriteNewerGeneration ........................................   Passed    0.02 sec
+        Start 318: TreeManifestWriterTest.DestructorFlushesOutstandingState
+328/467 Test #317: TreeManifestWriterTest.SaveFailureRemainsVisibleAtFinalBarrier ..............................................................   Passed    0.00 sec
+        Start 319: TreeScanTest.ScansRegularFilesInStableOrder
+329/467 Test #318: TreeManifestWriterTest.DestructorFlushesOutstandingState ....................................................................   Passed    0.00 sec
+        Start 320: TreeScanTest.ValidatesTreeRelativePath
+330/467 Test #319: TreeScanTest.ScansRegularFilesInStableOrder .................................................................................   Passed    0.01 sec
+        Start 321: TreeScanTest.ExcludesValidatedSidecarsAndKeepsUserFiles
+331/467 Test #320: TreeScanTest.ValidatesTreeRelativePath ......................................................................................   Passed    0.00 sec
+        Start 322: TreeScanTest.RejectsSymlinkByDefault
+332/467 Test #321: TreeScanTest.ExcludesValidatedSidecarsAndKeepsUserFiles .....................................................................   Passed    0.00 sec
+        Start 323: TreeTransferOptionsTest.AuthProbeDoesNotRequireTransferRoots
+333/467 Test #322: TreeScanTest.RejectsSymlinkByDefault ........................................................................................   Passed    0.01 sec
+        Start 324: TreeTransferOptionsTest.ParsesTlsServerName
+334/467 Test #323: TreeTransferOptionsTest.AuthProbeDoesNotRequireTransferRoots ................................................................   Passed    0.00 sec
+        Start 325: TreeTransferOptionsTest.ParsesUploadOptions
+335/467 Test #324: TreeTransferOptionsTest.ParsesTlsServerName .................................................................................   Passed    0.00 sec
+        Start 326: TreeTransferOptionsTest.AllowsConcurrentWorkersForDepthOnePipeline
+336/467 Test #325: TreeTransferOptionsTest.ParsesUploadOptions .................................................................................   Passed    0.00 sec
+        Start 327: TreeTransferOptionsTest.ExplicitPersistentTreePipelineUsesSharedDispatchWindow
+337/467 Test #326: TreeTransferOptionsTest.AllowsConcurrentWorkersForDepthOnePipeline ..........................................................   Passed    0.00 sec
+        Start 328: TreeTransferOptionsTest.PersistentPipelineRequiresDynamicQueueScheduling
+338/467 Test #327: TreeTransferOptionsTest.ExplicitPersistentTreePipelineUsesSharedDispatchWindow ..............................................   Passed    0.01 sec
+        Start 329: TreeTransferOptionsTest.DefaultsControlReuseOff
+339/467 Test #328: TreeTransferOptionsTest.PersistentPipelineRequiresDynamicQueueScheduling ....................................................   Passed    0.00 sec
+        Start 330: TreeTransferOptionsTest.ParsesPhaseTimingFlagAndDefaultsOff
+340/467 Test #329: TreeTransferOptionsTest.DefaultsControlReuseOff .............................................................................   Passed    0.00 sec
+        Start 331: TreeTransferOptionsTest.ParsesBoundedDataPendingWindow
+341/467 Test #330: TreeTransferOptionsTest.ParsesPhaseTimingFlagAndDefaultsOff .................................................................   Passed    0.00 sec
+        Start 332: TreeTransferOptionsTest.BoundsPersistentChannelCount
+342/467 Test #331: TreeTransferOptionsTest.ParsesBoundedDataPendingWindow ......................................................................   Passed    0.00 sec
+        Start 333: TreeTransferOptionsTest.ParsesControlPipelineDepthAndRejectsInvalidCombinations
+343/467 Test #332: TreeTransferOptionsTest.BoundsPersistentChannelCount ........................................................................   Passed    0.00 sec
+        Start 334: TreeTransferOptionsTest.ParsesTlsClientOptions
+344/467 Test #333: TreeTransferOptionsTest.ParsesControlPipelineDepthAndRejectsInvalidCombinations .............................................   Passed    0.00 sec
+        Start 335: TreeTransferOptionsTest.ParsesTokenAuthOptions
+345/467 Test #334: TreeTransferOptionsTest.ParsesTlsClientOptions ..............................................................................   Passed    0.00 sec
+        Start 336: TreeTransferOptionsTest.ParsesDownloadOptionsAndCreatesDestination
+346/467 Test #335: TreeTransferOptionsTest.ParsesTokenAuthOptions ..............................................................................   Passed    0.00 sec
+        Start 337: TreeTransferOptionsTest.RejectsInvalidOptions
+347/467 Test #336: TreeTransferOptionsTest.ParsesDownloadOptionsAndCreatesDestination ..........................................................   Passed    0.00 sec
+        Start 338: TreeTransferOptionsTest.RejectsSchedulerMetricsInsideLocalRoot
+348/467 Test #337: TreeTransferOptionsTest.RejectsInvalidOptions ...............................................................................   Passed    0.00 sec
+        Start 339: TreeTransferOptionsTest.AllowsPersistentDataWithSharedPipelineDispatch
+349/467 Test #338: TreeTransferOptionsTest.RejectsSchedulerMetricsInsideLocalRoot ..............................................................   Passed    0.00 sec
+        Start 340: TreeTransferOptionsTest.DefaultsToV3PersistentDynamicDispatch
+350/467 Test #339: TreeTransferOptionsTest.AllowsPersistentDataWithSharedPipelineDispatch ......................................................   Passed    0.01 sec
+        Start 341: TreeTransferOptionsTest.LegacyReuseOffInputMapsToV3PersistentExecutor
+351/467 Test #340: TreeTransferOptionsTest.DefaultsToV3PersistentDynamicDispatch ...............................................................   Passed    0.00 sec
+        Start 342: TreeTransferOptionsTest.RejectsLegacyPerFileMaxFilesLimit
+352/467 Test #341: TreeTransferOptionsTest.LegacyReuseOffInputMapsToV3PersistentExecutor .......................................................   Passed    0.00 sec
+        Start 343: TreeTransferOptionsTest.DefaultsPersistentDataPendingWindowToTwo
+353/467 Test #342: TreeTransferOptionsTest.RejectsLegacyPerFileMaxFilesLimit ...................................................................   Passed    0.01 sec
+        Start 344: TreeTransferOptionsTest.AcceptsDynamicFileSchedulingForPersistentTree
+354/467 Test #343: TreeTransferOptionsTest.DefaultsPersistentDataPendingWindowToTwo ............................................................   Passed    0.00 sec
+        Start 345: TreeTransferOptionsTest.AllowsGlobalSchedulerWithPersistentSharedDispatch
+355/467 Test #344: TreeTransferOptionsTest.AcceptsDynamicFileSchedulingForPersistentTree .......................................................   Passed    0.00 sec
+        Start 346: TreeTransferOptionsTest.RejectsGlobalSchedulerWithPersistentStaticDispatch
+356/467 Test #345: TreeTransferOptionsTest.AllowsGlobalSchedulerWithPersistentSharedDispatch ...................................................   Passed    0.00 sec
+        Start 347: TreeTransferOptionsTest.ReconnectBudgetAndTotalDeadlineAreBounded
+357/467 Test #346: TreeTransferOptionsTest.RejectsGlobalSchedulerWithPersistentStaticDispatch ..................................................   Passed    0.00 sec
+        Start 348: TreeTransferOptionsTest.AutomaticReconnectRejectsUnverifiedCheckpointMode
+358/467 Test #347: TreeTransferOptionsTest.ReconnectBudgetAndTotalDeadlineAreBounded ...........................................................   Passed    0.00 sec
+        Start 349: TreeTransferOptionsTest.ParsesExplicitLinkSetNegotiationOptions
+359/467 Test #348: TreeTransferOptionsTest.AutomaticReconnectRejectsUnverifiedCheckpointMode ...................................................   Passed    0.00 sec
+        Start 350: TreeTransferOptionsTest.AcceptsTenPersistentChannelsAndRejectsEleven
+360/467 Test #349: TreeTransferOptionsTest.ParsesExplicitLinkSetNegotiationOptions .............................................................   Passed    0.00 sec
+        Start 351: TreeTransferOptionsTest.ParsesNumericPeerAddresses
+361/467 Test #350: TreeTransferOptionsTest.AcceptsTenPersistentChannelsAndRejectsEleven ........................................................   Passed    0.00 sec
+        Start 352: TreeTransferOptionsTest.RejectsInvalidPeerAddresses
+362/467 Test #351: TreeTransferOptionsTest.ParsesNumericPeerAddresses ..........................................................................   Passed    0.00 sec
+        Start 353: TreeTransferOptionsTest.ParsesNumericLocalBindAddresses
+363/467 Test #352: TreeTransferOptionsTest.RejectsInvalidPeerAddresses .........................................................................   Passed    0.00 sec
+        Start 354: TreeTransferOptionsTest.RejectsNonNumericLocalBindAddress
+364/467 Test #353: TreeTransferOptionsTest.ParsesNumericLocalBindAddresses .....................................................................   Passed    0.00 sec
+        Start 355: TreePipelineControlIoTest.DeadlineBoundsAnIncompleteReply
+365/467 Test #354: TreeTransferOptionsTest.RejectsNonNumericLocalBindAddress ...................................................................   Passed    0.00 sec
+        Start 356: TreePipelineControlIoTest.ReadsOneLineAndKeepsBufferedRemainder
+366/467 Test #356: TreePipelineControlIoTest.ReadsOneLineAndKeepsBufferedRemainder .............................................................   Passed    0.00 sec
+        Start 357: TreePipelineControlIoTest.PeerEofReturnsAnError
+367/467 Test #357: TreePipelineControlIoTest.PeerEofReturnsAnError .............................................................................   Passed    0.00 sec
+        Start 358: TreePipelineControlIoTest.ShutdownWakesCancelledReader
+368/467 Test #358: TreePipelineControlIoTest.ShutdownWakesCancelledReader ......................................................................   Passed    0.02 sec
+        Start 359: TreePipelineControlIoTest.ParsesOnlyTransferTerminalRepliesWithIdentity
+369/467 Test #359: TreePipelineControlIoTest.ParsesOnlyTransferTerminalRepliesWithIdentity .....................................................   Passed    0.00 sec
+        Start 360: TreePipelineControlIoTest.PendingPipelineCommandRejectIsNotAccepted
+370/467 Test #360: TreePipelineControlIoTest.PendingPipelineCommandRejectIsNotAccepted .........................................................   Passed    0.00 sec
+        Start 361: TreePipelineStateTest.ReservesSwapsAndCleansCandidateOnCurrentFailure
+371/467 Test #361: TreePipelineStateTest.ReservesSwapsAndCleansCandidateOnCurrentFailure .......................................................   Passed    0.00 sec
+        Start 362: TreePipelineStateTest.CancellationIsRequestedBeforeCandidateCleanup
+372/467 Test #362: TreePipelineStateTest.CancellationIsRequestedBeforeCandidateCleanup .........................................................   Passed    0.00 sec
+        Start 363: TreePipelineStateTest.DepthZeroNeverReserves
+373/467 Test #363: TreePipelineStateTest.DepthZeroNeverReserves ................................................................................   Passed    0.00 sec
+        Start 364: TreePipelineStateTest.CandidateIsSingleAndIndexSpecific
+374/467 Test #364: TreePipelineStateTest.CandidateIsSingleAndIndexSpecific .....................................................................   Passed    0.00 sec
+        Start 365: TreePipelineCandidateIdentityTest.RejectsChangedIndexPathDirectionAndGeneration
+375/467 Test #365: TreePipelineCandidateIdentityTest.RejectsChangedIndexPathDirectionAndGeneration .............................................   Passed    0.00 sec
+        Start 366: TreePipelineCandidateIdentityTest.AcceptsDownloadIdentityAtMaximumGeneration
+376/467 Test #366: TreePipelineCandidateIdentityTest.AcceptsDownloadIdentityAtMaximumGeneration ................................................   Passed    0.00 sec
+        Start 367: TreePipelineCandidateIdentityTest.RejectsOtherSlotEvenWhenGenerationAndFileMatch
+377/467 Test #367: TreePipelineCandidateIdentityTest.RejectsOtherSlotEvenWhenGenerationAndFileMatch ............................................   Passed    0.00 sec
+        Start 368: TreePipelineCandidateIdentityTest.RejectsPreviousLeaseAfterSameSlotIsReused
+378/467 Test #368: TreePipelineCandidateIdentityTest.RejectsPreviousLeaseAfterSameSlotIsReused .................................................   Passed    0.00 sec
+        Start 369: VersionTest.ExposesProjectIdentity
+379/467 Test #369: VersionTest.ExposesProjectIdentity ..........................................................................................   Passed    0.00 sec
+        Start 370: VersionTest.UsesCxx20Toolchain
+380/467 Test #370: VersionTest.UsesCxx20Toolchain ..............................................................................................   Passed    0.00 sec
+        Start 371: UploadDownloadWholeAndRange/PersistentRecoveryTest.ReopenedTransportSendsOnlyManifestMissingPayload/(false,false)
+381/467 Test #371: UploadDownloadWholeAndRange/PersistentRecoveryTest.ReopenedTransportSendsOnlyManifestMissingPayload/(false,false) ...........   Passed    0.00 sec
+        Start 372: UploadDownloadWholeAndRange/PersistentRecoveryTest.ReopenedTransportSendsOnlyManifestMissingPayload/(false,true)
+382/467 Test #372: UploadDownloadWholeAndRange/PersistentRecoveryTest.ReopenedTransportSendsOnlyManifestMissingPayload/(false,true) ............   Passed    0.00 sec
+        Start 373: UploadDownloadWholeAndRange/PersistentRecoveryTest.ReopenedTransportSendsOnlyManifestMissingPayload/(true,false)
+383/467 Test #373: UploadDownloadWholeAndRange/PersistentRecoveryTest.ReopenedTransportSendsOnlyManifestMissingPayload/(true,false) ............   Passed    0.00 sec
+        Start 374: UploadDownloadWholeAndRange/PersistentRecoveryTest.ReopenedTransportSendsOnlyManifestMissingPayload/(true,true)
+384/467 Test #374: UploadDownloadWholeAndRange/PersistentRecoveryTest.ReopenedTransportSendsOnlyManifestMissingPayload/(true,true) .............   Passed    0.00 sec
+        Start 375: UploadDownload/PersistentMultiRangeRecoveryTest.PublishesAfterMissingRangeWhenPriorRangeIsAlreadyVerified/false
+385/467 Test #375: UploadDownload/PersistentMultiRangeRecoveryTest.PublishesAfterMissingRangeWhenPriorRangeIsAlreadyVerified/false .............   Passed    0.00 sec
+        Start 376: UploadDownload/PersistentMultiRangeRecoveryTest.PublishesAfterMissingRangeWhenPriorRangeIsAlreadyVerified/true
+386/467 Test #355: TreePipelineControlIoTest.DeadlineBoundsAnIncompleteReply ...................................................................   Passed    0.08 sec
+        Start 377: UploadDownload/PersistentMultiRangeRecoveryTest.ReplaysVerifiedPartitionAfterFirstSkipPublishes/false
+387/467 Test #376: UploadDownload/PersistentMultiRangeRecoveryTest.PublishesAfterMissingRangeWhenPriorRangeIsAlreadyVerified/true ..............   Passed    0.00 sec
+        Start 378: UploadDownload/PersistentMultiRangeRecoveryTest.ReplaysVerifiedPartitionAfterFirstSkipPublishes/true
+388/467 Test #377: UploadDownload/PersistentMultiRangeRecoveryTest.ReplaysVerifiedPartitionAfterFirstSkipPublishes/false .......................   Passed    0.00 sec
+        Start 379: AllInputShapes/WorkLeaseContractTest.LeaseBindsWorkOwnerEpochAndDeadline/4-byteobject<00-0000-00>
+389/467 Test #379: AllInputShapes/WorkLeaseContractTest.LeaseBindsWorkOwnerEpochAndDeadline/4-byteobject<00-0000-00> ...........................   Passed    0.00 sec
+        Start 380: AllInputShapes/WorkLeaseContractTest.LeaseBindsWorkOwnerEpochAndDeadline/4-byteobject<01-0000-00>
+390/467 Test #378: UploadDownload/PersistentMultiRangeRecoveryTest.ReplaysVerifiedPartitionAfterFirstSkipPublishes/true ........................   Passed    0.01 sec
+        Start 381: AllInputShapes/WorkLeaseContractTest.LeaseBindsWorkOwnerEpochAndDeadline/4-byteobject<02-0000-00>
+391/467 Test #380: AllInputShapes/WorkLeaseContractTest.LeaseBindsWorkOwnerEpochAndDeadline/4-byteobject<01-0000-00> ...........................   Passed    0.00 sec
+        Start 382: AllInputShapes/WorkLeaseContractTest.PayloadAndResultMustDrainBeforeCreditOrConnectionCut/4-byteobject<00-0000-00>
+392/467 Test #381: AllInputShapes/WorkLeaseContractTest.LeaseBindsWorkOwnerEpochAndDeadline/4-byteobject<02-0000-00> ...........................   Passed    0.01 sec
+        Start 383: AllInputShapes/WorkLeaseContractTest.PayloadAndResultMustDrainBeforeCreditOrConnectionCut/4-byteobject<01-0000-00>
+393/467 Test #382: AllInputShapes/WorkLeaseContractTest.PayloadAndResultMustDrainBeforeCreditOrConnectionCut/4-byteobject<00-0000-00> ..........   Passed    0.00 sec
+        Start 384: AllInputShapes/WorkLeaseContractTest.PayloadAndResultMustDrainBeforeCreditOrConnectionCut/4-byteobject<02-0000-00>
+394/467 Test #383: AllInputShapes/WorkLeaseContractTest.PayloadAndResultMustDrainBeforeCreditOrConnectionCut/4-byteobject<01-0000-00> ..........   Passed    0.00 sec
+        Start 385: AllInputShapes/WorkLeaseContractTest.RejectsForgedIdentityLeaseWorkerLinkAndEpochAtEveryBoundary/4-byteobject<00-0000-00>
+395/467 Test #384: AllInputShapes/WorkLeaseContractTest.PayloadAndResultMustDrainBeforeCreditOrConnectionCut/4-byteobject<02-0000-00> ..........   Passed    0.00 sec
+        Start 386: AllInputShapes/WorkLeaseContractTest.RejectsForgedIdentityLeaseWorkerLinkAndEpochAtEveryBoundary/4-byteobject<01-0000-00>
+396/467 Test #385: AllInputShapes/WorkLeaseContractTest.RejectsForgedIdentityLeaseWorkerLinkAndEpochAtEveryBoundary/4-byteobject<00-0000-00> ...   Passed    0.00 sec
+        Start 387: AllInputShapes/WorkLeaseContractTest.RejectsForgedIdentityLeaseWorkerLinkAndEpochAtEveryBoundary/4-byteobject<02-0000-00>
+397/467 Test #386: AllInputShapes/WorkLeaseContractTest.RejectsForgedIdentityLeaseWorkerLinkAndEpochAtEveryBoundary/4-byteobject<01-0000-00> ...   Passed    0.00 sec
+        Start 388: AllInputShapes/WorkLeaseContractTest.ExpiryStopsClaimsAndRetainsIoUntilExplicitDrain/4-byteobject<00-0000-00>
+398/467 Test #387: AllInputShapes/WorkLeaseContractTest.RejectsForgedIdentityLeaseWorkerLinkAndEpochAtEveryBoundary/4-byteobject<02-0000-00> ...   Passed    0.00 sec
+        Start 389: AllInputShapes/WorkLeaseContractTest.ExpiryStopsClaimsAndRetainsIoUntilExplicitDrain/4-byteobject<01-0000-00>
+399/467 Test #388: AllInputShapes/WorkLeaseContractTest.ExpiryStopsClaimsAndRetainsIoUntilExplicitDrain/4-byteobject<00-0000-00> ...............   Passed    0.00 sec
+        Start 390: AllInputShapes/WorkLeaseContractTest.ExpiryStopsClaimsAndRetainsIoUntilExplicitDrain/4-byteobject<02-0000-00>
+400/467 Test #389: AllInputShapes/WorkLeaseContractTest.ExpiryStopsClaimsAndRetainsIoUntilExplicitDrain/4-byteobject<01-0000-00> ...............   Passed    0.00 sec
+        Start 391: AllInputShapes/WorkLeaseContractTest.DeadlineRejectsLateResultEvenWithoutWatchdogTick/4-byteobject<00-0000-00>
+401/467 Test #390: AllInputShapes/WorkLeaseContractTest.ExpiryStopsClaimsAndRetainsIoUntilExplicitDrain/4-byteobject<02-0000-00> ...............   Passed    0.00 sec
+        Start 392: AllInputShapes/WorkLeaseContractTest.DeadlineRejectsLateResultEvenWithoutWatchdogTick/4-byteobject<01-0000-00>
+402/467 Test #391: AllInputShapes/WorkLeaseContractTest.DeadlineRejectsLateResultEvenWithoutWatchdogTick/4-byteobject<00-0000-00> ..............   Passed    0.00 sec
+        Start 393: AllInputShapes/WorkLeaseContractTest.DeadlineRejectsLateResultEvenWithoutWatchdogTick/4-byteobject<02-0000-00>
+403/467 Test #392: AllInputShapes/WorkLeaseContractTest.DeadlineRejectsLateResultEvenWithoutWatchdogTick/4-byteobject<01-0000-00> ..............   Passed    0.00 sec
+        Start 394: AllInputShapes/WorkLeaseContractTest.DisconnectInvalidatesOldEpochAndRequeuesOnlyUncommittedWork/4-byteobject<00-0000-00>
+404/467 Test #393: AllInputShapes/WorkLeaseContractTest.DeadlineRejectsLateResultEvenWithoutWatchdogTick/4-byteobject<02-0000-00> ..............   Passed    0.00 sec
+        Start 395: AllInputShapes/WorkLeaseContractTest.DisconnectInvalidatesOldEpochAndRequeuesOnlyUncommittedWork/4-byteobject<01-0000-00>
+405/467 Test #394: AllInputShapes/WorkLeaseContractTest.DisconnectInvalidatesOldEpochAndRequeuesOnlyUncommittedWork/4-byteobject<00-0000-00> ...   Passed    0.00 sec
+        Start 396: AllInputShapes/WorkLeaseContractTest.DisconnectInvalidatesOldEpochAndRequeuesOnlyUncommittedWork/4-byteobject<02-0000-00>
+406/467 Test #395: AllInputShapes/WorkLeaseContractTest.DisconnectInvalidatesOldEpochAndRequeuesOnlyUncommittedWork/4-byteobject<01-0000-00> ...   Passed    0.00 sec
+        Start 397: AllInputShapes/WorkLeaseContractTest.CancellationInvalidatesAllHandlesAndStopsRequeue/4-byteobject<00-0000-00>
+407/467 Test #396: AllInputShapes/WorkLeaseContractTest.DisconnectInvalidatesOldEpochAndRequeuesOnlyUncommittedWork/4-byteobject<02-0000-00> ...   Passed    0.00 sec
+        Start 398: AllInputShapes/WorkLeaseContractTest.CancellationInvalidatesAllHandlesAndStopsRequeue/4-byteobject<01-0000-00>
+408/467 Test #398: AllInputShapes/WorkLeaseContractTest.CancellationInvalidatesAllHandlesAndStopsRequeue/4-byteobject<01-0000-00> ..............   Passed    0.00 sec
+        Start 399: AllInputShapes/WorkLeaseContractTest.CancellationInvalidatesAllHandlesAndStopsRequeue/4-byteobject<02-0000-00>
+409/467 Test #397: AllInputShapes/WorkLeaseContractTest.CancellationInvalidatesAllHandlesAndStopsRequeue/4-byteobject<00-0000-00> ..............   Passed    0.01 sec
+        Start 410: cpnetflux_v1_retirement_gate
+410/467 Test #399: AllInputShapes/WorkLeaseContractTest.CancellationInvalidatesAllHandlesAndStopsRequeue/4-byteobject<02-0000-00> ..............   Passed    0.00 sec
+        Start 411: cpnetflux_file_transfer_smoke
+411/467 Test #410: cpnetflux_v1_retirement_gate ................................................................................................   Passed    0.05 sec
+        Start 412: cpnetflux_file_resume_smoke
+412/467 Test #411: cpnetflux_file_transfer_smoke ...............................................................................................   Passed    1.25 sec
+        Start 413: cpnetflux_file_checksum_smoke
+413/467 Test #412: cpnetflux_file_resume_smoke .................................................................................................   Passed    1.84 sec
+        Start 414: cpnetflux_gridftp_control_stor_smoke
+414/467 Test #414: cpnetflux_gridftp_control_stor_smoke ........................................................................................   Passed    0.18 sec
+        Start 415: cpnetflux_gridftp_control_mtls_smoke
+415/467 Test #415: cpnetflux_gridftp_control_mtls_smoke ........................................................................................   Passed    1.15 sec
+        Start 416: cpnetflux_gridftp_control_resume_smoke
+416/467 Test #416: cpnetflux_gridftp_control_resume_smoke ......................................................................................   Passed    0.22 sec
+        Start 417: cpnetflux_gridftp_control_retr_smoke
+417/467 Test #417: cpnetflux_gridftp_control_retr_smoke ........................................................................................   Passed    0.35 sec
+        Start 418: cpnetflux_gridftp_control_retr_resume_smoke
+418/467 Test #418: cpnetflux_gridftp_control_retr_resume_smoke .................................................................................   Passed    0.25 sec
+        Start 419: cpnetflux_gridftp_control_retr_corrupt_resume_smoke
+419/467 Test #419: cpnetflux_gridftp_control_retr_corrupt_resume_smoke .........................................................................   Passed    0.24 sec
+        Start 420: cpnetflux_gridftp_control_metadata_smoke
+420/467 Test #420: cpnetflux_gridftp_control_metadata_smoke ....................................................................................   Passed    0.12 sec
+        Start 421: cpnetflux_gridftp_control_list_smoke
+421/467 Test #421: cpnetflux_gridftp_control_list_smoke ........................................................................................   Passed    0.22 sec
+        Start 422: cpnetflux_gridftp_control_token_smoke
+422/467 Test #422: cpnetflux_gridftp_control_token_smoke .......................................................................................   Passed    0.22 sec
+        Start 423: cpnetflux_gridftp_control_tls_smoke
+423/467 Test #413: cpnetflux_file_checksum_smoke ...............................................................................................   Passed    3.64 sec
+        Start 424: cpnetflux_gridftp_data_tls_smoke
+424/467 Test #423: cpnetflux_gridftp_control_tls_smoke .........................................................................................   Passed    0.67 sec
+        Start 429: cpnetflux_v3_stability_matrix
+425/467 Test #424: cpnetflux_gridftp_data_tls_smoke ............................................................................................   Passed    0.92 sec
+        Start 430: cpnetflux_event_log_smoke
+426/467 Test #430: cpnetflux_event_log_smoke ...................................................................................................   Passed    0.29 sec
+        Start 431: cpnetflux_tree_upload_smoke
+427/467 Test #431: cpnetflux_tree_upload_smoke .................................................................................................   Passed    0.24 sec
+        Start 436: cpnetflux_tree_download_smoke
+428/467 Test #436: cpnetflux_tree_download_smoke ...............................................................................................   Passed    0.24 sec
+        Start 437: cpnetflux_tree_resume_smoke
+429/467 Test #437: cpnetflux_tree_resume_smoke .................................................................................................   Passed    0.52 sec
+        Start 438: cpnetflux_tree_parallel_smoke
+430/467 Test #438: cpnetflux_tree_parallel_smoke ...............................................................................................   Passed    0.87 sec
+        Start 439: cpnetflux_tree_data_reuse_smoke
+431/467 Test #439: cpnetflux_tree_data_reuse_smoke .............................................................................................   Passed   14.96 sec
+        Start 440: cpnetflux_tree_pending_window_smoke
+432/467 Test #429: cpnetflux_v3_stability_matrix ...............................................................................................   Passed   18.99 sec
+        Start 446: cpnetflux_tree_control_reuse_smoke
+433/467 Test #446: cpnetflux_tree_control_reuse_smoke ..........................................................................................   Passed    0.27 sec
+        Start 447: cpnetflux_tree_pipeline_sidecar_smoke
+434/467 Test #447: cpnetflux_tree_pipeline_sidecar_smoke .......................................................................................   Passed    2.61 sec
+        Start 448: cpnetflux_tree_changed_file_smoke
+435/467 Test #440: cpnetflux_tree_pending_window_smoke .........................................................................................   Passed    5.05 sec
+        Start 449: cpnetflux_tree_scheduler_smoke
+436/467 Test #448: cpnetflux_tree_changed_file_smoke ...........................................................................................   Passed    3.93 sec
+        Start 450: cpnetflux_v3_unified_executor_smoke
+437/467 Test #449: cpnetflux_tree_scheduler_smoke ..............................................................................................   Passed    3.40 sec
+        Start 456: cpnetflux_tree_edge_cases_smoke
+438/467 Test #450: cpnetflux_v3_unified_executor_smoke .........................................................................................   Passed    0.30 sec
+        Start 457: cpnetflux_tree_manifest_corrupt_smoke
+439/467 Test #457: cpnetflux_tree_manifest_corrupt_smoke .......................................................................................   Passed    0.19 sec
+        Start 458: cpnetflux_release_hygiene
+440/467 Test #458: cpnetflux_release_hygiene ...................................................................................................   Passed    0.12 sec
+        Start 459: cpnetflux_source_release_behavior
+441/467 Test #459: cpnetflux_source_release_behavior ...........................................................................................   Passed    0.55 sec
+        Start 460: cpnetflux_alpha_release_helper_behavior
+442/467 Test #460: cpnetflux_alpha_release_helper_behavior .....................................................................................   Passed    0.06 sec
+        Start 461: cpnetflux_alpha_artifact_sync_behavior
+443/467 Test #461: cpnetflux_alpha_artifact_sync_behavior ......................................................................................   Passed    0.04 sec
+        Start 462: cpnetflux_alpha_demo_helper_behavior
+444/467 Test #462: cpnetflux_alpha_demo_helper_behavior ........................................................................................   Passed    0.19 sec
+        Start 463: cpnetflux_alpha_soak_smoke
+445/467 Test #456: cpnetflux_tree_edge_cases_smoke .............................................................................................   Passed    1.52 sec
+        Start 464: cpnetflux_alpha_soak_helper_behavior
+446/467 Test #464: cpnetflux_alpha_soak_helper_behavior ........................................................................................   Passed    0.04 sec
+        Start 465: cpnetflux_storage_bench_wrapper_behavior
+447/467 Test #465: cpnetflux_storage_bench_wrapper_behavior ....................................................................................   Passed    0.25 sec
+        Start 466: cpnetflux_service_config
+448/467 Test #466: cpnetflux_service_config ....................................................................................................   Passed    0.05 sec
+        Start 467: cpnetflux_server_setup_config
+449/467 Test #467: cpnetflux_server_setup_config ...............................................................................................   Passed    0.05 sec
+450/467 Test #463: cpnetflux_alpha_soak_smoke ..................................................................................................   Passed    1.84 sec
+        Start 425: cpnetflux_reconnect_smoke
+451/467 Test #425: cpnetflux_reconnect_smoke ...................................................................................................   Passed   22.92 sec
+        Start 426: cpnetflux_data_fault_recovery_smoke
+452/467 Test #426: cpnetflux_data_fault_recovery_smoke .........................................................................................   Passed    2.03 sec
+        Start 427: cpnetflux_committed_output_integrity_audit_smoke
+453/467 Test #427: cpnetflux_committed_output_integrity_audit_smoke ............................................................................   Passed    0.81 sec
+        Start 428: cpnetflux_terminal_reply_recovery_smoke
+454/467 Test #428: cpnetflux_terminal_reply_recovery_smoke .....................................................................................   Passed    2.14 sec
+        Start 432: cpnetflux_lane_recovery_smoke
+455/467 Test #432: cpnetflux_lane_recovery_smoke ...............................................................................................   Passed    6.05 sec
+        Start 433: cpnetflux_v3_logical_link_matrix
+456/467 Test #433: cpnetflux_v3_logical_link_matrix ............................................................................................   Passed   17.05 sec
+        Start 434: cpnetflux_peer_mapping_smoke
+457/467 Test #434: cpnetflux_peer_mapping_smoke ................................................................................................   Passed    8.32 sec
+        Start 435: cpnetflux_fault_proxy_unit
+458/467 Test #435: cpnetflux_fault_proxy_unit ..................................................................................................   Passed    0.17 sec
+        Start 441: cpnetflux_summary_crc_auto_smoke
+459/467 Test #441: cpnetflux_summary_crc_auto_smoke ............................................................................................   Passed   97.52 sec
+        Start 442: cpnetflux_tree_manifest_coalesce_smoke
+460/467 Test #442: cpnetflux_tree_manifest_coalesce_smoke ......................................................................................   Passed    4.95 sec
+        Start 443: cpnetflux_range_observability_smoke
+461/467 Test #443: cpnetflux_range_observability_smoke .........................................................................................   Passed    0.84 sec
+        Start 444: cpnetflux_range_checkpoint_batch_smoke
+462/467 Test #444: cpnetflux_range_checkpoint_batch_smoke ......................................................................................   Passed    0.85 sec
+        Start 445: cpnetflux_range_observability_disabled_smoke
+463/467 Test #445: cpnetflux_range_observability_disabled_smoke ................................................................................   Passed    1.09 sec
+        Start 452: cpnetflux_v3_service_restart_resume_smoke
+464/467 Test #452: cpnetflux_v3_service_restart_resume_smoke ...................................................................................   Passed   10.10 sec
+        Start 453: cpnetflux_v3_timeout_resume_smoke
+465/467 Test #453: cpnetflux_v3_timeout_resume_smoke ...........................................................................................   Passed   11.85 sec
+        Start 454: cpnetflux_v3_corrupt_partial_checkpoint_smoke
+466/467 Test #454: cpnetflux_v3_corrupt_partial_checkpoint_smoke ...............................................................................   Passed    1.69 sec
+        Start 455: cpnetflux_v3_target_conflict_idempotency_smoke
+467/467 Test #455: cpnetflux_v3_target_conflict_idempotency_smoke ..............................................................................   Passed    1.85 sec
+
+100% tests passed, 0 tests failed out of 467
+
+Total Test time (real) = 235.67 sec
+
+The following tests did not run:
+	 89 - FileIoTest.IoUringContextReadWriteSmokeWhenAvailable (Skipped)

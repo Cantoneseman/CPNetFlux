@@ -1,0 +1,10 @@
+{"tag": "tuning-v3-4", "system": "v3", "channels": 4, "summary": "on", "started_epoch": 1793244394.1436749, "finished_epoch": 1793244471.1155941, "exit": 0}
+{"tag": "tuning-v3-8", "system": "v3", "channels": 8, "summary": "on", "started_epoch": 1793244471.127195, "finished_epoch": 1793244524.4335485, "exit": 0}
+{"tag": "tuning-v3-10", "system": "v3", "channels": 10, "summary": "on", "started_epoch": 1793244524.4444995, "finished_epoch": 1793244578.7066388, "exit": 0}
+{"tag": "tuning-gridftp-4", "system": "gridftp", "channels": 4, "summary": "on", "started_epoch": 1793244578.7185605, "finished_epoch": 1793244632.0248945, "exit": 0}
+{"tag": "tuning-gridftp-8", "system": "gridftp", "channels": 8, "summary": "on", "started_epoch": 1793244632.0362542, "finished_epoch": 1793244685.746982, "exit": 0}
+{"tag": "tuning-gridftp-10", "system": "gridftp", "channels": 10, "summary": "on", "started_epoch": 1793244685.7588053, "finished_epoch": 1793244741.222978, "exit": 0}
+{"tag": "tuning-gridftp-16", "system": "gridftp", "channels": 16, "summary": "on", "started_epoch": 1793244741.2349892, "finished_epoch": 1793244799.3049736, "exit": 0}
+{"tag": "formal-v3", "system": "v3", "channels": 4, "summary": "on", "started_epoch": 1793244799.5342607, "finished_epoch": 1793244963.860249, "exit": 0}
+{"tag": "formal-gridftp", "system": "gridftp", "channels": 4, "summary": "on", "started_epoch": 1793244963.8716965, "finished_epoch": 1793245120.7647858, "exit": 0}
+{"tag": "formal-v3-no-summary", "system": "v3", "channels": 4, "summary": "off", "started_epoch": 1793245120.7766297, "finished_epoch": 1793245283.6025734, "exit": 0}

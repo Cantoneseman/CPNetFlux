@@ -1,0 +1,5 @@
+dataset,payload_pipeline_budget_bytes,payload_pipeline_high_watermark_bytes,payload_pipeline_producer_waits,payload_pipeline_consumer_waits,data_pending_high_watermark,tree_manifest_snapshots,tree_manifest_write_seconds,tree_manifest_state_lock_wait_seconds
+dense,131064,65536,0,2048,0,129,0.355016,0.0142582
+large-random,131064,131064,65439,8,0,6,0.0024145,1.4615e-05
+large-repeated,131064,131064,65477,8,0,5,0.00201296,1.4634e-05
+mixed,131064,131064,32719,521,0,35,0.0293037,0.0007571

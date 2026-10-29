@@ -1,0 +1,7 @@
+subject  : /O=XioTransfer/OU=SimpleCA/CN=Su/CN=1543178162
+issuer   : /O=XioTransfer/OU=SimpleCA/CN=Su
+identity : /O=XioTransfer/OU=SimpleCA/CN=Su
+type     : RFC 3820 compliant impersonation proxy
+strength : 2048 bits
+path     : /tmp/cpnetflux-runs/V3-GRIDFTP-87B389-RERUN-01/credentials/x509up_u1002
+timeleft : 12:00:00

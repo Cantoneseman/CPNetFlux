@@ -1,0 +1,22 @@
+{
+  "dense": {
+    "tree_hash": "ad346cee658b0a9b8f4e335a9f1bf3b347e53e90b5ed9499a2bd9ce890598daa",
+    "file_count": 2048,
+    "bytes": 134217728
+  },
+  "large-random": {
+    "tree_hash": "649250e372687696fc702f4535a2f9b398a46daacdb4b3890c62e16f6804b84d",
+    "file_count": 1,
+    "bytes": 4294967296
+  },
+  "large-repeated": {
+    "tree_hash": "f18d7817026b858fad7e032c582afad09acb0f1ac27e4c8ab39d7e33ce0c7ec5",
+    "file_count": 1,
+    "bytes": 4294967296
+  },
+  "mixed": {
+    "tree_hash": "269752c8bf2f0eda36a8185bfb0a50e56df50dbff63bc5d23b3720c3b81b8d1a",
+    "file_count": 514,
+    "bytes": 2151677952
+  }
+}

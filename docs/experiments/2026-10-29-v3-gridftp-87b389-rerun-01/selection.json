@@ -1,0 +1,70 @@
+{
+  "v3": {
+    "selected": 4,
+    "selection": "lowest geometric mean of dense/random process wall",
+    "candidates": [
+      {
+        "channels": 10,
+        "score_geomean_wall_s": 3.2128549653689733,
+        "times": {
+          "dense": 1.167571955999847,
+          "large-random": 8.840942929000448
+        }
+      },
+      {
+        "channels": 4,
+        "score_geomean_wall_s": 3.189862593254601,
+        "times": {
+          "dense": 1.2900719950002895,
+          "large-random": 7.887329856999713
+        }
+      },
+      {
+        "channels": 8,
+        "score_geomean_wall_s": 3.3159054175140943,
+        "times": {
+          "dense": 1.368017661000522,
+          "large-random": 8.037344145000134
+        }
+      }
+    ]
+  },
+  "gridftp": {
+    "selected": 4,
+    "selection": "lowest geometric mean of dense/random process wall",
+    "candidates": [
+      {
+        "channels": 10,
+        "score_geomean_wall_s": 4.728752349793358,
+        "times": {
+          "dense": 3.3541892340008417,
+          "large-random": 6.666618138000558
+        }
+      },
+      {
+        "channels": 16,
+        "score_geomean_wall_s": 6.046901064702472,
+        "times": {
+          "dense": 5.258014496999749,
+          "large-random": 6.954148282999995
+        }
+      },
+      {
+        "channels": 4,
+        "score_geomean_wall_s": 3.434500617485262,
+        "times": {
+          "dense": 1.8376568009998664,
+          "large-random": 6.418932243000199
+        }
+      },
+      {
+        "channels": 8,
+        "score_geomean_wall_s": 4.268369778325452,
+        "times": {
+          "dense": 2.8685553499999514,
+          "large-random": 6.351273844000389
+        }
+      }
+    ]
+  }
+}
