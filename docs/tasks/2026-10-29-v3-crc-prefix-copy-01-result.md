@@ -35,6 +35,29 @@
 - PersistentSessionTest.CarriesChecksumAlgorithmAndFileEndDigest：通过，并直接
   检查 DATA 线上 4 字节 CRC 前缀和原始 payload 字节。
 
+## 双机可复现构建验收
+
+- 深圳和上海均从提交 de18ffd（完整 SHA
+  de18ffdb1a837d43a1b14cdd083881fe55f1138d）构建，GCC 11.4、NASM 2.15.05、
+  CMake 3.22.1，Release、TLS ON、io_uring OFF、ISA-L ON。
+- 两端使用完全相同的临时源码和构建路径
+  /tmp/cpnetflux-s1-repro-20261030-{src,build}，以消除 NASM 将绝对源路径写入
+  对象字符串表造成的非功能性差异。
+- 关键产物 SHA-256 完全一致：
+
+  | 产物 | SHA-256 |
+  |---|---|
+  | cpnetflux-file-client | c1dd0c0a03fe0c29ee69bf19bb2e96a801d353cd0d03f0b0e9c215cd0bbbfaca |
+  | cpnetflux-file-server | 35d01afb968015ab8246536eff43d1fd8fd921a64a4665e4302b02ca4501b389 |
+  | cpnetflux-checksum-bench | 02b300d58b91c72ff7a25881a7d73f3ed4d7e631d3ae20bbc0251bf6e962e2ed |
+  | cpnetflux_framed_socket_tests | c0e4e7216b7fccb6a13235ef8fb7e09c444a43a6df46cc126a2210dd03f81064 |
+  | cpnetflux_unit_tests | d24e8d156a8710804495fcd7659ea9822fc50dbc362311dd090e823bb0df97de |
+  | libcpnetflux_core.a | 2cc919e5379d8f9289c4c521d6d4e5973106e7b70d4a2920a19827d8afc23048 |
+  | ISA-L libisal.a | 0ddd459dffeaa03e2052e3d515882613bb18df4a588e0244fcce81d2142d2fae |
+
+- 之前直接在两个不同临时目录构建时的 SHA 差异只来自 NASM 对象中的绝对构建路径；
+  重新使用同一路径后全部一致。未向上海传输旧的非可复现构建产物。
+
 ## CRC 单项 A/B
 
 命令：
@@ -58,7 +81,7 @@ CRC 单项结果，不是完整 CPNetFlux 传输吞吐或 CPU 总成本结论。
 
 - 本轮没有改传输单元大小、锁模型、checkpoint 策略、TLS 模式、kTLS、零拷贝、
   物理链路或跨服务器性能实验。
-- ISA-L 构建依赖 NASM 2.15.05；深圳和上海均已安装同版本，之后按同一提交构建
-  并比较关键二进制 SHA-256。
+- ISA-L 构建依赖 NASM 2.15.05；深圳和上海均已安装同版本，双机同路径构建与关键
+  二进制 SHA-256 比较已通过。
 - 下一阶段进入 S2：只改变传输单元/提交批量，先用 S0 观测确认帧数、写入和 TLS
   计时变化；S1 的 CRC 单项结果不能单独证明 S2 或 S3 的收益。
