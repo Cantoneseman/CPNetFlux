@@ -30,17 +30,28 @@ def make_credentials(root: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
     server_key, server_csr, server_cert = root / "server.key", root / "server.csr", root / "server.pem"
     client_key, client_csr, client_cert = root / "client.key", root / "client.csr", root / "client.pem"
     openssl_run(openssl, ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
-                          "-subj", "/CN=CPNetFlux Test CA", "-keyout", str(ca_key), "-out", str(ca_cert)])
+                          "-subj", "/CN=CPNetFlux Test CA", "-keyout", str(ca_key), "-out", str(ca_cert),
+                          "-addext", "basicConstraints=critical,CA:TRUE",
+                          "-addext", "keyUsage=critical,keyCertSign,cRLSign"])
     for key, csr, subject in [(server_key, server_csr, "/CN=localhost"),
                               (client_key, client_csr, "/CN=CPNetFlux Test Client")]:
         openssl_run(openssl, ["req", "-newkey", "rsa:2048", "-nodes", "-subj", subject,
                               "-keyout", str(key), "-out", str(csr)])
     for key in (ca_key, server_key, client_key):
         key.chmod(0o600)
+    extensions = root / "leaf-extensions.cnf"
+    extensions.write_text(
+        "[server]\nbasicConstraints=critical,CA:FALSE\n"
+        "keyUsage=critical,digitalSignature,keyEncipherment\n"
+        "extendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost\n"
+        "[client]\nbasicConstraints=critical,CA:FALSE\n"
+        "keyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n")
     openssl_run(openssl, ["x509", "-req", "-in", str(server_csr), "-CA", str(ca_cert),
-                          "-CAkey", str(ca_key), "-CAcreateserial", "-days", "1", "-out", str(server_cert)])
+                          "-CAkey", str(ca_key), "-CAcreateserial", "-days", "1", "-out", str(server_cert),
+                          "-extfile", str(extensions), "-extensions", "server"])
     openssl_run(openssl, ["x509", "-req", "-in", str(client_csr), "-CA", str(ca_cert),
-                          "-CAkey", str(ca_key), "-CAcreateserial", "-days", "1", "-out", str(client_cert)])
+                          "-CAkey", str(ca_key), "-CAcreateserial", "-days", "1", "-out", str(client_cert),
+                          "-extfile", str(extensions), "-extensions", "client"])
     return ca_cert, server_cert, server_key, client_cert, client_key, ca_key
 
 
