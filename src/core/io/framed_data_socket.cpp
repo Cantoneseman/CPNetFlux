@@ -53,6 +53,10 @@ DataTransport FramedDataSocket::transport() const noexcept {
     return rdmaMode_ ? DataTransport::Rdma : DataTransport::Tcp;
 }
 
+RdmaTransportStats FramedDataSocket::rdmaStats() const noexcept {
+    return rdmaMode_ ? rdma_.stats() : RdmaTransportStats{};
+}
+
 void FramedDataSocket::shutdown() noexcept {
     if (rdmaMode_) {
         rdma_.shutdown();
@@ -126,12 +130,8 @@ common::Status FramedDataSocket::writeFrame(const std::uint8_t* header,
         return common::Status::invalidArgument("invalid frame output spans");
     }
     if (rdmaMode_) {
-        std::vector<std::uint8_t> combined;
-        combined.reserve(headerLength + prefixLength + payloadLength);
-        if (headerLength != 0) combined.insert(combined.end(), header, header + headerLength);
-        if (prefixLength != 0) combined.insert(combined.end(), prefix, prefix + prefixLength);
-        if (payloadLength != 0) combined.insert(combined.end(), payload, payload + payloadLength);
-        return writeAll(combined.data(), combined.size());
+        return rdma_.writeFrame(header, headerLength, prefix, prefixLength,
+                                payload, payloadLength);
     }
     if (tlsMode_) {
         constexpr std::size_t kTlsCombinedPrefixCapacity = 68;

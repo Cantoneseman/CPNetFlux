@@ -11,6 +11,19 @@
 namespace cpnetflux::core::io {
 
 [[nodiscard]] bool rdmaTransportAvailable() noexcept;
+inline constexpr std::uint32_t kRdmaDataQueueDepth = 32;
+inline constexpr std::uint32_t kRdmaDataMessageBufferBytes = 128U << 10;
+
+struct RdmaTransportStats {
+    std::uint64_t sendBytes = 0;
+    std::uint64_t sendWorkRequests = 0;
+    std::uint64_t sendCompletions = 0;
+    std::uint64_t sendCompletionPollCalls = 0;
+    std::uint64_t sendCompletionBatches = 0;
+    std::uint64_t sendCompletionWaitCount = 0;
+    std::uint64_t sendCompletionWaitNanoseconds = 0;
+    std::uint64_t maxSendInFlight = 0;
+};
 
 class RdmaDataSocket {
    public:
@@ -29,8 +42,15 @@ class RdmaDataSocket {
     void shutdown() noexcept;
     [[nodiscard]] int fd() const noexcept { return -1; }
     [[nodiscard]] common::Status writeAll(const std::uint8_t* data, std::size_t length);
+    [[nodiscard]] common::Status writeFrame(const std::uint8_t* header,
+                                            std::size_t headerLength,
+                                            const std::uint8_t* prefix,
+                                            std::size_t prefixLength,
+                                            const std::uint8_t* payload,
+                                            std::size_t payloadLength);
     [[nodiscard]] common::Result<std::size_t> readSome(std::uint8_t* data, std::size_t length);
     [[nodiscard]] common::Status readAll(std::uint8_t* data, std::size_t length);
+    [[nodiscard]] RdmaTransportStats stats() const noexcept;
     void close() noexcept;
 
    private:

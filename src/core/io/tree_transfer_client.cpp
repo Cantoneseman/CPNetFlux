@@ -48,6 +48,7 @@
 #include "cpnetflux/core/metrics/error_code.h"
 #include "cpnetflux/core/metrics/event_log.h"
 #include "cpnetflux/core/io/socket_utils.h"
+#include "cpnetflux/core/io/rdma_data_socket.h"
 #include "cpnetflux/core/io/tls_socket.h"
 #include "cpnetflux/core/io/tree_pipeline_control_io.h"
 #include "cpnetflux/core/scheduler/scheduler.h"
@@ -928,6 +929,19 @@ struct LaneEndpoint {
     std::string controlPeer, dataPeer, controlLocal, dataLocal;
 };
 
+void addRdmaTransportStats(RdmaTransportStats* target,
+                           const RdmaTransportStats& source) {
+    if (target == nullptr) return;
+    target->sendBytes += source.sendBytes;
+    target->sendWorkRequests += source.sendWorkRequests;
+    target->sendCompletions += source.sendCompletions;
+    target->sendCompletionPollCalls += source.sendCompletionPollCalls;
+    target->sendCompletionBatches += source.sendCompletionBatches;
+    target->sendCompletionWaitCount += source.sendCompletionWaitCount;
+    target->sendCompletionWaitNanoseconds += source.sendCompletionWaitNanoseconds;
+    target->maxSendInFlight = std::max(target->maxSendInFlight, source.maxSendInFlight);
+}
+
 struct TreeRunStats {
     std::atomic<std::uint64_t> completedThisRun{0};
     std::atomic<std::uint64_t> skippedFiles{0};
@@ -966,6 +980,7 @@ struct TreeRunStats {
     double completeWaitSeconds = 0;
     bool dynamicScheduling = false;
     double dataConnectSeconds = 0, queueWaitSeconds = 0;
+    RdmaTransportStats rdmaTransport;
     std::optional<double> scanSeconds;
     std::size_t queueHighWatermark = 0;
     std::vector<PersistentFileTiming> fileTimings;
@@ -1487,6 +1502,23 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
            << ((status.isOk() && options.dataTlsMode == DataTlsMode::Required) ? "true" : "false") << ",\n";
     output << "  \"data_transport\": \""
            << dataTransportName(options.dataTransport) << "\",\n";
+    if (options.dataTransport == DataTransport::Rdma) {
+        output << "  \"rdma_transport_stats\": {\"schema\":\"cpnetflux_rdma_transport_stats_v1\","
+               << "\"scope\":\"client-side RDMA sockets for this run; includes V3 headers and metadata; wait timers overlap transfer wall time\","
+               << "\"configured_send_queue_depth\":" << kRdmaDataQueueDepth << ","
+               << "\"send_slot_bytes\":" << kRdmaDataMessageBufferBytes << ","
+               << "\"send_bytes\":" << stats.rdmaTransport.sendBytes << ","
+               << "\"send_work_requests\":" << stats.rdmaTransport.sendWorkRequests << ","
+               << "\"send_completions\":" << stats.rdmaTransport.sendCompletions << ","
+               << "\"send_completion_poll_calls\":" << stats.rdmaTransport.sendCompletionPollCalls << ","
+               << "\"send_completion_batches\":" << stats.rdmaTransport.sendCompletionBatches << ","
+               << "\"send_completion_wait_count\":" << stats.rdmaTransport.sendCompletionWaitCount << ","
+               << "\"send_completion_wait_seconds\":"
+               << static_cast<double>(stats.rdmaTransport.sendCompletionWaitNanoseconds) / 1e9 << ","
+               << "\"max_send_inflight\":" << stats.rdmaTransport.maxSendInFlight << "},\n";
+    } else {
+        output << "  \"rdma_transport_stats\": null,\n";
+    }
     output << "  \"requested_mode\": \"persistent_tree\",\n";
     output << "  \"actual_mode\": \"" << (stats.persistentData ? "persistent_tree" : "unknown") << "\",\n";
     output << "  \"requested_file_scheduling\": \"" << (options.dynamicFileScheduling ? "dynamic" : "static") << "\",\n";
@@ -2075,6 +2107,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         std::uint32_t dataConnectCount = 0, localRecoveryAttempts = 0;
         double controlWaitSeconds = 0, prepareSeconds = 0, reconnectControlPrepareSeconds = 0;
         double connectSeconds = 0, remoteQueueWait = 0, remoteScan = 0;
+        RdmaTransportStats rdmaTransport;
         bool dataConnected = false;
         LaneEndpoint endpoint;
         std::string linkId;
@@ -2540,6 +2573,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                         attemptOptions.resume, transactions, ready.get(), options.reconnectAttempts);
                 {
                     std::lock_guard<std::mutex> lock(channel.dataMutex);
+                    addRdmaTransportStats(&channel.rdmaTransport, channel.data.rdmaStats());
                     channel.data = FramedDataSocket{};
                 }
                 const auto waiting = std::chrono::steady_clock::now();
@@ -2630,6 +2664,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         endpoint.dataConnections = channel->dataConnectCount;
         stats->laneEndpoints.push_back(std::move(endpoint));
         stats->persistentDataConnectCount += channel->dataConnectCount;
+        addRdmaTransportStats(&stats->rdmaTransport, channel->rdmaTransport);
         stats->resumeSkippedBytes += channel->observed.skippedBytes;
         stats->queueWaitSeconds += upload ? channel->observed.queueWaitSeconds : channel->remoteQueueWait;
         if (!upload && options.dynamicFileScheduling)

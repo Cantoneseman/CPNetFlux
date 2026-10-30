@@ -29,6 +29,7 @@ class FramedDataSocket {
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] bool tlsEnabled() const noexcept;
     [[nodiscard]] DataTransport transport() const noexcept;
+    [[nodiscard]] RdmaTransportStats rdmaStats() const noexcept;
     void shutdown() noexcept;
     void close() noexcept;
     [[nodiscard]] common::Status writeAll(const std::uint8_t* data, std::size_t length);
