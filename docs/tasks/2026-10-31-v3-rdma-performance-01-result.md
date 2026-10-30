@@ -54,7 +54,7 @@ RQ2048 方向的服务端摘要显示：协商接收深度 2048、路径 MTU 102
 ## 验证
 
 - R770-1：RDMA-enabled 全量 CTest 为 479/481 通过。#434 和 #442 因环境变量 `CPNETFLUX_TEST_TOKEN` 未设置失败；其余测试通过。
-- R770-2：RDMA-enabled 全量 CTest 为 478/481 通过。#434 和 #442 同样因 `CPNETFLUX_TEST_TOKEN` 未设置失败；#451 因 smoke 测试读取已退出进程 `/proc/<pid>/fd` 的竞态失败，其余测试通过。
+- R770-2：RDMA-enabled 全量 CTest 为 479/481 通过。#434 和 #442 同样因 \CPNETFLUX_TEST_TOKEN\ 未设置失败；本次复跑未重现此前 #451 的 \/proc/<pid>/fd\ 读取竞态，其余测试通过。
 - R770-1：RDMA-disabled 配置重新构建成功，相关 37 项传输和选项测试 37/37 通过。
 - R770-1/R770-2 反向 2 GiB direct bench 及 V3 上传/下载均通过。
 - 测试服务已停止；R770-2 原有生产服务未修改。
