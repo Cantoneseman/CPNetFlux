@@ -11,11 +11,12 @@
 ## 本阶段改动
 
 - 将每连接单发送缓冲改为有界注册缓冲池，最多允许 32 个 SEND 同时在途。
-- 固定每个收发槽 128 KiB，以覆盖 V3 最大数据帧并控制注册内存；每方向窗口 4 MiB/连接。
+- 固定每个槽 128 KiB，发送队列深度 32、接收队列深度 128；每连接发送窗口 4 MiB、预投递接收空间 16 MiB。接收深度大于发送窗口，避免应用重新投递接收缓冲稍慢时触发 RNR。
 - 批量轮询 SEND completion queue，移除每帧等待一个 completion 的行为。
 - 自旋轮询 CQ，避免固定 50 微秒 sleep 带来的延迟底限；仅周期性让出 CPU。
 - V3 frame 的 header、checksum prefix、payload 直接复制进注册发送槽，避免先分配和拼接临时 vector。
 - 在客户端 JSON 摘要记录发送 WQE 数、CQ poll/batch、完成等待、最大实际在途数。
+- 在摘要中同时记录配置的发送/接收队列深度；双机测试前后读取 `out_of_buffer` 与 `rnr_nak_retry_err` 设备计数器。
 - 对同一数据、同连接数和 RAM-backed 临时路径做 R770 双机 RDMA/TCP 实测，核对 SHA-256。
 
 ## 非目标

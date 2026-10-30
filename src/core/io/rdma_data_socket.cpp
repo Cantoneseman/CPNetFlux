@@ -31,8 +31,9 @@ common::Status unavailable() {
 #if CPNETFLUX_HAS_RDMA
 
 constexpr std::size_t kMessageBufferSize = kRdmaDataMessageBufferBytes;
-constexpr std::size_t kQueueDepth = kRdmaDataQueueDepth;
-constexpr std::size_t kCompletionQueueDepth = kQueueDepth * 2;
+constexpr std::size_t kSendQueueDepth = kRdmaDataQueueDepth;
+constexpr std::size_t kReceiveQueueDepth = kRdmaDataReceiveQueueDepth;
+constexpr std::size_t kCompletionQueueDepth = kReceiveQueueDepth * 2;
 constexpr int kDefaultTimeoutMs = 30000;
 
 int timeoutMs(SocketDeadline deadline) {
@@ -131,10 +132,10 @@ struct RdmaDataSocket::Impl {
     ibv_pd* pd = nullptr;
     ibv_cq* sendCq = nullptr;
     ibv_cq* recvCq = nullptr;
-    std::array<SendSlot, kQueueDepth> sendSlots;
-    std::array<ReceiveSlot, kQueueDepth> receiveSlots;
+    std::array<SendSlot, kSendQueueDepth> sendSlots;
+    std::array<ReceiveSlot, kReceiveQueueDepth> receiveSlots;
     std::size_t sendInFlight = 0;
-    std::size_t activeReceiveSlot = kQueueDepth;
+    std::size_t activeReceiveSlot = kReceiveQueueDepth;
     RdmaTransportStats statistics;
     bool closed = false;
     std::atomic_bool disconnected{false};
@@ -177,8 +178,8 @@ struct RdmaDataSocket::Impl {
         ibv_qp_init_attr attributes{};
         attributes.send_cq = sendCq;
         attributes.recv_cq = recvCq;
-        attributes.cap.max_send_wr = static_cast<std::uint32_t>(kQueueDepth);
-        attributes.cap.max_recv_wr = static_cast<std::uint32_t>(kQueueDepth);
+        attributes.cap.max_send_wr = static_cast<std::uint32_t>(kSendQueueDepth);
+        attributes.cap.max_recv_wr = static_cast<std::uint32_t>(kReceiveQueueDepth);
         attributes.cap.max_send_sge = 1;
         attributes.cap.max_recv_sge = 1;
         attributes.qp_type = IBV_QPT_RC;
@@ -240,7 +241,7 @@ struct RdmaDataSocket::Impl {
     }
 
     common::Result<std::size_t> reapSendCompletions() {
-        std::array<ibv_wc, kQueueDepth> completions{};
+        std::array<ibv_wc, kSendQueueDepth> completions{};
         ++statistics.sendCompletionPollCalls;
         const int count = ::ibv_poll_cq(sendCq, static_cast<int>(completions.size()),
                                         completions.data());
@@ -519,7 +520,7 @@ common::Result<std::size_t> RdmaDataSocket::readSome(std::uint8_t* data, std::si
     if (!valid() || data == nullptr || length == 0) return common::Status::invalidArgument("invalid RDMA read");
     const auto sendStatus = impl_->drainSends();
     if (!sendStatus.isOk()) return sendStatus;
-    if (impl_->activeReceiveSlot == kQueueDepth) {
+    if (impl_->activeReceiveSlot == kReceiveQueueDepth) {
         ibv_wc completion{};
         const auto status = impl_->pollCompletion(impl_->recvCq, &completion);
         if (!status.isOk()) return status;
@@ -542,7 +543,7 @@ common::Result<std::size_t> RdmaDataSocket::readSome(std::uint8_t* data, std::si
     if (slot.received == 0) {
         const auto posted = impl_->postReceive(slotIndex);
         if (!posted.isOk()) return posted;
-        impl_->activeReceiveSlot = kQueueDepth;
+        impl_->activeReceiveSlot = kReceiveQueueDepth;
     }
     return copied;
 #endif

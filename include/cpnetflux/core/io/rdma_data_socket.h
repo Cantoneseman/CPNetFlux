@@ -12,6 +12,7 @@ namespace cpnetflux::core::io {
 
 [[nodiscard]] bool rdmaTransportAvailable() noexcept;
 inline constexpr std::uint32_t kRdmaDataQueueDepth = 32;
+inline constexpr std::uint32_t kRdmaDataReceiveQueueDepth = 128;
 inline constexpr std::uint32_t kRdmaDataMessageBufferBytes = 128U << 10;
 
 struct RdmaTransportStats {

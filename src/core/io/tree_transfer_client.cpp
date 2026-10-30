@@ -1506,6 +1506,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "  \"rdma_transport_stats\": {\"schema\":\"cpnetflux_rdma_transport_stats_v1\","
                << "\"scope\":\"client-side RDMA sockets for this run; includes V3 headers and metadata; wait timers overlap transfer wall time\","
                << "\"configured_send_queue_depth\":" << kRdmaDataQueueDepth << ","
+               << "\"configured_receive_queue_depth\":" << kRdmaDataReceiveQueueDepth << ","
                << "\"send_slot_bytes\":" << kRdmaDataMessageBufferBytes << ","
                << "\"send_bytes\":" << stats.rdmaTransport.sendBytes << ","
                << "\"send_work_requests\":" << stats.rdmaTransport.sendWorkRequests << ","
