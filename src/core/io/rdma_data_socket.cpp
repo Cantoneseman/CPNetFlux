@@ -29,6 +29,8 @@ common::Status unavailable() {
 #if CPNETFLUX_HAS_RDMA
 
 constexpr std::size_t kChunkSize = 1U << 20;
+// Keep receive credits queued while the application consumes completed messages.
+constexpr std::size_t kReceiveQueueDepth = 16;
 constexpr int kDefaultTimeoutMs = 30000;
 
 int timeoutMs(SocketDeadline deadline) {
@@ -108,18 +110,23 @@ common::Status waitEvent(rdma_event_channel* channel, rdma_cm_event_type expecte
 
 #if CPNETFLUX_HAS_RDMA
 struct RdmaDataSocket::Impl {
+    struct ReceiveSlot {
+        std::vector<std::uint8_t> buffer;
+        ibv_mr* memoryRegion = nullptr;
+        std::size_t received = 0;
+        std::size_t offset = 0;
+        bool posted = false;
+    };
+
     rdma_event_channel* channel = nullptr;
     rdma_cm_id* id = nullptr;
     ibv_pd* pd = nullptr;
     ibv_cq* sendCq = nullptr;
     ibv_cq* recvCq = nullptr;
-    ibv_mr* recvMr = nullptr;
     ibv_mr* sendMr = nullptr;
-    std::vector<std::uint8_t> recvBuffer;
+    std::array<ReceiveSlot, kReceiveQueueDepth> receiveSlots;
     std::vector<std::uint8_t> sendBuffer;
-    std::size_t received = 0;
-    std::size_t receiveOffset = 0;
-    bool receivePosted = false;
+    std::size_t activeReceiveSlot = kReceiveQueueDepth;
     bool closed = false;
     std::atomic_bool disconnected{false};
 
@@ -130,7 +137,10 @@ struct RdmaDataSocket::Impl {
         closed = true;
         if (id != nullptr && !disconnected.exchange(true)) (void)::rdma_disconnect(id);
         if (id != nullptr && id->qp != nullptr) ::rdma_destroy_qp(id);
-        if (recvMr != nullptr) (void)::ibv_dereg_mr(recvMr);
+        for (auto& slot : receiveSlots) {
+            if (slot.memoryRegion != nullptr) (void)::ibv_dereg_mr(slot.memoryRegion);
+            slot.memoryRegion = nullptr;
+        }
         if (sendMr != nullptr) (void)::ibv_dereg_mr(sendMr);
         if (sendCq != nullptr) (void)::ibv_destroy_cq(sendCq);
         if (recvCq != nullptr) (void)::ibv_destroy_cq(recvCq);
@@ -142,7 +152,6 @@ struct RdmaDataSocket::Impl {
         pd = nullptr;
         sendCq = nullptr;
         recvCq = nullptr;
-        recvMr = nullptr;
     }
 
     common::Status initializeQueuePair() {
@@ -157,31 +166,42 @@ struct RdmaDataSocket::Impl {
         attributes.send_cq = sendCq;
         attributes.recv_cq = recvCq;
         attributes.cap.max_send_wr = 16;
-        attributes.cap.max_recv_wr = 16;
+        attributes.cap.max_recv_wr = static_cast<std::uint32_t>(kReceiveQueueDepth);
         attributes.cap.max_send_sge = 1;
         attributes.cap.max_recv_sge = 1;
         attributes.qp_type = IBV_QPT_RC;
         attributes.sq_sig_all = 0;
         if (::rdma_create_qp(id, pd, &attributes) != 0) return rdmaStatus("rdma_create_qp");
-        recvBuffer.resize(kChunkSize);
         sendBuffer.resize(kChunkSize);
-        recvMr = ::ibv_reg_mr(pd, recvBuffer.data(), recvBuffer.size(), IBV_ACCESS_LOCAL_WRITE);
-        if (recvMr == nullptr) return rdmaStatus("ibv_reg_mr receive buffer");
         sendMr = ::ibv_reg_mr(pd, sendBuffer.data(), sendBuffer.size(), 0);
         if (sendMr == nullptr) return rdmaStatus("ibv_reg_mr send buffer");
-        return postReceive();
+        for (std::size_t index = 0; index < receiveSlots.size(); ++index) {
+            auto& slot = receiveSlots[index];
+            slot.buffer.resize(kChunkSize);
+            slot.memoryRegion = ::ibv_reg_mr(pd, slot.buffer.data(), slot.buffer.size(),
+                                             IBV_ACCESS_LOCAL_WRITE);
+            if (slot.memoryRegion == nullptr) return rdmaStatus("ibv_reg_mr receive buffer");
+            const auto status = postReceive(index);
+            if (!status.isOk()) return status;
+        }
+        return common::Status::ok();
     }
 
-    common::Status postReceive() {
-        ibv_sge scatter{reinterpret_cast<std::uintptr_t>(recvBuffer.data()),
-                        static_cast<std::uint32_t>(recvBuffer.size()), recvMr->lkey};
+    common::Status postReceive(std::size_t index) {
+        if (index >= receiveSlots.size())
+            return common::Status::invalidArgument("invalid RDMA receive slot");
+        auto& slot = receiveSlots[index];
+        if (slot.memoryRegion == nullptr || slot.posted)
+            return common::Status::runtimeError("RDMA receive slot is not reusable");
+        ibv_sge scatter{reinterpret_cast<std::uintptr_t>(slot.buffer.data()),
+                        static_cast<std::uint32_t>(slot.buffer.size()), slot.memoryRegion->lkey};
         ibv_recv_wr workRequest{};
-        workRequest.wr_id = 1;
+        workRequest.wr_id = index;
         workRequest.sg_list = &scatter;
         workRequest.num_sge = 1;
         ibv_recv_wr* bad = nullptr;
         if (::ibv_post_recv(id->qp, &workRequest, &bad) != 0) return rdmaStatus("ibv_post_recv");
-        receivePosted = true;
+        slot.posted = true;
         return common::Status::ok();
     }
 
@@ -346,25 +366,30 @@ common::Result<std::size_t> RdmaDataSocket::readSome(std::uint8_t* data, std::si
     (void)data; (void)length; return unavailable();
 #else
     if (!valid() || data == nullptr || length == 0) return common::Status::invalidArgument("invalid RDMA read");
-    if (impl_->received == 0) {
-        if (!impl_->receivePosted) {
-            const auto posted = impl_->postReceive();
-            if (!posted.isOk()) return posted;
-        }
+    if (impl_->activeReceiveSlot == kReceiveQueueDepth) {
         ibv_wc completion{};
         const auto status = impl_->pollCompletion(impl_->recvCq, &completion);
         if (!status.isOk()) return status;
-        impl_->receivePosted = false;
-        impl_->received = completion.byte_len;
-        impl_->receiveOffset = 0;
+        if (completion.wr_id >= impl_->receiveSlots.size())
+            return common::Status::transportError("RDMA completion has an invalid receive slot");
+        impl_->activeReceiveSlot = static_cast<std::size_t>(completion.wr_id);
+        auto& slot = impl_->receiveSlots[impl_->activeReceiveSlot];
+        if (!slot.posted)
+            return common::Status::transportError("RDMA completion used an unposted receive slot");
+        slot.posted = false;
+        slot.received = completion.byte_len;
+        slot.offset = 0;
     }
-    const std::size_t copied = std::min(length, impl_->received);
-    std::memcpy(data, impl_->recvBuffer.data() + impl_->receiveOffset, copied);
-    impl_->receiveOffset += copied;
-    impl_->received -= copied;
-    if (impl_->received == 0) {
-        const auto posted = impl_->postReceive();
+    const auto slotIndex = impl_->activeReceiveSlot;
+    auto& slot = impl_->receiveSlots[slotIndex];
+    const std::size_t copied = std::min(length, slot.received);
+    std::memcpy(data, slot.buffer.data() + slot.offset, copied);
+    slot.offset += copied;
+    slot.received -= copied;
+    if (slot.received == 0) {
+        const auto posted = impl_->postReceive(slotIndex);
         if (!posted.isOk()) return posted;
+        impl_->activeReceiveSlot = kReceiveQueueDepth;
     }
     return copied;
 #endif
