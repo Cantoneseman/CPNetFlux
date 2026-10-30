@@ -14,6 +14,9 @@ payloads were excluded. Cloud sources remain intact. The source did not contain
 the historical CPSS `Model/` or `DCCData/full-v1/` inputs, so those remain an
 explicit gap.
 
+The local route notes and the 2026-10-29 GridFTP experiment report were also
+copied to `/home/Su/experiments/reference` and indexed with SHA-256.
+
 Both R770 nodes built commit `222bcb7b8dc6e7474577239289801406aa5339f7` with
 the same RelWithDebInfo/Ninja options. CTest passed `475/475` on each node,
 desktop agent tests passed `18/18`, Python evidence tests passed `7/7`, and the
