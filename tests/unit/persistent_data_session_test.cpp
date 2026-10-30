@@ -6,8 +6,10 @@
 #include <future>
 #include <string>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <thread>
 #include <sys/resource.h>
 #include <sys/socket.h>
@@ -33,6 +35,19 @@ struct SocketPair {
         if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) throw std::runtime_error("socketpair");
         sender = FramedDataSocket(UniqueFd(fds[0]));
         receiver = FramedDataSocket(UniqueFd(fds[1]));
+    }
+};
+struct ScopedEnvironment {
+    std::string name;
+    std::string previous;
+    bool hadPrevious = false;
+    ScopedEnvironment(const char* key, const char* value) : name(key) {
+        if (const auto* current = std::getenv(key)) { previous = current; hadPrevious = true; }
+        if (::setenv(key, value, 1) != 0) throw std::runtime_error("setenv");
+    }
+    ~ScopedEnvironment() {
+        if (hadPrevious) (void)::setenv(name.c_str(), previous.c_str(), 1);
+        else (void)::unsetenv(name.c_str());
     }
 };
 struct TempRoot {
@@ -587,6 +602,105 @@ TEST(PersistentTreeRangeTest, LoopbackTransfersTwoRangesAndPublishesAfterFinalRa
     std::ifstream input(destination.path / "large.bin", std::ios::binary);
     std::string actual((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     EXPECT_EQ(actual, content);
+}
+
+
+TEST(PersistentTreeRangeTest, RangeWriteBatchExportsEffectiveBufferAndPreservesData) {
+    SocketPair pair;
+    TempRoot source, destination;
+    const std::string content(262144, 'B');
+    std::ofstream(source.path / "batched.bin", std::ios::binary) << content;
+    struct stat sourceStat{};
+    ASSERT_EQ(::stat((source.path / "batched.bin").c_str(), &sourceStat), 0);
+    std::vector<PersistentFileIdentity> ranges;
+    for (std::uint64_t index = 0; index < 2; ++index) {
+        ranges.push_back(PersistentFileIdentity{1, 8, content.size(), "batched.bin", "range-batch",
+            131072, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
+            index + 1, index * 131072, 131072, 2, 1});
+    }
+    ScopedEnvironment batchSetting("CPNETFLUX_RANGE_WRITE_BATCH_BYTES", "131072");
+    PersistentTransferPolicy policy;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received;
+    received.phaseTiming = true;
+    PersistentTreeStats sent;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 2, 0, 1, 1, false, false, context);
+    });
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), ranges, &sent,
+        {}, 2, 0, 1, nullptr);
+    receiver.join();
+    ASSERT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    ASSERT_EQ(received.fileTimings.size(), 2U);
+    for (const auto& timing : received.fileTimings) {
+        EXPECT_EQ(timing.rangeObservation.rangeWriteBatchBytes, 131072U);
+        EXPECT_EQ(timing.rangeObservation.dataFrameCount, 3U);
+        EXPECT_EQ(timing.rangeObservation.writerCallCount, 3U);
+        EXPECT_EQ(timing.rangeObservation.fileWrite.writeAtAllCalls, 1U);
+    }
+    std::ostringstream exported;
+    appendPersistentFileTimings(exported, received.fileTimings);
+    EXPECT_NE(exported.str().find("\"range_write_batch_bytes\":131072"), std::string::npos);
+    std::ifstream input(destination.path / "batched.bin", std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(input)), {}), content);
+}
+
+
+TEST(PersistentTreeRangeTest, RejectsOutOfRangeWriteBatchBeforeDataIsWritten) {
+    SocketPair pair;
+    TempRoot source, destination;
+    std::ofstream(source.path / "invalid-batch.bin") << "DATA";
+    struct stat sourceStat{};
+    ASSERT_EQ(::stat((source.path / "invalid-batch.bin").c_str(), &sourceStat), 0);
+    PersistentFileIdentity id{1, 9, 4, "invalid-batch.bin", "invalid-batch", 4,
+        sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
+        1, 0, 4, 1, 1};
+    ScopedEnvironment batchSetting("CPNETFLUX_RANGE_WRITE_BATCH_BYTES", "4096");
+    PersistentTransferPolicy policy;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received, sent;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, false, false, context);
+    });
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {id}, &sent);
+    receiver.join();
+    EXPECT_FALSE(sendStatus.isOk());
+    EXPECT_FALSE(receiveStatus.isOk());
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "invalid-batch.bin"));
+}
+
+
+TEST(PersistentTreeRangeTest, DirectWriteStrategyOverridesRangeBatchEnvironment) {
+    SocketPair pair;
+    TempRoot source, destination;
+    std::ofstream(source.path / "direct.bin") << "DATA";
+    struct stat sourceStat{};
+    ASSERT_EQ(::stat((source.path / "direct.bin").c_str(), &sourceStat), 0);
+    PersistentFileIdentity id{1, 10, 4, "direct.bin", "direct-batch-override", 4,
+        sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
+        1, 0, 4, 1, 1};
+    ScopedEnvironment batchSetting("CPNETFLUX_RANGE_WRITE_BATCH_BYTES", "invalid");
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received, sent;
+    received.phaseTiming = true;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, false, false, context);
+    });
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {id}, &sent);
+    receiver.join();
+    ASSERT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    ASSERT_EQ(received.fileTimings.size(), 1U);
+    EXPECT_EQ(received.fileTimings.front().rangeObservation.rangeWriteBatchBytes, 0U);
 }
 
 TEST(PersistentTreeRangeTest, IncompleteCoverageCannotPublishDespiteMatchingRangeCount) {

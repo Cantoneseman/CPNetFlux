@@ -2,6 +2,7 @@
 #include "cpnetflux/core/io/payload_pipeline.h"
 #include <cstdlib>
 #include <ctime>
+#include <charconv>
 #include <string_view>
 #include "cpnetflux/core/io/work_executor.h"
 
@@ -147,6 +148,23 @@ common::Result<std::uint32_t> rangeCheckpointBatch(const PersistentTransferPolic
     if (std::string_view(setting) == "4") return std::uint32_t{4};
     if (std::string_view(setting) == "16") return std::uint32_t{16};
     return Status::invalidArgument("CPNETFLUX_RANGE_CHECKPOINT_BATCH must be 1, 4 or 16");
+}
+common::Result<std::uint64_t> rangeWriteBatchBytes(const PersistentTransferPolicy& policy) {
+    constexpr std::uint64_t kMin = 64ULL * 1024ULL;
+    constexpr std::uint64_t kMax = 16ULL * 1024ULL * 1024ULL;
+    const auto validate = [&](std::uint64_t value) -> common::Result<std::uint64_t> {
+        if (value == 0 || (value >= kMin && value <= kMax)) return value;
+        return Status::invalidArgument("range write batch bytes must be off or in range 65536..16777216");
+    };
+    if (policy.rangeWriteBatchBytes) return validate(policy.rangeWriteBatchBytes);
+    const auto* setting = std::getenv("CPNETFLUX_RANGE_WRITE_BATCH_BYTES");
+    if (!setting || std::string_view(setting) == "off") return std::uint64_t{0};
+    std::uint64_t value = 0;
+    const auto text = std::string_view(setting);
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
+        return Status::invalidArgument("CPNETFLUX_RANGE_WRITE_BATCH_BYTES must be off or an integer byte count");
+    return validate(value);
 }
 double threadCpuSeconds(bool enabled) {
     if (!enabled) return 0;
@@ -671,6 +689,7 @@ class RangeFileCoordinator {
         std::weak_ptr<RangeCheckpointQueue> checkpointQueue;
         RangeObservation background;
         bool observeBackground = false;
+        std::uint64_t rangeWriteBatchBytes = 0;
         Status checkpointFailure;
     };
     static common::Result<std::shared_ptr<Entry>> begin(PersistentTransferContext& context,
@@ -682,6 +701,12 @@ class RangeFileCoordinator {
             return Status::invalidArgument("invalid range identity/bounds");
         auto batch = rangeCheckpointBatch(context.policy);
         if (!batch.isOk()) return batch.status();
+        const bool directWrites = context.policy.options.fileIo.posixWriteStrategy ==
+            storage::PosixWriteStrategy::Direct;
+        auto writeBatch = directWrites
+            ? common::Result<std::uint64_t>(std::uint64_t{0})
+            : rangeWriteBatchBytes(context.policy);
+        if (!writeBatch.isOk()) return writeBatch.status();
         const auto key = (fs::path(root) / id.relativePath).lexically_normal().string();
         std::shared_ptr<Entry> entry;
         {
@@ -696,12 +721,23 @@ class RangeFileCoordinator {
                 entry->rangeCount = id.rangeCount;
                 entry->checkpointBatch = batch.value();
                 entry->observeBackground = observation != nullptr;
+                auto rangePolicy = context.policy;
+                if (writeBatch.value() > 0 && rangePolicy.options.fileIo.bufferSize == 0 &&
+                    rangePolicy.options.fileIo.posixWriteStrategy == storage::PosixWriteStrategy::Auto) {
+                    rangePolicy.options.fileIo.bufferSize = writeBatch.value();
+                    rangePolicy.options.fileIo.posixWriteStrategy = storage::PosixWriteStrategy::Coalesced;
+                }
+                entry->rangeWriteBatchBytes =
+                    storage::effectivePosixWriteStrategy(rangePolicy.options.fileIo) ==
+                            storage::PosixWriteStrategy::Coalesced
+                        ? rangePolicy.options.fileIo.bufferSize
+                        : 0;
                 if (entry->checkpointBatch > 1) {
                     if (!context.checkpoints) context.checkpoints = std::make_shared<RangeCheckpointQueue>();
                     entry->checkpointQueue = context.checkpoints;
                 }
                 // The transaction outlives any channel's stack timing object.
-                entry->transaction = std::make_unique<FileTransaction>(nullptr,context.policy,nullptr,&context);
+                entry->transaction = std::make_unique<FileTransaction>(nullptr,rangePolicy,nullptr,&context);
                 auto status = entry->transaction->begin(root,entry->base,download,remoteRoot,resume,observation);
                 if (!status.isOk()) return status;
                 entry->loadedVerifiedChunks = entry->transaction->loadedVerifiedChunks();
@@ -718,6 +754,7 @@ class RangeFileCoordinator {
             }
         }
         ObservedEntryLock lock(entry->mutex, observation);
+        if (observation) observation->rangeWriteBatchBytes = entry->rangeWriteBatchBytes;
         if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
         auto base = id;
         base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
@@ -1910,6 +1947,7 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
         const auto& m = r.manifestSave;
         out << ",\"range_observation\":{\"schema_version\":2,\"data_frame_count\":" << r.dataFrameCount
             << ",\"effective_data_bytes\":" << r.effectiveDataBytes
+            << ",\"range_write_batch_bytes\":" << r.rangeWriteBatchBytes
             << ",\"entry_lock_calls\":" << r.entryLockCalls
             << ",\"entry_lock_wait_seconds\":" << r.entryLockWaitSeconds
             << ",\"entry_lock_hold_seconds\":" << r.entryLockHoldSeconds
@@ -1956,6 +1994,7 @@ void appendRangeObservationContract(std::ostream& out) {
         R"obs("common_scope":"DATA and writer metrics belong to one receiver range attempt; Entry-lock and deferred checkpoint metrics are accumulated per file entry and merged into the next reporting range, so they are not exact range attribution; concurrent timer sums can exceed transfer wall time",)obs"
         R"obs("metrics":{"data_frame_count":{"unit":"frames","scope":"successfully validated DATA frames accepted by this range writer","overlap":"not applicable"},)obs"
         R"obs("effective_data_bytes":{"unit":"logical bytes","scope":"decompressed payload after checksum prefix removal, accepted by this range writer","overlap":"not applicable"},)obs"
+        R"obs("range_write_batch_bytes":{"unit":"bytes","scope":"effective BufferedFileWriter contiguous buffer configured for this range; zero means batching is disabled or direct writes are selected","overlap":"configuration value, not elapsed time"},)obs"
         R"obs("entry_lock_calls":{"unit":"calls","scope":"Entry mutex acquisitions during this range plus deferred checkpoint acquisitions merged since the preceding reporting boundary","overlap":"not applicable"},)obs"
         R"obs("entry_lock_wait_seconds":{"unit":"seconds","scope":"steady_clock wait summed over those Entry lock acquisitions","overlap":"may overlap other ranges and range wall time"},)obs"
         R"obs("entry_lock_hold_seconds":{"unit":"seconds","scope":"steady_clock hold summed over those Entry lock acquisitions","overlap":"contains nested writer, data flush, record update and manifest flush intervals; concurrent ranges overlap"},)obs"

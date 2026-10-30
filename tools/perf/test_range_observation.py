@@ -40,6 +40,7 @@ class RangeObservationExportTest(unittest.TestCase):
                     "schema_version": 2,
                     "data_frame_count": 12,
                     "effective_data_bytes": 8192,
+                    "range_write_batch_bytes": 131072,
                     "entry_lock_wait_seconds": 0.001,
                     "file_write_at_all_bytes": 8192,
                     "manifest_save": {
@@ -69,6 +70,7 @@ class RangeObservationExportTest(unittest.TestCase):
             self.assertEqual(row["range_id"], 9)
             self.assertEqual(row["metrics"]["data_frame_count"], 12)
             self.assertEqual(row["metrics"]["effective_data_bytes"], 8192)
+            self.assertEqual(row["metrics"]["range_write_batch_bytes"], 131072)
             self.assertEqual(row["metrics"]["manifest_save_seconds"], 0.02)
             self.assertEqual(row["metrics"]["manifest_publish_seconds"], 0.01)
             self.assertEqual(result["source_logs"][0]["sha256"], hashlib.sha256(raw).hexdigest())

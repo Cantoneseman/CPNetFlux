@@ -11,7 +11,7 @@ from typing import Iterable
 
 MARKER = b"CPNETFLUX_PERSISTENT_TIMING "
 METRIC_FIELDS = (
-    "data_frame_count", "effective_data_bytes",
+    "data_frame_count", "effective_data_bytes", "range_write_batch_bytes",
     "entry_lock_calls", "entry_lock_wait_seconds", "entry_lock_hold_seconds",
     "offset_write_calls", "offset_write_seconds",
     "writer_call_count", "writer_call_seconds",

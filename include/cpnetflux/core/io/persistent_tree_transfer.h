@@ -19,6 +19,8 @@ struct PersistentTransferPolicy {
     std::string outputPath;
     // Internal policy override; 0 selects the tested default/environment setting.
     std::uint32_t rangeCheckpointBatchChunks = 0;
+    // Internal S2 experiment; 0 keeps the existing direct/explicit file-IO policy.
+    std::uint64_t rangeWriteBatchBytes = 0;
 };
 struct PersistentTransferContext;
 struct PersistentTreeChunkCrc {
@@ -49,6 +51,7 @@ inline constexpr std::uint32_t kUnknownPersistentFileCount = UINT32_MAX;
 
 struct RangeObservation {
     std::uint64_t dataFrameCount = 0, effectiveDataBytes = 0;
+    std::uint64_t rangeWriteBatchBytes = 0;
     std::uint64_t entryLockCalls = 0, offsetWriteCalls = 0, chunkFlushCalls = 0;
     std::uint64_t writerCallCount = 0, dataFlushCalls = 0;
     std::uint64_t recordUpdateCalls = 0, checkpointManifestFlushCalls = 0;
