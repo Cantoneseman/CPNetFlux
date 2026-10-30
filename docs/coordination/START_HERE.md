@@ -1,4 +1,4 @@
-> 当前执行规则（2026-10-20）：深圳 /root/projects/CPNetFlux 根目录直接单人串行开发，由当前总指挥完成，不使用子代理、不另建开发 worktree；Windows 只连接/查看/证据回收，上海只作同步版本后的传输对端。下文为历史快照，冲突条款已被 AGENTS.md 和 BOARD.md 当前节覆盖。
+> 当前执行规则（2026-10-30）：唯一权威目录为 R770-1 `/home/Su/projects/CPNetFlux`（SSH `r770-1`），R770-2 为同版本构建/传输对端。当前总指挥单人串行执行，不使用子代理或并行工作区，Windows 只连接/查看/回收。先读 AGENTS.md、ENVIRONMENT.md、RESEARCH_BASELINE.md 和 ROADMAP.md。下方多角色派单、Windows 开发和云端主开发要求均为历史快照，不再执行。
 
 # CPNetFlux：总指挥与五个专职角色
 
