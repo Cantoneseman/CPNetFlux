@@ -18,10 +18,12 @@ CPNetFlux 是面向算力网的大规模可靠数据传输底座。它提供 Gri
 
 ## 开发入口
 
-1. 从 [总指挥与五角色入口](docs/coordination/START_HERE.md) 接手，读取项目简报、环境和任务板。
-2. 按角色/任务读取 `docs/DESIGN.md`、`docs/ENGINEERING.md`、最近有效的决策及实验原始证据；旧 ROADMAP 保留历史，不能当作自动执行清单。
-3. 用户主要与总指挥沟通；总指挥派给架构、实验、实现、质量、运维五个独立角色。[六份完整初始 prompt](docs/coordination/START_HERE.md) 保存在仓库中。
-4. 修改前固定任务范围、输入提交和验收。Windows 本地开发；Linux 测试使用经过资源检查的云端隔离构建，未运行的测试不能宣称通过。
-5. 代码任务使用独立 `codex/<task-id>` 分支/worktree；协作规则见 `docs/AI_COLLABORATION.md`。
+1. 先读 `AGENTS.md`、[环境](docs/coordination/ENVIRONMENT.md)、[研究基线](docs/RESEARCH_BASELINE.md) 和 [路线图](docs/ROADMAP.md)。
+2. 2026-10-30 起在实验室 R770-1 的 `/home/Su/projects/CPNetFlux` 直接开发；R770-2 为同步构建/传输对端。Windows 只用于连接、查看和回收。
+3. 只由当前总指挥单人串行执行，不使用子代理或并行工作区，保留已有 dirty 改动，沿用当前开发分支。
+4. 修改前固定范围、输入提交、非目标和验收；只提交明确相关文件并推送 GitHub，回读远端 SHA。
+5. 两端互传前同步提交并完成构建和二进制校验；测试走 RDMA 网卡的 IP 路径，当前 TCP 数据面不等于原生 RDMA verbs。
+
+迁移范围与核验见 [R770 迁移任务](docs/tasks/2026-10-30-r770-migration.md)。旧角色和云端工作流文档属于历史，不覆盖当前规则。
 
 CPNetFlux 不等同于完整 GridFTP 实现；`GridFTP` 在文档中仅表示外部兼容协议和对照工具名称。

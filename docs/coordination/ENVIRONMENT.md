@@ -1,4 +1,30 @@
-> 当前执行规则（2026-10-20）：深圳 /root/projects/CPNetFlux 根目录直接单人串行开发，由当前总指挥完成，不使用子代理、不另建开发 worktree；Windows 只连接/查看/证据回收，上海只作同步版本后的传输对端。下文为历史快照，冲突条款已被 AGENTS.md 和 BOARD.md 当前节覆盖。
+> 当前执行规则（2026-10-30）：R770-1 `/home/Su/projects/CPNetFlux` 是唯一权威开发目录，当前总指挥单人串行完成，不使用子代理或并行工作区。R770-2 是同步构建、测试和传输对端；Windows 只连接/查看/回收。下方云端开发、派单和 CPSS 禁入条款为历史快照，已被本节和用户本次迁移授权覆盖。
+
+## 当前实验室环境
+
+| 项目 | R770-1 | R770-2 |
+|---|---|---|
+| Windows SSH | `r770-1` | `r770-2` |
+| 管理地址 / 用户 | `192.168.1.109` / Su | `192.168.1.102` / Su |
+| 角色 | 唯一权威开发、Git、分析与实验发起 | 同提交构建、测试与传输对端 |
+| CPNetFlux | `/home/Su/projects/CPNetFlux` | `/home/Su/projects/CPNetFlux` |
+| RDMA 网卡 IP | `192.168.100.1/30` | `192.168.100.2/30` |
+| 网卡 / RDMA 设备 | `eno17095np0` / `mlx5_0` | `eno17095np0` / `mlx5_0` |
+
+两台均为 PowerEdge R770，Ubuntu 26.04.1、32 逻辑 CPU、约 30 GiB 内存；首次检查系统盘各余约 399/401 GiB。网卡报告 100000 Mb/s、MTU 1500、RDMA 端口 ACTIVE。硬件标称速率不代表已测吞吐。
+
+- 两端代码改动先在 R770-1 固定提交，再同步 R770-2；同配置构建并核对版本和二进制 SHA-256 后互传。
+- 实际 CPNetFlux 测试显式绑定上述数据地址并记录 route/接口计数。当前 TCP 实现经过 RDMA 网卡，不是原生 RDMA verbs。
+- CPSS(DCC) 为独立项目：R770-1 `/home/Su/projects/CPSS(DCC)`。本轮只迁移其源码和现有资料，不将其混入 CPNetFlux Git。
+- 新实验：`/home/Su/experiments/CPNetFlux`；云端保留证据：`/home/Su/experiments/cloud-archive`；共享数据：`/home/Su/datasets`；迁移归档和校验：`/home/Su/migration/2026-10-30`。
+- 排除旧构建、依赖缓存、虚拟环境、凭据和重复传输 payload。两份既有未提交任务文档原样保留。
+- CPSS 源端缺少 `Model/` 和 `DCCData/full-v1/`，本次不能恢复不存在的输入。旧文档所列路径不作为可用性证明。
+- 深圳/上海原件保留作历史来源；本轮未授权清空或关闭云主机。重新使用前需检查资源，不延续旧资源结论。
+- GitHub 使用 R770-1 新生成的 CPNetFlux 仓库专用部署密钥，不复制云端私钥。凭据不写入仓库。
+
+迁移任务及验收证据：`docs/tasks/2026-10-30-r770-migration.md`。
+
+## 以下为云端历史快照
 
 # 本地开发与云端实验交接
 

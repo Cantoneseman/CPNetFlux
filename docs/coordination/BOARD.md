@@ -1,4 +1,10 @@
-# 当前执行（2026-10-20；R2026-10-16-V3-UNIFIED-MULTILINK）
+# 当前执行（2026-10-30；R770 环境迁移）
+
+当前总指挥单人串行迁移；暂停性能功能改动。R770-1 `/home/Su/projects/CPNetFlux` 替代深圳成为唯一权威工作区，R770-2 为同步构建/传输对端。Windows 只连接、查看和回收，不使用子代理、不新建并行工作区。下方云端开发和多角色派单文字仅为历史快照，不再生效。
+
+迁移输入 `af9e0c2897445ce66dbdf18277a4048f0b7513d9`，沿用 `codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`。任务及验收见 `docs/tasks/2026-10-30-r770-migration.md`；之后仍按 S0-S8 路线推进，S2 整体未完成。
+
+## 历史执行（2026-10-20；R2026-10-16-V3-UNIFIED-MULTILINK）
 
 - V3-DESKTOP-UI-REFACTOR-01：源码、功能回归与 DEB 解包运行审计已通过；Ubuntu 22.04 GNOME VM 安装验收待环境。实现提交 454c9e3ad96aabac0a3d1fdf71c0b74de7fd9c22 已推送并回读一致，完整包 SHA-256 489ba1f253e616665cd59158f9ec2f5dc654ab25a183738aae3020f676b3aa81。API 3.0.0 + 浅色正式 QML 已接通真实上传/下载/取消/resume/退出重开/排队任务启动；完整 CTest 422 项无失败（421 pass、1 io_uring skip），末轮定向 7/7。高级 scheduler 预算组合存在已记录恢复限制；未宣称独立单文件/mTLS/实时 range 预览已实现。范围、证据与回滚见 docs/tasks/2026-10-22-v3-desktop-ui-refactor-01.md 与同名 -result.md。离屏测试不代替 GNOME VM。
 
