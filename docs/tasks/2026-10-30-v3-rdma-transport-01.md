@@ -26,7 +26,7 @@
 
 ## 实现边界
 
-数据平面以 RC QP 的 SEND/RECV 搬运 V3 framed 字节流，每方向使用固定 1 MiB 注册缓冲区，逐消息等待完成。它通过 verbs/RoCE 绕过 TCP 数据 socket，但仍会复制到注册缓冲区，属于首个正确性后端，不是零拷贝优化。RDMA 数据通道暂不支持 data TLS；可继续使用 TCP 控制连接 TLS 和 token 认证，只有在可信 RDMA 网络上才应运行当前数据通道。
+数据平面以 RC QP 的 SEND/RECV 搬运 V3 framed 字节流。每连接使用一个 1 MiB 发送缓冲区和 16 个各 1 MiB 的预投递接收槽，发送仍逐消息等待完成并轮询 CQ；注册内存约 17 MiB/连接。它通过 verbs/RoCE 绕过 TCP 数据 socket，但仍会复制到注册缓冲区，属于正确性和初步性能后端，不是零拷贝优化。RDMA 数据通道暂不支持 data TLS；本轮已验证控制通道 TLS 和 token 认证可与 RDMA 数据通道同时使用，但只有在可信 RDMA 网络上才应运行当前数据通道。实测和遗留风险见 `2026-10-30-v3-rdma-transport-01-result.md`。
 
 ## 预计改动文件
 
