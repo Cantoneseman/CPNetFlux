@@ -33,6 +33,8 @@ common::Status unavailable() {
 constexpr std::size_t kMessageBufferSize = kRdmaDataMessageBufferBytes;
 constexpr std::size_t kSendQueueDepth = kRdmaDataQueueDepth;
 constexpr std::size_t kReceiveQueueDepth = kRdmaDataReceiveQueueDepth;
+constexpr std::size_t kReceiveSpareDepth = kRdmaDataReceiveSpareDepth;
+constexpr std::size_t kReceiveSlotCount = kReceiveQueueDepth + kReceiveSpareDepth;
 constexpr std::size_t kCompletionQueueDepth = kReceiveQueueDepth * 2;
 constexpr int kDefaultTimeoutMs = 30000;
 
@@ -47,6 +49,35 @@ int timeoutMs(SocketDeadline deadline) {
 common::Status rdmaStatus(const char* operation, int errorNumber = errno) {
     return common::Status::transportError(
         std::string(operation) + ": " + std::strerror(errorNumber), errorNumber);
+}
+
+common::Status waitForCompletionEvent(ibv_comp_channel* channel, ibv_cq* expectedCq,
+                                      SocketDeadline deadline,
+                                      std::uint64_t* eventWaits) {
+    if (channel == nullptr || expectedCq == nullptr || eventWaits == nullptr)
+        return common::Status::invalidArgument("invalid RDMA completion event wait");
+
+    pollfd descriptor{channel->fd, POLLIN, 0};
+    while (true) {
+        ++*eventWaits;
+        const int ready = ::poll(&descriptor, 1, timeoutMs(deadline));
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready == 0)
+            return common::Status::transportError("RDMA completion event timed out");
+        if (ready < 0) return rdmaStatus("poll RDMA completion event");
+        if (!(descriptor.revents & POLLIN))
+            return common::Status::transportError("RDMA completion event channel closed");
+
+        ibv_cq* eventCq = nullptr;
+        void* cqContext = nullptr;
+        if (::ibv_get_cq_event(channel, &eventCq, &cqContext) != 0)
+            return rdmaStatus("ibv_get_cq_event");
+        (void)cqContext;
+        ::ibv_ack_cq_events(eventCq, 1);
+        if (eventCq != expectedCq)
+            return common::Status::transportError("RDMA completion arrived on an unexpected CQ");
+        return common::Status::ok();
+    }
 }
 
 common::Result<sockaddr_storage> resolveAddress(const char* host, std::uint16_t port,
@@ -114,14 +145,12 @@ common::Status waitEvent(rdma_event_channel* channel, rdma_cm_event_type expecte
 #if CPNETFLUX_HAS_RDMA
 struct RdmaDataSocket::Impl {
     struct SendSlot {
-        std::vector<std::uint8_t> buffer;
-        ibv_mr* memoryRegion = nullptr;
+        std::uint8_t* buffer = nullptr;
         bool inFlight = false;
     };
 
     struct ReceiveSlot {
-        std::vector<std::uint8_t> buffer;
-        ibv_mr* memoryRegion = nullptr;
+        std::uint8_t* buffer = nullptr;
         std::size_t received = 0;
         std::size_t offset = 0;
         bool posted = false;
@@ -130,12 +159,28 @@ struct RdmaDataSocket::Impl {
     rdma_event_channel* channel = nullptr;
     rdma_cm_id* id = nullptr;
     ibv_pd* pd = nullptr;
+    ibv_comp_channel* sendCompletionChannel = nullptr;
+    ibv_comp_channel* receiveCompletionChannel = nullptr;
     ibv_cq* sendCq = nullptr;
     ibv_cq* recvCq = nullptr;
+    std::vector<std::uint8_t> sendBufferPool;
+    std::vector<std::uint8_t> receiveBufferPool;
+    ibv_mr* sendMemoryRegion = nullptr;
+    ibv_mr* receiveMemoryRegion = nullptr;
     std::array<SendSlot, kSendQueueDepth> sendSlots;
-    std::array<ReceiveSlot, kReceiveQueueDepth> receiveSlots;
+    std::array<ReceiveSlot, kReceiveSlotCount> receiveSlots;
+    std::array<std::size_t, kReceiveSpareDepth> freeReceiveSlotQueue{};
+    std::size_t freeReceiveSlotHead = 0;
+    std::size_t freeReceiveSlotTail = 0;
+    std::size_t freeReceiveSlotCount = 0;
+    std::array<std::size_t, kReceiveSpareDepth> readyReceiveSlotQueue{};
+    std::size_t readyReceiveSlotHead = 0;
+    std::size_t readyReceiveSlotTail = 0;
+    std::size_t readyReceiveSlotCount = 0;
     std::size_t sendInFlight = 0;
-    std::size_t activeReceiveSlot = kReceiveQueueDepth;
+    std::size_t stagedSendSlot = kSendQueueDepth;
+    std::size_t stagedSendBytes = 0;
+    std::size_t activeReceiveSlot = kReceiveSlotCount;
     RdmaTransportStats statistics;
     bool closed = false;
     std::atomic_bool disconnected{false};
@@ -147,22 +192,24 @@ struct RdmaDataSocket::Impl {
         closed = true;
         if (id != nullptr && !disconnected.exchange(true)) (void)::rdma_disconnect(id);
         if (id != nullptr && id->qp != nullptr) ::rdma_destroy_qp(id);
-        for (auto& slot : sendSlots) {
-            if (slot.memoryRegion != nullptr) (void)::ibv_dereg_mr(slot.memoryRegion);
-            slot.memoryRegion = nullptr;
-        }
-        for (auto& slot : receiveSlots) {
-            if (slot.memoryRegion != nullptr) (void)::ibv_dereg_mr(slot.memoryRegion);
-            slot.memoryRegion = nullptr;
-        }
+        if (sendMemoryRegion != nullptr) (void)::ibv_dereg_mr(sendMemoryRegion);
+        if (receiveMemoryRegion != nullptr) (void)::ibv_dereg_mr(receiveMemoryRegion);
+        sendMemoryRegion = nullptr;
+        receiveMemoryRegion = nullptr;
         if (sendCq != nullptr) (void)::ibv_destroy_cq(sendCq);
         if (recvCq != nullptr) (void)::ibv_destroy_cq(recvCq);
+        if (sendCompletionChannel != nullptr)
+            (void)::ibv_destroy_comp_channel(sendCompletionChannel);
+        if (receiveCompletionChannel != nullptr)
+            (void)::ibv_destroy_comp_channel(receiveCompletionChannel);
         if (pd != nullptr) (void)::ibv_dealloc_pd(pd);
         if (id != nullptr) (void)::rdma_destroy_id(id);
         if (channel != nullptr) ::rdma_destroy_event_channel(channel);
         channel = nullptr;
         id = nullptr;
         pd = nullptr;
+        sendCompletionChannel = nullptr;
+        receiveCompletionChannel = nullptr;
         sendCq = nullptr;
         recvCq = nullptr;
     }
@@ -172,8 +219,14 @@ struct RdmaDataSocket::Impl {
             "RDMA connection has no verbs context");
         pd = ::ibv_alloc_pd(id->verbs);
         if (pd == nullptr) return rdmaStatus("ibv_alloc_pd");
-        sendCq = ::ibv_create_cq(id->verbs, kCompletionQueueDepth, nullptr, nullptr, 0);
-        recvCq = ::ibv_create_cq(id->verbs, kCompletionQueueDepth, nullptr, nullptr, 0);
+        sendCompletionChannel = ::ibv_create_comp_channel(id->verbs);
+        receiveCompletionChannel = ::ibv_create_comp_channel(id->verbs);
+        if (sendCompletionChannel == nullptr || receiveCompletionChannel == nullptr)
+            return rdmaStatus("ibv_create_comp_channel");
+        sendCq = ::ibv_create_cq(id->verbs, kCompletionQueueDepth, nullptr,
+                                 sendCompletionChannel, 0);
+        recvCq = ::ibv_create_cq(id->verbs, kCompletionQueueDepth, nullptr,
+                                 receiveCompletionChannel, 0);
         if (sendCq == nullptr || recvCq == nullptr) return rdmaStatus("ibv_create_cq");
         ibv_qp_init_attr attributes{};
         attributes.send_cq = sendCq;
@@ -185,31 +238,96 @@ struct RdmaDataSocket::Impl {
         attributes.qp_type = IBV_QPT_RC;
         attributes.sq_sig_all = 0;
         if (::rdma_create_qp(id, pd, &attributes) != 0) return rdmaStatus("rdma_create_qp");
-        for (auto& slot : sendSlots) {
-            slot.buffer.resize(kMessageBufferSize);
-            slot.memoryRegion = ::ibv_reg_mr(pd, slot.buffer.data(), slot.buffer.size(), 0);
-            if (slot.memoryRegion == nullptr) return rdmaStatus("ibv_reg_mr send buffer");
+        sendBufferPool.resize(sendSlots.size() * kMessageBufferSize);
+        sendMemoryRegion = ::ibv_reg_mr(pd, sendBufferPool.data(), sendBufferPool.size(), 0);
+        if (sendMemoryRegion == nullptr) return rdmaStatus("ibv_reg_mr send buffer pool");
+        for (std::size_t index = 0; index < sendSlots.size(); ++index) {
+            sendSlots[index].buffer = sendBufferPool.data() + index * kMessageBufferSize;
         }
+        receiveBufferPool.resize(receiveSlots.size() * kMessageBufferSize);
+        receiveMemoryRegion = ::ibv_reg_mr(pd, receiveBufferPool.data(),
+                                           receiveBufferPool.size(), IBV_ACCESS_LOCAL_WRITE);
+        if (receiveMemoryRegion == nullptr) return rdmaStatus("ibv_reg_mr receive buffer pool");
         for (std::size_t index = 0; index < receiveSlots.size(); ++index) {
             auto& slot = receiveSlots[index];
-            slot.buffer.resize(kMessageBufferSize);
-            slot.memoryRegion = ::ibv_reg_mr(pd, slot.buffer.data(), slot.buffer.size(),
-                                             IBV_ACCESS_LOCAL_WRITE);
-            if (slot.memoryRegion == nullptr) return rdmaStatus("ibv_reg_mr receive buffer");
+            slot.buffer = receiveBufferPool.data() + index * kMessageBufferSize;
+        }
+        for (std::size_t index = 0; index < kReceiveQueueDepth; ++index) {
             const auto status = postReceive(index);
             if (!status.isOk()) return status;
         }
+        for (std::size_t index = kReceiveQueueDepth; index < kReceiveSlotCount; ++index) {
+            if (!enqueueFreeReceiveSlot(index))
+                return common::Status::runtimeError("RDMA receive spare queue is full");
+        }
         return common::Status::ok();
+    }
+
+    bool enqueueFreeReceiveSlot(std::size_t index) {
+        if (freeReceiveSlotCount >= freeReceiveSlotQueue.size()) return false;
+        freeReceiveSlotQueue[freeReceiveSlotTail] = index;
+        freeReceiveSlotTail = (freeReceiveSlotTail + 1) % freeReceiveSlotQueue.size();
+        ++freeReceiveSlotCount;
+        return true;
+    }
+
+    bool dequeueFreeReceiveSlot(std::size_t* index) {
+        if (index == nullptr || freeReceiveSlotCount == 0) return false;
+        *index = freeReceiveSlotQueue[freeReceiveSlotHead];
+        freeReceiveSlotHead = (freeReceiveSlotHead + 1) % freeReceiveSlotQueue.size();
+        --freeReceiveSlotCount;
+        return true;
+    }
+
+    bool enqueueReadyReceiveSlot(std::size_t index) {
+        if (readyReceiveSlotCount >= readyReceiveSlotQueue.size()) return false;
+        readyReceiveSlotQueue[readyReceiveSlotTail] = index;
+        readyReceiveSlotTail = (readyReceiveSlotTail + 1) % readyReceiveSlotQueue.size();
+        ++readyReceiveSlotCount;
+        statistics.receiveReadyQueueHighWatermark = std::max<std::uint64_t>(
+            statistics.receiveReadyQueueHighWatermark, readyReceiveSlotCount);
+        return true;
+    }
+
+    bool dequeueReadyReceiveSlot(std::size_t* index) {
+        if (index == nullptr || readyReceiveSlotCount == 0) return false;
+        *index = readyReceiveSlotQueue[readyReceiveSlotHead];
+        readyReceiveSlotHead = (readyReceiveSlotHead + 1) % readyReceiveSlotQueue.size();
+        --readyReceiveSlotCount;
+        return true;
+    }
+
+    void captureQueuePairObservations() {
+        ibv_qp_attr attributes{};
+        ibv_qp_init_attr initialAttributes{};
+        if (::ibv_query_qp(id->qp, &attributes,
+                           IBV_QP_STATE | IBV_QP_PATH_MTU |
+                               IBV_QP_MIN_RNR_TIMER | IBV_QP_RNR_RETRY,
+                           &initialAttributes) != 0)
+            return;
+
+        statistics.negotiatedSendQueueDepth = initialAttributes.cap.max_send_wr;
+        statistics.negotiatedReceiveQueueDepth = initialAttributes.cap.max_recv_wr;
+        statistics.negotiatedMinRnrTimer = attributes.min_rnr_timer;
+        statistics.negotiatedRnrRetry = attributes.rnr_retry;
+        switch (attributes.path_mtu) {
+            case IBV_MTU_256: statistics.negotiatedPathMtuBytes = 256; break;
+            case IBV_MTU_512: statistics.negotiatedPathMtuBytes = 512; break;
+            case IBV_MTU_1024: statistics.negotiatedPathMtuBytes = 1024; break;
+            case IBV_MTU_2048: statistics.negotiatedPathMtuBytes = 2048; break;
+            case IBV_MTU_4096: statistics.negotiatedPathMtuBytes = 4096; break;
+            default: statistics.negotiatedPathMtuBytes = 0; break;
+        }
     }
 
     common::Status postReceive(std::size_t index) {
         if (index >= receiveSlots.size())
             return common::Status::invalidArgument("invalid RDMA receive slot");
         auto& slot = receiveSlots[index];
-        if (slot.memoryRegion == nullptr || slot.posted)
+        if (receiveMemoryRegion == nullptr || slot.buffer == nullptr || slot.posted)
             return common::Status::runtimeError("RDMA receive slot is not reusable");
-        ibv_sge scatter{reinterpret_cast<std::uintptr_t>(slot.buffer.data()),
-                        static_cast<std::uint32_t>(slot.buffer.size()), slot.memoryRegion->lkey};
+        ibv_sge scatter{reinterpret_cast<std::uintptr_t>(slot.buffer),
+                        static_cast<std::uint32_t>(kMessageBufferSize), receiveMemoryRegion->lkey};
         ibv_recv_wr workRequest{};
         workRequest.wr_id = index;
         workRequest.sg_list = &scatter;
@@ -217,27 +335,147 @@ struct RdmaDataSocket::Impl {
         ibv_recv_wr* bad = nullptr;
         if (::ibv_post_recv(id->qp, &workRequest, &bad) != 0) return rdmaStatus("ibv_post_recv");
         slot.posted = true;
+        ++statistics.receivePostCalls;
         return common::Status::ok();
     }
 
-    common::Status pollCompletion(ibv_cq* cq, ibv_wc* completion) {
+    common::Status pollReceiveCompletion(ibv_wc* completion) {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-        std::uint32_t emptyPolls = 0;
-        for (;;) {
-            const int count = ::ibv_poll_cq(cq, 1, completion);
-            if (count < 0) return common::Status::transportError("ibv_poll_cq failed");
+        const auto waitStarted = std::chrono::steady_clock::now();
+        ++statistics.receiveCompletionWaitCount;
+        auto finishWait = [&](common::Status status) {
+            statistics.receiveCompletionWaitNanoseconds += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - waitStarted).count());
+            return status;
+        };
+        auto pollOnce = [&]() -> common::Result<bool> {
+            ++statistics.receiveCompletionPollCalls;
+            const int count = ::ibv_poll_cq(recvCq, 1, completion);
+            if (count < 0)
+                return common::Status::transportError("ibv_poll_cq failed");
+            if (count == 0) {
+                ++statistics.receiveCompletionEmptyPollCalls;
+                return false;
+            }
             if (count == 1) {
-                if (completion->status != IBV_WC_SUCCESS) {
+                if (completion->status != IBV_WC_SUCCESS)
                     return common::Status::transportError(
                         "RDMA work completion failed: " +
                         std::string(::ibv_wc_status_str(completion->status)), completion->status);
-                }
-                return common::Status::ok();
+                ++statistics.receiveCompletions;
+                statistics.receiveBytes += completion->byte_len;
+                return true;
             }
-            if (std::chrono::steady_clock::now() >= deadline)
-                return common::Status::transportError("RDMA work completion timed out");
-            if (++emptyPolls % 8192U == 0) std::this_thread::yield();
+            return common::Status::transportError("ibv_poll_cq returned an invalid count");
+        };
+        for (;;) {
+            for (std::uint32_t spin = 0; spin < kRdmaCompletionSpinPollBudget; ++spin) {
+                auto polled = pollOnce();
+                if (!polled.isOk()) return finishWait(polled.status());
+                if (polled.value()) return finishWait(common::Status::ok());
+                if (std::chrono::steady_clock::now() >= deadline)
+                    return finishWait(common::Status::transportError(
+                        "RDMA work completion timed out"));
+            }
+
+            if (::ibv_req_notify_cq(recvCq, 0) != 0)
+                return finishWait(rdmaStatus("ibv_req_notify_cq receive"));
+
+            // Recheck after arming so a completion cannot land in the arm/wait gap.
+            auto polled = pollOnce();
+            if (!polled.isOk()) return finishWait(polled.status());
+            if (polled.value()) return finishWait(common::Status::ok());
+            if (std::chrono::steady_clock::now() >= deadline) {
+                return finishWait(common::Status::transportError(
+                    "RDMA work completion timed out"));
+            }
+
+            const auto eventStatus = waitForCompletionEvent(
+                receiveCompletionChannel, recvCq, deadline,
+                &statistics.receiveCompletionEventWaits);
+            if (!eventStatus.isOk()) return finishWait(eventStatus);
         }
+    }
+
+    common::Status stageReceiveCompletion(const ibv_wc& completion) {
+        if (completion.wr_id >= receiveSlots.size())
+            return common::Status::transportError("RDMA completion has an invalid receive slot");
+        std::size_t replacement = 0;
+        if (!dequeueFreeReceiveSlot(&replacement))
+            return common::Status::transportError("RDMA receive spare queue is exhausted");
+        auto& completed = receiveSlots[static_cast<std::size_t>(completion.wr_id)];
+        if (!completed.posted)
+            return common::Status::transportError("RDMA completion used an unposted receive slot");
+        completed.posted = false;
+        completed.received = completion.byte_len;
+        completed.offset = 0;
+        const auto posted = postReceive(replacement);
+        if (!posted.isOk()) {
+            (void)enqueueFreeReceiveSlot(replacement);
+            return posted;
+        }
+        ++statistics.receiveReposts;
+        if (!enqueueReadyReceiveSlot(static_cast<std::size_t>(completion.wr_id)))
+            return common::Status::runtimeError("RDMA ready receive queue is full");
+        return common::Status::ok();
+    }
+
+    common::Result<std::size_t> drainReceiveCompletions() {
+        if (freeReceiveSlotCount == 0) return std::size_t{0};
+        std::array<ibv_wc, kReceiveSpareDepth> completions{};
+        const int limit = static_cast<int>(std::min<std::size_t>(
+            freeReceiveSlotCount, completions.size()));
+        ++statistics.receiveCompletionPollCalls;
+        const int count = ::ibv_poll_cq(recvCq, limit, completions.data());
+        if (count < 0) return common::Status::transportError("ibv_poll_cq receive drain failed");
+        if (count == 0) {
+            ++statistics.receiveCompletionEmptyPollCalls;
+            return std::size_t{0};
+        }
+        for (int index = 0; index < count; ++index) {
+            const auto& completion = completions[static_cast<std::size_t>(index)];
+            if (completion.status != IBV_WC_SUCCESS)
+                return common::Status::transportError(
+                    "RDMA work completion failed: " +
+                    std::string(::ibv_wc_status_str(completion.status)), completion.status);
+            ++statistics.receiveCompletions;
+            statistics.receiveBytes += completion.byte_len;
+            const auto status = stageReceiveCompletion(completion);
+            if (!status.isOk()) return status;
+        }
+        return static_cast<std::size_t>(count);
+    }
+
+    common::Status stageNextReceiveCompletion() {
+        ibv_wc completion{};
+        const auto status = pollReceiveCompletion(&completion);
+        if (!status.isOk()) return status;
+        return stageReceiveCompletion(completion);
+    }
+
+    common::Status releaseActiveReceiveSlot() {
+        if (activeReceiveSlot == kReceiveSlotCount)
+            return common::Status::runtimeError("RDMA active receive slot is missing");
+        auto& slot = receiveSlots[activeReceiveSlot];
+        slot.received = 0;
+        slot.offset = 0;
+        if (!enqueueFreeReceiveSlot(activeReceiveSlot))
+            return common::Status::runtimeError("RDMA receive free queue is full");
+        activeReceiveSlot = kReceiveSlotCount;
+        return common::Status::ok();
+    }
+
+    common::Status activateNextReceiveSlot() {
+        if (readyReceiveSlotCount == 0) {
+            const auto status = stageNextReceiveCompletion();
+            if (!status.isOk()) return status;
+        }
+        const auto drained = drainReceiveCompletions();
+        if (!drained.isOk()) return drained.status();
+        if (!dequeueReadyReceiveSlot(&activeReceiveSlot))
+            return common::Status::runtimeError("RDMA ready receive queue is empty");
+        return common::Status::ok();
     }
 
     common::Result<std::size_t> reapSendCompletions() {
@@ -246,7 +484,10 @@ struct RdmaDataSocket::Impl {
         const int count = ::ibv_poll_cq(sendCq, static_cast<int>(completions.size()),
                                         completions.data());
         if (count < 0) return common::Status::transportError("ibv_poll_cq send failed");
-        if (count == 0) return std::size_t{0};
+        if (count == 0) {
+            ++statistics.sendCompletionEmptyPollCalls;
+            return std::size_t{0};
+        }
         ++statistics.sendCompletionBatches;
         common::Status firstError = common::Status::ok();
         for (int index = 0; index < count; ++index) {
@@ -277,23 +518,39 @@ struct RdmaDataSocket::Impl {
 
     common::Status waitForSendProgress() {
         const auto waitStarted = std::chrono::steady_clock::now();
+        const auto deadline = waitStarted + std::chrono::seconds(30);
         ++statistics.sendCompletionWaitCount;
-        std::uint32_t emptyPolls = 0;
+        auto finishWait = [&](common::Status status) {
+            statistics.sendCompletionWaitNanoseconds += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - waitStarted).count());
+            return status;
+        };
         for (;;) {
+            for (std::uint32_t spin = 0; spin < kRdmaCompletionSpinPollBudget; ++spin) {
+                auto completions = reapSendCompletions();
+                if (!completions.isOk()) return finishWait(completions.status());
+                if (completions.value() != 0) return finishWait(common::Status::ok());
+                if (std::chrono::steady_clock::now() >= deadline)
+                    return finishWait(common::Status::transportError(
+                        "RDMA send completion timed out"));
+            }
+
+            if (::ibv_req_notify_cq(sendCq, 0) != 0)
+                return finishWait(rdmaStatus("ibv_req_notify_cq send"));
+
+            // Recheck after arming so a completion cannot land in the arm/wait gap.
             auto completions = reapSendCompletions();
-            if (!completions.isOk()) {
-                statistics.sendCompletionWaitNanoseconds += static_cast<std::uint64_t>(
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        std::chrono::steady_clock::now() - waitStarted).count());
-                return completions.status();
-            }
-            if (completions.value() != 0) {
-                statistics.sendCompletionWaitNanoseconds += static_cast<std::uint64_t>(
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        std::chrono::steady_clock::now() - waitStarted).count());
-                return common::Status::ok();
-            }
-            if (++emptyPolls % 8192U == 0) std::this_thread::yield();
+            if (!completions.isOk()) return finishWait(completions.status());
+            if (completions.value() != 0) return finishWait(common::Status::ok());
+            if (std::chrono::steady_clock::now() >= deadline)
+                return finishWait(common::Status::transportError(
+                    "RDMA send completion timed out"));
+
+            const auto eventStatus = waitForCompletionEvent(
+                sendCompletionChannel, sendCq, deadline,
+                &statistics.sendCompletionEventWaits);
+            if (!eventStatus.isOk()) return finishWait(eventStatus);
         }
     }
 
@@ -314,8 +571,8 @@ struct RdmaDataSocket::Impl {
 
     common::Status postSend(std::size_t slotIndex, std::size_t length) {
         auto& slot = sendSlots[slotIndex];
-        ibv_sge scatter{reinterpret_cast<std::uintptr_t>(slot.buffer.data()),
-                        static_cast<std::uint32_t>(length), slot.memoryRegion->lkey};
+        ibv_sge scatter{reinterpret_cast<std::uintptr_t>(slot.buffer),
+                        static_cast<std::uint32_t>(length), sendMemoryRegion->lkey};
         ibv_send_wr workRequest{};
         workRequest.wr_id = slotIndex;
         workRequest.opcode = IBV_WR_SEND;
@@ -334,7 +591,18 @@ struct RdmaDataSocket::Impl {
         return common::Status::ok();
     }
 
+    common::Status flushStagedSend() {
+        if (stagedSendSlot == kSendQueueDepth) return common::Status::ok();
+        const auto status = postSend(stagedSendSlot, stagedSendBytes);
+        if (!status.isOk()) return status;
+        stagedSendSlot = kSendQueueDepth;
+        stagedSendBytes = 0;
+        return common::Status::ok();
+    }
+
     common::Status writeSpans(const std::array<std::span<const std::uint8_t>, 3>& spans) {
+        const auto stagedStatus = flushStagedSend();
+        if (!stagedStatus.isOk()) return stagedStatus;
         std::size_t spanIndex = 0;
         std::size_t spanOffset = 0;
         std::size_t remaining = 0;
@@ -348,7 +616,7 @@ struct RdmaDataSocket::Impl {
             const auto available = waitForSendSlot(&slotIndex);
             if (!available.isOk()) return available;
             auto& slot = sendSlots[slotIndex];
-            const std::size_t length = std::min(remaining, slot.buffer.size());
+            const std::size_t length = std::min(remaining, kMessageBufferSize);
             std::size_t copied = 0;
             while (copied < length) {
                 while (spanIndex < spans.size() && spanOffset == spans[spanIndex].size()) {
@@ -359,7 +627,7 @@ struct RdmaDataSocket::Impl {
                     return common::Status::runtimeError("RDMA span accounting underflow");
                 const auto count = std::min(length - copied,
                                             spans[spanIndex].size() - spanOffset);
-                std::memcpy(slot.buffer.data() + copied,
+                std::memcpy(slot.buffer + copied,
                             spans[spanIndex].data() + spanOffset, count);
                 copied += count;
                 spanOffset += count;
@@ -371,10 +639,46 @@ struct RdmaDataSocket::Impl {
         return common::Status::ok();
     }
 
-    common::Status drainSends() {
-        while (sendInFlight != 0) {
-            const auto status = waitForSendProgress();
-            if (!status.isOk()) return status;
+    common::Status writeSpansBuffered(
+        const std::array<std::span<const std::uint8_t>, 3>& spans) {
+        std::size_t remaining = 0;
+        for (const auto& span : spans) {
+            if (span.size() > std::numeric_limits<std::size_t>::max() - remaining)
+                return common::Status::invalidArgument("RDMA buffered write length overflow");
+            remaining += span.size();
+        }
+
+        std::size_t spanIndex = 0;
+        std::size_t spanOffset = 0;
+        while (remaining != 0) {
+            if (stagedSendSlot == kSendQueueDepth) {
+                const auto available = waitForSendSlot(&stagedSendSlot);
+                if (!available.isOk()) return available;
+                stagedSendBytes = 0;
+            }
+            const auto availableBytes = kMessageBufferSize - stagedSendBytes;
+            const auto length = std::min(remaining, availableBytes);
+            auto* destination = sendSlots[stagedSendSlot].buffer + stagedSendBytes;
+            std::size_t copied = 0;
+            while (copied < length) {
+                while (spanIndex < spans.size() && spanOffset == spans[spanIndex].size()) {
+                    ++spanIndex;
+                    spanOffset = 0;
+                }
+                if (spanIndex >= spans.size())
+                    return common::Status::runtimeError("RDMA buffered span accounting underflow");
+                const auto count = std::min(length - copied,
+                                            spans[spanIndex].size() - spanOffset);
+                std::memcpy(destination + copied, spans[spanIndex].data() + spanOffset, count);
+                copied += count;
+                spanOffset += count;
+            }
+            stagedSendBytes += length;
+            remaining -= length;
+            if (stagedSendBytes == kMessageBufferSize) {
+                const auto status = flushStagedSend();
+                if (!status.isOk()) return status;
+            }
         }
         return common::Status::ok();
     }
@@ -469,6 +773,7 @@ common::Result<RdmaDataSocket> RdmaDataSocket::connect(const char* host, std::ui
     status = waitEvent(channel, RDMA_CM_EVENT_ESTABLISHED, deadline, &event);
     if (!status.isOk()) return status;
     (void)::rdma_ack_cm_event(event);
+    impl->captureQueuePairObservations();
     return RdmaDataSocket(std::move(impl));
 #endif
 }
@@ -513,38 +818,49 @@ common::Status RdmaDataSocket::writeFrame(const std::uint8_t* header,
 #endif
 }
 
+common::Status RdmaDataSocket::writeFrameBuffered(const std::uint8_t* header,
+                                                 std::size_t headerLength,
+                                                 const std::uint8_t* prefix,
+                                                 std::size_t prefixLength,
+                                                 const std::uint8_t* payload,
+                                                 std::size_t payloadLength) {
+#if !CPNETFLUX_HAS_RDMA
+    (void)header; (void)headerLength; (void)prefix; (void)prefixLength;
+    (void)payload; (void)payloadLength; return unavailable();
+#else
+    if (!valid() || (headerLength != 0 && header == nullptr) ||
+        (prefixLength != 0 && prefix == nullptr) ||
+        (payloadLength != 0 && payload == nullptr))
+        return common::Status::invalidArgument("invalid buffered RDMA frame spans");
+    return impl_->writeSpansBuffered({std::span<const std::uint8_t>(header, headerLength),
+                                      std::span<const std::uint8_t>(prefix, prefixLength),
+                                      std::span<const std::uint8_t>(payload, payloadLength)});
+#endif
+}
+
 common::Result<std::size_t> RdmaDataSocket::readSome(std::uint8_t* data, std::size_t length) {
 #if !CPNETFLUX_HAS_RDMA
     (void)data; (void)length; return unavailable();
 #else
     if (!valid() || data == nullptr || length == 0) return common::Status::invalidArgument("invalid RDMA read");
-    const auto sendStatus = impl_->drainSends();
+    const auto sendStatus = impl_->flushStagedSend();
     if (!sendStatus.isOk()) return sendStatus;
-    if (impl_->activeReceiveSlot == kReceiveQueueDepth) {
-        ibv_wc completion{};
-        const auto status = impl_->pollCompletion(impl_->recvCq, &completion);
+    if (impl_->activeReceiveSlot == kReceiveSlotCount) {
+        const auto status = impl_->activateNextReceiveSlot();
         if (!status.isOk()) return status;
-        if (completion.wr_id >= impl_->receiveSlots.size())
-            return common::Status::transportError("RDMA completion has an invalid receive slot");
-        impl_->activeReceiveSlot = static_cast<std::size_t>(completion.wr_id);
-        auto& slot = impl_->receiveSlots[impl_->activeReceiveSlot];
-        if (!slot.posted)
-            return common::Status::transportError("RDMA completion used an unposted receive slot");
-        slot.posted = false;
-        slot.received = completion.byte_len;
-        slot.offset = 0;
     }
     const auto slotIndex = impl_->activeReceiveSlot;
     auto& slot = impl_->receiveSlots[slotIndex];
     const std::size_t copied = std::min(length, slot.received);
-    std::memcpy(data, slot.buffer.data() + slot.offset, copied);
+    std::memcpy(data, slot.buffer + slot.offset, copied);
     slot.offset += copied;
     slot.received -= copied;
     if (slot.received == 0) {
-        const auto posted = impl_->postReceive(slotIndex);
-        if (!posted.isOk()) return posted;
-        impl_->activeReceiveSlot = kReceiveQueueDepth;
+        const auto released = impl_->releaseActiveReceiveSlot();
+        if (!released.isOk()) return released;
     }
+    const auto drained = impl_->drainReceiveCompletions();
+    if (!drained.isOk()) return drained.status();
     return copied;
 #endif
 }
@@ -630,6 +946,7 @@ common::Result<RdmaDataSocket> RdmaListener::accept(SocketDeadline deadline) {
     status = waitEvent(connectionChannel, RDMA_CM_EVENT_ESTABLISHED, deadline, &event);
     if (!status.isOk()) return status;
     (void)::rdma_ack_cm_event(event);
+    connection->captureQueuePairObservations();
     return RdmaDataSocket(std::move(connection));
 #endif
 }

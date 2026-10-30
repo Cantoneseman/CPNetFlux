@@ -184,6 +184,18 @@ common::Status FramedDataSocket::writeFrame(const std::uint8_t* header,
     return common::Status::ok();
 }
 
+common::Status FramedDataSocket::writeFrameBuffered(const std::uint8_t* header,
+                                                   std::size_t headerLength,
+                                                   const std::uint8_t* prefix,
+                                                   std::size_t prefixLength,
+                                                   const std::uint8_t* payload,
+                                                   std::size_t payloadLength) {
+    if (rdmaMode_)
+        return rdma_.writeFrameBuffered(header, headerLength, prefix, prefixLength,
+                                        payload, payloadLength);
+    return writeFrame(header, headerLength, prefix, prefixLength, payload, payloadLength);
+}
+
 common::Result<std::size_t> FramedDataSocket::readSome(std::uint8_t* data, std::size_t length) {
     if (rdmaMode_) return rdma_.readSome(data, length);
     if (tlsMode_) {

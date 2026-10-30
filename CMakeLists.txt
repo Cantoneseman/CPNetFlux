@@ -349,6 +349,15 @@ target_link_libraries(cpnetflux-storage-bench
         CPNetFlux::core
 )
 
+add_executable(cpnetflux-rdma-socket-bench
+    tools/perf/rdma_socket_bench.cpp
+)
+
+target_link_libraries(cpnetflux-rdma-socket-bench
+    PRIVATE
+        CPNetFlux::core
+)
+
 add_executable(cpnetflux-gridftp-server
     src/apps/cpnetflux_gridftp_server.cpp
 )

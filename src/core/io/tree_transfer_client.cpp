@@ -932,14 +932,42 @@ struct LaneEndpoint {
 void addRdmaTransportStats(RdmaTransportStats* target,
                            const RdmaTransportStats& source) {
     if (target == nullptr) return;
+    target->negotiatedSendQueueDepth = target->negotiatedSendQueueDepth == 0
+        ? source.negotiatedSendQueueDepth
+        : std::min(target->negotiatedSendQueueDepth, source.negotiatedSendQueueDepth);
+    target->negotiatedReceiveQueueDepth = target->negotiatedReceiveQueueDepth == 0
+        ? source.negotiatedReceiveQueueDepth
+        : std::min(target->negotiatedReceiveQueueDepth, source.negotiatedReceiveQueueDepth);
+    target->negotiatedPathMtuBytes = target->negotiatedPathMtuBytes == 0
+        ? source.negotiatedPathMtuBytes
+        : std::min(target->negotiatedPathMtuBytes, source.negotiatedPathMtuBytes);
+    target->negotiatedMinRnrTimer = target->negotiatedMinRnrTimer == 0
+        ? source.negotiatedMinRnrTimer
+        : std::min(target->negotiatedMinRnrTimer, source.negotiatedMinRnrTimer);
+    target->negotiatedRnrRetry = target->negotiatedRnrRetry == 0
+        ? source.negotiatedRnrRetry
+        : std::min(target->negotiatedRnrRetry, source.negotiatedRnrRetry);
     target->sendBytes += source.sendBytes;
     target->sendWorkRequests += source.sendWorkRequests;
     target->sendCompletions += source.sendCompletions;
     target->sendCompletionPollCalls += source.sendCompletionPollCalls;
+    target->sendCompletionEmptyPollCalls += source.sendCompletionEmptyPollCalls;
+    target->sendCompletionEventWaits += source.sendCompletionEventWaits;
     target->sendCompletionBatches += source.sendCompletionBatches;
     target->sendCompletionWaitCount += source.sendCompletionWaitCount;
     target->sendCompletionWaitNanoseconds += source.sendCompletionWaitNanoseconds;
     target->maxSendInFlight = std::max(target->maxSendInFlight, source.maxSendInFlight);
+    target->receiveBytes += source.receiveBytes;
+    target->receiveCompletions += source.receiveCompletions;
+    target->receivePostCalls += source.receivePostCalls;
+    target->receiveReposts += source.receiveReposts;
+    target->receiveReadyQueueHighWatermark = std::max(
+        target->receiveReadyQueueHighWatermark, source.receiveReadyQueueHighWatermark);
+    target->receiveCompletionPollCalls += source.receiveCompletionPollCalls;
+    target->receiveCompletionEmptyPollCalls += source.receiveCompletionEmptyPollCalls;
+    target->receiveCompletionEventWaits += source.receiveCompletionEventWaits;
+    target->receiveCompletionWaitCount += source.receiveCompletionWaitCount;
+    target->receiveCompletionWaitNanoseconds += source.receiveCompletionWaitNanoseconds;
 }
 
 struct TreeRunStats {
@@ -1503,20 +1531,42 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"data_transport\": \""
            << dataTransportName(options.dataTransport) << "\",\n";
     if (options.dataTransport == DataTransport::Rdma) {
-        output << "  \"rdma_transport_stats\": {\"schema\":\"cpnetflux_rdma_transport_stats_v1\","
+        output << "  \"rdma_transport_stats\": {\"schema\":\"cpnetflux_rdma_transport_stats_v2\","
                << "\"scope\":\"client-side RDMA sockets for this run; includes V3 headers and metadata; wait timers overlap transfer wall time\","
                << "\"configured_send_queue_depth\":" << kRdmaDataQueueDepth << ","
                << "\"configured_receive_queue_depth\":" << kRdmaDataReceiveQueueDepth << ","
+               << "\"negotiated_send_queue_depth\":" << stats.rdmaTransport.negotiatedSendQueueDepth << ","
+               << "\"negotiated_receive_queue_depth\":" << stats.rdmaTransport.negotiatedReceiveQueueDepth << ","
+               << "\"negotiated_path_mtu_bytes\":" << stats.rdmaTransport.negotiatedPathMtuBytes << ","
+               << "\"negotiated_min_rnr_timer\":" << stats.rdmaTransport.negotiatedMinRnrTimer << ","
+               << "\"negotiated_rnr_retry\":" << stats.rdmaTransport.negotiatedRnrRetry << ","
                << "\"send_slot_bytes\":" << kRdmaDataMessageBufferBytes << ","
+               << "\"send_buffer_pool_bytes\":"
+               << static_cast<std::uint64_t>(kRdmaDataQueueDepth) * kRdmaDataMessageBufferBytes << ","
+               << "\"receive_buffer_pool_bytes\":"
+               << static_cast<std::uint64_t>(kRdmaDataReceiveQueueDepth) * kRdmaDataMessageBufferBytes << ","
                << "\"send_bytes\":" << stats.rdmaTransport.sendBytes << ","
                << "\"send_work_requests\":" << stats.rdmaTransport.sendWorkRequests << ","
                << "\"send_completions\":" << stats.rdmaTransport.sendCompletions << ","
                << "\"send_completion_poll_calls\":" << stats.rdmaTransport.sendCompletionPollCalls << ","
+               << "\"send_completion_empty_poll_calls\":" << stats.rdmaTransport.sendCompletionEmptyPollCalls << ","
+               << "\"send_completion_event_waits\":" << stats.rdmaTransport.sendCompletionEventWaits << ","
                << "\"send_completion_batches\":" << stats.rdmaTransport.sendCompletionBatches << ","
                << "\"send_completion_wait_count\":" << stats.rdmaTransport.sendCompletionWaitCount << ","
                << "\"send_completion_wait_seconds\":"
                << static_cast<double>(stats.rdmaTransport.sendCompletionWaitNanoseconds) / 1e9 << ","
-               << "\"max_send_inflight\":" << stats.rdmaTransport.maxSendInFlight << "},\n";
+               << "\"max_send_inflight\":" << stats.rdmaTransport.maxSendInFlight << ","
+               << "\"receive_bytes\":" << stats.rdmaTransport.receiveBytes << ","
+               << "\"receive_completions\":" << stats.rdmaTransport.receiveCompletions << ","
+               << "\"receive_post_calls\":" << stats.rdmaTransport.receivePostCalls << ","
+               << "\"receive_reposts\":" << stats.rdmaTransport.receiveReposts << ","
+               << "\"receive_ready_queue_high_watermark\":" << stats.rdmaTransport.receiveReadyQueueHighWatermark << ","
+               << "\"receive_completion_poll_calls\":" << stats.rdmaTransport.receiveCompletionPollCalls << ","
+               << "\"receive_completion_empty_poll_calls\":" << stats.rdmaTransport.receiveCompletionEmptyPollCalls << ","
+               << "\"receive_completion_event_waits\":" << stats.rdmaTransport.receiveCompletionEventWaits << ","
+               << "\"receive_completion_wait_count\":" << stats.rdmaTransport.receiveCompletionWaitCount << ","
+               << "\"receive_completion_wait_seconds\":"
+               << static_cast<double>(stats.rdmaTransport.receiveCompletionWaitNanoseconds) / 1e9 << "},\n";
     } else {
         output << "  \"rdma_transport_stats\": null,\n";
     }

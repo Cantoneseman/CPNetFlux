@@ -1,36 +1,40 @@
 # V3 RDMA 通道性能优化
 
 任务：`V3-RDMA-PERFORMANCE-01`  
+日期：2026-10-31
 权威目录：R770-1 `/home/Su/projects/CPNetFlux`  
 对端：R770-2 `/home/Su/projects/CPNetFlux`
+分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
 
-## 目标
+## 本轮目标
 
-移除 CPNetFlux RDMA 适配层的串行发送限制和每帧临时拼接开销，让 V3 应用测试更接近 RDMA 网络本身的可用能力，并输出足以判断 RDMA 通道是否仍是瓶颈的运行指标。
+把 RDMA 网络路径和 CPNetFlux 应用处理路径分开测量。先消除接收队列耗尽、CQ 忙等造成的人工反压，再用可复核的 V3 统计判断剩余瓶颈是否在帧复制、解析、校验和文件处理。
 
-## 本阶段改动
+## 本轮范围
 
-- 将每连接单发送缓冲改为有界注册缓冲池，最多允许 32 个 SEND 同时在途。
-- 固定每个槽 128 KiB，发送队列深度 32、接收队列深度 128；每连接发送窗口 4 MiB、预投递接收空间 16 MiB。接收深度大于发送窗口，避免应用重新投递接收缓冲稍慢时触发 RNR。
-- 批量轮询 SEND completion queue，移除每帧等待一个 completion 的行为。
-- 自旋轮询 CQ，避免固定 50 微秒 sleep 带来的延迟底限；仅周期性让出 CPU。
-- V3 frame 的 header、checksum prefix、payload 直接复制进注册发送槽，避免先分配和拼接临时 vector。
-- 在客户端 JSON 摘要记录发送 WQE 数、CQ poll/batch、完成等待、最大实际在途数。
-- 在摘要中同时记录配置的发送/接收队列深度；双机测试前后读取 `out_of_buffer` 与 `rnr_nak_retry_err` 设备计数器。
-- 对同一数据、同连接数和 RAM-backed 临时路径做 R770 双机 RDMA/TCP 实测，核对 SHA-256。
+- 使用已注册的发送缓冲池，发送队列深度 16，每槽 1 MiB + 4 KiB，并保持最多 16 个 SEND 在途。
+- 使用接收队列深度 2048，每连接预留 32 个备用槽；完成一个接收 WQE 后立即用备用槽补回硬件队列，应用消费完再归还。
+- CQ 采用 64 次短自旋后切换到 completion event，避免无界忙轮询；读路径批量清空可用 CQ 完成。
+- 记录协商后的发送/接收队列深度、路径 MTU、RNR 参数、WQE/完成数、完成等待时间、接收槽回收和 ready 队列高水位。
+- 增加 `tools/perf/rdma_socket_bench`，用真实 V3 DATA frame 做不落盘的 2 GiB 双向对照，并保留进程 CPU 时间、逻辑/线上字节和帧数。
+- 将 RDMA 统计纳入 V3 客户端摘要和服务端持久化 timing，完成 256 MiB V3 上传、下载和 SHA-256 核验。
 
 ## 非目标
 
-- 不改变 V3 frame 格式、64 KiB 上限、文件语义、checkpoint 和恢复协议。
-- 不改 TCP 数据通道、操作系统网络配置或网卡固件。
-- 本阶段不承诺零拷贝、RDMA READ/WRITE、kTLS 或 data TLS；不把 `ib_write_bw` 直接当作应用吞吐。
-- 不在没有性能证据时宣称所有 RDMA 瓶颈已经清除。若实测仍受 RDMA 适配层限制，应继续下一阶段优化。
+- 不改变 V3 frame、checkpoint、manifest 或控制协议。
+- 不实现 RDMA READ/WRITE、零拷贝、kTLS、数据面 TLS、GPU Direct 或多物理链路调度。
+- 不把 `ib_send_bw`/其他 perftest 结果当作 CPNetFlux 应用吞吐，也不把 `SSL_read`/`SSL_write` 墙钟时间解释成 TLS CPU 时间。
+- 不把当前 RQ2048 直接作为多连接生产默认；它是本轮大块性能验收基线，内存成本必须随连接数评估。
 
 ## 验收标准
 
-1. RDMA-enabled 和 RDMA-disabled 都能构建，现有全量 CTest 通过。
-2. R770-1、R770-2 代码提交一致，均完成相应构建后再互传。
-3. 大文件双机 RDMA 上传和下载通过，摘要 `data_transport=rdma`，哈希一致。
-4. 实际摘要 `max_send_inflight` 大于 1，且提供等待时间、完成批次数和应用吞吐。
-5. 与 TCP 同条件进行对照；报告链路级基准与应用吞吐的差别以及剩余瓶颈。
-6. 本阶段代码和结果推送到已核实的 CPNetFlux GitHub remote，并回读远端 SHA。
+1. R770-1、R770-2 使用同一源码和构建产物；改动先在 R770-1 构建测试，再同步 R770-2 构建测试。
+2. RDMA-enabled 全量 CTest 通过；RDMA-disabled 配置至少完成配置、构建和传输选项门禁。
+3. 原生 RDMA 链路基准仍约 92.5 Gbps；CPNetFlux direct bench 在 RQ2048 下双向 2 GiB 传输通过，且接收完成等待接近 0。
+4. V3 实际上传和下载摘要均为 `result=pass`、`data_transport=rdma`、`actual_transport=v3`，文件 SHA-256 一致。
+5. 结果文档记录计时单位、统计范围、嵌套计时重叠关系、内存成本和剩余软件瓶颈。
+6. 只提交本轮相关源码、测试、基准和任务证据；推送 GitHub 并回读远端 SHA。
+
+## 后续入口
+
+下一阶段应在 RQ2048 基线下拆分接收端 CPU 成本：帧头/帧体复制、校验、文件写入和 checkpoint。若需要降低每连接约 2.16 GiB 的注册内存，再单独设计按传输大小或处理速率动态调整接收窗口的方案，并用同一 direct bench 验证，不能用小 RQ 的吞吐直接代表软件性能。

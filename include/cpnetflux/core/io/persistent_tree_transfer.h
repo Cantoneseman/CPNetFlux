@@ -69,6 +69,8 @@ struct PersistentFileTiming {
     std::uint32_t channel = 0;
     bool sender = false;
     bool rangeObservationEnabled = false;
+    bool rdmaReceiveObservationAvailable = false;
+    RdmaTransportStats rdmaTransportStats;
     RangeObservation rangeObservation;
     std::uint32_t payloadPipelineDepth = 0;
     std::uint64_t pipelineBudgetBytes = 0, pipelineHighWatermarkBytes = 0;

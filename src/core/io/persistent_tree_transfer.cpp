@@ -1422,7 +1422,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 }
                 checkpoint::OptionalManifestTimer socketWriting(timing.rangeObservationEnabled ? &timing.socketWriteSeconds : nullptr);
                 if (timing.rangeObservationEnabled) ++timing.socketWriteCalls;
-                auto written = socket->writeFrame(encoded.data(), encoded.size(), payload, size);
+                auto written = socket->transport() == DataTransport::Rdma
+                    ? socket->writeFrameBuffered(encoded.data(), encoded.size(), nullptr, 0,
+                                                 payload, size)
+                    : socket->writeFrame(encoded.data(), encoded.size(), payload, size);
                 socketWriting.stop();
                 if (written.isOk() && ready) written = executor->finishIo(*lease, frameBytes);
                 return written;
@@ -1850,6 +1853,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             // before callbacks cancel sockets; static receivers keep draining.
             const auto rejected = PersistentDataSession::writeResult(
                 socket, id, FrameStatusCode::OutputExists);
+            timing.rdmaTransportStats = socket->rdmaStats();
+            timing.rdmaReceiveObservationAvailable = socket->transport() == DataTransport::Rdma;
             (void)notify(callback, id, fileStatus, true);
             return rejected.isOk() ? fileStatus : rejected;
         }
@@ -1868,6 +1873,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             leaseGuard.finished = true;
         }
         stats->wireBytes += protocol::kFrameHeaderSize;
+        timing.rdmaTransportStats = socket->rdmaStats();
+        timing.rdmaReceiveObservationAvailable = socket->transport() == DataTransport::Rdma;
         timing.laneThreadCpuSeconds = threadCpuSeconds(timing.rangeObservationEnabled)-laneCpuStarted;
         timing.fileResultSeconds = secondsSince(resultStarted);
         timing.wallSeconds = secondsSince(fileStarted);
@@ -1943,6 +1950,30 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"pipeline_consumer_waits\":" << t.pipelineConsumerWaits
             << ",\"pipeline_producer_wait_seconds\":" << t.pipelineProducerWaitSeconds
             << ",\"pipeline_consumer_wait_seconds\":" << t.pipelineConsumerWaitSeconds;
+        if (t.rdmaReceiveObservationAvailable) {
+            const auto& rdma = t.rdmaTransportStats;
+            out << ",\"rdma_receive_observation\":{\"schema\":\"cpnetflux_rdma_receive_observation_v1\","
+                << "\"scope\":\"receiver socket cumulative snapshot at file completion; wait time overlaps payload_io_seconds\","
+                << "\"configured_receive_queue_depth\":" << kRdmaDataReceiveQueueDepth << ","
+                << "\"negotiated_receive_queue_depth\":" << rdma.negotiatedReceiveQueueDepth << ","
+                << "\"negotiated_path_mtu_bytes\":" << rdma.negotiatedPathMtuBytes << ","
+                << "\"negotiated_min_rnr_timer\":" << rdma.negotiatedMinRnrTimer << ","
+                << "\"negotiated_rnr_retry\":" << rdma.negotiatedRnrRetry << ","
+                << "\"receive_slot_bytes\":" << kRdmaDataMessageBufferBytes << ","
+                << "\"receive_bytes\":" << rdma.receiveBytes << ","
+                << "\"receive_completions\":" << rdma.receiveCompletions << ","
+                << "\"receive_post_calls\":" << rdma.receivePostCalls << ","
+                << "\"receive_reposts\":" << rdma.receiveReposts << ","
+                << "\"receive_ready_queue_high_watermark\":" << rdma.receiveReadyQueueHighWatermark << ","
+                << "\"receive_completion_poll_calls\":" << rdma.receiveCompletionPollCalls << ","
+                << "\"receive_completion_empty_poll_calls\":" << rdma.receiveCompletionEmptyPollCalls << ","
+                << "\"receive_completion_event_waits\":" << rdma.receiveCompletionEventWaits << ","
+                << "\"receive_completion_wait_count\":" << rdma.receiveCompletionWaitCount << ","
+                << "\"receive_completion_wait_seconds\":"
+                << static_cast<double>(rdma.receiveCompletionWaitNanoseconds) / 1e9 << '}';
+        } else {
+            out << ",\"rdma_receive_observation\":null";
+        }
         const auto& r = t.rangeObservation;
         const auto& m = r.manifestSave;
         out << ",\"range_observation\":{\"schema_version\":2,\"data_frame_count\":" << r.dataFrameCount

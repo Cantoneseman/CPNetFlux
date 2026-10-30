@@ -4,9 +4,12 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/io/persistent_tree_transfer.h"
 
 TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
     const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe",
@@ -808,4 +811,33 @@ TEST(TreeTransferOptionsTest, RejectsNonNumericLocalBindAddress) {
     auto parsed = cpnetflux::config::parseTreeTransferOptions(
         static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
     ASSERT_FALSE(parsed.isOk());
+}
+
+TEST(TreeTransferOptionsTest, ExportsServerRdmaReceiveQueueObservations) {
+    cpnetflux::core::io::PersistentFileTiming timing;
+    timing.rdmaReceiveObservationAvailable = true;
+    timing.rdmaTransportStats.receiveBytes = 65536;
+    timing.rdmaTransportStats.negotiatedReceiveQueueDepth = 128;
+    timing.rdmaTransportStats.negotiatedPathMtuBytes = 1024;
+    timing.rdmaTransportStats.negotiatedMinRnrTimer = 12;
+    timing.rdmaTransportStats.negotiatedRnrRetry = 7;
+    timing.rdmaTransportStats.receiveCompletions = 1;
+    timing.rdmaTransportStats.receivePostCalls = 129;
+    timing.rdmaTransportStats.receiveReposts = 1;
+    timing.rdmaTransportStats.receiveCompletionPollCalls = 8193;
+    timing.rdmaTransportStats.receiveCompletionEmptyPollCalls = 8192;
+    timing.rdmaTransportStats.receiveCompletionEventWaits = 12;
+    timing.rdmaTransportStats.receiveCompletionWaitCount = 1;
+    timing.rdmaTransportStats.receiveCompletionWaitNanoseconds = 250000;
+    std::ostringstream json;
+    cpnetflux::core::io::appendPersistentFileTimings(
+        json, std::vector<cpnetflux::core::io::PersistentFileTiming>{timing});
+    EXPECT_NE(json.str().find("\"rdma_receive_observation\""), std::string::npos);
+    EXPECT_NE(json.str().find("\"negotiated_receive_queue_depth\":128"), std::string::npos);
+    EXPECT_NE(json.str().find("\"negotiated_path_mtu_bytes\":1024"), std::string::npos);
+    EXPECT_NE(json.str().find("\"negotiated_min_rnr_timer\":12"), std::string::npos);
+    EXPECT_NE(json.str().find("\"negotiated_rnr_retry\":7"), std::string::npos);
+    EXPECT_NE(json.str().find("\"receive_completion_empty_poll_calls\":8192"), std::string::npos);
+    EXPECT_NE(json.str().find("\"receive_completion_event_waits\":12"), std::string::npos);
+    EXPECT_NE(json.str().find("\"receive_completion_wait_seconds\":0.00025"), std::string::npos);
 }

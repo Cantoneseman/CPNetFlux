@@ -46,6 +46,12 @@ class FramedDataSocket {
                                             std::size_t prefixLength,
                                             const std::uint8_t* payload,
                                             std::size_t payloadLength);
+    [[nodiscard]] common::Status writeFrameBuffered(const std::uint8_t* header,
+                                                    std::size_t headerLength,
+                                                    const std::uint8_t* prefix,
+                                                    std::size_t prefixLength,
+                                                    const std::uint8_t* payload,
+                                                    std::size_t payloadLength);
    private:
     bool tlsMode_ = false;
     bool rdmaMode_ = false;
