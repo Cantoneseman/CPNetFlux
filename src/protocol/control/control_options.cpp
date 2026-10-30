@@ -363,6 +363,10 @@ common::Result<ControlServerOptions> parseControlServerOptions(int argc, const c
                 return parsed.status();
             }
             options.dataTlsMode = parsed.value();
+        } else if (option == "--data-transport") {
+            auto parsed = core::io::parseDataTransport(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.dataTransport = parsed.value();
         } else if (option == "--user") {
             if (value.empty()) {
                 return common::Status::invalidArgument("--user must not be empty");
@@ -418,6 +422,10 @@ common::Result<ControlServerOptions> parseControlServerOptions(int argc, const c
     if (!dataTlsStatus.isOk()) {
         return dataTlsStatus;
     }
+    if (options.dataTransport == core::io::DataTransport::Rdma &&
+        options.dataTlsMode != core::io::DataTlsMode::Off) {
+        return common::Status::invalidArgument("--data-transport rdma cannot be combined with data TLS");
+    }
     return options;
 }
 
@@ -442,7 +450,8 @@ std::string controlServerUsage(const char* programName) {
               "[--user <name>] [--password <password>] [--event-log <path>] [--link-set-capabilities <bits>] "
               "[--tls-mode off|explicit|required] [--tls-cert-file <path>] "
               "[--tls-key-file <path>] [--tls-ca-file <path>] "
-              "[--tls-client-auth none|required] [--data-tls-mode off|required]";
+              "[--tls-client-auth none|required] [--data-tls-mode off|required] "
+              "[--data-transport tcp|rdma]";
     return output.str();
 }
 

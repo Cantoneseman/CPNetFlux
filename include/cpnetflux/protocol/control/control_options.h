@@ -11,6 +11,7 @@
 #include "cpnetflux/core/session/final_verify_policy.h"
 #include "cpnetflux/core/session/manifest_flush_policy.h"
 #include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/io/data_transport.h"
 #include "cpnetflux/protocol/control/control_auth.h"
 #include "cpnetflux/storage/file_io.h"
 #include "cpnetflux/storage/preallocate_mode.h"
@@ -48,6 +49,7 @@ struct ControlServerOptions {
     std::string eventLogPath;
     core::io::TlsConfig tls;
     core::io::DataTlsMode dataTlsMode = core::io::DataTlsMode::Off;
+    core::io::DataTransport dataTransport = core::io::DataTransport::Tcp;
 };
 
 enum class ControlPathKind {

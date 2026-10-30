@@ -83,6 +83,7 @@ const std::string& tlsIdentityFor(const config::TreeTransferOptions& options) {
 }
 
 std::string socketAddress(int fd, bool peer) {
+    if (fd < 0) return {};
     sockaddr_storage address{};
     socklen_t length = sizeof(address);
     const int status = peer ? ::getpeername(fd, reinterpret_cast<sockaddr*>(&address), &length)
@@ -302,7 +303,8 @@ class ControlClient {
         std::uint32_t requestedChannels, checksum::ChecksumAlgorithm checksumAlgorithm,
         bool resume, DataTlsMode dataTlsMode, std::uint32_t* actualWindow,
         std::uint32_t* actualChannels, bool dynamic = false,
-        std::uint32_t requestedLinks = 1, std::uint64_t requestedLinkCapabilities = 0) {
+        std::uint32_t requestedLinks = 1, std::uint64_t requestedLinkCapabilities = 0,
+        DataTransport dataTransport = DataTransport::Tcp) {
         if (requestedWindow == 0 || requestedWindow > 16 ||
             requestedChannels == 0 || requestedChannels > kPersistentTreeMaxChannels ||
             requestedLinks == 0 || requestedLinks > core::scheduler::LinkSet::kMaxLinks ||
@@ -316,7 +318,8 @@ class ControlClient {
             return common::Status::runtimeError("persistent control timeout configuration failed");
         std::string request = "XCPNETFLUX V3";
         if (requestedWindow != 1 || requestedChannels != 1 || dynamic || resume ||
-            checksumAlgorithm != checksum::ChecksumAlgorithm::None || dataTlsMode != DataTlsMode::Off) {
+            checksumAlgorithm != checksum::ChecksumAlgorithm::None || dataTlsMode != DataTlsMode::Off ||
+            dataTransport != DataTransport::Tcp) {
             request += " WINDOW=" + std::to_string(requestedWindow);
             if (requestedChannels != 1)
                 request += " CHANNELS=" + std::to_string(requestedChannels);
@@ -324,6 +327,7 @@ class ControlClient {
         request += " CHECKSUM=" + std::string(checksum::checksumAlgorithmName(checksumAlgorithm));
         request += " RESUME=" + std::string(resume ? "1" : "0");
         request += " DATA_TLS=" + std::string(dataTlsModeName(dataTlsMode));
+        request += " DATA_TRANSPORT=" + std::string(dataTransportName(dataTransport));
         const bool linkSetRequested = requestedLinks != 1 || requestedLinkCapabilities != 0;
         if (linkSetRequested) {
             request += " " + core::scheduler::encodeLinkSetControlFields(
@@ -338,6 +342,8 @@ class ControlClient {
                 std::string(checksum::checksumAlgorithmName(checksumAlgorithm));
             const std::string resumeToken = "resume=" + std::string(resume ? "1" : "0");
             const std::string tlsToken = "data_tls=" + std::string(dataTlsModeName(dataTlsMode));
+            const std::string transportToken = "data_transport=" +
+                std::string(dataTransportName(dataTransport));
             const std::string linksToken = "links=" + std::to_string(requestedLinks);
             const std::string linkCapsToken = "link_caps=" + std::to_string(requestedLinkCapabilities);
             if (!replyText.starts_with("200 CPNetFlux V3 file-transactions/1 ") ||
@@ -348,7 +354,8 @@ class ControlClient {
                  replyText.find("channels=" + std::to_string(requestedChannels)) == std::string::npos) ||
                 replyText.find(checksumToken) == std::string::npos ||
                 replyText.find(resumeToken) == std::string::npos ||
-                replyText.find(tlsToken) == std::string::npos) {
+                replyText.find(tlsToken) == std::string::npos ||
+                replyText.find(transportToken) == std::string::npos) {
                 timeout = {0, 0};
                 (void)::setsockopt(control_.fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
                 (void)::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
@@ -807,7 +814,7 @@ TreeAuthProbeResult runTreeAuthProbeInternal(const config::TreeTransferOptions& 
     auto negotiated = control.negotiatePersistent(
         1, 1, options.checksumAlgorithm, false, options.dataTlsMode,
         &actualWindow, &actualChannels, false, options.linkSetLinks,
-        options.linkSetCapabilityBits);
+        options.linkSetCapabilityBits, options.dataTransport);
     if (!negotiated.isOk()) {
         result.capabilities = "failed";
         result.error = negotiated.status().message();
@@ -1478,6 +1485,8 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
            << ((status.isOk() && options.tls.mode == TlsMode::Required) ? "true" : "false") << ",\n";
     output << "  \"data_tls_verified\": "
            << ((status.isOk() && options.dataTlsMode == DataTlsMode::Required) ? "true" : "false") << ",\n";
+    output << "  \"data_transport\": \""
+           << dataTransportName(options.dataTransport) << "\",\n";
     output << "  \"requested_mode\": \"persistent_tree\",\n";
     output << "  \"actual_mode\": \"" << (stats.persistentData ? "persistent_tree" : "unknown") << "\",\n";
     output << "  \"requested_file_scheduling\": \"" << (options.dynamicFileScheduling ? "dynamic" : "static") << "\",\n";
@@ -2092,7 +2101,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         for (auto& channel : channels) {
             if (channel->control != nullptr) channel->control->cancel();
             std::lock_guard<std::mutex> lock(channel->dataMutex);
-            if (channel->data.valid()) (void)::shutdown(channel->data.fd(), SHUT_RDWR);
+            if (channel->data.valid()) channel->data.shutdown();
         }
     };
     std::mutex failureMutex;
@@ -2143,7 +2152,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             auto capability = channel.control->negotiatePersistent(
                 dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
                 options.dataTlsMode, &actualWindow, &actualChannels, options.dynamicFileScheduling,
-                options.linkSetLinks, options.linkSetCapabilityBits);
+                options.linkSetLinks, options.linkSetCapabilityBits, options.dataTransport);
             if (!capability.isOk()) {
                 channel.status = capability.status();
                 recordFailure(channel.status);
@@ -2216,7 +2225,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             const auto connecting = std::chrono::steady_clock::now();
             auto data = connectFramedDataSocket(peerAddressFor(options, index).c_str(), port.value(), options.dataTlsMode, options.tls,
                 tlsIdentityFor(options).c_str(), options.transferDeadline,
-                localBindAddressFor(options, index));
+                localBindAddressFor(options, index), options.dataTransport);
             channel.connectSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now()-connecting).count();
             if (!data.isOk()) {
                 channel.status = data.status();
@@ -2481,7 +2490,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                         dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
                         options.dataTlsMode, &actualWindow, &actualChannels,
                         options.dynamicFileScheduling, options.linkSetLinks,
-                        options.linkSetCapabilityBits);
+                        options.linkSetCapabilityBits, options.dataTransport);
                     if (!capability.isOk()) return capability.status();
                     if (!capability.value() || actualWindow != dispatchWindow ||
                         actualChannels != channelCount) {
@@ -2501,7 +2510,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 const auto connecting = std::chrono::steady_clock::now();
                 auto data = connectFramedDataSocket(peerAddressFor(options, index).c_str(), port.value(), options.dataTlsMode,
                     options.tls, tlsIdentityFor(options).c_str(),
-                    options.transferDeadline, localBindAddressFor(options, index));
+                    options.transferDeadline, localBindAddressFor(options, index), options.dataTransport);
                 channel.connectSeconds += std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - connecting).count();
                 if (!data.isOk()) return data.status();

@@ -1089,7 +1089,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (readerStatus.isOk()) readerStatus = failure;
         abort = true;
         changed.notify_all();
-        if (socket->valid()) (void)::shutdown(socket->fd(), SHUT_RDWR);
+        if (socket->valid()) socket->shutdown();
     };
     auto notifySafe = [&](const PersistentFileIdentity& id, const Status& fileStatus, bool complete) {
         if (!callback) return Status::ok();
@@ -1175,7 +1175,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     });
     auto failWriter = [&](const Status& failure) {
         requestAbort(failure);
-        if (socket->valid()) (void)::shutdown(socket->fd(), SHUT_RDWR);
+        if (socket->valid()) socket->shutdown();
     };
     std::size_t nextFile = 0;
     for (;;) {

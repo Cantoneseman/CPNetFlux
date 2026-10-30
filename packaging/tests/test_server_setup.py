@@ -25,6 +25,19 @@ class ServerSetupContract(unittest.TestCase):
         with self.assertRaises(ValueError):
             setup.data_port_range(65025)
 
+    def test_server_config_supports_rdma_only_with_data_tls_disabled(self):
+        paths = {name: Path("/tmp") / name for name in
+                 ("root", "token", "key", "cert", "ca")}
+        common = dict(bind_host="192.0.2.10", port=2121, data_port_base=20200,
+                      connections=1, root=paths["root"], token_file=paths["token"],
+                      tls_key_file=paths["key"], tls_cert_file=paths["cert"],
+                      tls_ca_file=paths["ca"], access_policy="read-write")
+        with self.assertRaises(ValueError):
+            setup.build_server_config(**common, data_transport="rdma")
+        config = setup.build_server_config(**common, data_transport="rdma", data_tls_mode="off")
+        self.assertEqual(config["data_transport"], "rdma")
+        self.assertEqual(config["data_tls_mode"], "off")
+
     def test_wildcard_address_requires_an_advertised_endpoint(self):
         self.assertEqual(setup.main(["--dry-run", "--listen", "0.0.0.0:2121"]), 1)
 

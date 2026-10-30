@@ -505,6 +505,7 @@ common::Status PersistentDataSession::writeDirectoryEnd(FramedDataSocket* socket
 common::Status PersistentDataSession::setTimeout(FramedDataSocket* socket, int seconds) {
     if (!socket || !socket->valid() || seconds < 1 || seconds > 3600)
         return common::Status::invalidArgument("invalid persistent timeout");
+    if (socket->transport() == DataTransport::Rdma) return common::Status::ok();
     timeval timeout{seconds, 0};
     if (::setsockopt(socket->fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
         ::setsockopt(socket->fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0)

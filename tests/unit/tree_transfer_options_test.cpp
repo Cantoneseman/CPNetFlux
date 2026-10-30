@@ -22,6 +22,25 @@ TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
     EXPECT_TRUE(parsed.value().destDir.empty());
 }
 
+TEST(TreeTransferOptionsTest, ParsesRdmaDataTransportForV3) {
+    const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe", "--host", "127.0.0.1",
+                          "--data-transport", "rdma", "--data-tls-mode", "off"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().dataTransport, cpnetflux::core::io::DataTransport::Rdma);
+    EXPECT_EQ(parsed.value().dataTlsMode, cpnetflux::core::io::DataTlsMode::Off);
+}
+
+TEST(TreeTransferOptionsTest, RejectsRdmaDataTransportWithDataTls) {
+    const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe", "--host", "127.0.0.1",
+                          "--data-transport", "rdma", "--data-tls-mode", "required"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_FALSE(parsed.isOk());
+    EXPECT_NE(parsed.status().message().find("cannot be combined with data TLS"), std::string::npos);
+}
+
 TEST(TreeTransferOptionsTest, ParsesTlsServerName) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-options-tls-name";

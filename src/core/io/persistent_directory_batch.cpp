@@ -38,16 +38,19 @@ common::Status PersistentDirectoryBatch::attach(std::uint32_t channel) {
     channels_[channel].dataDisconnected = false;
     return common::Status::ok();
 }
-void PersistentDirectoryBatch::bind(std::uint32_t channel, int controlFd, int dataFd, bool ready) {
+void PersistentDirectoryBatch::bind(std::uint32_t channel, int controlFd, int dataFd, bool ready,
+                                    std::function<void()> dataShutdown) {
     std::lock_guard lock(mutex_);
     channels_.at(channel).control = controlFd;
     channels_.at(channel).data = dataFd;
     channels_.at(channel).ready = ready;
     channels_.at(channel).dataDisconnected = false;
     channels_.at(channel).dataActive = false;
+    channels_.at(channel).dataShutdown = std::move(dataShutdown);
     if (!status_.isOk()) {
         if (controlFd >= 0) (void)::shutdown(controlFd, SHUT_RDWR);
         if (dataFd >= 0) (void)::shutdown(dataFd, SHUT_RDWR);
+        else if (channels_.at(channel).dataShutdown) channels_.at(channel).dataShutdown();
     }
     changed_.notify_all();
 }
@@ -60,6 +63,7 @@ void PersistentDirectoryBatch::unbind(std::uint32_t channel, int expectedControl
     auto& state = channels_.at(channel);
     if (expectedControlFd >= 0 && state.control != expectedControlFd) return;
     state.control = state.data = -1;
+    state.dataShutdown = {};
     state.ready = false;
     // Preserve done=true for a healthy lane that finished before a sibling
     // retries. The retry must wait only for the failed lane to reattach.
@@ -74,6 +78,7 @@ void PersistentDirectoryBatch::failChannelLocked(std::uint32_t channel, const co
     auto& state = channels_[channel];
     const int controlFd = state.control;
     const int dataFd = state.data;
+    auto dataShutdown = std::move(state.dataShutdown);
     state.ready = false;
     state.done = false;
     state.failed = true;
@@ -83,6 +88,8 @@ void PersistentDirectoryBatch::failChannelLocked(std::uint32_t channel, const co
     // A data-side failure keeps the control session alive for the lane retry.
     if (status.message().find("control") != std::string::npos && dataFd >= 0)
         (void)::shutdown(dataFd, SHUT_RDWR);
+    else if (status.message().find("control") != std::string::npos && dataShutdown)
+        dataShutdown();
     (void)controlFd;
     for (auto& [fileId, file] : files_) {
         (void)fileId;
@@ -111,6 +118,7 @@ void PersistentDirectoryBatch::failLocked(const common::Status& status) {
         // Data sockets still stop immediately so siblings cannot keep writing.
         if (c.control >= 0 && !reportTargetConflict) (void)::shutdown(c.control, SHUT_RDWR);
         if (c.data >= 0) (void)::shutdown(c.data, SHUT_RDWR);
+        else if (c.dataShutdown) c.dataShutdown();
     }
     changed_.notify_all();
 }

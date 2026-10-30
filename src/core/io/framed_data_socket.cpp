@@ -10,6 +10,7 @@
 #include <limits>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace cpnetflux::core::io {
 namespace {
@@ -23,24 +24,57 @@ common::Status systemStatus(const char* operation, int errorNumber) {
 }  // namespace
 
 FramedDataSocket::FramedDataSocket() = default;
+FramedDataSocket::~FramedDataSocket() = default;
 
 FramedDataSocket::FramedDataSocket(UniqueFd fd) : tlsMode_(false), fd_(std::move(fd)) {}
 
 FramedDataSocket::FramedDataSocket(TlsConnection connection)
     : tlsMode_(connection.tlsEnabled()), tls_(std::move(connection)) {}
 
+FramedDataSocket::FramedDataSocket(RdmaDataSocket connection)
+    : rdmaMode_(true), rdma_(std::move(connection)) {}
+
 FramedDataSocket::FramedDataSocket(FramedDataSocket&& other) noexcept = default;
 FramedDataSocket& FramedDataSocket::operator=(FramedDataSocket&& other) noexcept = default;
 
-int FramedDataSocket::fd() const noexcept { return tlsMode_ ? tls_.fd() : fd_.get(); }
+int FramedDataSocket::fd() const noexcept {
+    if (rdmaMode_) return rdma_.fd();
+    return tlsMode_ ? tls_.fd() : fd_.get();
+}
 
 bool FramedDataSocket::valid() const noexcept {
+    if (rdmaMode_) return rdma_.valid();
     return tlsMode_ ? tls_.valid() : fd_.isValid();
 }
 
 bool FramedDataSocket::tlsEnabled() const noexcept { return tlsMode_; }
 
+DataTransport FramedDataSocket::transport() const noexcept {
+    return rdmaMode_ ? DataTransport::Rdma : DataTransport::Tcp;
+}
+
+void FramedDataSocket::shutdown() noexcept {
+    if (rdmaMode_) {
+        rdma_.shutdown();
+    } else if (fd() >= 0) {
+        (void)::shutdown(fd(), SHUT_RDWR);
+    }
+}
+
+void FramedDataSocket::close() noexcept {
+    if (rdmaMode_) {
+        rdma_.close();
+        return;
+    }
+    if (tlsMode_) {
+        tls_ = TlsConnection{};
+    } else {
+        fd_.reset();
+    }
+}
+
 common::Status FramedDataSocket::writeAll(const std::uint8_t* data, std::size_t length) {
+    if (rdmaMode_) return rdma_.writeAll(data, length);
     if (tlsMode_) {
         common::Status status =
             tls_.writeAll(reinterpret_cast<const char*>(data), length);
@@ -90,6 +124,14 @@ common::Status FramedDataSocket::writeFrame(const std::uint8_t* header,
         headerLength > maxLength || prefixLength > maxLength - headerLength ||
         payloadLength > maxLength - headerLength - prefixLength) {
         return common::Status::invalidArgument("invalid frame output spans");
+    }
+    if (rdmaMode_) {
+        std::vector<std::uint8_t> combined;
+        combined.reserve(headerLength + prefixLength + payloadLength);
+        if (headerLength != 0) combined.insert(combined.end(), header, header + headerLength);
+        if (prefixLength != 0) combined.insert(combined.end(), prefix, prefix + prefixLength);
+        if (payloadLength != 0) combined.insert(combined.end(), payload, payload + payloadLength);
+        return writeAll(combined.data(), combined.size());
     }
     if (tlsMode_) {
         constexpr std::size_t kTlsCombinedPrefixCapacity = 68;
@@ -143,6 +185,7 @@ common::Status FramedDataSocket::writeFrame(const std::uint8_t* header,
 }
 
 common::Result<std::size_t> FramedDataSocket::readSome(std::uint8_t* data, std::size_t length) {
+    if (rdmaMode_) return rdma_.readSome(data, length);
     if (tlsMode_) {
         auto result = tls_.readSome(reinterpret_cast<char*>(data), length);
         if (!result.isOk()) {
@@ -185,7 +228,16 @@ common::Result<FramedDataSocket> connectFramedDataSocket(const char* host, std::
                                                          DataTlsMode dataTlsMode,
                                                          const TlsConfig& tlsConfig,
                                                          const char* tlsServerName, SocketDeadline deadline,
-                                                         std::string_view localBindAddress) {
+                                                         std::string_view localBindAddress,
+                                                         DataTransport transport) {
+    if (transport == DataTransport::Rdma) {
+        if (dataTlsMode != DataTlsMode::Off) {
+            return common::Status::invalidArgument("RDMA data transport does not support data TLS");
+        }
+        auto connection = RdmaDataSocket::connect(host, port, deadline, localBindAddress);
+        if (!connection.isOk()) return connection.status();
+        return FramedDataSocket(std::move(connection.value()));
+    }
     auto connection = connectBlockingSocket(host, port, deadline, localBindAddress);
     if (!connection.isOk()) {
         return connection.status();

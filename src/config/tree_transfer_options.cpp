@@ -503,6 +503,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return parsed.status();
             }
             options.dataTlsMode = parsed.value();
+        } else if (option == "--data-transport") {
+            auto parsed = core::io::parseDataTransport(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.dataTransport = parsed.value();
         } else {
             return common::Status::invalidArgument("unknown option: " + std::string(option));
         }
@@ -610,6 +614,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     if (!dataTlsStatus.isOk()) {
         return dataTlsStatus;
     }
+    if (options.dataTransport == core::io::DataTransport::Rdma &&
+        options.dataTlsMode != core::io::DataTlsMode::Off) {
+        return common::Status::invalidArgument("--data-transport rdma cannot be combined with data TLS");
+    }
     if (options.reconnectAttempts > 0) {
         if (options.checksumAlgorithm == checksum::ChecksumAlgorithm::None)
             return common::Status::invalidArgument("automatic reconnect requires verified checksums");
@@ -640,7 +648,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--scheduler-default-rtt-ms <N>] [--scheduler-min-compress-gbps <float>] "
            "[--tls-mode off|required] [--tls-server-name <name>] [--tls-ca-file <path>] "
            "[--tls-cert-file <path>] [--tls-key-file <path>] "
-           "[--data-tls-mode off|required]";
+           "[--data-tls-mode off|required] [--data-transport tcp|rdma]";
 }
 
 }  // namespace cpnetflux::config

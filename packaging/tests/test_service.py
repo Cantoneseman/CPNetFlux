@@ -49,6 +49,13 @@ class ServiceSafety(unittest.TestCase):
                             ("--checksum","crc32c"),("--commit-sync-policy","fsync_file_and_dir")]:
             self.assertEqual(argv[argv.index(flag)+1], value)
         self.assertNotIn("synthetic fixture", argv)
+    def test_rdma_data_transport_requires_data_tls_off_explicitly(self):
+        self.config["data_transport"] = "rdma"
+        with self.assertRaises(ValueError): self.argv()
+        self.config["data_tls_mode"] = "off"
+        argv = self.argv()
+        self.assertEqual(argv[argv.index("--data-transport") + 1], "rdma")
+        self.assertEqual(argv[argv.index("--data-tls-mode") + 1], "off")
     def test_disabled_or_missing_credentials_fail(self):
         self.config["enabled"] = False
         with self.assertRaises(ValueError): self.argv()

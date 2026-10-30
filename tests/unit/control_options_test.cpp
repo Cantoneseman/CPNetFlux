@@ -67,6 +67,19 @@ TEST(ControlOptionsTest, ParsesDefaultsAndRequiredRoot) {
     std::filesystem::remove_all(root);
 }
 
+TEST(ControlOptionsTest, ParsesNativeRdmaDataTransport) {
+    const auto root = std::filesystem::temp_directory_path() / "cpnetflux-control-rdma-root";
+    std::filesystem::create_directories(root);
+    const std::string rootText = root.string();
+    const char* argv[] = {"cpnetflux-gridftp-server", "--root", rootText.c_str(),
+                          "--data-transport", "rdma", "--data-tls-mode", "off"};
+    auto parsed = parseControlServerOptions(static_cast<int>(std::size(argv)), argv);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().dataTransport, cpnetflux::core::io::DataTransport::Rdma);
+    EXPECT_EQ(parsed.value().dataTlsMode, DataTlsMode::Off);
+    std::filesystem::remove_all(root);
+}
+
 TEST(ControlOptionsTest, ParsesAndValidatesDataTlsMode) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-control-data-tls-root";

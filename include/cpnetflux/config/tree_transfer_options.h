@@ -11,6 +11,7 @@
 #include "cpnetflux/common/status.h"
 #include "cpnetflux/core/io/hot_path_compression.h"
 #include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/io/data_transport.h"
 #include "cpnetflux/core/scheduler/feedback_controller.h"
 
 namespace cpnetflux::config {
@@ -94,6 +95,7 @@ struct TreeTransferOptions {
     core::io::HotPathCompressionOptions hotPathCompression;
     core::io::TlsConfig tls;
     core::io::DataTlsMode dataTlsMode = core::io::DataTlsMode::Off;
+    core::io::DataTransport dataTransport = core::io::DataTransport::Tcp;
 };
 
 [[nodiscard]] common::Result<TreeTransferOptions> parseTreeTransferOptions(

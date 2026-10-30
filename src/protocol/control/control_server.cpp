@@ -57,7 +57,20 @@ using EventLoggerPtr = std::shared_ptr<core::metrics::EventLogger>;
 
 struct PassiveListener {
     core::io::UniqueFd fd;
+    core::io::RdmaListener rdma;
+    core::io::DataTransport transport = core::io::DataTransport::Tcp;
     std::uint16_t port = 0;
+
+    [[nodiscard]] bool valid() const noexcept {
+        return transport == core::io::DataTransport::Rdma ? rdma.valid() : fd.isValid();
+    }
+
+    void reset() noexcept {
+        fd.reset();
+        rdma.close();
+        port = 0;
+        transport = core::io::DataTransport::Tcp;
+    }
 };
 
 common::Status systemStatus(const char* operation, int errorNumber) {
@@ -187,12 +200,13 @@ class AsyncTransferRegistry {
         }
         if (activeCount() >= 2) {
             if (passive != nullptr) {
-                passive->fd.reset();
-                passive->port = 0;
+                passive->reset();
             }
             return sendLine(control, formatReply(450, "Async transfer window is full"));
         }
-        if (passive == nullptr || !passive->fd.isValid()) {
+        if (passive == nullptr || !passive->valid() ||
+            passive->transport != core::io::DataTransport::Tcp) {
+            if (passive != nullptr) passive->reset();
             return sendLine(control, formatReply(550, "Passive data listener is not ready"));
         }
 
@@ -401,20 +415,31 @@ std::string generateTransferId() {
 }
 
 common::Result<PassiveListener> openPassiveListener(const ControlServerOptions& options,
-                                                    std::uint32_t connections) {
+                                                    std::uint32_t connections,
+                                                    core::io::DataTransport transport) {
     const std::uint32_t maxPort = std::numeric_limits<std::uint16_t>::max();
     for (std::uint32_t offset = 0; offset < kPassiveScanLimit; ++offset) {
         const std::uint32_t port = static_cast<std::uint32_t>(options.dataPortBase) + offset;
         if (port == 0 || port > maxPort) {
             break;
         }
-        auto listener = core::io::createListener(
-            options.host.c_str(), static_cast<std::uint16_t>(port), static_cast<int>(connections));
-        if (!listener.isOk()) {
-            continue;
-        }
         PassiveListener passive;
-        passive.fd = std::move(listener.value());
+        passive.transport = transport;
+        if (transport == core::io::DataTransport::Rdma) {
+            if (!core::io::rdmaTransportAvailable()) {
+                return common::Status::runtimeError(
+                    "RDMA data transport unavailable: this build has no rdma-core support");
+            }
+            auto listener = core::io::RdmaListener::listen(
+                options.host.c_str(), static_cast<std::uint16_t>(port), static_cast<int>(connections));
+            if (!listener.isOk()) continue;
+            passive.rdma = std::move(listener.value());
+        } else {
+            auto listener = core::io::createListener(
+                options.host.c_str(), static_cast<std::uint16_t>(port), static_cast<int>(connections));
+            if (!listener.isOk()) continue;
+            passive.fd = std::move(listener.value());
+        }
         passive.port = static_cast<std::uint16_t>(port);
         return passive;
     }
@@ -491,15 +516,15 @@ common::Result<core::io::UniqueFd> acceptDataConnection(int listenerFd) {
 }
 
 common::Status sendAsciiData(PassiveListener* passive, const std::string& payload) {
-    if (passive == nullptr || !passive->fd.isValid()) {
+    if (passive == nullptr || !passive->valid() ||
+        passive->transport != core::io::DataTransport::Tcp) {
         return common::Status::runtimeError("passive data listener is not ready");
     }
     auto dataFd = acceptDataConnection(passive->fd.get());
     if (!dataFd.isOk()) {
         return dataFd.status();
     }
-    passive->fd.reset();
-    passive->port = 0;
+    passive->reset();
     return sendAllRaw(dataFd.value().get(), payload);
 }
 
@@ -654,9 +679,11 @@ common::Status runListLike(core::io::TlsConnection* control, ControlSession& ses
                            const ControlServerOptions& controlOptions,
                            const ControlResponse& response, bool namesOnly,
                            const EventLoggerPtr& logger) {
-    if (passive == nullptr || !passive->fd.isValid()) {
+    if (passive == nullptr || !passive->valid() ||
+        passive->transport != core::io::DataTransport::Tcp) {
         emitControlEvent(logger, namesOnly ? "nlst_failed" : "list_failed", "", response.path, "",
                          common::Status::runtimeError("Passive data listener is not ready"));
+        if (passive != nullptr) passive->reset();
         return sendLine(control, formatReply(550, "Passive data listener is not ready"));
     }
     auto path = resolveControlPath(controlOptions.root, session.workingDirectory(), response.path,
@@ -699,9 +726,11 @@ common::Status runStor(core::io::TlsConnection* control, ControlSession& session
                        const ControlServerOptions& controlOptions,
                        const ControlResponse& response, const EventLoggerPtr& logger,
                        AsyncTransferRegistry* asyncTransfers) {
-    if (passive == nullptr || !passive->fd.isValid()) {
+    if (passive == nullptr || !passive->valid() ||
+        passive->transport != core::io::DataTransport::Tcp) {
         emitControlEvent(logger, "stor_failed", "upload", response.path, "",
                          common::Status::runtimeError("Passive data listener is not ready"));
+        if (passive != nullptr) passive->reset();
         return sendLine(control, formatReply(550, "Passive data listener is not ready"));
     }
 
@@ -786,9 +815,11 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
                        const ControlServerOptions& controlOptions,
                        const ControlResponse& response, const EventLoggerPtr& logger,
                        AsyncTransferRegistry* asyncTransfers) {
-    if (passive == nullptr || !passive->fd.isValid()) {
+    if (passive == nullptr || !passive->valid() ||
+        passive->transport != core::io::DataTransport::Tcp) {
         emitControlEvent(logger, "retr_failed", "download", response.path, "",
                          common::Status::runtimeError("Passive data listener is not ready"));
+        if (passive != nullptr) passive->reset();
         return sendLine(control, formatReply(550, "Passive data listener is not ready"));
     }
 
@@ -1058,7 +1089,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
             if (error) return sendLine(control, formatReply(550, "Cannot prepare XDIR directory"));
         }
     }
-    if (!passive->fd.isValid() || !session->passiveReady())
+    if (!passive->valid() || !session->passiveReady())
         return sendLine(control, formatReply(425, "Use EPSV before XDIR"));
     core::io::FramedDataSocket data;
     DynamicDirectoryGuard guard;
@@ -1072,7 +1103,8 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         if (!group.isOk()) return sendLine(control, formatReply(550, group.status().message()));
         guard.directory = group.value();
         guard.attached = true;
-        guard.directory->batch->bind(channelIndex, control->fd(), -1, false);
+        guard.directory->batch->bind(channelIndex, control->fd(), -1, false,
+            [&data] { data.shutdown(); });
         guard.controlFd = control->fd();
     }
     std::vector<core::io::PersistentFileIdentity> files;
@@ -1104,28 +1136,40 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     }
     auto status = sendLine(control, formatReply(150, readyMessage));
     if (!status.isOk()) return status;
-    pollfd descriptors[2]{{passive->fd.get(), POLLIN, 0}, {control->fd(), POLLIN, 0}};
-    int ready;
-    do { ready = ::poll(descriptors, 2, 30000); } while (ready < 0 && errno == EINTR);
-    if (ready > 0 && descriptors[1].revents != 0) {
-        passive->fd.reset();
-        session->clearPassiveReady();
-        return common::Status::runtimeError("persistent channel cancelled before data accept");
+    common::Result<core::io::FramedDataSocket> acceptedData =
+        common::Status::runtimeError("persistent data accept was not attempted");
+    if (passive->transport == core::io::DataTransport::Rdma) {
+        acceptedData = [&]() -> common::Result<core::io::FramedDataSocket> {
+            auto accepted = passive->rdma.accept(std::chrono::steady_clock::now() +
+                                                 std::chrono::seconds(30));
+            if (!accepted.isOk()) return accepted.status();
+            return core::io::FramedDataSocket(std::move(accepted.value()));
+        }();
+    } else {
+        pollfd descriptors[2]{{passive->fd.get(), POLLIN, 0}, {control->fd(), POLLIN, 0}};
+        int ready;
+        do { ready = ::poll(descriptors, 2, 30000); } while (ready < 0 && errno == EINTR);
+        if (ready > 0 && descriptors[1].revents != 0) {
+            passive->reset();
+            session->clearPassiveReady();
+            return common::Status::runtimeError("persistent channel cancelled before data accept");
+        }
+        if (ready <= 0 || !(descriptors[0].revents & POLLIN)) {
+            passive->reset();
+            session->clearPassiveReady();
+            return sendLine(control, formatReply(425, "Persistent data accept timed out"));
+        }
+        acceptedData = core::io::acceptFramedDataSocket(
+            core::io::UniqueFd(::accept4(passive->fd.get(), nullptr, nullptr, SOCK_CLOEXEC)),
+            options.dataTlsMode, options.tls);
     }
-    if (ready <= 0 || !(descriptors[0].revents & POLLIN)) {
-        passive->fd.reset();
-        session->clearPassiveReady();
-        return sendLine(control, formatReply(425, "Persistent data accept timed out"));
-    }
-    auto acceptedData = core::io::acceptFramedDataSocket(
-        core::io::UniqueFd(::accept4(passive->fd.get(), nullptr, nullptr, SOCK_CLOEXEC)),
-        options.dataTlsMode, options.tls);
-    passive->fd.reset();
+    passive->reset();
     session->clearPassiveReady();
     if (!acceptedData.isOk()) return acceptedData.status();
     data = std::move(acceptedData.value());
     if (guard.directory) {
-        guard.directory->batch->bind(channelIndex, control->fd(), data.fd());
+        guard.directory->batch->bind(channelIndex, control->fd(), data.fd(), true,
+            [&data] { data.shutdown(); });
         status = guard.directory->batch->waitReady(channelIndex,std::chrono::seconds(30));
         if (!status.isOk()) {
             std::osyncstream(std::cerr) << "CPNETFLUX_DYNAMIC_BATCH_WAIT_READY_FAILED batch="
@@ -1240,6 +1284,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     std::uint32_t persistentChannels = 1;
     bool persistentDynamic = false;
     bool persistentResume = false;
+    core::io::DataTransport sessionDataTransport = core::io::DataTransport::Tcp;
     AsyncTransferRegistry asyncTransfers(logger, control.fd());
 
     if (!sendLine(&control, formatReply(220, "CPNetFlux GridFTP control ready")).isOk()) {
@@ -1304,6 +1349,8 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 }
             }
             if (persistentNegotiation) {
+                persistentNegotiated = false;
+                sessionDataTransport = core::io::DataTransport::Tcp;
                 std::uint32_t requestedWindow = 1;
                 std::uint32_t requestedChannels = 1;
                 bool requestedDynamic = false;
@@ -1315,6 +1362,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 auto checksumAlgorithm = checksum::ChecksumAlgorithm::None;
                 bool requestedResume = false;
                 auto requestedDataTls = core::io::DataTlsMode::Off;
+                auto requestedDataTransport = core::io::DataTransport::Tcp;
                 std::istringstream request(line.value().substr(std::string("XCPNETFLUX V3").size()));
                 std::string token;
                 bool valid = true;
@@ -1368,6 +1416,10 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         auto parsed = core::io::parseDataTlsMode(value);
                         valid = parsed.isOk();
                         if (valid) requestedDataTls = parsed.value();
+                    } else if (key == "DATA_TRANSPORT") {
+                        auto parsed = core::io::parseDataTransport(value);
+                        valid = parsed.isOk();
+                        if (valid) requestedDataTransport = parsed.value();
                     } else {
                         valid = false;
                     }
@@ -1375,6 +1427,9 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 }
                 persistentNegotiated = valid && checksumAlgorithm == options.checksumAlgorithm &&
                     requestedDataTls == options.dataTlsMode &&
+                    requestedDataTransport == options.dataTransport &&
+                    (requestedDataTransport != core::io::DataTransport::Rdma ||
+                     core::io::rdmaTransportAvailable()) &&
                     (!linkSetRequested || (hasRequestedLinks && hasRequestedLinkCaps &&
                         requestedLinks <= core::io::kPersistentTreeMaxChannels &&
                         requestedLinks <= requestedChannels &&
@@ -1385,12 +1440,14 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     persistentChannels = requestedChannels;
                     persistentDynamic = requestedDynamic;
                     persistentResume = requestedResume;
+                    sessionDataTransport = requestedDataTransport;
                 }
                 const std::string accepted = "CPNetFlux V3 file-transactions/1 window=" +
                     std::to_string(requestedWindow) + " channels=" + std::to_string(requestedChannels) +
                     " checksum=" + checksum::checksumAlgorithmName(checksumAlgorithm) +
                     " resume=" + std::string(requestedResume ? "1" : "0") +
                     " data_tls=" + core::io::dataTlsModeName(requestedDataTls) +
+                    " data_transport=" + core::io::dataTransportName(requestedDataTransport) +
                     (linkSetRequested ? " links=" + std::to_string(requestedLinks) +
                         " link_caps=" + std::to_string(requestedLinkCaps) : "") +
                     (requestedDynamic ? " scheduling=dynamic" : "");
@@ -1462,8 +1519,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                                  type == ControlCommandType::Mdtm ||
                                  type == ControlCommandType::Noop;
             if (!allowed) {
-                passive.fd.reset();
-                passive.port = 0;
+                passive.reset();
                 session.clearPassiveReady();
                 (void)sendLine(&control,
                                formatReply(503, "Command unavailable while async transfer is active"));
@@ -1488,8 +1544,15 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
         }
         if (response.action == ControlAction::OpenPassiveEpsv ||
             response.action == ControlAction::OpenPassivePasv) {
-            passive.fd.reset();
-            auto passiveResult = openPassiveListener(options, session.connections());
+            passive.reset();
+            if (response.action == ControlAction::OpenPassivePasv &&
+                sessionDataTransport == core::io::DataTransport::Rdma) {
+                (void)sendLine(&control, formatReply(522, "RDMA data transport requires EPSV"));
+                session.clearPassiveReady();
+                continue;
+            }
+            auto passiveResult = openPassiveListener(options, session.connections(),
+                                                    sessionDataTransport);
             if (!passiveResult.isOk()) {
                 (void)sendLine(&control, formatReply(421, "Cannot open passive data listener"));
                 return;
@@ -1502,7 +1565,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 auto reply = pasvReply(control.fd(), options.host, passive.port);
                 if (!reply.isOk()) {
                     (void)sendLine(&control, formatReply(550, reply.status().message()));
-                    passive.fd.reset();
+                    passive.reset();
                     session.clearPassiveReady();
                 } else {
                     (void)sendLine(&control, reply.value());

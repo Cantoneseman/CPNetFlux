@@ -1,5 +1,6 @@
 #pragma once
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -14,7 +15,8 @@ class PersistentDirectoryBatch {
     PersistentDirectoryBatch(std::uint32_t total, std::uint32_t channels);
     ~PersistentDirectoryBatch();
     [[nodiscard]] common::Status attach(std::uint32_t channel);
-    void bind(std::uint32_t channel, int controlFd, int dataFd, bool ready = true);
+    void bind(std::uint32_t channel, int controlFd, int dataFd, bool ready = true,
+              std::function<void()> dataShutdown = {});
     void markDataActive(std::uint32_t channel);
     void unbind(std::uint32_t channel, int expectedControlFd = -1);
     // Mark one channel transport-dead while preserving healthy channels and
@@ -34,6 +36,7 @@ class PersistentDirectoryBatch {
         bool dataDisconnected = false;
         bool dataActive = false;
         int control = -1, data = -1;
+        std::function<void()> dataShutdown;
     };
     struct File {
         PersistentFileIdentity id;

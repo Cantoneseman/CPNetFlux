@@ -17,6 +17,7 @@ option(CPNETFLUX_BUILD_TESTS "Build CPNetFlux tests" ON)
 option(CPNETFLUX_ENABLE_ISAL "Enable Intel ISA-L CRC32C acceleration when available" ON)
 option(CPNETFLUX_ENABLE_IO_URING "Enable optional file-IO-only io_uring backend" OFF)
 option(CPNETFLUX_ENABLE_TLS "Enable optional OpenSSL control-plane TLS alpha support when available" ON)
+option(CPNETFLUX_ENABLE_RDMA "Enable native RDMA data transport when rdma-core is available" ON)
 option(CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS "Enable SSH-driven Shenzhen/Shanghai interoperability tests" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -103,6 +104,21 @@ if(CPNETFLUX_ENABLE_TLS)
     endif()
 endif()
 
+set(CPNETFLUX_HAS_RDMA 0)
+if(CPNETFLUX_ENABLE_RDMA)
+    find_path(CPNETFLUX_RDMA_INCLUDE_DIR NAMES rdma/rdma_cma.h)
+    find_path(CPNETFLUX_IBVERBS_INCLUDE_DIR NAMES infiniband/verbs.h)
+    find_library(CPNETFLUX_RDMACM_LIBRARY NAMES rdmacm)
+    find_library(CPNETFLUX_IBVERBS_LIBRARY NAMES ibverbs)
+    if(CPNETFLUX_RDMA_INCLUDE_DIR AND CPNETFLUX_IBVERBS_INCLUDE_DIR AND
+       CPNETFLUX_RDMACM_LIBRARY AND CPNETFLUX_IBVERBS_LIBRARY)
+        set(CPNETFLUX_HAS_RDMA 1)
+        message(STATUS "CPNetFlux native RDMA data transport enabled")
+    else()
+        message(WARNING "CPNETFLUX_ENABLE_RDMA=ON but rdma-core development files were not found; building unavailable backend stub")
+    endif()
+endif()
+
 add_library(cpnetflux_core STATIC
     src/checkpoint/download_manifest.cpp
     src/checkpoint/manifest_store.cpp
@@ -128,6 +144,8 @@ add_library(cpnetflux_core STATIC
     src/core/io/file_transfer_client.cpp
     src/core/io/file_transfer_server.cpp
     src/core/io/framed_data_socket.cpp
+    src/core/io/data_transport.cpp
+    src/core/io/rdma_data_socket.cpp
     src/core/io/persistent_data_session.cpp
     src/core/io/persistent_tree_transfer.cpp
     src/core/io/payload_pipeline.cpp
@@ -197,6 +215,7 @@ target_compile_definitions(cpnetflux_core
 
         CPNETFLUX_HAS_ISAL=${CPNETFLUX_HAS_ISAL}
         CPNETFLUX_HAS_TLS=${CPNETFLUX_HAS_TLS}
+        CPNETFLUX_HAS_RDMA=${CPNETFLUX_HAS_RDMA}
 )
 
 if(CPNETFLUX_HAS_IO_URING)
@@ -215,6 +234,17 @@ if(CPNETFLUX_HAS_TLS)
         PRIVATE
             OpenSSL::SSL
             OpenSSL::Crypto
+    )
+endif()
+
+if(CPNETFLUX_HAS_RDMA)
+    target_include_directories(cpnetflux_core PRIVATE
+        ${CPNETFLUX_RDMA_INCLUDE_DIR}
+        ${CPNETFLUX_IBVERBS_INCLUDE_DIR}
+    )
+    target_link_libraries(cpnetflux_core PRIVATE
+        ${CPNETFLUX_RDMACM_LIBRARY}
+        ${CPNETFLUX_IBVERBS_LIBRARY}
     )
 endif()
 
@@ -343,6 +373,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/control_auth_test.cpp
         tests/unit/control_command_test.cpp
         tests/unit/control_options_test.cpp
+        tests/unit/data_transport_test.cpp
         tests/unit/control_session_test.cpp
         tests/unit/compressed_data_test.cpp
         tests/unit/download_manifest_test.cpp
