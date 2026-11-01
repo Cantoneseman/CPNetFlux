@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <iostream>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -90,18 +91,102 @@ void printResult(const char* role, std::uint64_t logicalBytes, std::uint64_t wir
               << "}\n";
 }
 
-int runServer(const char* host, std::uint16_t port, std::uint64_t bytes) {
+int runDuplex(RdmaDataSocket& socket, const char* role, std::uint64_t bytes) {
+    Status writeStatus = Status::ok();
+    const auto cpuStarted = std::clock();
+    const auto started = std::chrono::steady_clock::now();
+    std::thread writer([&]() {
+        std::vector<std::uint8_t> payload(kPayloadBytes);
+        for (std::uint64_t offset = 0; offset < bytes;) {
+            const auto length = static_cast<std::size_t>(
+                std::min<std::uint64_t>(payload.size(), bytes - offset));
+            const auto pattern = static_cast<std::uint8_t>(offset / kPayloadBytes);
+            std::fill(payload.begin(), payload.end(), pattern);
+            FrameHeader header;
+            header.type = FrameType::Data;
+            header.streamId = 1;
+            header.chunkId = 1;
+            header.offset = offset;
+            header.totalSize = bytes;
+            header.payloadSize = static_cast<std::uint32_t>(length);
+            const auto encoded = cpnetflux::core::protocol::encodeFrameHeader(header);
+            writeStatus = socket.writeFrameBuffered(
+                encoded.data(), encoded.size(), nullptr, 0, payload.data(), length);
+            if (!writeStatus.isOk()) {
+                socket.shutdown();
+                return;
+            }
+            offset += length;
+            std::this_thread::yield();
+        }
+        const std::uint8_t completion = kCompletionByte;
+        writeStatus = socket.writeAll(&completion, sizeof(completion));
+        if (!writeStatus.isOk()) socket.shutdown();
+    });
+    Status readStatus = Status::ok();
+    std::uint64_t frames = 0;
+    std::uint64_t wireBytes = 0;
+    std::vector<std::uint8_t> payload(kPayloadBytes);
+    for (std::uint64_t offset = 0; offset < bytes;) {
+        const auto length = static_cast<std::size_t>(
+            std::min<std::uint64_t>(payload.size(), bytes - offset));
+        EncodedFrameHeader encoded{};
+        readStatus = socket.readAll(encoded.data(), encoded.size());
+        if (!readStatus.isOk()) break;
+        const auto decoded = cpnetflux::core::protocol::decodeFrameHeader(encoded);
+        if (!decoded.isOk() || decoded.value().type != FrameType::Data ||
+            decoded.value().streamId != 1 || decoded.value().chunkId != 1 ||
+            decoded.value().offset != offset || decoded.value().totalSize != bytes ||
+            decoded.value().payloadSize != length) {
+            readStatus = Status::runtimeError("duplex frame ordering/identity mismatch");
+            break;
+        }
+        readStatus = socket.readAll(payload.data(), length);
+        if (!readStatus.isOk()) break;
+        const auto pattern = static_cast<std::uint8_t>(offset / kPayloadBytes);
+        if (!std::all_of(payload.begin(), payload.begin() + length,
+                         [pattern](std::uint8_t value) { return value == pattern; })) {
+            readStatus = Status::runtimeError("duplex payload verification failed");
+            break;
+        }
+        offset += length;
+        ++frames;
+        wireBytes += encoded.size() + length;
+    }
+    if (readStatus.isOk()) {
+        std::uint8_t completion = 0;
+        readStatus = socket.readAll(&completion, sizeof(completion));
+        if (readStatus.isOk() && completion != kCompletionByte)
+            readStatus = Status::runtimeError("duplex completion marker mismatch");
+    }
+    if (!readStatus.isOk()) socket.shutdown();
+    writer.join();
+    if (!readStatus.isOk() || !writeStatus.isOk()) {
+        std::cerr << "RDMA duplex failed: read=" << readStatus.message()
+                  << " write=" << writeStatus.message() << '\n';
+        return 1;
+    }
+    const auto elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - started).count();
+    const double cpu = static_cast<double>(std::clock() - cpuStarted) / CLOCKS_PER_SEC;
+    printResult(role, bytes, wireBytes, frames, elapsed, cpu, socket.stats());
+    return 0;
+}
+
+int runServer(const char* host, std::uint16_t port, std::uint64_t bytes, bool duplex = false) {
     auto listener = RdmaListener::listen(host, port, 1);
     if (!listener.isOk()) {
         std::cerr << "RDMA listen failed: " << listener.status().message() << '\n';
         return 1;
     }
+    std::cout << "CPNETFLUX_RDMA_BENCH_READY" << std::endl;
     auto accepted = listener.value().accept();
     if (!accepted.isOk()) {
         std::cerr << "RDMA accept failed: " << accepted.status().message() << '\n';
         return 1;
     }
     auto socket = std::move(accepted.value());
+    if (duplex) return runDuplex(socket, "duplex-server", bytes);
     std::vector<std::uint8_t> payload(kPayloadBytes, kPayloadByte);
     std::uint64_t completed = 0;
     std::uint64_t frames = 0;
@@ -155,13 +240,14 @@ int runServer(const char* host, std::uint16_t port, std::uint64_t bytes) {
 }
 
 int runClient(const char* host, std::uint16_t port, std::uint64_t bytes,
-              std::string_view localBindAddress) {
+              std::string_view localBindAddress, bool duplex = false) {
     auto connected = RdmaDataSocket::connect(host, port, {}, localBindAddress);
     if (!connected.isOk()) {
         std::cerr << "RDMA connect failed: " << connected.status().message() << '\n';
         return 1;
     }
     auto socket = std::move(connected.value());
+    if (duplex) return runDuplex(socket, "duplex-client", bytes);
     std::vector<std::uint8_t> payload(kPayloadBytes, kPayloadByte);
     std::uint64_t completed = 0;
     std::uint64_t frames = 0;
@@ -189,8 +275,13 @@ int runClient(const char* host, std::uint16_t port, std::uint64_t bytes,
         ++frames;
         wireBytes += encoded.size() + length;
     }
+    auto status = socket.flushWrites();
+    if (!status.isOk()) {
+        std::cerr << "RDMA final buffered write failed: " << status.message() << '\n';
+        return 1;
+    }
     std::uint8_t completion = 0;
-    auto status = socket.readAll(&completion, sizeof(completion));
+    status = socket.readAll(&completion, sizeof(completion));
     if (!status.isOk() || completion != kCompletionByte) {
         std::cerr << "RDMA completion reply was not received or was invalid\n";
         return 1;
@@ -210,7 +301,8 @@ int main(int argc, char** argv) {
     if (argc != 5 && argc != 6) {
         std::cerr << "Usage: " << argv[0]
                   << " server <bind-ip> <port> <bytes>\n       " << argv[0]
-                  << " client <peer-ip> <port> <bytes> <local-bind-ip>\n";
+                  << " client <peer-ip> <port> <bytes> <local-bind-ip>\n"
+                  << "Use duplex-server/duplex-client for concurrent read/write regression.\n";
         return 2;
     }
     const std::string_view mode(argv[1]);
@@ -225,6 +317,10 @@ int main(int argc, char** argv) {
     if (mode == "server" && argc == 5) return runServer(argv[2], port, bytes);
     if (mode == "client" && argc == 6)
         return runClient(argv[2], port, bytes, argv[5]);
+    if (mode == "duplex-server" && argc == 5)
+        return runServer(argv[2], port, bytes, true);
+    if (mode == "duplex-client" && argc == 6)
+        return runClient(argv[2], port, bytes, argv[5], true);
     std::cerr << "Invalid mode or argument count\n";
     return 2;
 }

@@ -45,6 +45,9 @@ struct RdmaTransportStats {
     std::uint64_t receiveCompletionWaitNanoseconds = 0;
 };
 
+// One writer owns all writes/flushes; one reader may run concurrently.
+// Buffered writes must be flushed by the writer before a request/reply wait.
+// stats(), close() and destruction require both IO threads to have stopped.
 class RdmaDataSocket {
    public:
     RdmaDataSocket();
@@ -74,6 +77,7 @@ class RdmaDataSocket {
                                                     std::size_t prefixLength,
                                                     const std::uint8_t* payload,
                                                     std::size_t payloadLength);
+    [[nodiscard]] common::Status flushWrites();
     [[nodiscard]] common::Result<std::size_t> readSome(std::uint8_t* data, std::size_t length);
     [[nodiscard]] common::Status readAll(std::uint8_t* data, std::size_t length);
     [[nodiscard]] RdmaTransportStats stats() const noexcept;

@@ -838,13 +838,21 @@ common::Status RdmaDataSocket::writeFrameBuffered(const std::uint8_t* header,
 #endif
 }
 
+common::Status RdmaDataSocket::flushWrites() {
+#if !CPNETFLUX_HAS_RDMA
+    return unavailable();
+#else
+    if (!valid()) return common::Status::invalidArgument("invalid RDMA flush");
+    return impl_->flushStagedSend();
+#endif
+}
+
 common::Result<std::size_t> RdmaDataSocket::readSome(std::uint8_t* data, std::size_t length) {
 #if !CPNETFLUX_HAS_RDMA
     (void)data; (void)length; return unavailable();
 #else
     if (!valid() || data == nullptr || length == 0) return common::Status::invalidArgument("invalid RDMA read");
-    const auto sendStatus = impl_->flushStagedSend();
-    if (!sendStatus.isOk()) return sendStatus;
+    // The result reader may overlap the next file's writer. Never touch its SQ here.
     if (impl_->activeReceiveSlot == kReceiveSlotCount) {
         const auto status = impl_->activateNextReceiveSlot();
         if (!status.isOk()) return status;

@@ -14,7 +14,7 @@
 两台均为 PowerEdge R770，Ubuntu 26.04.1、32 逻辑 CPU、约 30 GiB 内存；首次检查系统盘各余约 399/401 GiB。网卡报告 100000 Mb/s、MTU 1500、RDMA 端口 ACTIVE。硬件标称速率不代表已测吞吐。
 
 - 两端代码改动先在 R770-1 固定提交，再同步 R770-2；同配置构建并核对版本和二进制 SHA-256 后互传。
-- 实际 CPNetFlux 测试显式绑定上述数据地址并记录 route/接口计数。当前 TCP 实现经过 RDMA 网卡，不是原生 RDMA verbs。
+- 实际 CPNetFlux 测试显式绑定上述数据地址并记录 route/接口计数。2026-10-31 起代码支持显式选择的原生 RDMA SEND/RECV 数据面（需 RDMA 构建、data_transport=rdma 与 QP/摘要证据），控制面仍为 TCP/TLS；TCP 数据面经过该网卡仍不等于 verbs。
 - CPSS(DCC) 为独立项目：R770-1 `/home/Su/projects/CPSS(DCC)`。本轮只迁移其源码和现有资料，不将其混入 CPNetFlux Git。
 - 新实验：`/home/Su/experiments/CPNetFlux`；云端保留证据：`/home/Su/experiments/cloud-archive`；共享数据：`/home/Su/datasets`；迁移归档和校验：`/home/Su/migration/2026-10-30`。
 - 排除旧构建、依赖缓存、虚拟环境、凭据和重复传输 payload。两份既有未提交任务文档原样保留。
