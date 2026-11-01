@@ -5,6 +5,8 @@
 执行：当前总指挥，在 R770-1 `/home/Su/projects/CPNetFlux` 串行开发；R770-2 同路径同步构建。
 统一路线：`docs/roadmaps/rdma.md`（对应用户路线目录的 `RDMA路线.md`）。
 
+状态：阶段 A 已完成本任务列明的并发回归与文件互传验收；结果见 `2026-11-01-v3-rdma-stability-01-result.md`。长传输等待问题仍待阶段 B 解决，不等同于 RDMA 全部瓶颈已经排除。
+
 ## 范围、非目标与文件
 
 处理 window>1 时同连接 writer/result-reader 的发送暂存状态竞态；补同连接 duplex 硬件回归；澄清原报告中未经证实的归因和过时 TCP-only 环境描述。

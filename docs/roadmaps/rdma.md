@@ -46,7 +46,7 @@
 
 MTU/NUMA 作为 B-C 的独立配置对照，不擅自修改系统网络；不和代码改动同一批混测。
 
-## 当前开发阶段 A
+## 本轮完成阶段 A
 
 范围：审计 `sendPersistentTree` 的 writer/result-reader 并发与 `RdmaDataSocket` 的隐式发送刷新；增加同连接 duplex 回归，并修复已定位的发送状态竞争。
 
@@ -57,6 +57,21 @@ MTU/NUMA 作为 B-C 的独立配置对照，不擅自修改系统网络；不和
 预计文件：`rdma_data_socket.{h,cpp}`、`rdma_socket_bench.cpp`、RDMA 回归脚本/CTest、任务证据，以及 AGENTS/ENVIRONMENT 的传输方式事实说明。
 
 验收：先记录旧版行为失败；修复后 duplex 与原单向 bench 通过；window=8 dense 三次通过并校验，随后补 mixed 和大文件边界。无法复现或未通过的项保持未验收，不以增加 timeout 或回退 window=1 替代修复。
+
+2026-11-01 结果：代码固定在 `48fca292e9a2ca5a6235ce7d38e085a0dc3b0b48`。旧读路径隐式刷新发送槽的竞态已修复：reader 只处理接收，writer 用 `flushWrites()` 或非缓冲消息发布尾部。硬件 duplex 回归先观察到旧版帧身份/顺序不匹配，再验证新版三次通过；两节点同时双向各 `3 GiB + 17 bytes` 校验通过。window=8 dense 三次均 2048/2048、pending 高水位 8、恢复零；mixed 514 文件、4 GiB 大文件及反向 dense 下载均通过 SHA-256。R770-1 全量 CTest 482/482 通过，R770-2 相关 52/52 通过；RDMA-off 37 项通过、硬件项按条件 skipped。详细证据见仓库 `docs/tasks/2026-11-01-v3-rdma-stability-01-result.md`。
+
+## 下一阶段 B 的新增依据
+
+同提交、同配置、同单连接/MTU1024/QD16/RQ2048 的 direct bench 补测：
+
+| 有效负载 | 服务端吞吐 | 服务端接收完成等待 | 传输窗口 |
+|---|---:|---:|---:|
+| 2 GiB | 29.93 Gbps | 约 2.2 微秒 | 0.574 秒 |
+| 3 GiB + 17 bytes | 11.13 Gbps | 1.457 秒 | 2.315 秒 |
+
+两例完整性通过；这组结果只做了各一次，尚不是稳定吞吐分布，但足以否定“2 GiB 短测证明持续 RDMA 反压已排除”。约 2.01 GiB 接收池可能掩盖短测中的供给不足。下一阶段必须按 2/3/8 GiB 和更长持续负载复测，分开接收队列补充、CQ 事件、RNR 参数、消费者停顿和连接 teardown，先确定等待来源，再缩减接收内存；不能只把剩余差距归到应用 CPU。
+
+本次两端 Ethernet netdev errors/dropped 增量为零，但 HCA 的 `out_of_buffer`、`rnr_nak_retry_err` 和 completion/flush 计数有非零增量。保存原值和差值，不能声称 HCA 零错误，也不能把所有增量都解释为 teardown。下一阶段为每个 case 拆分数据期与关闭期计数。原始 HCA 字段按设备原始单位保留，不直接当作 IP payload 字节。
 
 ## 通用实验门禁
 
