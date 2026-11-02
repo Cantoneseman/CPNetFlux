@@ -39,6 +39,7 @@ constexpr std::size_t kReceiveSpareDepth = kRdmaDataReceiveSpareDepth;
 constexpr std::size_t kReceiveSlotCount = kReceiveQueueDepth + kReceiveSpareDepth;
 constexpr std::size_t kCompletionQueueDepth = kReceiveQueueDepth * 2;
 constexpr int kDefaultTimeoutMs = 30000;
+std::atomic<std::uint64_t> gNextRdmaConnectionId{1};
 
 int timeoutMs(SocketDeadline deadline) {
     if (!deadline) return kDefaultTimeoutMs;
@@ -156,6 +157,7 @@ struct RdmaDataSocket::Impl {
         std::size_t received = 0;
         std::size_t offset = 0;
         bool posted = false;
+        std::chrono::steady_clock::time_point completionObservedAt{};
     };
 
     rdma_event_channel* channel = nullptr;
@@ -187,6 +189,10 @@ struct RdmaDataSocket::Impl {
     bool closed = false;
     std::atomic_bool disconnected{false};
     const bool diagnostics = std::getenv("CPNETFLUX_RDMA_DIAGNOSTICS") != nullptr;
+    const std::uint64_t connectionId = diagnostics
+        ? gNextRdmaConnectionId.fetch_add(1) : 0;
+    const char* role = "unknown";
+    std::uint32_t queuePairNumber = 0;
     std::chrono::steady_clock::time_point lastRepost{};
 
     void trace(const char* event, std::uint64_t duration = 0) const noexcept {
@@ -197,22 +203,49 @@ struct RdmaDataSocket::Impl {
         // A writer diagnostic must not read the concurrently owned receive state.
         if (std::strcmp(event, "send_wait_end") == 0) {
             std::fprintf(stderr, "CPNETFLUX_RDMA_TRACE {\"event\":\"%s\",\"monotonic_ns\":%lld,"
-                "\"duration_ns\":%llu,\"send_inflight\":%zu}\n", event,
+                "\"duration_ns\":%llu,\"connection_id\":%llu,\"role\":\"%s\","
+                "\"qp_num\":%u,\"send_inflight\":%zu}\n", event,
                 static_cast<long long>(stamp), static_cast<unsigned long long>(duration),
+                static_cast<unsigned long long>(connectionId), role, queuePairNumber,
                 sendInFlight);
             return;
         }
         const auto age = lastRepost == std::chrono::steady_clock::time_point{}
             ? 0 : std::chrono::duration_cast<std::chrono::nanoseconds>(now - lastRepost).count();
         std::fprintf(stderr, "CPNETFLUX_RDMA_TRACE {\"event\":\"%s\",\"monotonic_ns\":%lld,"
-            "\"duration_ns\":%llu,\"received_bytes\":%llu,\"receive_completions\":%llu,"
-            "\"reposts\":%llu,\"ready\":%zu,\"free\":%zu,"
+            "\"duration_ns\":%llu,\"connection_id\":%llu,\"role\":\"%s\","
+            "\"qp_num\":%u,\"received_bytes\":%llu,\"bytes_consumed\":%llu,"
+            "\"receive_completions\":%llu,\"reposts\":%llu,"
+            "\"observed_posted_receive_depth\":%llu,"
+            "\"minimum_observed_posted_receive_depth\":%llu,"
+            "\"ready\":%zu,\"ready_high_watermark\":%llu,"
+            "\"free\":%zu,\"free_low_watermark\":%llu,"
+            "\"completion_to_repost_total_ns\":%llu,"
+            "\"completion_to_repost_max_ns\":%llu,"
+            "\"completion_to_repost_over_640us\":%llu,"
+            "\"completion_to_consumer_total_ns\":%llu,"
+            "\"completion_to_consumer_max_ns\":%llu,"
+            "\"spare_exhausted\":%llu,\"drain_blocked_no_spare\":%llu,"
             "\"last_repost_age_ns\":%lld}\n", event, static_cast<long long>(stamp),
             static_cast<unsigned long long>(duration),
+            static_cast<unsigned long long>(connectionId), role, queuePairNumber,
             static_cast<unsigned long long>(statistics.receiveBytes),
+            static_cast<unsigned long long>(statistics.receiveBytesConsumed),
             static_cast<unsigned long long>(statistics.receiveCompletions),
             static_cast<unsigned long long>(statistics.receiveReposts),
-            readyReceiveSlotCount, freeReceiveSlotCount,
+            static_cast<unsigned long long>(statistics.observedPostedReceiveDepth),
+            static_cast<unsigned long long>(statistics.minimumObservedPostedReceiveDepth),
+            readyReceiveSlotCount,
+            static_cast<unsigned long long>(statistics.receiveReadyQueueHighWatermark),
+            freeReceiveSlotCount,
+            static_cast<unsigned long long>(statistics.receiveFreeQueueLowWatermark),
+            static_cast<unsigned long long>(statistics.receiveCompletionToRepostNanoseconds),
+            static_cast<unsigned long long>(statistics.receiveCompletionToRepostMaxNanoseconds),
+            static_cast<unsigned long long>(statistics.receiveCompletionToRepostOver640Microseconds),
+            static_cast<unsigned long long>(statistics.receiveCompletionToConsumerNanoseconds),
+            static_cast<unsigned long long>(statistics.receiveCompletionToConsumerMaxNanoseconds),
+            static_cast<unsigned long long>(statistics.receiveSpareExhaustedCount),
+            static_cast<unsigned long long>(statistics.receiveDrainBlockedNoSpareCount),
             static_cast<long long>(age));
     }
 
@@ -221,10 +254,17 @@ struct RdmaDataSocket::Impl {
     void close() noexcept {
         if (closed) return;
         closed = true;
+        const auto closeStarted = std::chrono::steady_clock::now();
         trace("close_begin");
-        if (id != nullptr && !disconnected.exchange(true)) (void)::rdma_disconnect(id);
+        if (id != nullptr && !disconnected.exchange(true)) {
+            const auto disconnectStarted = std::chrono::steady_clock::now();
+            (void)::rdma_disconnect(id);
+            trace("disconnect_end", elapsedNanoseconds(disconnectStarted));
+        } else {
+            trace("disconnect_end");
+        }
         if (id != nullptr && id->qp != nullptr) ::rdma_destroy_qp(id);
-        trace("qp_destroyed");
+        trace("qp_destroyed", elapsedNanoseconds(closeStarted));
         if (sendMemoryRegion != nullptr) (void)::ibv_dereg_mr(sendMemoryRegion);
         if (receiveMemoryRegion != nullptr) (void)::ibv_dereg_mr(receiveMemoryRegion);
         sendMemoryRegion = nullptr;
@@ -245,7 +285,7 @@ struct RdmaDataSocket::Impl {
         receiveCompletionChannel = nullptr;
         sendCq = nullptr;
         recvCq = nullptr;
-        trace("close_end");
+        trace("close_end", elapsedNanoseconds(closeStarted));
     }
 
     common::Status initializeQueuePair() {
@@ -273,6 +313,11 @@ struct RdmaDataSocket::Impl {
         attributes.qp_type = IBV_QPT_RC;
         attributes.sq_sig_all = 0;
         if (::rdma_create_qp(id, pd, &attributes) != 0) return rdmaStatus("rdma_create_qp");
+        queuePairNumber = id->qp->qp_num;
+        if (diagnostics) {
+            statistics.connectionId = connectionId;
+            statistics.queuePairNumber = queuePairNumber;
+        }
         auto started = std::chrono::steady_clock::now();
         sendBufferPool.resize(sendSlots.size() * kMessageBufferSize);
         statistics.bufferAllocateNanoseconds += elapsedNanoseconds(started);
@@ -304,6 +349,11 @@ struct RdmaDataSocket::Impl {
             if (!enqueueFreeReceiveSlot(index))
                 return common::Status::runtimeError("RDMA receive spare queue is full");
         }
+        if (diagnostics) {
+            statistics.minimumObservedPostedReceiveDepth =
+                statistics.observedPostedReceiveDepth;
+            statistics.receiveFreeQueueLowWatermark = freeReceiveSlotCount;
+        }
         statistics.receivePrepostNanoseconds = elapsedNanoseconds(started);
         statistics.queuePairInitializeNanoseconds = elapsedNanoseconds(initializeStarted);
         trace("queue_pair_initialized", statistics.queuePairInitializeNanoseconds);
@@ -320,6 +370,9 @@ struct RdmaDataSocket::Impl {
         freeReceiveSlotQueue[freeReceiveSlotTail] = index;
         freeReceiveSlotTail = (freeReceiveSlotTail + 1) % freeReceiveSlotQueue.size();
         ++freeReceiveSlotCount;
+        if (diagnostics)
+            statistics.receiveFreeQueueLowWatermark = std::min<std::uint64_t>(
+                statistics.receiveFreeQueueLowWatermark, freeReceiveSlotCount);
         return true;
     }
 
@@ -328,6 +381,9 @@ struct RdmaDataSocket::Impl {
         *index = freeReceiveSlotQueue[freeReceiveSlotHead];
         freeReceiveSlotHead = (freeReceiveSlotHead + 1) % freeReceiveSlotQueue.size();
         --freeReceiveSlotCount;
+        if (diagnostics)
+            statistics.receiveFreeQueueLowWatermark = std::min<std::uint64_t>(
+                statistics.receiveFreeQueueLowWatermark, freeReceiveSlotCount);
         return true;
     }
 
@@ -399,6 +455,7 @@ struct RdmaDataSocket::Impl {
         if (::ibv_post_recv(id->qp, &workRequest, &bad) != 0) return rdmaStatus("ibv_post_recv");
         slot.posted = true;
         ++statistics.receivePostCalls;
+        if (diagnostics) ++statistics.observedPostedReceiveDepth;
         if (diagnostics && statistics.receivePostCalls > kReceiveQueueDepth) {
             const auto now = std::chrono::steady_clock::now();
             if (lastRepost != std::chrono::steady_clock::time_point{}) {
@@ -408,6 +465,21 @@ struct RdmaDataSocket::Impl {
             lastRepost = now;
         }
         return common::Status::ok();
+    }
+
+    void recordReceiveCompletion(const ibv_wc& completion) {
+        ++statistics.receiveCompletions;
+        statistics.receiveBytes += completion.byte_len;
+        if (diagnostics) {
+            if (completion.wr_id < receiveSlots.size())
+                receiveSlots[static_cast<std::size_t>(completion.wr_id)].completionObservedAt =
+                    std::chrono::steady_clock::now();
+            if (statistics.observedPostedReceiveDepth != 0)
+                --statistics.observedPostedReceiveDepth;
+            statistics.minimumObservedPostedReceiveDepth = std::min<std::uint64_t>(
+                statistics.minimumObservedPostedReceiveDepth,
+                statistics.observedPostedReceiveDepth);
+        }
     }
 
     common::Status pollReceiveCompletion(ibv_wc* completion) {
@@ -436,8 +508,7 @@ struct RdmaDataSocket::Impl {
                     return common::Status::transportError(
                         "RDMA work completion failed: " +
                         std::string(::ibv_wc_status_str(completion->status)), completion->status);
-                ++statistics.receiveCompletions;
-                statistics.receiveBytes += completion->byte_len;
+                recordReceiveCompletion(*completion);
                 return true;
             }
             return common::Status::transportError("ibv_poll_cq returned an invalid count");
@@ -475,27 +546,44 @@ struct RdmaDataSocket::Impl {
         if (completion.wr_id >= receiveSlots.size())
             return common::Status::transportError("RDMA completion has an invalid receive slot");
         std::size_t replacement = 0;
-        if (!dequeueFreeReceiveSlot(&replacement))
+        if (!dequeueFreeReceiveSlot(&replacement)) {
+            if (diagnostics) ++statistics.receiveSpareExhaustedCount;
             return common::Status::transportError("RDMA receive spare queue is exhausted");
+        }
         auto& completed = receiveSlots[static_cast<std::size_t>(completion.wr_id)];
         if (!completed.posted)
             return common::Status::transportError("RDMA completion used an unposted receive slot");
         completed.posted = false;
         completed.received = completion.byte_len;
         completed.offset = 0;
+        const auto repostStarted = completed.completionObservedAt;
         const auto posted = postReceive(replacement);
         if (!posted.isOk()) {
             (void)enqueueFreeReceiveSlot(replacement);
             return posted;
         }
         ++statistics.receiveReposts;
+        if (diagnostics) {
+            const auto repostNanoseconds = elapsedNanoseconds(repostStarted);
+            ++statistics.receiveCompletionToRepostCount;
+            statistics.receiveCompletionToRepostNanoseconds += repostNanoseconds;
+            statistics.receiveCompletionToRepostMaxNanoseconds = std::max(
+                statistics.receiveCompletionToRepostMaxNanoseconds, repostNanoseconds);
+            if (repostNanoseconds > 640000)
+                ++statistics.receiveCompletionToRepostOver640Microseconds;
+            if (repostNanoseconds >= 1000000)
+                trace("receive_repost_slow", repostNanoseconds);
+        }
         if (!enqueueReadyReceiveSlot(static_cast<std::size_t>(completion.wr_id)))
             return common::Status::runtimeError("RDMA ready receive queue is full");
         return common::Status::ok();
     }
 
     common::Result<std::size_t> drainReceiveCompletions() {
-        if (freeReceiveSlotCount == 0) return std::size_t{0};
+        if (freeReceiveSlotCount == 0) {
+            if (diagnostics) ++statistics.receiveDrainBlockedNoSpareCount;
+            return std::size_t{0};
+        }
         std::array<ibv_wc, kReceiveSpareDepth> completions{};
         const int limit = static_cast<int>(std::min<std::size_t>(
             freeReceiveSlotCount, completions.size()));
@@ -512,8 +600,7 @@ struct RdmaDataSocket::Impl {
                 return common::Status::transportError(
                     "RDMA work completion failed: " +
                     std::string(::ibv_wc_status_str(completion.status)), completion.status);
-            ++statistics.receiveCompletions;
-            statistics.receiveBytes += completion.byte_len;
+            recordReceiveCompletion(completion);
             const auto status = stageReceiveCompletion(completion);
             if (!status.isOk()) return status;
         }
@@ -531,8 +618,17 @@ struct RdmaDataSocket::Impl {
         if (activeReceiveSlot == kReceiveSlotCount)
             return common::Status::runtimeError("RDMA active receive slot is missing");
         auto& slot = receiveSlots[activeReceiveSlot];
+        if (diagnostics) {
+            const auto holdNanoseconds = elapsedNanoseconds(slot.completionObservedAt);
+            ++statistics.receiveSlotReleases;
+            ++statistics.receiveSlotHoldCount;
+            statistics.receiveSlotHoldNanoseconds += holdNanoseconds;
+            statistics.receiveSlotHoldMaxNanoseconds = std::max(
+                statistics.receiveSlotHoldMaxNanoseconds, holdNanoseconds);
+        }
         slot.received = 0;
         slot.offset = 0;
+        if (diagnostics) slot.completionObservedAt = {};
         if (!enqueueFreeReceiveSlot(activeReceiveSlot))
             return common::Status::runtimeError("RDMA receive free queue is full");
         activeReceiveSlot = kReceiveSlotCount;
@@ -548,6 +644,16 @@ struct RdmaDataSocket::Impl {
         if (!drained.isOk()) return drained.status();
         if (!dequeueReadyReceiveSlot(&activeReceiveSlot))
             return common::Status::runtimeError("RDMA ready receive queue is empty");
+        if (diagnostics) {
+            const auto& slot = receiveSlots[activeReceiveSlot];
+            const auto consumerNanoseconds = elapsedNanoseconds(slot.completionObservedAt);
+            ++statistics.receiveCompletionToConsumerCount;
+            statistics.receiveCompletionToConsumerNanoseconds += consumerNanoseconds;
+            statistics.receiveCompletionToConsumerMaxNanoseconds = std::max(
+                statistics.receiveCompletionToConsumerMaxNanoseconds, consumerNanoseconds);
+            if (consumerNanoseconds >= 1000000)
+                trace("receive_consumer_wait", consumerNanoseconds);
+        }
         return common::Status::ok();
     }
 
@@ -837,6 +943,7 @@ common::Result<RdmaDataSocket> RdmaDataSocket::connect(const char* host, std::ui
     auto impl = std::make_unique<Impl>();
     impl->channel = channel;
     impl->id = id;
+    impl->role = "active";
     status = impl->initializeQueuePair();
     if (!status.isOk()) return status;
     rdma_conn_param parameters{};
@@ -937,6 +1044,7 @@ common::Result<std::size_t> RdmaDataSocket::readSome(std::uint8_t* data, std::si
     const auto slotIndex = impl_->activeReceiveSlot;
     auto& slot = impl_->receiveSlots[slotIndex];
     const std::size_t copied = std::min(length, slot.received);
+    if (impl_->diagnostics) impl_->statistics.receiveBytesConsumed += copied;
     std::memcpy(data, slot.buffer + slot.offset, copied);
     slot.offset += copied;
     slot.received -= copied;
@@ -1020,6 +1128,7 @@ common::Result<RdmaDataSocket> RdmaListener::accept(SocketDeadline deadline) {
     auto connection = std::make_unique<RdmaDataSocket::Impl>();
     connection->channel = connectionChannel;
     connection->id = id;
+    connection->role = "passive";
     status = connection->initializeQueuePair();
     if (!status.isOk()) return status;
     rdma_conn_param parameters{};

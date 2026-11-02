@@ -67,6 +67,7 @@ int finish(RdmaDataSocket& socket) {
             return 1;
         }
     }
+    phase("socket_close_begin");
     const auto started = std::chrono::steady_clock::now();
     socket.close();
     phase("socket_closed", std::chrono::duration<double>(
@@ -123,10 +124,41 @@ void printResult(const char* role, std::uint64_t logicalBytes, std::uint64_t wir
               << ",\"send_completion_wait_seconds\":"
               << static_cast<double>(stats.sendCompletionWaitNanoseconds) / 1.0e9
               << ",\"max_send_inflight\":" << stats.maxSendInFlight
+              << ",\"connection_id\":" << stats.connectionId
+              << ",\"qp_num\":" << stats.queuePairNumber
               << ",\"receive_bytes\":" << stats.receiveBytes
+              << ",\"receive_bytes_consumed\":" << stats.receiveBytesConsumed
               << ",\"receive_completions\":" << stats.receiveCompletions
               << ",\"receive_post_calls\":" << stats.receivePostCalls
               << ",\"receive_reposts\":" << stats.receiveReposts
+              << ",\"receive_slot_releases\":" << stats.receiveSlotReleases
+              << ",\"observed_posted_receive_depth\":"
+              << stats.observedPostedReceiveDepth
+              << ",\"minimum_observed_posted_receive_depth\":"
+              << stats.minimumObservedPostedReceiveDepth
+              << ",\"receive_free_queue_low_watermark\":"
+              << stats.receiveFreeQueueLowWatermark
+              << ",\"receive_completion_to_repost_count\":"
+              << stats.receiveCompletionToRepostCount
+              << ",\"receive_completion_to_repost_seconds\":"
+              << static_cast<double>(stats.receiveCompletionToRepostNanoseconds) / 1.0e9
+              << ",\"receive_completion_to_repost_max_ns\":"
+              << stats.receiveCompletionToRepostMaxNanoseconds
+              << ",\"receive_completion_to_repost_over_640us\":"
+              << stats.receiveCompletionToRepostOver640Microseconds
+              << ",\"receive_completion_to_consumer_count\":"
+              << stats.receiveCompletionToConsumerCount
+              << ",\"receive_completion_to_consumer_seconds\":"
+              << static_cast<double>(stats.receiveCompletionToConsumerNanoseconds) / 1.0e9
+              << ",\"receive_completion_to_consumer_max_ns\":"
+              << stats.receiveCompletionToConsumerMaxNanoseconds
+              << ",\"receive_slot_hold_count\":" << stats.receiveSlotHoldCount
+              << ",\"receive_slot_hold_seconds\":"
+              << static_cast<double>(stats.receiveSlotHoldNanoseconds) / 1.0e9
+              << ",\"receive_slot_hold_max_ns\":" << stats.receiveSlotHoldMaxNanoseconds
+              << ",\"receive_spare_exhausted\":" << stats.receiveSpareExhaustedCount
+              << ",\"receive_drain_blocked_no_spare\":"
+              << stats.receiveDrainBlockedNoSpareCount
               << ",\"receive_completion_poll_calls\":"
               << stats.receiveCompletionPollCalls
               << ",\"receive_ready_queue_high_watermark\":" << stats.receiveReadyQueueHighWatermark
