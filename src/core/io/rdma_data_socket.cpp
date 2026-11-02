@@ -349,6 +349,17 @@ struct RdmaDataSocket::Impl {
         return true;
     }
 
+    common::Status configureReceiveRetryTimer() {
+        // CM defaults to encoding 0 (655 ms). A short RQ shortage must not
+        // leave a replenished receiver idle for that entire retry interval.
+        ibv_qp_attr attributes{};
+        attributes.min_rnr_timer = 12;  // IBTA encoding: 0.64 ms.
+        const int result = ::ibv_modify_qp(id->qp, &attributes, IBV_QP_MIN_RNR_TIMER);
+        if (result != 0)
+            return rdmaStatus("ibv_modify_qp minimum RNR timer", result > 0 ? result : errno);
+        return common::Status::ok();
+    }
+
     void captureQueuePairObservations() {
         ibv_qp_attr attributes{};
         ibv_qp_init_attr initialAttributes{};
@@ -837,6 +848,8 @@ common::Result<RdmaDataSocket> RdmaDataSocket::connect(const char* host, std::ui
     status = waitEvent(channel, RDMA_CM_EVENT_ESTABLISHED, deadline, &event);
     if (!status.isOk()) return status;
     (void)::rdma_ack_cm_event(event);
+    status = impl->configureReceiveRetryTimer();
+    if (!status.isOk()) return status;
     impl->captureQueuePairObservations();
     return RdmaDataSocket(std::move(impl));
 #endif
@@ -1018,6 +1031,8 @@ common::Result<RdmaDataSocket> RdmaListener::accept(SocketDeadline deadline) {
     status = waitEvent(connectionChannel, RDMA_CM_EVENT_ESTABLISHED, deadline, &event);
     if (!status.isOk()) return status;
     (void)::rdma_ack_cm_event(event);
+    status = connection->configureReceiveRetryTimer();
+    if (!status.isOk()) return status;
     connection->captureQueuePairObservations();
     return RdmaDataSocket(std::move(connection));
 #endif

@@ -19,6 +19,9 @@ def summary(output, expected_role, size):
     assert row["logical_bytes"] == size, row
     assert row["send_bytes"] == row["wire_bytes"] + 1, row
     assert row["receive_bytes"] == row["wire_bytes"] + 1, row
+    # Verify the effective hardware policy on both active and passive QPs.
+    # Encoding zero advertises a 655 ms retry delay, not a zero-delay retry.
+    assert row["negotiated_min_rnr_timer"] == 12, row
     return row
 
 
