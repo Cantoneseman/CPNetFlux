@@ -1422,10 +1422,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 }
                 checkpoint::OptionalManifestTimer socketWriting(timing.rangeObservationEnabled ? &timing.socketWriteSeconds : nullptr);
                 if (timing.rangeObservationEnabled) ++timing.socketWriteCalls;
-                auto written = socket->transport() == DataTransport::Rdma
-                    ? socket->writeFrameBuffered(encoded.data(), encoded.size(), nullptr, 0,
-                                                 payload, size)
-                    : socket->writeFrame(encoded.data(), encoded.size(), payload, size);
+                auto written = socket->writeFrameBuffered(
+                    encoded.data(), encoded.size(), nullptr, 0, payload, size);
                 socketWriting.stop();
                 if (written.isOk() && ready) written = executor->finishIo(*lease, frameBytes);
                 return written;

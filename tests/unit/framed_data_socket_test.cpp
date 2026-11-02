@@ -116,6 +116,22 @@ extern "C" ssize_t __wrap_sendmsg(int fd, const msghdr* message, int flags) {
     return __real_sendmsg(fd, &limited, flags);
 }
 
+TEST(FramedDataSocketTest, BufferedFrameWritePreservesTcpByteStreamBytes) {
+    const auto header = testBytes(17);
+    const auto prefix = testBytes(4);
+    const auto payload = testBytes(257);
+    SocketPair pair;
+
+    ASSERT_TRUE(pair.sender.writeFrameBuffered(header.data(), header.size(),
+                                               prefix.data(), prefix.size(),
+                                               payload.data(), payload.size()).isOk());
+
+    auto expected = header;
+    expected.insert(expected.end(), prefix.begin(), prefix.end());
+    expected.insert(expected.end(), payload.begin(), payload.end());
+    EXPECT_EQ(readBytes(pair.receiver.get(), expected.size()), expected);
+}
+
 TEST(FramedDataSocketTest, BatchesThreeSpansIntoOneSyscallWithIdenticalBytes) {
     const auto header = testBytes(64);
     const auto prefix = testBytes(4);
