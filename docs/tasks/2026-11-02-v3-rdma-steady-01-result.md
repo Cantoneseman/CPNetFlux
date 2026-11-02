@@ -15,7 +15,7 @@
 - 基线提交 `92382ad7d7a41f4dc22d094850726267be8389b4`：仅增加阶段计时、CQ 等待与诊断观测、硬件计数和关闭屏障，不改变数据面。
 - 代码修复提交 `300805c299fd5bca0b4a8d8107159e79556d5214`：只调整两端 `min_rnr_timer` 并增加有效 QP 属性回归断言；该代码提交已推送，GitHub `refs/heads/codex/V3-GRIDFTP-OPTIMIZED-RERUN-01` 回读 SHA 一致。R770-1/R770-2 均基于此代码提交完成同配置构建、测试和性能复测；本结果文档及路线记录随后作为单独文档提交归档。
 - 两机均为 RelWithDebInfo、GCC 15.2、`-O2 -g`、Ninja；RDMA/TLS/ISA-L/tests 开启，desktop/io_uring/cross-domain tests 关闭。设备 `mlx5_0`、端口 1、RoCEv2 GID index 3，固定直连地址 `.1`→`.2`，显式绑定 `192.168.100.1` / `192.168.100.2`。未改 MTU 或 CPU/NUMA 设置。
-- R1/R2 固定 bench SHA-256：`6238a74a013cff05c848c02aea0e10f0f135bb033daff886666113114eeba2ff`；服务端 `7238b19e0505b933994f29dde2e301079008d9941ad1d65f0f25fe1e3e775604`；上传端 `146b5379d7c088bc4c72f2c5bb97a6a74f38b58ecf8b4f5fedfc486cc462e252`；下载端 `30882eb215e4ae1f2bece348e4cf48ca6c73d0ed745f8065c3b81f917500a35a`。
+- R770-1/R770-2 同配置构建产物 SHA-256：`cpnetflux-rdma-socket-bench` `6238a74a013cff05c848c02aea0e10f0f135bb033daff886666113114eeba2ff`；`cpnetflux-server` `e17c42febe697bd1de045c03ce7786630443ce27219a9b22033ee0c203039d09`；`cpnetflux-gridftp-server` `7238b19e0505b933994f29dde2e301079008d9941ad1d65f0f25fe1e3e775604`；`cpnetflux-tree-upload-client` `146b5379d7c088bc4c72f2c5bb97a6a74f38b58ecf8b4f5fedfc486cc462e252`；`cpnetflux-tree-download-client` `30882eb215e4ae1f2bece348e4cf48ca6c73d0ed745f8065c3b81f917500a35a`。本轮内存通道测试实际执行的是 `cpnetflux-rdma-socket-bench`。
 - 本轮 direct bench 在内存中发送带 CPNetFlux 帧头的 64 KiB 模式数据，并在接收端检查帧身份、顺序、长度及每个 payload 字节。**它没有文件读写、SHA-256 或 CRC32C**；内容检查不冒充文件传输完整性测试。
 
 ## 开始、持续和关闭阶段
