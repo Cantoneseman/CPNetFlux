@@ -5,6 +5,8 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <netdb.h>
@@ -184,14 +186,45 @@ struct RdmaDataSocket::Impl {
     RdmaTransportStats statistics;
     bool closed = false;
     std::atomic_bool disconnected{false};
+    const bool diagnostics = std::getenv("CPNETFLUX_RDMA_DIAGNOSTICS") != nullptr;
+    std::chrono::steady_clock::time_point lastRepost{};
+
+    void trace(const char* event, std::uint64_t duration = 0) const noexcept {
+        if (!diagnostics) return;
+        const auto now = std::chrono::steady_clock::now();
+        const auto stamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            now.time_since_epoch()).count();
+        // A writer diagnostic must not read the concurrently owned receive state.
+        if (std::strcmp(event, "send_wait_end") == 0) {
+            std::fprintf(stderr, "CPNETFLUX_RDMA_TRACE {\"event\":\"%s\",\"monotonic_ns\":%lld,"
+                "\"duration_ns\":%llu,\"send_inflight\":%zu}\n", event,
+                static_cast<long long>(stamp), static_cast<unsigned long long>(duration),
+                sendInFlight);
+            return;
+        }
+        const auto age = lastRepost == std::chrono::steady_clock::time_point{}
+            ? 0 : std::chrono::duration_cast<std::chrono::nanoseconds>(now - lastRepost).count();
+        std::fprintf(stderr, "CPNETFLUX_RDMA_TRACE {\"event\":\"%s\",\"monotonic_ns\":%lld,"
+            "\"duration_ns\":%llu,\"received_bytes\":%llu,\"receive_completions\":%llu,"
+            "\"reposts\":%llu,\"ready\":%zu,\"free\":%zu,"
+            "\"last_repost_age_ns\":%lld}\n", event, static_cast<long long>(stamp),
+            static_cast<unsigned long long>(duration),
+            static_cast<unsigned long long>(statistics.receiveBytes),
+            static_cast<unsigned long long>(statistics.receiveCompletions),
+            static_cast<unsigned long long>(statistics.receiveReposts),
+            readyReceiveSlotCount, freeReceiveSlotCount,
+            static_cast<long long>(age));
+    }
 
     ~Impl() { close(); }
 
     void close() noexcept {
         if (closed) return;
         closed = true;
+        trace("close_begin");
         if (id != nullptr && !disconnected.exchange(true)) (void)::rdma_disconnect(id);
         if (id != nullptr && id->qp != nullptr) ::rdma_destroy_qp(id);
+        trace("qp_destroyed");
         if (sendMemoryRegion != nullptr) (void)::ibv_dereg_mr(sendMemoryRegion);
         if (receiveMemoryRegion != nullptr) (void)::ibv_dereg_mr(receiveMemoryRegion);
         sendMemoryRegion = nullptr;
@@ -212,9 +245,11 @@ struct RdmaDataSocket::Impl {
         receiveCompletionChannel = nullptr;
         sendCq = nullptr;
         recvCq = nullptr;
+        trace("close_end");
     }
 
     common::Status initializeQueuePair() {
+        const auto initializeStarted = std::chrono::steady_clock::now();
         if (id == nullptr || id->verbs == nullptr) return common::Status::runtimeError(
             "RDMA connection has no verbs context");
         pd = ::ibv_alloc_pd(id->verbs);
@@ -238,20 +273,29 @@ struct RdmaDataSocket::Impl {
         attributes.qp_type = IBV_QPT_RC;
         attributes.sq_sig_all = 0;
         if (::rdma_create_qp(id, pd, &attributes) != 0) return rdmaStatus("rdma_create_qp");
+        auto started = std::chrono::steady_clock::now();
         sendBufferPool.resize(sendSlots.size() * kMessageBufferSize);
+        statistics.bufferAllocateNanoseconds += elapsedNanoseconds(started);
+        started = std::chrono::steady_clock::now();
         sendMemoryRegion = ::ibv_reg_mr(pd, sendBufferPool.data(), sendBufferPool.size(), 0);
+        statistics.memoryRegisterNanoseconds += elapsedNanoseconds(started);
         if (sendMemoryRegion == nullptr) return rdmaStatus("ibv_reg_mr send buffer pool");
         for (std::size_t index = 0; index < sendSlots.size(); ++index) {
             sendSlots[index].buffer = sendBufferPool.data() + index * kMessageBufferSize;
         }
+        started = std::chrono::steady_clock::now();
         receiveBufferPool.resize(receiveSlots.size() * kMessageBufferSize);
+        statistics.bufferAllocateNanoseconds += elapsedNanoseconds(started);
+        started = std::chrono::steady_clock::now();
         receiveMemoryRegion = ::ibv_reg_mr(pd, receiveBufferPool.data(),
                                            receiveBufferPool.size(), IBV_ACCESS_LOCAL_WRITE);
+        statistics.memoryRegisterNanoseconds += elapsedNanoseconds(started);
         if (receiveMemoryRegion == nullptr) return rdmaStatus("ibv_reg_mr receive buffer pool");
         for (std::size_t index = 0; index < receiveSlots.size(); ++index) {
             auto& slot = receiveSlots[index];
             slot.buffer = receiveBufferPool.data() + index * kMessageBufferSize;
         }
+        started = std::chrono::steady_clock::now();
         for (std::size_t index = 0; index < kReceiveQueueDepth; ++index) {
             const auto status = postReceive(index);
             if (!status.isOk()) return status;
@@ -260,7 +304,15 @@ struct RdmaDataSocket::Impl {
             if (!enqueueFreeReceiveSlot(index))
                 return common::Status::runtimeError("RDMA receive spare queue is full");
         }
+        statistics.receivePrepostNanoseconds = elapsedNanoseconds(started);
+        statistics.queuePairInitializeNanoseconds = elapsedNanoseconds(initializeStarted);
+        trace("queue_pair_initialized", statistics.queuePairInitializeNanoseconds);
         return common::Status::ok();
+    }
+
+    static std::uint64_t elapsedNanoseconds(std::chrono::steady_clock::time_point start) {
+        return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - start).count());
     }
 
     bool enqueueFreeReceiveSlot(std::size_t index) {
@@ -336,6 +388,14 @@ struct RdmaDataSocket::Impl {
         if (::ibv_post_recv(id->qp, &workRequest, &bad) != 0) return rdmaStatus("ibv_post_recv");
         slot.posted = true;
         ++statistics.receivePostCalls;
+        if (diagnostics && statistics.receivePostCalls > kReceiveQueueDepth) {
+            const auto now = std::chrono::steady_clock::now();
+            if (lastRepost != std::chrono::steady_clock::time_point{}) {
+                const auto gap = elapsedNanoseconds(lastRepost);
+                if (gap >= 1000000) trace("repost_gap", gap);
+            }
+            lastRepost = now;
+        }
         return common::Status::ok();
     }
 
@@ -344,9 +404,11 @@ struct RdmaDataSocket::Impl {
         const auto waitStarted = std::chrono::steady_clock::now();
         ++statistics.receiveCompletionWaitCount;
         auto finishWait = [&](common::Status status) {
-            statistics.receiveCompletionWaitNanoseconds += static_cast<std::uint64_t>(
-                std::chrono::duration_cast<std::chrono::nanoseconds>(
-                    std::chrono::steady_clock::now() - waitStarted).count());
+            const auto duration = elapsedNanoseconds(waitStarted);
+            statistics.receiveCompletionWaitNanoseconds += duration;
+            statistics.receiveCompletionMaxWaitNanoseconds = std::max(
+                statistics.receiveCompletionMaxWaitNanoseconds, duration);
+            if (duration >= 1000000) trace("receive_wait_end", duration);
             return status;
         };
         auto pollOnce = [&]() -> common::Result<bool> {
@@ -521,9 +583,11 @@ struct RdmaDataSocket::Impl {
         const auto deadline = waitStarted + std::chrono::seconds(30);
         ++statistics.sendCompletionWaitCount;
         auto finishWait = [&](common::Status status) {
-            statistics.sendCompletionWaitNanoseconds += static_cast<std::uint64_t>(
-                std::chrono::duration_cast<std::chrono::nanoseconds>(
-                    std::chrono::steady_clock::now() - waitStarted).count());
+            const auto duration = elapsedNanoseconds(waitStarted);
+            statistics.sendCompletionWaitNanoseconds += duration;
+            statistics.sendCompletionMaxWaitNanoseconds = std::max(
+                statistics.sendCompletionMaxWaitNanoseconds, duration);
+            if (duration >= 1000000) trace("send_wait_end", duration);
             return status;
         };
         for (;;) {

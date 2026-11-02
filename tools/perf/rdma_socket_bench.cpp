@@ -5,6 +5,10 @@
 #include <array>
 #include <charconv>
 #include <chrono>
+#include <cstdlib>
+#include <fstream>
+#include <string>
+#include <unistd.h>
 #include <ctime>
 #include <cstdint>
 #include <iostream>
@@ -27,6 +31,48 @@ using cpnetflux::core::protocol::FrameType;
 constexpr std::uint8_t kPayloadByte = 0x5a;
 constexpr std::uint8_t kCompletionByte = 0xa5;
 constexpr std::size_t kPayloadBytes = 64U << 10;
+
+void phase(const char* name, double seconds = 0.0) {
+    if (std::getenv("CPNETFLUX_RDMA_DIAGNOSTICS") == nullptr) return;
+    const auto stamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const char* port = std::getenv("CPNETFLUX_RDMA_BENCH_SYSFS_PORT");
+    std::cout << "CPNETFLUX_RDMA_PHASE {\"phase\":\"" << name
+              << "\",\"pid\":" << ::getpid() << ",\"monotonic_ns\":" << stamp
+              << ",\"seconds\":" << seconds << ",\"counters\":{";
+    bool comma = false;
+    if (port != nullptr) {
+        for (const char* field : {"out_of_buffer", "rnr_nak_retry_err", "req_cqe_error",
+             "resp_cqe_error", "req_cqe_flush_error", "resp_cqe_flush_error",
+             "local_ack_timeout_err", "req_transport_retries_exceeded"}) {
+            std::ifstream input(std::string(port) + "/hw_counters/" + field);
+            std::uint64_t value = 0;
+            if (input >> value) {
+                if (comma) std::cout << ',';
+                std::cout << '\"' << field << "\":" << value;
+                comma = true;
+            }
+        }
+    }
+    std::cout << "}}" << std::endl;
+}
+
+int finish(RdmaDataSocket& socket) {
+    if (std::getenv("CPNETFLUX_RDMA_DIAGNOSTICS") == nullptr) return 0;
+    phase("payload_complete");
+    if (std::getenv("CPNETFLUX_RDMA_BENCH_CLOSE_BARRIER") != nullptr) {
+        std::string command;
+        if (!std::getline(std::cin, command) || command != "close") {
+            std::cerr << "RDMA close barrier requires close command\n";
+            return 1;
+        }
+    }
+    const auto started = std::chrono::steady_clock::now();
+    socket.close();
+    phase("socket_closed", std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - started).count());
+    return 0;
+}
 
 bool parseUnsigned(std::string_view text, std::uint64_t* value) {
     if (value == nullptr || text.empty()) return false;
@@ -88,6 +134,12 @@ void printResult(const char* role, std::uint64_t logicalBytes, std::uint64_t wir
               << stats.receiveCompletionEventWaits
               << ",\"receive_completion_wait_seconds\":"
               << static_cast<double>(stats.receiveCompletionWaitNanoseconds) / 1.0e9
+              << ",\"initialize_ns\":" << stats.queuePairInitializeNanoseconds
+              << ",\"buffer_allocate_ns\":" << stats.bufferAllocateNanoseconds
+              << ",\"memory_register_ns\":" << stats.memoryRegisterNanoseconds
+              << ",\"receive_prepost_ns\":" << stats.receivePrepostNanoseconds
+              << ",\"send_max_wait_ns\":" << stats.sendCompletionMaxWaitNanoseconds
+              << ",\"receive_max_wait_ns\":" << stats.receiveCompletionMaxWaitNanoseconds
               << "}\n";
 }
 
@@ -170,10 +222,11 @@ int runDuplex(RdmaDataSocket& socket, const char* role, std::uint64_t bytes) {
         std::chrono::steady_clock::now() - started).count();
     const double cpu = static_cast<double>(std::clock() - cpuStarted) / CLOCKS_PER_SEC;
     printResult(role, bytes, wireBytes, frames, elapsed, cpu, socket.stats());
-    return 0;
+    return finish(socket);
 }
 
 int runServer(const char* host, std::uint16_t port, std::uint64_t bytes, bool duplex = false) {
+    const auto setupStarted = std::chrono::steady_clock::now();
     auto listener = RdmaListener::listen(host, port, 1);
     if (!listener.isOk()) {
         std::cerr << "RDMA listen failed: " << listener.status().message() << '\n';
@@ -186,6 +239,8 @@ int runServer(const char* host, std::uint16_t port, std::uint64_t bytes, bool du
         return 1;
     }
     auto socket = std::move(accepted.value());
+    phase("transport_ready", std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - setupStarted).count());
     if (duplex) return runDuplex(socket, "duplex-server", bytes);
     std::vector<std::uint8_t> payload(kPayloadBytes, kPayloadByte);
     std::uint64_t completed = 0;
@@ -236,17 +291,20 @@ int runServer(const char* host, std::uint16_t port, std::uint64_t bytes, bool du
                                      static_cast<double>(CLOCKS_PER_SEC);
     printResult("server", completed, wireBytes, frames, elapsed,
                 processCpuSeconds, socket.stats());
-    return 0;
+    return finish(socket);
 }
 
 int runClient(const char* host, std::uint16_t port, std::uint64_t bytes,
               std::string_view localBindAddress, bool duplex = false) {
+    const auto setupStarted = std::chrono::steady_clock::now();
     auto connected = RdmaDataSocket::connect(host, port, {}, localBindAddress);
     if (!connected.isOk()) {
         std::cerr << "RDMA connect failed: " << connected.status().message() << '\n';
         return 1;
     }
     auto socket = std::move(connected.value());
+    phase("transport_ready", std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - setupStarted).count());
     if (duplex) return runDuplex(socket, "duplex-client", bytes);
     std::vector<std::uint8_t> payload(kPayloadBytes, kPayloadByte);
     std::uint64_t completed = 0;
@@ -292,12 +350,13 @@ int runClient(const char* host, std::uint16_t port, std::uint64_t bytes,
                                      static_cast<double>(CLOCKS_PER_SEC);
     printResult("client", completed, wireBytes, frames, elapsed,
                 processCpuSeconds, socket.stats());
-    return 0;
+    return finish(socket);
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
+    phase("process_start");
     if (argc != 5 && argc != 6) {
         std::cerr << "Usage: " << argv[0]
                   << " server <bind-ip> <port> <bytes>\n       " << argv[0]

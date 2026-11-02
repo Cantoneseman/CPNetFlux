@@ -43,6 +43,12 @@ struct RdmaTransportStats {
     std::uint64_t receiveCompletionEventWaits = 0;
     std::uint64_t receiveCompletionWaitCount = 0;
     std::uint64_t receiveCompletionWaitNanoseconds = 0;
+    std::uint64_t queuePairInitializeNanoseconds = 0;
+    std::uint64_t bufferAllocateNanoseconds = 0;
+    std::uint64_t memoryRegisterNanoseconds = 0;
+    std::uint64_t receivePrepostNanoseconds = 0;
+    std::uint64_t sendCompletionMaxWaitNanoseconds = 0;
+    std::uint64_t receiveCompletionMaxWaitNanoseconds = 0;
 };
 
 // One writer owns all writes/flushes; one reader may run concurrently.
