@@ -18,12 +18,12 @@
 |---|---|
 | 当前架构决策 | [性能路线决策](DECISIONS/2026-11-04-performance-route.md)、[R770 主开发环境决策](DECISIONS/2026-10-30-r770-primary.md) |
 | 当前状态和历史结论 | [项目状态记录](PROJECT_STATE.md)、[实验目录](experiments/)、[任务记录](tasks/) |
-| 性能脚本使用参考 | [性能工具说明](PERF_README.md)、[perf 工具索引](perf/README.md) |
+| 性能脚本使用参考 | `tools/perf/` 脚本与当前基线任务 |
 | 协议、架构和工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md) |
 | 目录传输、恢复与安全 | [目录传输](DIRECTORY_TRANSFER.md)、[安全边界](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md) |
 
 ## 历史材料规则
 
-- `docs/tasks`、`docs/experiments` 和 `docs/perf` 中的旧记录按其输入提交与采样环境解释；历史 “go” 不等于当前单链路 100G 或生产 readiness。
+- `docs/tasks` 和 `docs/experiments` 中的记录按其输入提交与采样环境解释；历史 “go” 不等于当前单链路 100G 或生产 readiness。
 - 深圳/上海云端主开发、旧协作角色、强制 worktree、旧 root 路径和旧 SSH 命令均为历史材料；当前操作规则读 [R770 环境](coordination/ENVIRONMENT.md)。
 - 路线变化先更新 [决策](DECISIONS/2026-11-04-performance-route.md) 与 [路线图](ROADMAP.md)，再做源码实现。

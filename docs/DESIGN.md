@@ -20,7 +20,7 @@ GridFTP 曾被广泛用于高性能科学数据传输，具备并行流、断点
 
 ### GridFTP 源码经验取舍
 
-`docs/GridFTP传输源码学习笔记.md` 总结了 Grid Community Toolkit 的传输路径。CPNetFlux 只吸收其中的分层和恢复思想，不复制 Globus 实现：
+历史 GridFTP 源码学习笔记已从当前工作树移除；CPNetFlux 只保留其分层和恢复思想，不复制 Globus 实现：
 
 - 保留控制面、数据面、存储后端分离的模型。
 - 控制命令只转换为内部传输任务，不直接读写文件。

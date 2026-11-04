@@ -53,4 +53,4 @@
 
 开题中的三阶段流水线、SR-Dispatch/BAP、adaptive microbundle 是候选方案。批处理、文件聚合和流水线已有相关研究与工程实现；先完成 profiling 和 tuned-native/fixed 对照，再评估研究增量。小文件 T_ready 优先于只看 Gbps。CPSS(DCC) 独立管理，压缩不进入当前首轮传输热路径对照。
 
-早期 S0-S8、Phase 和迁移路线已移至 [历史路线图](ROADMAP_HISTORY.md)，用于理解原实现与当时实验，不定义当前阶段。历史实验按其输入提交和测量环境解释，不能自动继承为当前代码的 readiness 证据。
+早期 S0-S8、Phase 和迁移路线已清理出当前工作树；相关实验结果若仍在 `docs/experiments`，按其输入提交和测量环境解释，不能自动继承为当前代码的 readiness 证据。
