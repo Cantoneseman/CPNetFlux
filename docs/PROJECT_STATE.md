@@ -2,8 +2,8 @@
 
 - 权威源码目录：R770-1 `/home/Su/projects/CPNetFlux`；R770-2 仅作同提交构建、测试和互传对端；Windows 工作树只用于查看/回收。
 - 输入提交：`a4ae9963db17bc061aadcfa8d95d13de6c86849f`，分支 `codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`。
-- 当前阶段：完成 [RDMA 端到端基线](tasks/2026-11-04-r770-rdma-e2e-baseline-01.md)，代码优化暂不开始。
-- 已有历史性能证据：native `ib_send_bw` 约 92.59 Gbps；RDMA direct bench 单连接长传输约 30.35 Gbps，4 连接组端到端约 82.97 Gbps；post-RNR-fix 真实文件矩阵待复测。各值口径不同，不可互相替代。
+- 当前阶段：[RDMA 端到端基线结果](tasks/2026-11-04-r770-rdma-e2e-baseline-01-result.md) 已采集 48 个样本，42 通过、6 个 64 GiB 下载失败；先执行 [V3 缺失块握手修复](tasks/2026-11-04-v3-resume-mask-01.md)，长校验收尾超时独立处理，性能优化暂不开始。
+- 当前基线：native payload 约 92.59 Gbps；64 GiB 四连接内存组 task 约 63.33 Gbps；4 GiB 四连接上传 task 约 4.177 Gbps，较历史外部墙钟口径约提升 28.7%；64 GiB 下载仍失败。各值口径不同，不可互相替代。
 - 计划目标为阶段验收假设：真实文件先达 10–20 Gbps，随后评估单大文件 30–50 Gbps，单端口 70–85 Gbps 为冲刺目标；不承诺 100 Gbps 应用吞吐或 1 Tbps 聚合。
 - 当前开发路线、环境与性能口径分别见 [路线图](ROADMAP.md)、[详细计划](tasks/2026-11-04-performance-roadmap.md) 和 [环境快照](coordination/ENVIRONMENT.md)。
 

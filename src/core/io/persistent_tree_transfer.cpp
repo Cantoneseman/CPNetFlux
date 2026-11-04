@@ -1715,7 +1715,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 status=state.setMissingRanges(missing);
                 if (!status.isOk()) return finishTransport(status);
                 status = PersistentDataSession::writeResumeResponse(socket, id, missing);
-                if (!status.isOk()) fileStatus = status;
+                if (!status.isOk()) {
+                    (void)notify(callback, id, status, true);
+                    return finishTransport(status);
+                }
             }
         } else {
             transaction = std::make_shared<FileTransaction>(stats->phaseTiming ? &timing : nullptr,

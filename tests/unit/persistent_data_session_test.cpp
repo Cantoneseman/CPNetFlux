@@ -12,6 +12,7 @@
 #include <sstream>
 #include <thread>
 #include <sys/resource.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
@@ -1550,4 +1551,173 @@ TEST(PersistentTreeRangeTest, RejectsUnboundedDiagnosticDepthBeforeWritingAnyFra
     EXPECT_FALSE(status.isOk());
     EXPECT_NE(status.message().find("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH"),std::string::npos);
     EXPECT_EQ(stats.payloadBytes,0U);
+}
+
+TEST(PersistentResumeMaskTest, CompactsLargeAdjacentMaskWithinExistingFrameLimit) {
+    SocketPair pair;
+    constexpr std::uint64_t chunkSize = 1048576;
+    constexpr std::uint64_t begin = 8ULL * 1024 * 1024 * 1024;
+    PersistentFileIdentity id{1, 1, 2 * begin, "large.bin", "large-mask", chunkSize};
+    id.rangeId = 2; id.rangeOffset = begin; id.rangeLength = begin;
+    std::vector<cpnetflux::core::chunk::CompletedRange> missing;
+    for (std::uint64_t i = 0; i < 8192; ++i)
+        missing.push_back({begin + i * chunkSize, begin + (i + 1) * chunkSize});
+    const auto status = PersistentDataSession::writeResumeResponse(&pair.sender, id, missing);
+    ASSERT_TRUE(status.isOk()) << status.message();
+    auto response = PersistentDataSession::readResumeResponse(&pair.receiver, id);
+    ASSERT_TRUE(response.isOk()) << response.status().message();
+    EXPECT_EQ(response.value().statusCode, FrameStatusCode::Ok);
+    ASSERT_EQ(response.value().missingRanges.size(), 1U);
+    EXPECT_EQ(response.value().missingRanges[0].begin, begin);
+    EXPECT_EQ(response.value().missingRanges[0].end, 2 * begin);
+}
+
+TEST(PersistentResumeMaskTest, CoalescingPreservesVerifiedHoles) {
+    SocketPair pair;
+    PersistentFileIdentity id{1, 1, 20, "holes.bin", "holes", 1};
+    ASSERT_TRUE(PersistentDataSession::writeResumeResponse(&pair.sender, id,
+        {{2, 3}, {3, 5}, {7, 8}, {8, 10}, {12, 13}}).isOk());
+    auto response = PersistentDataSession::readResumeResponse(&pair.receiver, id);
+    ASSERT_TRUE(response.isOk()) << response.status().message();
+    const auto& missing = response.value().missingRanges;
+    ASSERT_EQ(missing.size(), 3U);
+    EXPECT_EQ(missing[0].begin, 2U); EXPECT_EQ(missing[0].end, 5U);
+    EXPECT_EQ(missing[1].begin, 7U); EXPECT_EQ(missing[1].end, 10U);
+    EXPECT_EQ(missing[2].begin, 12U); EXPECT_EQ(missing[2].end, 13U);
+}
+
+TEST(PersistentResumeMaskTest, DisjointLimitRejectsWithSmallSemanticResponse) {
+    for (std::uint64_t count : {4095U, 4096U}) {
+        SocketPair pair;
+        PersistentFileIdentity id{1, 1, 8192, "fragmented.bin", "fragmented", 1};
+        std::vector<cpnetflux::core::chunk::CompletedRange> missing;
+        for (std::uint64_t i = 0; i < count; ++i) missing.push_back({2 * i, 2 * i + 1});
+        const auto status = PersistentDataSession::writeResumeResponse(&pair.sender, id, missing);
+        EXPECT_EQ(status.isOk(), count == 4095) << status.message();
+        pollfd readable{pair.receiver.fd(), POLLIN, 0};
+        ASSERT_EQ(::poll(&readable, 1, 500), 1) << "peer must receive a response, not time out";
+        auto response = PersistentDataSession::readResumeResponse(&pair.receiver, id);
+        ASSERT_TRUE(response.isOk()) << response.status().message();
+        if (count == 4095) {
+            EXPECT_EQ(response.value().statusCode, FrameStatusCode::Ok);
+            EXPECT_EQ(response.value().missingRanges.size(), count);
+        } else {
+            EXPECT_EQ(response.value().statusCode, FrameStatusCode::InvalidFrame);
+            EXPECT_TRUE(response.value().missingRanges.empty());
+            EXPECT_NE(status.message().find("resume mask"), std::string::npos);
+        }
+    }
+}
+
+TEST(PersistentResumeMaskTest, InvalidMasksNeverBroadenRequestedCoverage) {
+    const std::vector<std::vector<cpnetflux::core::chunk::CompletedRange>> invalid{
+        {{4, 4}}, {{4, 6}, {5, 8}}, {{6, 7}, {4, 5}}, {{3, 5}}, {{11, 13}}};
+    for (const auto& missing : invalid) {
+        SocketPair pair;
+        PersistentFileIdentity id{1, 1, 16, "invalid.bin", "invalid", 1};
+        id.rangeId = 1; id.rangeOffset = 4; id.rangeLength = 8;
+        EXPECT_FALSE(PersistentDataSession::writeResumeResponse(&pair.sender, id, missing).isOk());
+        pollfd readable{pair.receiver.fd(), POLLIN, 0};
+        ASSERT_EQ(::poll(&readable, 1, 500), 1);
+        auto response = PersistentDataSession::readResumeResponse(&pair.receiver, id);
+        ASSERT_TRUE(response.isOk()) << response.status().message();
+        EXPECT_EQ(response.value().statusCode, FrameStatusCode::InvalidFrame);
+        EXPECT_TRUE(response.value().missingRanges.empty());
+    }
+}
+
+
+TEST(PersistentResumeMaskTest, LargeCompactedRangeRetainsEveryChunkChecksum) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    SocketPair pair;
+    TempRoot source, destination;
+    std::string content(8192, '\0');
+    for (std::size_t i = 0; i < content.size(); ++i) content[i] = static_cast<char>(i % 251);
+    std::ofstream(source.path / "chunks.bin", std::ios::binary) << content;
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "chunks.bin").c_str(), &st), 0);
+    PersistentFileIdentity id{1, 1, content.size(), "chunks.bin", "compacted-chunks", 1,
+        st.st_mtim.tv_sec, ChecksumAlgorithm::Crc32c, {}, 1, 0, content.size(), 1, 1};
+    PersistentTransferPolicy policy;
+    policy.rangeCheckpointBatchChunks = 16;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received, sent;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, false, false, context);
+    });
+    const auto status = sendPersistentTree(&pair.sender, source.path.string(), {id}, &sent);
+    if (!status.isOk()) ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(status.isOk()) << status.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(sent.payloadBytes, content.size());
+    EXPECT_EQ(received.payloadBytes, content.size());
+    EXPECT_TRUE(verifyCommittedPersistentOutputs(context).isOk());
+    std::ifstream output(destination.path / id.relativePath, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), content);
+    auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+        cpnetflux::checkpoint::manifestPathForOutput((destination.path / id.relativePath).string()));
+    ASSERT_TRUE(manifest.isOk()) << manifest.status().message();
+    ASSERT_EQ(manifest.value().verifiedChunks.size(), content.size());
+    for (const auto& record : manifest.value().verifiedChunks) {
+        ASSERT_LT(record.offset, content.size());
+        EXPECT_EQ(record.length, 1U);
+        ChecksumComputer checksum(ChecksumAlgorithm::Crc32c);
+        checksum.update(reinterpret_cast<const std::uint8_t*>(content.data() + record.offset), 1);
+        EXPECT_EQ(record.checksum.value, checksum.finalize().value);
+    }
+}
+
+TEST(PersistentResumeMaskTest, FragmentedCheckpointRejectionStopsReceiverWithoutWaitingForData) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    SocketPair pair;
+    TempRoot destination;
+    PersistentFileIdentity id{1, 1, 8192, "fragmented.bin", "fragmented-resume", 1,
+        0, ChecksumAlgorithm::Crc32c, {}, 1, 0, 8192, 1, 1};
+    const auto output = (destination.path / id.relativePath).string();
+    auto session = cpnetflux::core::session::TransferSession::createNew(
+        output, id.transferId, id.totalSize, id.chunkSize, id.checksumAlgorithm);
+    ASSERT_TRUE(session.isOk()) << session.status().message();
+    const std::uint8_t byte = 'V';
+    ChecksumComputer checksum(ChecksumAlgorithm::Crc32c);
+    checksum.update(&byte, 1);
+    std::ofstream(session.value().manifest().tempPath, std::ios::binary) << std::string(8192, 'V');
+    for (std::uint64_t i = 1; i < id.totalSize; i += 2)
+        ASSERT_TRUE(session.value().recordVerifiedChunk(i, i, 1, checksum.finalize()).isOk());
+    ASSERT_TRUE(session.value().markFailed().isOk());
+    PersistentTreeStats received;
+    std::promise<cpnetflux::common::Status> result;
+    auto finished = result.get_future();
+    std::jthread receiver([&] {
+        result.set_value(receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, false, true));
+    });
+    const auto started = PersistentDataSession::writeBegin(&pair.sender, id, true);
+    pollfd readable{pair.sender.fd(), POLLIN, 0};
+    const auto ready = started.isOk() ? ::poll(&readable, 1, 5000) : 0;
+    if (ready != 1) {
+        ::shutdown(pair.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        FAIL() << "fragmented checkpoint must be rejected on the wire";
+    }
+    auto response = PersistentDataSession::readResumeResponse(&pair.sender, id);
+    const auto exited = finished.wait_for(std::chrono::seconds(2));
+    if (exited != std::future_status::ready) ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    EXPECT_EQ(exited, std::future_status::ready);
+    const auto status = finished.get();
+    EXPECT_FALSE(status.isOk());
+    EXPECT_NE(status.message().find("resume mask"), std::string::npos);
+    ASSERT_TRUE(response.isOk()) << response.status().message();
+    EXPECT_EQ(response.value().statusCode, FrameStatusCode::InvalidFrame);
+    EXPECT_TRUE(response.value().missingRanges.empty());
+    EXPECT_EQ(received.payloadBytes, 0U);
+    EXPECT_FALSE(std::filesystem::exists(output));
+    auto saved = cpnetflux::checkpoint::ManifestStore::load(cpnetflux::checkpoint::manifestPathForOutput(output));
+    ASSERT_TRUE(saved.isOk()) << saved.status().message();
+    EXPECT_EQ(saved.value().verifiedChunks.size(), 4096U);
 }

@@ -390,7 +390,43 @@ common::Status PersistentDataSession::writeResumeResponse(
     const std::vector<core::chunk::CompletedRange>& missingRanges, protocol::FrameStatusCode statusCode) {
     protocol::ResumeResponsePayload payload;
     payload.statusCode = statusCode;
-    payload.missingRanges = missingRanges;
+    auto maskStatus = common::Status::ok();
+    if (statusCode == protocol::FrameStatusCode::Ok) {
+        // The wire codec uses 8 bytes of metadata plus 16 bytes per interval.
+        constexpr std::size_t maxRanges = (kMaxPayload - 8) / 16;
+        const auto begin = identity.rangeId ? identity.rangeOffset : 0;
+        auto end = identity.totalSize;
+        if (identity.rangeId) {
+            if (begin > end || identity.rangeLength > end - begin)
+                maskStatus = common::Status::invalidArgument("resume mask has invalid range bounds");
+            else end = begin + identity.rangeLength;
+        }
+        if (maskStatus.isOk()) {
+            payload.missingRanges.reserve(std::min(missingRanges.size(), maxRanges));
+            auto last = begin;
+            for (const auto& range : missingRanges) {
+                if (range.begin < last || range.begin >= range.end || range.end > end) {
+                    maskStatus = common::Status::invalidArgument("resume mask exceeds claimed range");
+                    break;
+                }
+                if (!payload.missingRanges.empty() &&
+                    range.begin == payload.missingRanges.back().end) {
+                    payload.missingRanges.back().end = range.end;
+                } else {
+                    if (payload.missingRanges.size() == maxRanges) {
+                        maskStatus = common::Status::invalidArgument("resume mask exceeds persistent frame limit");
+                        break;
+                    }
+                    payload.missingRanges.push_back(range);
+                }
+                last = range.end;
+            }
+        }
+        if (!maskStatus.isOk()) {
+            payload.statusCode = protocol::FrameStatusCode::InvalidFrame;
+            payload.missingRanges.clear();
+        }
+    }
     auto encoded = protocol::encodeResumeResponsePayload(payload);
     if (!encoded.isOk()) return encoded.status();
     protocol::FrameHeader header;
@@ -400,7 +436,8 @@ common::Status PersistentDataSession::writeResumeResponse(
     header.rangeId = identity.rangeId;
     header.attempt = identity.attempt;
     header.totalSize = identity.totalSize;
-    return writeFrame(socket, header, encoded.value().data(), encoded.value().size());
+    const auto written = writeFrame(socket, header, encoded.value().data(), encoded.value().size());
+    return written.isOk() ? maskStatus : written;
 }
 
 common::Result<protocol::ResumeResponsePayload> PersistentDataSession::readResumeResponse(
