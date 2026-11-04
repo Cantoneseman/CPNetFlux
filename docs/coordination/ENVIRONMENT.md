@@ -1,3 +1,28 @@
+# R770 当前开发与实验环境（2026-11-04 快照）
+
+本节是当前环境事实；运行时状态会变化，每次构建/实验前重新采样。仅记录 SSH alias 和非敏感地址，不保存密钥、口令或完整 SSH 配置。
+
+| 项目 | R770-1 | R770-2 |
+|---|---|---|
+| SSH alias / 管理地址 | `r770-1` / `192.168.1.109` | `r770-2` / `192.168.1.102` |
+| 用户 / 角色 | `Su`；唯一权威源码、Git、开发、实验和分析 | `Su`；接收固定提交，用于同配置构建、测试和互传 |
+| CPNetFlux 根目录 | `/home/Su/projects/CPNetFlux` | `/home/Su/projects/CPNetFlux` |
+| 数据网接口 / 设备 | `eno17095np0` / `mlx5_0` | `eno17095np0` / `mlx5_0` |
+| 数据网地址 | `192.168.100.1/30` | `192.168.100.2/30` |
+| 管理内核 | Linux 7.0.0-38-generic | Linux 7.0.0-34-generic |
+| HCA firmware | `mlx5_0`，16.35.8002 | `mlx5_0`，16.30.1004 |
+| 构建工具 | g++ 15.2.0、CMake 4.2.3、Python 3.14.4、Ninja | 同左 |
+| 网卡状态 | 100000 Mb/s，MTU 1500，RoCE port ACTIVE，active MTU 1024 | 100000 Mb/s，MTU 1500，RoCE port ACTIVE，active MTU 1024 |
+| 系统盘快照 | 438 GiB 总量，可用约 312 GiB | 438 GiB 总量，可用约 260 GiB |
+
+硬件/软件信息于 2026-11-04 通过 alias 现场读取。CPU 两端均为 Intel Xeon 6515P、32 逻辑 CPU、单 NUMA node、约 30 GiB RAM。以上磁盘和固件数字是快照而非实验许可；实验前重新检查负载、资源、端口、路由和构建依赖。
+
+当前开发入口：`ssh r770-1` 后进入 `/home/Su/projects/CPNetFlux`。管理 SSH 只负责管理，不作为传输性能路径。实验绑定数据地址 `192.168.100.1` / `192.168.100.2`，采集 `ip route get`、netdev 与 HCA 计数。TCP 经过 RDMA 网卡不等于原生 verbs；只有明确选择 `data_transport=rdma` 且 QP/协商摘要证明匹配时才称为原生 RDMA SEND/RECV。
+
+代码仅在 R770-1 串行修改；固定提交并推送后，将该提交同步 R770-2，两端同配置构建并核对版本和二进制 SHA-256 后才互传。构建目录和二进制不纳入 Git。实验记录位于 `/home/Su/experiments/CPNetFlux`，共享数据位于 `/home/Su/datasets`。
+
+---
+
 > 当前执行规则（2026-10-30）：R770-1 `/home/Su/projects/CPNetFlux` 是唯一权威开发目录，当前总指挥单人串行完成，不使用子代理或并行工作区。R770-2 是同步构建、测试和传输对端；Windows 只连接/查看/回收。下方云端开发、派单和 CPSS 禁入条款为历史快照，已被本节和用户本次迁移授权覆盖。
 
 ## 当前实验室环境

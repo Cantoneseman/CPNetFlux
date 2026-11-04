@@ -1,0 +1,29 @@
+# CPNetFlux 文档入口
+
+本页是仓库文档索引。项目当前事实以 R770-1 权威工作树、最新固定提交、验收记录和原始实验数据为准；历史文档保留证据，不自动代表当前路线或 readiness。
+
+## 当前优先阅读
+
+1. [项目入口](../README.md)：项目定位、当前性能状态和开发入口。
+2. [性能路线图](ROADMAP.md)：唯一当前性能主线。
+3. [详细开发计划](tasks/2026-11-04-performance-roadmap.md)：阶段、指标、门槛和目标。
+4. [R770 环境](coordination/ENVIRONMENT.md)：SSH alias、主机角色、管理/数据地址、工具链和实验边界。
+5. [当前 RDMA 基线任务](tasks/2026-11-04-r770-rdma-e2e-baseline-01.md)：首个实验验收门。
+6. [RDMA 技术路线](roadmaps/rdma.md)：queue、completion、buffer ownership 和后续候选工作。
+7. [研究基线](RESEARCH_BASELINE.md)：论文与历史证据边界。
+
+## 按用途查找
+
+| 用途 | 入口 |
+|---|---|
+| 当前架构决策 | [性能路线决策](DECISIONS/2026-11-04-performance-route.md)、[R770 主开发环境决策](DECISIONS/2026-10-30-r770-primary.md) |
+| 当前状态和历史结论 | [项目状态记录](PROJECT_STATE.md)、[实验目录](experiments/)、[任务记录](tasks/) |
+| 性能脚本使用参考 | [性能工具说明](PERF_README.md)、[perf 工具索引](perf/README.md) |
+| 协议、架构和工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md) |
+| 目录传输、恢复与安全 | [目录传输](DIRECTORY_TRANSFER.md)、[安全边界](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md) |
+
+## 历史材料规则
+
+- `docs/tasks`、`docs/experiments` 和 `docs/perf` 中的旧记录按其输入提交与采样环境解释；历史 “go” 不等于当前单链路 100G 或生产 readiness。
+- 深圳/上海云端主开发、旧协作角色、强制 worktree、旧 root 路径和旧 SSH 命令均为历史材料；当前操作规则读 [R770 环境](coordination/ENVIRONMENT.md)。
+- 路线变化先更新 [决策](DECISIONS/2026-11-04-performance-route.md) 与 [路线图](ROADMAP.md)，再做源码实现。

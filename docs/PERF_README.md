@@ -1,3 +1,5 @@
+> **文档范围说明（2026-11-04）**：下方 Lab Beta/旧云端和旧路径命令是历史工具说明快照，不是 R770 当前实验指令。当前服务器、SSH alias、工具链和提交同步规则以 [R770 环境](coordination/ENVIRONMENT.md) 为准；当前性能任务与验收口径以 [R770 RDMA E2E 基线](tasks/2026-11-04-r770-rdma-e2e-baseline-01.md) 和 [性能路线](tasks/2026-11-04-performance-roadmap.md) 为准。执行旧命令前必须单独迁移并核对参数、路径、绑定地址及资源。
+
 # CPNetFlux 性能基线工具
 
 ## Lab Beta 状态

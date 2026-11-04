@@ -1,3 +1,5 @@
+> 本索引保留为历史入口快照。当前项目状态、路线和文档导航请使用 [README.md](README.md) 与 [docs/README.md](docs/README.md)；旧阶段状态由 2026-11-04 决策取代。
+
 # CPNetFlux 项目索引
 
 > 面向算力网的高速可靠数据传输底座。对外兼容 GridFTP 接口，对内采用自研高性能传输引擎。
