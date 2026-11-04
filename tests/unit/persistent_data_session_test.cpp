@@ -1586,25 +1586,23 @@ TEST(PersistentResumeMaskTest, CoalescingPreservesVerifiedHoles) {
     EXPECT_EQ(missing[2].begin, 12U); EXPECT_EQ(missing[2].end, 13U);
 }
 
-TEST(PersistentResumeMaskTest, DisjointLimitRejectsWithSmallSemanticResponse) {
-    for (std::uint64_t count : {4095U, 4096U}) {
+TEST(PersistentResumeMaskTest, PaginatesFragmentedMaskAtFrameBoundary) {
+    for (std::uint64_t count : {4095U, 4096U, 8192U}) {
         SocketPair pair;
-        PersistentFileIdentity id{1, 1, 8192, "fragmented.bin", "fragmented", 1};
+        PersistentFileIdentity id{1, 1, 2 * count, "fragmented.bin", "fragmented", 1};
         std::vector<cpnetflux::core::chunk::CompletedRange> missing;
         for (std::uint64_t i = 0; i < count; ++i) missing.push_back({2 * i, 2 * i + 1});
         const auto status = PersistentDataSession::writeResumeResponse(&pair.sender, id, missing);
-        EXPECT_EQ(status.isOk(), count == 4095) << status.message();
+        ASSERT_TRUE(status.isOk()) << "count=" << count << " " << status.message();
         pollfd readable{pair.receiver.fd(), POLLIN, 0};
         ASSERT_EQ(::poll(&readable, 1, 500), 1) << "peer must receive a response, not time out";
         auto response = PersistentDataSession::readResumeResponse(&pair.receiver, id);
         ASSERT_TRUE(response.isOk()) << response.status().message();
-        if (count == 4095) {
-            EXPECT_EQ(response.value().statusCode, FrameStatusCode::Ok);
-            EXPECT_EQ(response.value().missingRanges.size(), count);
-        } else {
-            EXPECT_EQ(response.value().statusCode, FrameStatusCode::InvalidFrame);
-            EXPECT_TRUE(response.value().missingRanges.empty());
-            EXPECT_NE(status.message().find("resume mask"), std::string::npos);
+        EXPECT_EQ(response.value().statusCode, FrameStatusCode::Ok);
+        ASSERT_EQ(response.value().missingRanges.size(), count);
+        for (std::uint64_t i = 0; i < count; ++i) {
+            EXPECT_EQ(response.value().missingRanges[i].begin, 2 * i);
+            EXPECT_EQ(response.value().missingRanges[i].end, 2 * i + 1);
         }
     }
 }
@@ -1671,7 +1669,7 @@ TEST(PersistentResumeMaskTest, LargeCompactedRangeRetainsEveryChunkChecksum) {
     }
 }
 
-TEST(PersistentResumeMaskTest, FragmentedCheckpointRejectionStopsReceiverWithoutWaitingForData) {
+TEST(PersistentResumeMaskTest, FragmentedCheckpointIsPaginatedBeforeDataPhase) {
     using cpnetflux::checksum::ChecksumAlgorithm;
     using cpnetflux::checksum::ChecksumComputer;
     SocketPair pair;
@@ -1708,13 +1706,12 @@ TEST(PersistentResumeMaskTest, FragmentedCheckpointRejectionStopsReceiverWithout
     const auto exited = finished.wait_for(std::chrono::seconds(2));
     if (exited != std::future_status::ready) ::shutdown(pair.sender.fd(), SHUT_RDWR);
     receiver.join();
-    EXPECT_EQ(exited, std::future_status::ready);
+    EXPECT_NE(exited, std::future_status::ready);
     const auto status = finished.get();
     EXPECT_FALSE(status.isOk());
-    EXPECT_NE(status.message().find("resume mask"), std::string::npos);
     ASSERT_TRUE(response.isOk()) << response.status().message();
-    EXPECT_EQ(response.value().statusCode, FrameStatusCode::InvalidFrame);
-    EXPECT_TRUE(response.value().missingRanges.empty());
+    EXPECT_EQ(response.value().statusCode, FrameStatusCode::Ok);
+    EXPECT_EQ(response.value().missingRanges.size(), 4096U);
     EXPECT_EQ(received.payloadBytes, 0U);
     EXPECT_FALSE(std::filesystem::exists(output));
     auto saved = cpnetflux::checkpoint::ManifestStore::load(cpnetflux::checkpoint::manifestPathForOutput(output));

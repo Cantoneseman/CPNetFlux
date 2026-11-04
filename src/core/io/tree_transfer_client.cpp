@@ -1398,8 +1398,11 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - startedAt)
                              .count();
     const std::uint64_t logicalBytes = totalBytes(manifest);
+    // Effective throughput is valid only after the complete control transaction succeeds.
     const double throughputGbps =
-        elapsed > 0.0 ? static_cast<double>(logicalBytes) * 8.0 / elapsed / 1'000'000'000.0 : 0.0;
+        status.isOk() && elapsed > 0.0
+            ? static_cast<double>(stats.transferredBytes.load()) * 8.0 / elapsed / 1'000'000'000.0
+            : 0.0;
     const TreeSummary summary = summarizeManifest(manifest);
     const auto compressionAttempts = stats.compressionAttempts.load();
     const auto compressedFrames = stats.compressedFrames.load();

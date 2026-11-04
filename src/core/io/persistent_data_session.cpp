@@ -388,82 +388,83 @@ common::Status PersistentDataSession::writeEnd(FramedDataSocket* socket,
 common::Status PersistentDataSession::writeResumeResponse(
     FramedDataSocket* socket, const PersistentFileIdentity& identity,
     const std::vector<core::chunk::CompletedRange>& missingRanges, protocol::FrameStatusCode statusCode) {
-    protocol::ResumeResponsePayload payload;
-    payload.statusCode = statusCode;
+    constexpr std::size_t maxRangesPerPage = (kMaxPayload - 16) / 16;
+    constexpr std::uint32_t maxPages = 1U << 20;
+    std::vector<core::chunk::CompletedRange> normalized;
     auto maskStatus = common::Status::ok();
-    if (statusCode == protocol::FrameStatusCode::Ok) {
-        // The wire codec uses 8 bytes of metadata plus 16 bytes per interval.
-        constexpr std::size_t maxRanges = (kMaxPayload - 8) / 16;
-        const auto begin = identity.rangeId ? identity.rangeOffset : 0;
-        auto end = identity.totalSize;
-        if (identity.rangeId) {
-            if (begin > end || identity.rangeLength > end - begin)
-                maskStatus = common::Status::invalidArgument("resume mask has invalid range bounds");
-            else end = begin + identity.rangeLength;
-        }
-        if (maskStatus.isOk()) {
-            payload.missingRanges.reserve(std::min(missingRanges.size(), maxRanges));
-            auto last = begin;
-            for (const auto& range : missingRanges) {
-                if (range.begin < last || range.begin >= range.end || range.end > end) {
-                    maskStatus = common::Status::invalidArgument("resume mask exceeds claimed range");
-                    break;
-                }
-                if (!payload.missingRanges.empty() &&
-                    range.begin == payload.missingRanges.back().end) {
-                    payload.missingRanges.back().end = range.end;
-                } else {
-                    if (payload.missingRanges.size() == maxRanges) {
-                        maskStatus = common::Status::invalidArgument("resume mask exceeds persistent frame limit");
-                        break;
-                    }
-                    payload.missingRanges.push_back(range);
-                }
-                last = range.end;
+    const auto begin = identity.rangeId ? identity.rangeOffset : 0;
+    auto end = identity.totalSize;
+    if (identity.rangeId) {
+        if (begin > end || identity.rangeLength > end - begin)
+            maskStatus = common::Status::invalidArgument("resume mask has invalid range bounds");
+        else end = begin + identity.rangeLength;
+    }
+    if (statusCode != protocol::FrameStatusCode::Ok) {
+        maskStatus = common::Status::invalidArgument("resume response carries a non-success status");
+    } else if (maskStatus.isOk()) {
+        normalized.reserve(missingRanges.size());
+        std::uint64_t last = begin;
+        for (const auto& range : missingRanges) {
+            if (range.begin < last || range.begin >= range.end || range.end > end) {
+                maskStatus = common::Status::invalidArgument("resume mask exceeds claimed range");
+                break;
             }
-        }
-        if (!maskStatus.isOk()) {
-            payload.statusCode = protocol::FrameStatusCode::InvalidFrame;
-            payload.missingRanges.clear();
+            if (!normalized.empty() && range.begin == normalized.back().end)
+                normalized.back().end = range.end;
+            else
+                normalized.push_back(range);
+            last = range.end;
         }
     }
-    auto encoded = protocol::encodeResumeResponsePayload(payload);
-    if (!encoded.isOk()) return encoded.status();
-    protocol::FrameHeader header;
-    header.type = protocol::FrameType::ResumeResponse;
-    header.streamId = identity.fileId;
-    header.chunkId = identity.generation;
-    header.rangeId = identity.rangeId;
-    header.attempt = identity.attempt;
-    header.totalSize = identity.totalSize;
-    const auto written = writeFrame(socket, header, encoded.value().data(), encoded.value().size());
-    return written.isOk() ? maskStatus : written;
+    if (!maskStatus.isOk()) { normalized.clear(); statusCode = protocol::FrameStatusCode::InvalidFrame; }
+    const auto pageCountSize = std::max<std::size_t>(1, (normalized.size() + maxRangesPerPage - 1) / maxRangesPerPage);
+    if (pageCountSize > maxPages) return common::Status::invalidArgument("resume mask exceeds bounded page count");
+    const auto pageCount = static_cast<std::uint32_t>(pageCountSize);
+    for (std::uint32_t pageIndex = 0; pageIndex < pageCount; ++pageIndex) {
+        const auto first = static_cast<std::size_t>(pageIndex) * maxRangesPerPage;
+        const auto last = std::min(normalized.size(), first + maxRangesPerPage);
+        protocol::ResumeResponsePayload payload;
+        payload.statusCode = statusCode; payload.pageIndex = pageIndex; payload.pageCount = pageCount;
+        if (first < last) payload.missingRanges.assign(normalized.begin() + first, normalized.begin() + last);
+        auto encoded = protocol::encodeResumeResponsePayload(payload);
+        if (!encoded.isOk()) return encoded.status();
+        protocol::FrameHeader header;
+        header.type = protocol::FrameType::ResumeResponse; header.streamId = identity.fileId;
+        header.chunkId = identity.generation; header.rangeId = identity.rangeId; header.attempt = identity.attempt; header.totalSize = identity.totalSize;
+        const auto written = writeFrame(socket, header, encoded.value().data(), encoded.value().size());
+        if (!written.isOk()) return written;
+    }
+    return maskStatus;
 }
 
 common::Result<protocol::ResumeResponsePayload> PersistentDataSession::readResumeResponse(
     FramedDataSocket* socket, const PersistentFileIdentity& identity) {
-    auto frame = readNext(socket, kMaxPayload);
-    if (!frame.isOk()) return frame.status();
-    const auto& header = frame.value().header;
-    if (header.type != protocol::FrameType::ResumeResponse || header.streamId != identity.fileId ||
-        header.chunkId != identity.generation || header.rangeId != identity.rangeId ||
-        header.attempt != identity.attempt || header.totalSize != identity.totalSize)
-        return common::Status::invalidArgument("persistent range resume identity mismatch: " +
-            std::to_string(header.streamId) + ":" + std::to_string(header.chunkId) + ":" +
-            std::to_string(header.rangeId) + ":" + std::to_string(header.totalSize) + " expected " +
-            std::to_string(identity.fileId) + ":" + std::to_string(identity.generation) + ":" +
-            std::to_string(identity.rangeId) + ":" + std::to_string(identity.totalSize));
-    auto decoded = protocol::decodeResumeResponsePayload(frame.value().payload.data(), frame.value().payload.size());
-    if (!decoded.isOk()) return decoded.status();
-    const auto begin=identity.rangeId ? identity.rangeOffset : 0;
-    const auto end=identity.rangeId ? identity.rangeOffset+identity.rangeLength : identity.totalSize;
-    std::uint64_t last=begin;
-    for (const auto& r : decoded.value().missingRanges) {
-        if (r.begin<last || r.begin>=r.end || r.end>end)
-            return common::Status::invalidArgument("resume mask exceeds claimed range");
-        last=r.end;
+    constexpr std::uint32_t maxPages = 1U << 20;
+    protocol::ResumeResponsePayload combined;
+    const auto begin = identity.rangeId ? identity.rangeOffset : 0;
+    const auto end = identity.rangeId ? identity.rangeOffset + identity.rangeLength : identity.totalSize;
+    for (std::uint32_t expectedPage = 0;; ++expectedPage) {
+        auto frame = readNext(socket, kMaxPayload);
+        if (!frame.isOk()) return frame.status();
+        const auto& header = frame.value().header;
+        if (header.type != protocol::FrameType::ResumeResponse || header.streamId != identity.fileId || header.chunkId != identity.generation || header.rangeId != identity.rangeId || header.attempt != identity.attempt || header.totalSize != identity.totalSize)
+            return common::Status::invalidArgument("persistent range resume identity mismatch");
+        auto decoded = protocol::decodeResumeResponsePayload(frame.value().payload.data(), frame.value().payload.size());
+        if (!decoded.isOk()) return decoded.status();
+        const auto& page = decoded.value();
+        if (page.pageCount == 0 || page.pageCount > maxPages || page.pageIndex != expectedPage)
+            return common::Status::invalidArgument("invalid resume response page sequence");
+        if (expectedPage == 0) {
+            combined.statusCode = page.statusCode; combined.pageCount = page.pageCount; combined.pageIndex = 0;
+            if (page.statusCode != protocol::FrameStatusCode::Ok && page.pageCount != 1) return common::Status::invalidArgument("error resume response must be a single page");
+        } else if (page.statusCode != combined.statusCode || page.pageCount != combined.pageCount) return common::Status::invalidArgument("inconsistent resume response pages");
+        for (const auto& range : page.missingRanges) {
+            if (range.begin < begin || range.begin >= range.end || range.end > end || (!combined.missingRanges.empty() && range.begin <= combined.missingRanges.back().end))
+                return common::Status::invalidArgument("resume mask exceeds claimed range");
+            combined.missingRanges.push_back(range);
+        }
+        if (expectedPage + 1 == page.pageCount) return combined;
     }
-    return decoded;
 }
 
 common::Status PersistentDataSession::writeResult(FramedDataSocket* socket,

@@ -42,7 +42,7 @@ constexpr int kDefaultTimeoutMs = 30000;
 std::atomic<std::uint64_t> gNextRdmaConnectionId{1};
 
 int timeoutMs(SocketDeadline deadline) {
-    if (!deadline) return kDefaultTimeoutMs;
+    if (!deadline) return 1000;
     const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
         *deadline - std::chrono::steady_clock::now());
     if (remaining.count() <= 0) return 1;
@@ -483,7 +483,7 @@ struct RdmaDataSocket::Impl {
     }
 
     common::Status pollReceiveCompletion(ibv_wc* completion) {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        const SocketDeadline deadline{};
         const auto waitStarted = std::chrono::steady_clock::now();
         ++statistics.receiveCompletionWaitCount;
         auto finishWait = [&](common::Status status) {
@@ -697,7 +697,7 @@ struct RdmaDataSocket::Impl {
 
     common::Status waitForSendProgress() {
         const auto waitStarted = std::chrono::steady_clock::now();
-        const auto deadline = waitStarted + std::chrono::seconds(30);
+        const SocketDeadline deadline{};
         ++statistics.sendCompletionWaitCount;
         auto finishWait = [&](common::Status status) {
             const auto duration = elapsedNanoseconds(waitStarted);
