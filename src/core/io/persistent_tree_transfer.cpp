@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <variant>
 #include <unordered_set>
@@ -103,6 +104,34 @@ using protocol::FrameType;
 namespace fs = std::filesystem;
 using Session = std::variant<session::TransferSession, session::DownloadSession>;
 using Clock = std::chrono::steady_clock;
+
+void tracePersistentProtocol(const char* role, const char* event,
+    std::uint32_t channelIndex, const PersistentFileIdentity* id = nullptr,
+    std::uint64_t value = 0, std::uint64_t detail = 0, int resultCode = -1) noexcept {
+    static const bool enabled = [] {
+        const auto* setting = std::getenv("CPNETFLUX_V3_PROTOCOL_TRACE");
+        return setting && std::string_view(setting) == "1";
+    }();
+    if (!enabled) return;
+    const auto stamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        Clock::now().time_since_epoch()).count();
+    std::fprintf(stderr,
+        "CPNETFLUX_V3_PROTOCOL_TRACE {\"role\":\"%s\",\"event\":\"%s\","
+        "\"monotonic_ns\":%lld,\"channel\":%u,\"file_id\":%u,"
+        "\"generation\":%llu,\"range_id\":%llu,\"range_count\":%llu,"
+        "\"attempt\":%llu,\"range_offset\":%llu,\"range_length\":%llu,"
+        "\"value\":%llu,\"detail\":%llu,\"result_code\":%d}\n",
+        role, event, static_cast<long long>(stamp), channelIndex,
+        id ? id->fileId : 0, static_cast<unsigned long long>(id ? id->generation : 0),
+        static_cast<unsigned long long>(id ? id->rangeId : 0),
+        static_cast<unsigned long long>(id ? id->rangeCount : 0),
+        static_cast<unsigned long long>(id ? id->attempt : 0),
+        static_cast<unsigned long long>(id ? id->rangeOffset : 0),
+        static_cast<unsigned long long>(id ? id->rangeLength : 0),
+        static_cast<unsigned long long>(value), static_cast<unsigned long long>(detail),
+        resultCode);
+    std::fflush(stderr);
+}
 
 FrameStatusCode fileFailureCode(const Status& status) {
     if (status.isOk()) return FrameStatusCode::Ok;
@@ -1115,14 +1144,19 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 resultStarted = pending.front().resultStarted;
             }
             const auto started = std::chrono::steady_clock::now();
+            tracePersistentProtocol("sender", "file_result_read_begin", channelIndex, &expected);
             auto result = PersistentDataSession::readResult(socket, expected);
             const double resultSeconds = secondsSince(resultStarted);
             const double waitSeconds = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - started).count();
             if (!result.isOk()) {
+                tracePersistentProtocol("sender", "file_result_read_error", channelIndex,
+                    &expected, 0, 0, static_cast<int>(result.status().code()));
                 requestAbort(result.status());
                 return;
             }
+            tracePersistentProtocol("sender", "file_result_read_end", channelIndex, &expected,
+                0, 0, static_cast<int>(result.value()));
             const auto fileStatus = receiverFileStatus(result.value(), expected.relativePath);
             if (ready) {
                 if (!lease) { requestAbort(Status::runtimeError("missing work lease")); return; }
@@ -1233,7 +1267,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             status = executor->begin(*lease);
             if (!status.isOk()) { failWriter(status); break; }
         }
+        tracePersistentProtocol("sender", "file_begin_write_begin", channelIndex, &id);
         status = PersistentDataSession::writeBegin(socket, id,transferOptions && transferOptions->resume);
+        tracePersistentProtocol("sender", "file_begin_write_end", channelIndex, &id,
+            0, 0, static_cast<int>(status.code()));
         if (!status.isOk()) { failWriter(status); break; }
         bool skipRange = false;
         std::vector<chunk::CompletedRange> missing{{id.rangeId ? id.rangeOffset : 0,
@@ -1493,8 +1530,13 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 toNanoseconds(after.st_mtim.tv_sec, after.st_mtim.tv_nsec),
                 toNanoseconds(after.st_ctim.tv_sec, after.st_ctim.tv_nsec)});
         }
-        if (!writeFailed) status = PersistentDataSession::writeEnd(socket, id,
-            skipRange ? checksum::ChecksumValue{} : checksumComputer.finalize(), skipRange);
+        if (!writeFailed) {
+            tracePersistentProtocol("sender", "file_end_write_begin", channelIndex, &id);
+            status = PersistentDataSession::writeEnd(socket, id,
+                skipRange ? checksum::ChecksumValue{} : checksumComputer.finalize(), skipRange);
+            tracePersistentProtocol("sender", "file_end_write_end", channelIndex, &id,
+                0, 0, static_cast<int>(status.code()));
+        }
         if (writeFailed || !status.isOk()) { failWriter(status.isOk() ? Status::runtimeError("persistent data write failed") : status); break; }
         if (ready) {
             status = executor->awaitResult(*lease);
@@ -1502,14 +1544,24 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         }
         if (needsHandshake || socket->tlsEnabled()) {
             const auto resultStarted = Clock::now();
+            tracePersistentProtocol("sender", "file_result_read_begin", channelIndex, &id);
             auto result = PersistentDataSession::readResult(socket, id);
-            if (!result.isOk()) { failWriter(result.status()); break; }
+            if (!result.isOk()) {
+                tracePersistentProtocol("sender", "file_result_read_error", channelIndex,
+                    &id, 0, 0, static_cast<int>(result.status().code()));
+                failWriter(result.status()); break;
+            }
+            tracePersistentProtocol("sender", "file_result_read_end", channelIndex, &id,
+                0, 0, static_cast<int>(result.value()));
             const double resultSeconds = secondsSince(resultStarted);
             const auto rangeStatus = receiverFileStatus(result.value(), id.relativePath);
             if (ready) {
+                tracePersistentProtocol("sender", "lease_finalize_begin", channelIndex, &id);
                 auto completed = result.value() == FrameStatusCode::OutputExists
                     ? executor->failTerminal(*lease, rangeStatus)
                     : executor->finalize(*lease, rangeStatus);
+                tracePersistentProtocol("sender", "lease_finalize_end", channelIndex, &id,
+                    0, 0, static_cast<int>(completed.code()));
                 if (!completed.isOk()) { failWriter(completed); break; }
             }
             stats->completeWaitSeconds += resultSeconds;
@@ -1525,7 +1577,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             if (rangeStatus.isOk() && id.rangeId != 0) ++stats->rangeCompletions;
             if (!rangeStatus.isOk() && overall.isOk()) overall = rangeStatus;
             const auto callbackStarted = Clock::now();
+            tracePersistentProtocol("sender", "callback_begin", channelIndex, &id);
             const auto callbackStatus = notifySafe(id, rangeStatus, true);
+            tracePersistentProtocol("sender", "callback_end", channelIndex, &id,
+                0, 0, static_cast<int>(callbackStatus.code()));
             timing.manifestSeconds += secondsSince(callbackStarted);
             timing.fileResultSeconds = resultSeconds;
             timing.wallSeconds = secondsSince(fileStarted);
@@ -1556,8 +1611,12 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             finalStatus = Status::runtimeError("persistent pending result queue not drained");
     }
     if (socket->valid() && finalStatus.isOk()) {
-        status = PersistentDataSession::writeDirectoryEnd(
-            socket, stats->files - filesAtConnectionStart);
+        const auto fileCount = stats->files - filesAtConnectionStart;
+        tracePersistentProtocol("sender", "directory_end_write_begin",
+            channelIndex, nullptr, fileCount);
+        status = PersistentDataSession::writeDirectoryEnd(socket, fileCount);
+        tracePersistentProtocol("sender", "directory_end_write_end",
+            channelIndex, nullptr, fileCount, 0, static_cast<int>(status.code()));
         addWire(protocol::kFrameHeaderSize);
         if (!status.isOk()) finalStatus = status;
     }
@@ -1633,11 +1692,20 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         return result;
     };
     for (;;) {
+        tracePersistentProtocol("receiver", "next_frame_read_begin", channelIndex,
+            nullptr, stats->files - filesAtConnectionStart);
         auto frame = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
-        if (!frame.isOk()) return finishTransport(frame.status());
+        if (!frame.isOk()) {
+            tracePersistentProtocol("receiver", "next_frame_read_error", channelIndex,
+                nullptr, stats->files - filesAtConnectionStart, 0,
+                static_cast<int>(frame.status().code()));
+            return finishTransport(frame.status());
+        }
         stats->wireBytes += protocol::kFrameHeaderSize + frame.value().payload.size();
         if (frame.value().header.type == FrameType::DirectoryEnd) {
             const auto filesOnConnection = stats->files - filesAtConnectionStart;
+            tracePersistentProtocol("receiver", "directory_end_read", channelIndex,
+                nullptr, filesOnConnection, frame.value().header.totalSize);
             if (frame.value().header.totalSize != filesOnConnection)
                 return Status::invalidArgument("persistent directory file count mismatch");
             if (expectedFileCount != kUnknownPersistentFileCount &&
@@ -1648,6 +1716,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         auto decoded = PersistentDataSession::decodeBegin(frame.value());
         if (!decoded.isOk()) return decoded.status();
         const auto id = decoded.value();
+        tracePersistentProtocol("receiver", "file_begin_read", channelIndex, &id);
         std::optional<WorkLease> lease;
         struct IncomingLeaseGuard {
             WorkExecutor* executor = nullptr;
@@ -1759,6 +1828,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             }
             stats->wireBytes += protocol::kFrameHeaderSize + data.value().payload.size();
             if (data.value().header.type == FrameType::FileEnd) {
+                tracePersistentProtocol("receiver", "file_end_read", channelIndex, &id);
                 auto ended = state.end(data.value().header, data.value().payload.data(), data.value().payload.size());
                 if (!ended.isOk()) return ended.status();
                 if (fileStatus.isOk() && rangeEntry) {
@@ -1831,6 +1901,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     return Status::runtimeError("transfer interrupted by max-chunks");
             }
         }
+        tracePersistentProtocol("receiver", "commit_begin", channelIndex, &id);
         if (rangeEntry) {
             const auto checkpoint = RangeFileCoordinator::flush(rangeEntry, observation);
             if (!checkpoint.isOk()) fileStatus = checkpoint;
@@ -1840,6 +1911,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             Timer timer{&timing.finalizeSeconds};
             fileStatus = transaction->commit();
         }
+        tracePersistentProtocol("receiver", "commit_end", channelIndex, &id,
+            0, 0, static_cast<int>(fileStatus.code()));
         const bool logicalFileComplete = id.rangeId == 0 || id.rangeId == id.rangeCount;
         if (logicalFileComplete) {
             ++stats->files;
@@ -1852,19 +1925,30 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (terminalConflict) {
             // Dynamic batches stop on semantic failure. Publish the rejection
             // before callbacks cancel sockets; static receivers keep draining.
+            tracePersistentProtocol("receiver", "file_result_write_begin", channelIndex, &id,
+                0, 0, static_cast<int>(FrameStatusCode::OutputExists));
             const auto rejected = PersistentDataSession::writeResult(
                 socket, id, FrameStatusCode::OutputExists);
+            tracePersistentProtocol("receiver", "file_result_write_end", channelIndex, &id,
+                0, 0, static_cast<int>(rejected.code()));
             timing.rdmaTransportStats = socket->rdmaStats();
             timing.rdmaReceiveObservationAvailable = socket->transport() == DataTransport::Rdma;
             (void)notify(callback, id, fileStatus, true);
             return rejected.isOk() ? fileStatus : rejected;
         }
+        tracePersistentProtocol("receiver", "callback_begin", channelIndex, &id);
         status = notify(callback, id, fileStatus, true);
+        tracePersistentProtocol("receiver", "callback_end", channelIndex, &id,
+            0, 0, static_cast<int>(status.code()));
         if (fileStatus.isOk() && id.rangeId != 0) ++stats->rangeCompletions;
         timing.manifestSeconds += secondsSince(completedStarted);
         if (!status.isOk()) return finishTransport(status);
         const auto resultStarted = Clock::now();
+        tracePersistentProtocol("receiver", "file_result_write_begin", channelIndex, &id,
+            0, 0, static_cast<int>(fileFailureCode(fileStatus)));
         status = PersistentDataSession::writeResult(socket, id, fileFailureCode(fileStatus));
+        tracePersistentProtocol("receiver", "file_result_write_end", channelIndex, &id,
+            0, 0, static_cast<int>(status.code()));
         if (!status.isOk()) return finishTransport(status);
         if (ready) {
             status = !fileStatus.isOk() && !dynamic
