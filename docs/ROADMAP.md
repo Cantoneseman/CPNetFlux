@@ -1,14 +1,18 @@
 # CPNetFlux 性能路线图
 
-更新日期：2026-11-04
-输入源码基线：`a4ae9963db17bc061aadcfa8d95d13de6c86849f`
+更新日期：2026-11-05
+最近诊断源码：`d4103e85c0837bbe027ca95cbff00a8de3bb4cce`；原 48 样本基线仍按其输入提交解释。
 当前开发分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
 
 ## 当前目标
 
 在 R770-1/R770-2 单端口 100GbE/RoCE 上，建立真实文件端到端性能证据，再按剖析结果优化。单端口路线不等于 10 端口 1Tbps 聚合验收。
 
-原基线已采集 48 个样本，42 通过、6 个 64 GiB 下载失败，详见 [基线结果](tasks/2026-11-04-r770-rdma-e2e-baseline-01-result.md)。[V3 缺失块握手修复](tasks/2026-11-04-v3-resume-mask-01-result.md) 已完成代码与回归：双机各 489/489；定点 4 GiB 四连接下载通过，64 GiB 从零 payload 改善为接收 32 GiB 后失败，完整文件门仍未通过。当前下一步是隔离结果等待超时与接收端 checkpoint/锁竞争长尾，再做可控策略对照；不提前进入 RQ/CQ 或流水线优化。
+原基线已采集 48 个样本，42 通过、6 个 64 GiB 下载失败，详见 [基线结果](tasks/2026-11-04-r770-rdma-e2e-baseline-01-result.md)。[V3 缺失块握手修复](tasks/2026-11-04-v3-resume-mask-01-result.md) 和 `fd10e16` 的 CQ 等待修复没有自动使完整文件门通过。
+
+11/5 的[协议尾部诊断](tasks/2026-11-05-r770-rdma-tail-trace-01-result.md)已定位一条确定故障路径：64 GiB 文件发布且外部 SHA-256 正确，range 8 的 FILE_RESULT 两端均成功读写，但服务端在等待 172.614 秒后做 V3 lease finalize 返回 InvalidArgument。payload I/O 会刷新默认 30 秒租约，CommitPending 阶段没有独立预算或续期，最终整文件校验耗时约 149.912 秒，导致成功结果到达时租约已过期；该通道没有发 DirectoryEnd，客户端继续等待。逻辑时钟重现同样的 25 秒成功、172 秒失败。此次是诊断与观测提交，未修改或修复租约行为，64 GiB E2E 仍为 NO-GO。
+
+当前下一步先修复 V3 commit/result 阶段的租约生命周期、任务截止和 peer-close/错误传播，保留 owner/epoch/attempt 与过期回收边界；再显式配置下载接收端的 checkpoint/final-verify 策略，重做完整文件验收和受控对照。批量 checkpoint 16 仅为诊断变量，不能升为默认或视作已获性能收益。RQ/CQ、流水线及微批继续排在正确性门之后。
 
 完整范围、计时口径、阶段验收与性能目标见 [单链路 100G 性能提升计划](tasks/2026-11-04-performance-roadmap.md)。本轮路线决策见 [2026-11-04 性能决策](DECISIONS/2026-11-04-performance-route.md)。下表保留路线制定时的历史证据，当前测量以基线结果为准。
 
