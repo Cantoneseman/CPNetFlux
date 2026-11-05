@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/rdma_data_socket.h"
+#include "cpnetflux/core/io/detail/rdma_completion_wait.h"
 
 #include <algorithm>
 #include <array>
@@ -42,11 +43,11 @@ constexpr int kDefaultTimeoutMs = 30000;
 std::atomic<std::uint64_t> gNextRdmaConnectionId{1};
 
 int timeoutMs(SocketDeadline deadline) {
-    if (!deadline) return 1000;
+    if (!deadline) return kDefaultTimeoutMs;
     const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
         *deadline - std::chrono::steady_clock::now());
     if (remaining.count() <= 0) return 1;
-    return static_cast<int>(std::min<std::int64_t>(remaining.count(), 30000));
+    return static_cast<int>(std::min<std::int64_t>(remaining.count(), kDefaultTimeoutMs));
 }
 
 common::Status rdmaStatus(const char* operation, int errorNumber = errno) {
@@ -63,10 +64,18 @@ common::Status waitForCompletionEvent(ibv_comp_channel* channel, ibv_cq* expecte
     pollfd descriptor{channel->fd, POLLIN, 0};
     while (true) {
         ++*eventWaits;
-        const int ready = ::poll(&descriptor, 1, timeoutMs(deadline));
-        if (ready < 0 && errno == EINTR) continue;
-        if (ready == 0)
+        const auto now = std::chrono::steady_clock::now();
+        if (detail::rdmaCompletionDeadlineExpired(deadline, now))
             return common::Status::transportError("RDMA completion event timed out");
+        const int ready = ::poll(&descriptor, 1,
+            detail::rdmaCompletionEventPollTimeoutMs(deadline, now));
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready == 0) {
+            if (detail::rdmaCompletionDeadlineExpired(deadline,
+                    std::chrono::steady_clock::now()))
+                return common::Status::transportError("RDMA completion event timed out");
+            continue;
+        }
         if (ready < 0) return rdmaStatus("poll RDMA completion event");
         if (!(descriptor.revents & POLLIN))
             return common::Status::transportError("RDMA completion event channel closed");
@@ -518,7 +527,8 @@ struct RdmaDataSocket::Impl {
                 auto polled = pollOnce();
                 if (!polled.isOk()) return finishWait(polled.status());
                 if (polled.value()) return finishWait(common::Status::ok());
-                if (std::chrono::steady_clock::now() >= deadline)
+                if (detail::rdmaCompletionDeadlineExpired(
+                        deadline, std::chrono::steady_clock::now()))
                     return finishWait(common::Status::transportError(
                         "RDMA work completion timed out"));
             }
@@ -530,7 +540,8 @@ struct RdmaDataSocket::Impl {
             auto polled = pollOnce();
             if (!polled.isOk()) return finishWait(polled.status());
             if (polled.value()) return finishWait(common::Status::ok());
-            if (std::chrono::steady_clock::now() >= deadline) {
+            if (detail::rdmaCompletionDeadlineExpired(
+                    deadline, std::chrono::steady_clock::now())) {
                 return finishWait(common::Status::transportError(
                     "RDMA work completion timed out"));
             }
@@ -712,7 +723,8 @@ struct RdmaDataSocket::Impl {
                 auto completions = reapSendCompletions();
                 if (!completions.isOk()) return finishWait(completions.status());
                 if (completions.value() != 0) return finishWait(common::Status::ok());
-                if (std::chrono::steady_clock::now() >= deadline)
+                if (detail::rdmaCompletionDeadlineExpired(
+                        deadline, std::chrono::steady_clock::now()))
                     return finishWait(common::Status::transportError(
                         "RDMA send completion timed out"));
             }
@@ -724,7 +736,8 @@ struct RdmaDataSocket::Impl {
             auto completions = reapSendCompletions();
             if (!completions.isOk()) return finishWait(completions.status());
             if (completions.value() != 0) return finishWait(common::Status::ok());
-            if (std::chrono::steady_clock::now() >= deadline)
+            if (detail::rdmaCompletionDeadlineExpired(
+                    deadline, std::chrono::steady_clock::now()))
                 return finishWait(common::Status::transportError(
                     "RDMA send completion timed out"));
 
