@@ -1,7 +1,7 @@
 # CPNetFlux 性能路线图
 
 更新日期：2026-11-05
-最近修复与实测源码：`d323f1fa442071bee64650c44c96d8a11ba42b1f`；原 48 样本和上一轮 result 生命周期复测仍按各自输入提交解释。
+最近实测源码：`92f99af71278a6517b8c0b02858b889a3c5e5986`（顺序记录查重优化）；接收策略对照源码为 `d323f1fa442071bee64650c44c96d8a11ba42b1f`。原 48 样本和 result 生命周期复测仍按各自输入提交解释。
 当前开发分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
 
 ## 当前目标
@@ -20,7 +20,11 @@
 
 本轮 full 三次接收端 out_of_buffer / 发送端 rnr_nak_retry_err 增量分别为 2685、7681、5633，分块策略三次为零；增量发生在 FILE_END 前，不能据此归因给最终校验策略。两端 CQ error/flush 仍有 65/64 或 129/128 增量，集中在成功结束附近；仅有时间相关性，尚未解释。生产稳定性门仍未通过，不能沿用上一组零 RNR 结论。
 
-当前下一步是分开测量和优化 recordVerifiedChunk 的线性查重扫描与 manifest 序列化。64 GiB 下载实际使用源端 1 MiB 分块，共 65536 条记录，逐块全表扫描有平方级工作量；先保持 checkpoint 间隔和校验语义做索引/追加路径对照，再单独研究 checkpoint 频率和共享锁。manifest 聚合计时约 52-62 秒，不能全部当作序列化时间。批量 checkpoint 16 仍仅为 range 诊断变量，本轮 whole-file 的实际 range batch 为 null；不能升为默认或视作非 range 路径也已批量化。数据尾部 RNR/buffer 与结束期 CQ 错误单独调查，随后按证据推进 RQ/CQ 资源、三阶段流水线及微批。
+11/5 的[顺序记录查重优化与剖析](tasks/2026-11-05-v3-record-index-01-result.md)使用基线 `ed8da0df` 和候选 `92f99af7` 各 24 组元数据测量。65536 条记录、每 16 块保存一次时，下载/上传查重中位数从 1.429696/1.432952 秒降到 0.001188/0.001221 秒，顺序追加扫描数从 2147450880 降为零；元数据流程 wall 从 27.123931/27.035220 秒降为 25.879379/25.727391 秒，分别减少 4.588389%/4.837501%。实现只增加两个最大值水位，重复和乱序仍保留原扫描，恢复和损坏清理时重建；没有改校验、checkpoint 间隔、磁盘格式和默认策略。R770-1 全量 525/525、R770-2 相关 154/154 CTest 通过。该 benchmark 不写 payload、不走网络，其收益不是文件吞吐提升。
+
+同提交、同配置及六个二进制 SHA-256 一致后，原生 RDMA 单 lane 64 GiB 下载 full/verified_chunks 各一次均通过协议终态和独立 SHA。单次 task rate 为 1.906309/3.794339 Gbps，finalize 为 145.081791/0.046618 秒；它们是完整性诊断，没有构成新的重复性能对照。两轮 RNR/out_of_buffer 增量为零，两端仍各有 CQ error/flush 65/64 增量，生产稳定性门未通过。临时输出均在 SHA 后清理，服务进程与空闲 QP 身份已核对。
+
+当前下一步是分解和优化 manifest 序列化。先将细项计时接入真实 whole-file 接收路径：当前该路径只给出 manifest 聚合值，range 路径和新 benchmark 的细项不能自动代表 whole-file 实测。在相同每 16 块保存一次的 benchmark 中，候选下载/上传的序列化仍耗 22.672276/22.578128 秒，每次任务累计序列化约 5.56 GB 元数据。该计时包含内部排序/复制、校验与 range 重建、文本格式化和 body CRC，先分项定位，再比较有序路径免重复排序与预留缓冲区格式化；保持确定的格式/CRC、损坏拒绝、原子发布和恢复语义。查重原本约占旧 145 秒文件任务的 1%，不能据此期待大幅端到端提速。后续单独研究 checkpoint 频率和共享锁；manifest 聚合计时约 52-62 秒不能全部当作序列化。批量 checkpoint 16 仍仅为 range 诊断变量，whole-file 的实际 range batch 为 null；不能升为默认或视作非 range 路径也已批量化。数据尾部 RNR/buffer 与结束期 CQ 错误单独调查，随后按证据推进 RQ/CQ 资源、三阶段流水线及微批。
 
 接收策略实现中的截短回归发现：旧报告所说的 checksum=none 强制完整复读并非实际行为，session 会直接跳过该复读，且原发布路径缺少实际长度检查。本轮补上所有校验策略发布前的长度门，并明确摘要中的 coverage_only/no-readback 语义，见 [校验语义决策](DECISIONS/2026-11-05-v3-receiver-verification-semantics.md)。既有 CRC32C 测量不受这一描述纠正影响；无 checksum 模式不进入完整性合格的性能对照。
 
@@ -34,6 +38,7 @@
 | CPNetFlux RDMA direct bench | 单连接长传输约 30.35 Gbps；4×64 GiB 组端到端约 82.97 Gbps | 文件系统、manifest 和完整任务时间有相同速率 |
 | V3 真实文件，源码 `78e1e4ab` | 64 GiB 下载 1/4 lane 各三次全部通过；task rate 中位数 1.831384 / 1.536711 Gbps | 100 Gbps 文件吞吐、持久化 fsync 验收、原 48 样本全量重跑或生产 readiness |
 | V3 接收策略对照，源码 `d323f1fa` | 单 lane 64 GiB full/verified_chunks 各三次通过；task rate 中位数 1.836107 / 3.794028 Gbps；相同 checkpoint/commit-sync | 两策略写后复读故障覆盖相同、默认提速、四 lane 策略成绩、无 RNR/CQ 错误或生产 readiness |
+| 顺序记录元数据，源码 `92f99af7` | 每版本 24 组测量；65536 条、every16 时查重扫描数归零；下载/上传元数据 wall 减少约 4.59%/4.84% | 文件或网络也提升同样百分比、任意乱序查找均为 O(1)、100G 或稳定性验收 |
 | 硬件拓扑 | 每台 R770 一张 100GbE/RoCE 端口 | 10×100Gbps 多链路或 1Tbps 扩展 |
 
 稳态 payload rate、含建连/提交的 task rate、每 lane 吞吐分别记录，不合并计时口径。测试需固定提交、双端同配置构建，逐文件校验并保存 route、端口计数、CPU/RSS 和原始日志。
