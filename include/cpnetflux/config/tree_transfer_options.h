@@ -12,6 +12,9 @@
 #include "cpnetflux/core/io/hot_path_compression.h"
 #include "cpnetflux/core/io/tls_socket.h"
 #include "cpnetflux/core/io/data_transport.h"
+#include "cpnetflux/core/session/commit_sync_policy.h"
+#include "cpnetflux/core/session/final_verify_policy.h"
+#include "cpnetflux/core/session/manifest_flush_policy.h"
 #include "cpnetflux/core/scheduler/feedback_controller.h"
 
 namespace cpnetflux::config {
@@ -57,6 +60,13 @@ struct TreeTransferOptions {
     std::uint32_t bufferSize = 65536;
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;
     checksum::ChecksumBackend checksumBackend = checksum::ChecksumBackend::Auto;
+    // Local download receiver only; upload receiver policy belongs to the server.
+    core::session::ManifestFlushPolicy manifestFlushPolicy =
+        core::session::ManifestFlushPolicy::EveryNChunks;
+    std::uint64_t manifestFlushIntervalChunks = 16;
+    core::session::FinalVerifyPolicy finalVerifyPolicy = core::session::FinalVerifyPolicy::Full;
+    core::session::CommitSyncPolicy commitSyncPolicy = core::session::CommitSyncPolicy::None;
+    std::uint32_t rangeCheckpointBatchChunks = 0; // 0 preserves runtime environment/default.
     bool resume = false;
     std::uint32_t reconnectAttempts = 0;
     std::uint64_t transferTimeoutMs = 0;

@@ -18,6 +18,8 @@
 
 当前下一步是显式暴露并报告实际接收端的 final-verify、manifest/checkpoint、commit-sync 策略，保持默认值；再以相同持久化策略比较 full 与 verified_chunks，各至少三次、保留外部 SHA 与损坏/恢复/发布测试，并明确两者写后复读故障覆盖不同。随后分别优化 manifest 序列化、checkpoint 频率与共享锁，逐项对照。批量 checkpoint 16 仅为 range 诊断变量，不能升为默认或视作非 range 路径也已批量化。RQ/CQ 资源、三阶段流水线及微批按这些结果继续推进。
 
+接收策略实现中的截短回归发现：旧报告所说的 checksum=none 强制完整复读并非实际行为，session 会直接跳过该复读，且原发布路径缺少实际长度检查。本轮补上所有校验策略发布前的长度门，并明确摘要中的 coverage_only/no-readback 语义，见 [校验语义决策](DECISIONS/2026-11-05-v3-receiver-verification-semantics.md)。既有 CRC32C 测量不受这一描述纠正影响；无 checksum 模式不进入完整性合格的性能对照。
+
 完整范围、计时口径、阶段验收与性能目标见 [单链路 100G 性能提升计划](tasks/2026-11-04-performance-roadmap.md)。本轮路线决策见 [2026-11-04 性能决策](DECISIONS/2026-11-04-performance-route.md) 和 [result 生命周期决策](DECISIONS/2026-11-05-v3-result-lifetime.md)。下表区分历史链路/bench 证据与最新文件测量。
 
 ## 当前证据

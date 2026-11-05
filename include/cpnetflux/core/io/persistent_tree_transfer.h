@@ -98,6 +98,7 @@ struct PersistentTreeStats {
     std::vector<PersistentFileTiming> fileTimings;
     std::uint64_t files = 0;
     std::uint64_t rangeCompletions = 0;
+    std::uint32_t receiverRangeCheckpointBatchChunks = 0; // 0 means no range observed.
     std::uint64_t bytes = 0;
     std::uint64_t payloadBytes = 0, skippedBytes = 0, loadedVerifiedChunks = 0, removedCorruptChunks = 0;
     storage::FileIoStats fileIoStats;

@@ -6,10 +6,87 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cpnetflux/core/io/tls_socket.h"
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+
+TEST(TreeTransferOptionsTest, DownloadReceiverDefaultsMatchPersistentPolicy) {
+    const char* argv[]{"cpnetflux-tree-download-client", "--auth-probe"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        std::size(argv), argv, cpnetflux::config::TreeTransferRole::Download);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    const auto& options = parsed.value();
+    const cpnetflux::core::io::PersistentTransferPolicy runtime;
+    EXPECT_EQ(options.finalVerifyPolicy, runtime.options.finalVerifyPolicy);
+    EXPECT_EQ(options.manifestFlushPolicy, runtime.options.manifestFlushPolicy);
+    EXPECT_EQ(options.manifestFlushIntervalChunks, runtime.options.manifestFlushIntervalChunks);
+    EXPECT_EQ(options.commitSyncPolicy, runtime.options.commitSyncPolicy);
+    EXPECT_EQ(options.rangeCheckpointBatchChunks, runtime.rangeCheckpointBatchChunks);
+}
+
+TEST(TreeTransferOptionsTest, ParsesDownloadReceiverPolicies) {
+    const char* argv[]{"cpnetflux-tree-download-client", "--auth-probe",
+        "--final-verify-policy", "verified_chunks", "--manifest-flush-policy", "final_only",
+        "--manifest-flush-interval-chunks", "65536", "--commit-sync-policy", "fsync_file_and_dir",
+        "--range-checkpoint-batch-chunks", "16"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        std::size(argv), argv, cpnetflux::config::TreeTransferRole::Download);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().finalVerifyPolicy, cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks);
+    EXPECT_EQ(parsed.value().manifestFlushPolicy, cpnetflux::core::session::ManifestFlushPolicy::FinalOnly);
+    EXPECT_EQ(parsed.value().manifestFlushIntervalChunks, 65536U);
+    EXPECT_EQ(parsed.value().commitSyncPolicy, cpnetflux::core::session::CommitSyncPolicy::FsyncFileAndDir);
+    EXPECT_EQ(parsed.value().rangeCheckpointBatchChunks, 16U);
+}
+
+TEST(TreeTransferOptionsTest, RejectsInvalidReceiverPoliciesAndUploadReceiverFlags) {
+    const std::vector<std::pair<std::string, std::string>> valid{
+        {"--final-verify-policy", "verified_chunks"},
+        {"--manifest-flush-policy", "final_only"},
+        {"--manifest-flush-interval-chunks", "16"},
+        {"--commit-sync-policy", "none"},
+        {"--range-checkpoint-batch-chunks", "auto"}};
+    for (const auto& [option, value] : valid) {
+        SCOPED_TRACE(option);
+        const char* argv[]{"cpnetflux-tree-upload-client", "--auth-probe", option.c_str(), value.c_str()};
+        auto parsed = cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, cpnetflux::config::TreeTransferRole::Upload);
+        ASSERT_FALSE(parsed.isOk());
+        EXPECT_NE(parsed.status().message().find("download-only"), std::string::npos);
+    }
+    const std::vector<std::pair<std::string, std::string>> invalid{
+        {"--final-verify-policy", "off"}, {"--manifest-flush-policy", "off"},
+        {"--commit-sync-policy", "auto"}, {"--manifest-flush-interval-chunks", "0"},
+        {"--manifest-flush-interval-chunks", "65537"}, {"--manifest-flush-interval-chunks", "-1"},
+        {"--manifest-flush-interval-chunks", "16x"}, {"--range-checkpoint-batch-chunks", "0"},
+        {"--range-checkpoint-batch-chunks", "2"}, {"--range-checkpoint-batch-chunks", "-1"},
+        {"--range-checkpoint-batch-chunks", "16x"}};
+    for (const auto& [option, value] : invalid) {
+        SCOPED_TRACE(option + "=" + value);
+        const char* argv[]{"cpnetflux-tree-download-client", "--auth-probe", option.c_str(), value.c_str()};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, cpnetflux::config::TreeTransferRole::Download).isOk());
+    }
+}
+
+TEST(TreeTransferOptionsTest, ReceiverPolicyUsageAndRangeOverridesAreRoleScoped) {
+    for (const auto value : {"auto", "1", "4", "16"}) {
+        const char* argv[]{"cpnetflux-tree-download-client", "--auth-probe",
+            "--range-checkpoint-batch-chunks", value};
+        auto parsed = cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, cpnetflux::config::TreeTransferRole::Download);
+        ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+        EXPECT_EQ(parsed.value().rangeCheckpointBatchChunks,
+            std::string(value) == "auto" ? 0U : static_cast<std::uint32_t>(std::stoi(value)));
+    }
+    const auto download = cpnetflux::config::treeTransferUsage("client", cpnetflux::config::TreeTransferRole::Download);
+    const auto upload = cpnetflux::config::treeTransferUsage("client", cpnetflux::config::TreeTransferRole::Upload);
+    EXPECT_NE(download.find("--final-verify-policy"), std::string::npos);
+    EXPECT_NE(download.find("--range-checkpoint-batch-chunks"), std::string::npos);
+    EXPECT_EQ(upload.find("--final-verify-policy"), std::string::npos);
+}
 
 TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
     const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe",

@@ -1001,6 +1001,7 @@ struct TreeRunStats {
     std::uint32_t reconnectAttempts = 0, connectionEpoch = 1;
     std::uint32_t pendingWindow = 1;
     std::uint32_t pendingHighWatermark = 0;
+    std::uint32_t receiverRangeCheckpointBatchChunks = 0;
     std::uint64_t payloadPipelineBudgetBytes = 0;
     std::uint64_t payloadPipelineHighWatermarkBytes = 0;
     std::uint64_t payloadPipelineProducerWaits = 0;
@@ -1662,6 +1663,41 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
            << checksum::checksumAlgorithmName(options.checksumAlgorithm) << "\",\n";
     output << "  \"checksum_backend\": \"" << checksum::checksumBackendName(options.checksumBackend)
            << "\",\n";
+    const bool localReceiver = std::string_view(direction) == "download";
+    output << "  \"receiver_policy\": {\n"
+           << "    \"location\": \"" << (localReceiver ? "local_client" : "remote_server") << "\",\n"
+           << "    \"source\": \"" << (localReceiver ? "local_configuration" : "unobserved") << "\",\n";
+    if (localReceiver) {
+        const bool hasChecksum = options.checksumAlgorithm != checksum::ChecksumAlgorithm::None;
+        const bool readback = hasChecksum && options.finalVerifyPolicy == core::session::FinalVerifyPolicy::Full;
+        output << "    \"final_verify_policy_requested\": \""
+               << core::session::finalVerifyPolicyName(options.finalVerifyPolicy) << "\",\n"
+               << "    \"final_verify_policy_effective\": \""
+               << (hasChecksum ? core::session::finalVerifyPolicyName(options.finalVerifyPolicy) : "coverage_only") << "\",\n"
+               << "    \"post_write_readback\": " << (readback ? "true" : "false") << ",\n"
+               << "    \"manifest_flush_policy\": \""
+               << core::session::manifestFlushPolicyName(options.manifestFlushPolicy) << "\",\n"
+               << "    \"manifest_flush_interval_chunks\": " << options.manifestFlushIntervalChunks << ",\n"
+               << "    \"commit_sync_policy\": \""
+               << core::session::commitSyncPolicyName(options.commitSyncPolicy) << "\",\n"
+               << "    \"range_checkpoint_batch_chunks_override\": ";
+        if (options.rangeCheckpointBatchChunks) output << options.rangeCheckpointBatchChunks;
+        else output << "null";
+        output << ",\n    \"range_checkpoint_batch_chunks_effective\": ";
+        if (stats.receiverRangeCheckpointBatchChunks) output << stats.receiverRangeCheckpointBatchChunks;
+        else output << "null";
+        output << '\n';
+    } else {
+        output << "    \"final_verify_policy_requested\": null,\n"
+               << "    \"final_verify_policy_effective\": null,\n"
+               << "    \"post_write_readback\": null,\n"
+               << "    \"manifest_flush_policy\": null,\n"
+               << "    \"manifest_flush_interval_chunks\": null,\n"
+               << "    \"commit_sync_policy\": null,\n"
+               << "    \"range_checkpoint_batch_chunks_override\": null,\n"
+               << "    \"range_checkpoint_batch_chunks_effective\": null\n";
+    }
+    output << "  },\n";
     output << "  \"resume\": " << (options.resume ? "true" : "false") << ",\n";
     output << "  \"elapsed_seconds\": " << elapsed << ",\n";
     output << "  \"throughput_gbps\": " << throughputGbps << ",\n";
@@ -2512,6 +2548,12 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             transferOptions.hotPathCompression.maxPayloadBytes = options.bufferSize;
     }
     PersistentTransferPolicy receiverPolicy;
+    receiverPolicy.options.checksumBackend = options.checksumBackend;
+    receiverPolicy.options.manifestFlushPolicy = options.manifestFlushPolicy;
+    receiverPolicy.options.manifestFlushIntervalChunks = options.manifestFlushIntervalChunks;
+    receiverPolicy.options.finalVerifyPolicy = options.finalVerifyPolicy;
+    receiverPolicy.options.commitSyncPolicy = options.commitSyncPolicy;
+    receiverPolicy.rangeCheckpointBatchChunks = options.rangeCheckpointBatchChunks;
     receiverPolicy.limits.taskDeadline = options.transferDeadline;
     auto transactions = makePersistentTransferContext(receiverPolicy);
     PersistentTransferLimits transferLimits;
@@ -2757,6 +2799,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         stats->persistentDataConnectCount += channel->dataConnectCount;
         addRdmaTransportStats(&stats->rdmaTransport, channel->rdmaTransport);
         stats->resumeSkippedBytes += channel->observed.skippedBytes;
+        stats->receiverRangeCheckpointBatchChunks = std::max(stats->receiverRangeCheckpointBatchChunks,
+            channel->observed.receiverRangeCheckpointBatchChunks);
         stats->queueWaitSeconds += upload ? channel->observed.queueWaitSeconds : channel->remoteQueueWait;
         if (!upload && options.dynamicFileScheduling)
             stats->scanSeconds = std::max(stats->scanSeconds.value_or(0),channel->remoteScan);

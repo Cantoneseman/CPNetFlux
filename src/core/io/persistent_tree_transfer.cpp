@@ -460,6 +460,10 @@ class FileTransaction {
         if (!flushed.isOk()) return flushed;
         if (!std::visit([](const auto& s) { return s.missingRanges().empty(); }, session_))
             return Status::invalidArgument("persistent commit requires complete verified coverage");
+        const auto actualSize = file_.fileSize();
+        if (!actualSize.isOk()) return actualSize.status();
+        if (actualSize.value() != identity_.totalSize)
+            return Status::invalidArgument("persistent commit file size mismatch");
         const bool fullVerify = policy_.options.finalVerifyPolicy == session::FinalVerifyPolicy::Full ||
             identity_.checksumAlgorithm == checksum::ChecksumAlgorithm::None;
         if (fullVerify) {
@@ -1802,6 +1806,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 return finishTransport(rejected.isOk() ? started.status() : rejected);
             } else {
                 rangeEntry = std::move(started.value());
+                stats->receiverRangeCheckpointBatchChunks = rangeEntry->checkpointBatch;
                 const auto rangeStats = RangeFileCoordinator::takeStats(rangeEntry);
                 stats->loadedVerifiedChunks += rangeStats.first;
                 stats->removedCorruptChunks += rangeStats.second;

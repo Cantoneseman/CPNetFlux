@@ -740,17 +740,23 @@ TEST(PersistentTreeRangeTest, IncompleteCoverageCannotPublishDespiteMatchingRang
     EXPECT_FALSE(std::filesystem::exists(destination.path / "gap.bin"));
 }
 
-TEST(PersistentTreeRangeTest, DisconnectReleasesTransactionAndResumeRechecksCorruptCheckpoint) {
+class PersistentReceiverPolicyIntegrityTest : public ::testing::TestWithParam<
+    cpnetflux::core::session::FinalVerifyPolicy> {};
+
+TEST_P(PersistentReceiverPolicyIntegrityTest, DisconnectReleasesTransactionAndResumeRechecksCorruptCheckpoint) {
     TempRoot source, destination;
     std::ofstream(source.path/"resume.bin")<<"ABCDEFGH";
     struct stat st{}; ASSERT_EQ(::stat((source.path/"resume.bin").c_str(),&st),0);
     PersistentFileIdentity a{1,7,8,"resume.bin","resume-range",4,st.st_mtim.tv_sec,
         cpnetflux::checksum::ChecksumAlgorithm::Crc32c,{},1,0,4,2};
     auto b=a; b.rangeId=2; b.rangeOffset=4;
+    PersistentTransferPolicy policy;
+    policy.options.finalVerifyPolicy = GetParam();
     {
         SocketPair pair; PersistentTreeStats stats; cpnetflux::common::Status result;
+        auto context = makePersistentTransferContext(policy);
         std::jthread receiver([&] {result=receivePersistentTree(&pair.receiver,destination.path.string(),
-            false,"",&stats,{},1,0,1,1,true,false);});
+            false,"",&stats,{},1,0,1,1,true,false,context);});
         ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender,a).isOk());
         auto response=PersistentDataSession::readResumeResponse(&pair.sender,a);
         ASSERT_TRUE(response.isOk());
@@ -771,11 +777,13 @@ TEST(PersistentTreeRangeTest, DisconnectReleasesTransactionAndResumeRechecksCorr
     { std::fstream partial(saved.value().tempPath,std::ios::in|std::ios::out|std::ios::binary);
       partial.put('X'); }
     SocketPair pair; PersistentTreeStats received,sent; cpnetflux::common::Status result;
+    auto context = makePersistentTransferContext(policy);
     std::jthread receiver([&] {result=receivePersistentTree(&pair.receiver,destination.path.string(),
-        false,"",&received,{},1,0,1,1,true,true);});
+        false,"",&received,{},1,0,1,1,true,true,context);});
     auto status=sendPersistentTree(&pair.sender,source.path.string(),{a,b},&sent);
     ::shutdown(pair.sender.fd(),SHUT_RDWR); receiver.join();
     ASSERT_TRUE(status.isOk())<<status.message(); ASSERT_TRUE(result.isOk())<<result.message();
+    EXPECT_EQ(sent.payloadBytes, 8U);
     std::ifstream output(destination.path/"resume.bin");
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),"ABCDEFGH");
 }
@@ -915,7 +923,7 @@ TEST(PersistentTreeRangeTest, FramesCrossingChunkBoundariesKeepPerChunkChecksums
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), "abcdefghij");
 }
 
-TEST(PersistentTreeRangeTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
+TEST_P(PersistentReceiverPolicyIntegrityTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
     SocketPair pair;TempRoot source,destination;
     std::ofstream(source.path/"bad.bin")<<std::string(65536,'A');
     struct stat st{};ASSERT_EQ(::stat((source.path/"bad.bin").c_str(),&st),0);
@@ -924,8 +932,12 @@ TEST(PersistentTreeRangeTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
     cpnetflux::config::FileTransferOptions options;
     options.path=(source.path/"bad.bin").string();options.hasCorruptChunk=true;options.corruptChunk=0;
     PersistentTreeStats received,sent;cpnetflux::common::Status result;
+    PersistentTransferPolicy policy;
+    policy.options.finalVerifyPolicy = GetParam();
+    auto context = makePersistentTransferContext(policy);
     std::jthread receiver([&] {
-        result=receivePersistentTree(&pair.receiver,destination.path.string(),false,"",&received);
+        result=receivePersistentTree(&pair.receiver,destination.path.string(),false,"",&received,
+            {},1,0,1,kUnknownPersistentFileCount,false,false,context);
         ::shutdown(pair.receiver.fd(),SHUT_RDWR);
     });
     auto status=sendPersistentTree(&pair.sender,source.path.string(),{id},&sent,{},1,0,1,nullptr,&options);
@@ -935,6 +947,68 @@ TEST(PersistentTreeRangeTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
     ASSERT_TRUE(checkpoint.isOk());EXPECT_TRUE(checkpoint.value().verifiedChunks.empty());
     EXPECT_FALSE(std::filesystem::exists(destination.path/"bad.bin"));
 }
+
+INSTANTIATE_TEST_SUITE_P(FinalVerificationPolicies, PersistentReceiverPolicyIntegrityTest,
+    ::testing::Values(cpnetflux::core::session::FinalVerifyPolicy::Full,
+                      cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks));
+
+class PersistentReceiverSizeIntegrityTest : public ::testing::TestWithParam<
+    std::tuple<bool, cpnetflux::checksum::ChecksumAlgorithm>> {};
+
+TEST_P(PersistentReceiverSizeIntegrityTest, CannotPublishTruncatedOutputWithVerifiedChunksRequested) {
+    const auto [download, algorithm] = GetParam();
+    SocketPair pair;
+    TempRoot destination;
+    ASSERT_TRUE(PersistentDataSession::setTimeout(&pair.receiver, 2).isOk());
+    ASSERT_TRUE(PersistentDataSession::setTimeout(&pair.sender, 2).isOk());
+    PersistentTransferPolicy policy;
+    policy.options.finalVerifyPolicy = cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks;
+    policy.options.manifestFlushIntervalChunks = 1;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received;
+    cpnetflux::common::Status result;
+    PersistentFileIdentity id{1, 1, 4, "readback.bin", "no-checksum-readback", 4, 0,
+        algorithm};
+    std::jthread receiver([&] {
+        result = receivePersistentTree(&pair.receiver, destination.path.string(), download, "remote", &received,
+            {}, 1, 0, 1, 1, false, false, context);
+    });
+    const std::uint8_t bytes[]{'D', 'A', 'T', 'A'};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, bytes, sizeof(bytes)).isOk());
+    std::string temporaryPath;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto completedPath = [](const auto& manifest) -> std::string {
+            return manifest.isOk() && manifest.value().verifiedChunks.size() == 1
+                ? manifest.value().tempPath : "";
+        };
+        const auto output = (destination.path / id.relativePath).string();
+        temporaryPath = download
+            ? completedPath(cpnetflux::checkpoint::loadDownloadManifest(
+                cpnetflux::checkpoint::downloadManifestPathForOutput(output)))
+            : completedPath(cpnetflux::checkpoint::ManifestStore::load(
+                cpnetflux::checkpoint::manifestPathForOutput(output)));
+        if (!temporaryPath.empty()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_FALSE(temporaryPath.empty());
+    std::filesystem::resize_file(temporaryPath, 0);
+    cpnetflux::checksum::ChecksumComputer checksum(algorithm);
+    checksum.update(bytes, sizeof(bytes));
+    ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, checksum.finalize()).isOk());
+    auto response = PersistentDataSession::readResult(&pair.sender, id);
+    ASSERT_TRUE(response.isOk()) << response.status().message();
+    EXPECT_NE(response.value(), FrameStatusCode::Ok);
+    (void)PersistentDataSession::writeDirectoryEnd(&pair.sender, 1);
+    ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    EXPECT_FALSE(std::filesystem::exists(destination.path / id.relativePath));
+}
+
+INSTANTIATE_TEST_SUITE_P(ReceivingRolesAndChecksums, PersistentReceiverSizeIntegrityTest,
+    ::testing::Combine(::testing::Bool(), ::testing::Values(
+        cpnetflux::checksum::ChecksumAlgorithm::None, cpnetflux::checksum::ChecksumAlgorithm::Crc32c)));
 
 
 TEST(PersistentTreeLeaseTest, ReopenedWorkerUsesCurrentEpochThroughActualSender) {

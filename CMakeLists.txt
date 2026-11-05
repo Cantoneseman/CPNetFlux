@@ -740,6 +740,11 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_data_reuse_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     add_test(
+        NAME cpnetflux_tree_receiver_policy_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_receiver_policy_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_tree_receiver_policy_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(
         NAME cpnetflux_tree_pending_window_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_pending_window_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )

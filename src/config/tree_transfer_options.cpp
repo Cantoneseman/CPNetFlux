@@ -223,6 +223,14 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         }
         const std::string_view value(argv[index + 1]);
 
+        const bool receiverOption = option == "--manifest-flush-policy" ||
+            option == "--manifest-flush-interval-chunks" || option == "--final-verify-policy" ||
+            option == "--commit-sync-policy" || option == "--range-checkpoint-batch-chunks";
+        if (receiverOption && role != TreeTransferRole::Download) {
+            return common::Status::invalidArgument(std::string(option) +
+                " is download-only; configure the upload receiver on the server");
+        }
+
         if (option == "--host") {
             if (value.empty()) {
                 return common::Status::invalidArgument("--host must not be empty");
@@ -354,6 +362,34 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return parsed.status();
             }
             options.checksumBackend = parsed.value();
+        } else if (option == "--manifest-flush-policy") {
+            auto parsed = core::session::parseManifestFlushPolicy(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.manifestFlushPolicy = parsed.value();
+        } else if (option == "--manifest-flush-interval-chunks") {
+            auto parsed = parseUnsigned(value, option);
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 65536)
+                return common::Status::invalidArgument(
+                    "--manifest-flush-interval-chunks must be in range 1..65536");
+            options.manifestFlushIntervalChunks = parsed.value();
+        } else if (option == "--final-verify-policy") {
+            auto parsed = core::session::parseFinalVerifyPolicy(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.finalVerifyPolicy = parsed.value();
+        } else if (option == "--commit-sync-policy") {
+            auto parsed = core::session::parseCommitSyncPolicy(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.commitSyncPolicy = parsed.value();
+        } else if (option == "--range-checkpoint-batch-chunks") {
+            if (value == "auto") {
+                options.rangeCheckpointBatchChunks = 0;
+            } else {
+                auto parsed = parseUnsigned(value, option);
+                if (!parsed.isOk() || (parsed.value() != 1 && parsed.value() != 4 && parsed.value() != 16))
+                    return common::Status::invalidArgument(
+                        "--range-checkpoint-batch-chunks must be auto, 1, 4 or 16");
+                options.rangeCheckpointBatchChunks = static_cast<std::uint32_t>(parsed.value());
+            }
         } else if (option == "--max-files") {
             return common::Status::invalidArgument(
                 "--max-files is not supported by the V3 tree executor");
@@ -631,6 +667,13 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
 std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
     const char* sourceText = role == TreeTransferRole::Upload ? "<local_dir>" : "<remote_dir>";
     const char* destText = role == TreeTransferRole::Upload ? "<remote_dir>" : "<local_dir>";
+    const std::string receiverUsage = role == TreeTransferRole::Download
+        ? " [--final-verify-policy full|verified_chunks] "
+          "[--manifest-flush-policy every_n_chunks|final_only] "
+          "[--manifest-flush-interval-chunks 1..65536] "
+          "[--commit-sync-policy none|fsync_file|fsync_file_and_dir] "
+          "[--range-checkpoint-batch-chunks auto|1|4|16]"
+        : "";
     return std::string("Usage: ") + programName +
            " --host <server-ip> --port <port> --source-dir " + sourceText + " --dest-dir " +
            destText +
@@ -648,7 +691,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--scheduler-default-rtt-ms <N>] [--scheduler-min-compress-gbps <float>] "
            "[--tls-mode off|required] [--tls-server-name <name>] [--tls-ca-file <path>] "
            "[--tls-cert-file <path>] [--tls-key-file <path>] "
-           "[--data-tls-mode off|required] [--data-transport tcp|rdma]";
+           "[--data-tls-mode off|required] [--data-transport tcp|rdma]" + receiverUsage;
 }
 
 }  // namespace cpnetflux::config
