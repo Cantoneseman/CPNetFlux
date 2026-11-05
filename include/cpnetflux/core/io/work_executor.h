@@ -32,8 +32,10 @@ class WorkExecutor {
         const WorkLease&, std::uint64_t bytes, WorkClock::time_point now = WorkClock::now());
     [[nodiscard]] common::Status finishIo(
         const WorkLease&, std::uint64_t bytes, WorkClock::time_point now = WorkClock::now());
+    // A live, drained payload may select one absolute result deadline. Never renews expired work.
     [[nodiscard]] common::Status awaitResult(
-        const WorkLease&, WorkClock::time_point now = WorkClock::now());
+        const WorkLease&, WorkClock::time_point now = WorkClock::now(),
+        std::optional<WorkClock::time_point> resultDeadline = {});
     [[nodiscard]] common::Status commit(
         const WorkLease&, WorkClock::time_point now = WorkClock::now());
     [[nodiscard]] common::Status reject(const WorkLease&);

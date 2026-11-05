@@ -12,7 +12,9 @@
 
 11/5 的[协议尾部诊断](tasks/2026-11-05-r770-rdma-tail-trace-01-result.md)已定位一条确定故障路径：64 GiB 文件发布且外部 SHA-256 正确，range 8 的 FILE_RESULT 两端均成功读写，但服务端在等待 172.614 秒后做 V3 lease finalize 返回 InvalidArgument。payload I/O 会刷新默认 30 秒租约，CommitPending 阶段没有独立预算或续期，最终整文件校验耗时约 149.912 秒，导致成功结果到达时租约已过期；该通道没有发 DirectoryEnd，客户端继续等待。逻辑时钟重现同样的 25 秒成功、172 秒失败。此次是诊断与观测提交，未修改或修复租约行为，64 GiB E2E 仍为 NO-GO。
 
-当前下一步先修复 V3 commit/result 阶段的租约生命周期、任务截止和 peer-close/错误传播，保留 owner/epoch/attempt 与过期回收边界；再显式配置下载接收端的 checkpoint/final-verify 策略，重做完整文件验收和受控对照。批量 checkpoint 16 仅为诊断变量，不能升为默认或视作已获性能收益。RQ/CQ、流水线及微批继续排在正确性门之后。
+11/5 后续的 [V3 result 生命周期修复](tasks/2026-11-05-v3-result-lifetime-01-result.md)已通过本机代码门：503/503 CTest、172 秒逻辑时钟结果等待、31 秒实际 socket 等待、原生 RDMA shutdown/control-EOF，以及连续 10 次终态丢失恢复。独立 result/commit 预算受任务截止约束，payload 空闲租约仍为 30 秒，过期和 owner/epoch/attempt 隔离保留。跨节点同版本 64 GiB 完整文件门仍待复测，不能把本机代码门当作 E2E 或性能提升结论。
+
+当前下一步是提交后同步 R770-2、核对构建/二进制并完成 1/4 lane 各三次 64 GiB 完整任务；通过后再显式配置下载接收端 checkpoint/final-verify 策略并做受控对照。批量 checkpoint 16 仅为诊断变量，不能升为默认或视作已获性能收益。RQ/CQ、流水线及微批继续排在正确性门之后。
 
 完整范围、计时口径、阶段验收与性能目标见 [单链路 100G 性能提升计划](tasks/2026-11-04-performance-roadmap.md)。本轮路线决策见 [2026-11-04 性能决策](DECISIONS/2026-11-04-performance-route.md)。下表保留路线制定时的历史证据，当前测量以基线结果为准。
 

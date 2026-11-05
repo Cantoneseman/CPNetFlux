@@ -46,7 +46,8 @@ class DynamicFileQueue {
     [[nodiscard]] common::Status begin(const WorkLease&, WorkClock::time_point now = WorkClock::now());
     [[nodiscard]] common::Status startIo(const WorkLease&, std::uint64_t bytes, WorkClock::time_point now = WorkClock::now());
     [[nodiscard]] common::Status finishIo(const WorkLease&, std::uint64_t bytes, WorkClock::time_point now = WorkClock::now());
-    [[nodiscard]] common::Status awaitResult(const WorkLease&, WorkClock::time_point now = WorkClock::now());
+    [[nodiscard]] common::Status awaitResult(const WorkLease&, WorkClock::time_point now = WorkClock::now(),
+        std::optional<WorkClock::time_point> resultDeadline = {});
     [[nodiscard]] common::Status commit(const WorkLease&, WorkClock::time_point now = WorkClock::now());
     [[nodiscard]] common::Status reject(const WorkLease&);
     [[nodiscard]] common::Status failTerminal(const WorkLease&, const common::Status& reason);

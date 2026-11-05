@@ -646,12 +646,16 @@ common::Status DynamicFileQueue::finishIo(const WorkLease& lease, std::uint64_t 
     --current.inflightFrames; current.inflightBytes -= bytes;
     return common::Status::ok();
 }
-common::Status DynamicFileQueue::awaitResult(const WorkLease& lease, WorkClock::time_point now) {
+common::Status DynamicFileQueue::awaitResult(const WorkLease& lease, WorkClock::time_point now,
+    std::optional<WorkClock::time_point> resultDeadline) {
     std::lock_guard lock(mutex_);
     auto found = find(lease); if (!found.isOk()) return found.status();
     auto& current = found.value()->lease;
     if (current.state != WorkLeaseState::InFlight || now >= current.deadline ||
         current.inflightFrames || current.inflightBytes) return mismatch();
+    if (resultDeadline && (*resultDeadline <= now || *resultDeadline == WorkClock::time_point::max()))
+        return mismatch();
+    if (resultDeadline) current.deadline = *resultDeadline;
     current.state = WorkLeaseState::CommitPending;
     return common::Status::ok();
 }

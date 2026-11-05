@@ -14,11 +14,13 @@
 #include <sys/resource.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <unistd.h>
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
 #include "cpnetflux/core/io/payload_pipeline.h"
 #include "cpnetflux/core/io/persistent_directory_batch.h"
 #include "cpnetflux/core/io/work_executor.h"
+#include "cpnetflux/core/io/detail/persistent_transfer_lifetime.h"
 #include <tuple>
 #include "cpnetflux/checkpoint/transfer_manifest.h"
 #include "cpnetflux/checkpoint/manifest_store.h"
@@ -36,6 +38,22 @@ struct SocketPair {
         if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) throw std::runtime_error("socketpair");
         sender = FramedDataSocket(UniqueFd(fds[0]));
         receiver = FramedDataSocket(UniqueFd(fds[1]));
+    }
+};
+struct LoopbackTcpPair {
+    FramedDataSocket sender, receiver;
+    LoopbackTcpPair() {
+        auto listener = createListener("127.0.0.1", 0, 1);
+        if (!listener.isOk()) throw std::runtime_error(listener.status().message());
+        sockaddr_in address{};
+        socklen_t length = sizeof(address);
+        if (::getsockname(listener.value().get(), reinterpret_cast<sockaddr*>(&address), &length) != 0)
+            throw std::runtime_error("TCP test listener address");
+        auto connection = connectBlockingSocket("127.0.0.1", ntohs(address.sin_port));
+        if (!connection.isOk()) throw std::runtime_error(connection.status().message());
+        sender = FramedDataSocket(std::move(connection.value()));
+        receiver = FramedDataSocket(UniqueFd(::accept4(listener.value().get(), nullptr, nullptr, SOCK_CLOEXEC)));
+        if (!receiver.valid()) throw std::runtime_error("TCP test accept");
     }
 };
 struct ScopedEnvironment {
@@ -955,6 +973,142 @@ TEST(PersistentTreeLeaseTest, ReopenedWorkerUsesCurrentEpochThroughActualSender)
     EXPECT_FALSE(queue.commit(*first.value()).isOk());
     std::ifstream output(destination.path / "retry.bin");
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), "ABCDEFGH");
+}
+
+TEST(PersistentLifetimeTest, ResultTimeoutWakesBlockedReader) {
+    SocketPair pair;
+    PersistentTransferLimits limits;
+    limits.resultTimeout = std::chrono::milliseconds(60);
+    detail::PersistentTransferLifetime lifetime(&pair.sender, limits);
+    PersistentFileIdentity file;
+    (void)lifetime.beginResult(file);
+    auto reader = std::async(std::launch::async, [&] {
+        return PersistentDataSession::readNext(&pair.sender, PersistentDataSession::kMaxPayload);
+    });
+    const auto ready = reader.wait_for(std::chrono::milliseconds(750));
+    pair.sender.shutdown();
+    EXPECT_EQ(ready, std::future_status::ready);
+    EXPECT_FALSE(reader.get().isOk());
+    EXPECT_FALSE(lifetime.status().isOk());
+}
+
+TEST(PersistentTreeLeaseTest, IncomingLeaseEntersResultPhaseBeforeFinalCallback) {
+    TempRoot source, destination;
+    std::ofstream(source.path / "commit.bin") << "ABCDEFGH";
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "commit.bin").c_str(), &st), 0);
+    PersistentFileIdentity file{1, 7, 8, "commit.bin", "incoming-result", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    file.rangeId = 1; file.rangeLength = 8; file.rangeCount = 1;
+    DynamicFileQueue incoming(std::vector<WorkItem>{}, 1, 1, 1);
+    const auto owner = incoming.worker(0).value();
+    SocketPair pair;
+    PersistentTreeStats sent, received;
+    cpnetflux::common::Status receiveStatus;
+    bool observed = false;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false,
+            "", &received, [&](const auto&, const auto&, bool complete) {
+                if (complete) {
+                    auto active = incoming.active(owner);
+                    EXPECT_TRUE(active.isOk());
+                    if (active.isOk() && active.value().size() == 1) {
+                        const auto& lease = active.value().front();
+                        EXPECT_EQ(lease.state, WorkLeaseState::CommitPending);
+                        EXPECT_GT(lease.deadline, WorkClock::now() + std::chrono::minutes(4));
+                        observed = true;
+                    }
+                }
+                return cpnetflux::common::Status::ok();
+            }, 1, 0, 1, 1, true, false, {}, &incoming);
+    });
+    auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {file}, &sent);
+    pair.sender.shutdown();
+    receiver.join();
+    EXPECT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    EXPECT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_TRUE(observed);
+    EXPECT_EQ(incoming.active(owner).value().size(), 0U);
+}
+
+TEST(PersistentLifetimeTest, TaskDeadlineBoundsLongResultBudget) {
+    SocketPair pair;
+    PersistentTransferLimits limits;
+    limits.taskDeadline = WorkClock::now() + std::chrono::milliseconds(60);
+    detail::PersistentTransferLifetime lifetime(&pair.sender, limits);
+    PersistentFileIdentity file;
+    EXPECT_EQ(lifetime.beginResult(file), *limits.taskDeadline);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    EXPECT_FALSE(lifetime.status().isOk());
+}
+
+TEST(PersistentLifetimeTest, ActualSenderBoundsDelayedReceiverResult) {
+    TempRoot source, destination;
+    std::ofstream(source.path / "delayed.bin") << "ABCDEFGH";
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "delayed.bin").c_str(), &st), 0);
+    PersistentFileIdentity file{1, 7, 8, "delayed.bin", "delayed-result", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    file.rangeId = 1; file.rangeLength = 8; file.rangeCount = 1;
+    SocketPair pair;
+    PersistentTreeStats sent, received;
+    std::jthread receiver([&] {
+        (void)receivePersistentTree(&pair.receiver, destination.path.string(), false,
+            "", &received, [](const auto&, const auto&, bool complete) {
+                if (complete) std::this_thread::sleep_for(std::chrono::milliseconds(180));
+                return cpnetflux::common::Status::ok();
+            });
+    });
+    PersistentTransferLimits limits;
+    limits.resultTimeout = std::chrono::milliseconds(60);
+    const auto sentStatus = sendPersistentTree(&pair.sender, source.path.string(), {file},
+        &sent, {}, 1, 0, 1, nullptr, nullptr, false, 3, limits);
+    EXPECT_FALSE(sentStatus.isOk());
+    EXPECT_EQ(sentStatus.message(), "V3 result/commit deadline exceeded");
+    pair.sender.shutdown();
+    receiver.join();
+}
+
+TEST(PersistentTreeLeaseTest, ResultWaitBeyondThirtySecondsCompletesActualTcpLane) {
+    TempRoot source, destination;
+    std::ofstream(source.path / "long-commit.bin") << "ABCDEFGH";
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "long-commit.bin").c_str(), &st), 0);
+    PersistentFileIdentity file{1, 7, 8, "long-commit.bin", "long-commit", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    file.rangeId = 1; file.rangeLength = 8; file.rangeCount = 1;
+    DynamicFileQueue outgoing(std::vector<PersistentFileIdentity>{file}, 1, 1, 1);
+    DynamicFileQueue incoming(std::vector<WorkItem>{}, 1, 1, 1);
+    LoopbackTcpPair pair;
+    PersistentTreeStats sent, received;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false,
+            "", &received, [](const auto&, const auto&, bool complete) {
+                if (complete) std::this_thread::sleep_for(std::chrono::seconds(31));
+                return cpnetflux::common::Status::ok();
+            }, 1, 0, 1, 1, true, false, {}, &incoming);
+    });
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {}, &sent,
+        {}, 1, 0, 1, &outgoing);
+    pair.sender.shutdown();
+    receiver.join();
+    EXPECT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    EXPECT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(outgoing.outstanding(), 0U);
+    EXPECT_TRUE(incoming.active(incoming.worker(0).value()).value().empty());
+}
+
+TEST(PersistentLifetimeTest, CompletedResultsDoNotExpireHealthyLane) {
+    SocketPair pair;
+    PersistentTransferLimits limits;
+    limits.resultTimeout = std::chrono::milliseconds(50);
+    detail::PersistentTransferLifetime lifetime(&pair.sender, limits);
+    PersistentFileIdentity file;
+    (void)lifetime.beginResult(file);
+    lifetime.finishResult(file);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    EXPECT_TRUE(lifetime.status().isOk());
 }
 
 namespace {

@@ -500,6 +500,73 @@ TEST(WorkLeaseEdgeTest, SuccessfulIoRenewsIdleDeadlineWithoutRevivingExpiredWork
     EXPECT_FALSE(queue.awaitResult(lease, now + std::chrono::milliseconds(199)).isOk());
     EXPECT_EQ(queue.expire(now + std::chrono::milliseconds(199)), 1U);
 }
+TEST(WorkLeaseResultTest, LongActiveResultUsesIndependentFiniteBudget) {
+    const auto now = WorkClock::time_point(std::chrono::seconds(100));
+    DynamicFileQueue queue(tasks(1), 1, 1, 1);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    auto next = executor.claim(now);
+    ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value()); const auto lease = *next.value();
+    ASSERT_TRUE(executor.begin(lease, now).isOk());
+    const auto deadline = now + std::chrono::minutes(5);
+    ASSERT_TRUE(executor.awaitResult(lease, now, deadline).isOk());
+    EXPECT_EQ(queue.snapshot(lease).value().deadline, deadline);
+    EXPECT_EQ(queue.expire(now + std::chrono::seconds(172)), 0U);
+    EXPECT_TRUE(executor.finalize(lease, Status::ok(), now + std::chrono::seconds(172)).isOk());
+    EXPECT_EQ(queue.outstanding(), 0U);
+}
+TEST(WorkLeaseResultTest, ExactDeadlineAndRepeatedExtensionAreRejected) {
+    const auto now = WorkClock::time_point(std::chrono::seconds(100));
+    DynamicFileQueue queue(tasks(1), 1, 1, 1);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    auto next = executor.claim(now); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    const auto lease = *next.value();
+    ASSERT_TRUE(executor.begin(lease, now).isOk());
+    const auto deadline = now + std::chrono::seconds(10);
+    EXPECT_FALSE(executor.awaitResult(lease, now, now).isOk());
+    EXPECT_EQ(queue.snapshot(lease).value().state, WorkLeaseState::InFlight);
+    ASSERT_TRUE(executor.awaitResult(lease, now, deadline).isOk());
+    EXPECT_FALSE(executor.awaitResult(lease, now, deadline + std::chrono::hours(1)).isOk());
+    EXPECT_FALSE(executor.finalize(lease, Status::ok(), deadline).isOk());
+    EXPECT_EQ(queue.expire(deadline), 1U);
+    EXPECT_FALSE(executor.finalize(lease, Status::ok(), deadline + std::chrono::seconds(1)).isOk());
+}
+TEST(WorkLeaseResultTest, ResultBudgetCannotReviveExpiredOrBusyPayload) {
+    const auto now = WorkClock::time_point(std::chrono::seconds(100));
+    DynamicFileQueue queue(tasks(1), 1, 1, 1);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    auto next = executor.claim(now); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    const auto lease = *next.value();
+    ASSERT_TRUE(executor.begin(lease, now).isOk());
+    ASSERT_TRUE(executor.startIo(lease, 1, now).isOk());
+    EXPECT_FALSE(executor.awaitResult(lease, now, now + std::chrono::minutes(5)).isOk());
+    ASSERT_TRUE(executor.finishIo(lease, 1, now).isOk());
+    EXPECT_FALSE(executor.awaitResult(lease, now + std::chrono::seconds(30),
+        now + std::chrono::minutes(5)).isOk());
+}
+TEST(WorkLeaseResultTest, CancelAndRecoveredEpochFenceLateSuccess) {
+    const auto now = WorkClock::time_point(std::chrono::seconds(100));
+    for (bool cancel : {false, true}) {
+        DynamicFileQueue queue(tasks(1), 1, 1, 1);
+        WorkExecutor executor(queue, queue.worker(0).value());
+        auto next = executor.claim(now); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+        const auto lease = *next.value();
+        ASSERT_TRUE(executor.begin(lease, now).isOk());
+        ASSERT_TRUE(executor.awaitResult(lease, now, now + std::chrono::minutes(5)).isOk());
+        if (cancel) {
+            queue.cancel(Status::runtimeError("task cancelled"));
+        } else {
+            ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+            auto recovered = executor.recover({{lease, WorkRecoveryDisposition::Missing}}, 3, now);
+            ASSERT_TRUE(recovered.isOk());
+            auto retry = executor.claim(now); ASSERT_TRUE(retry.isOk()); ASSERT_TRUE(retry.value());
+            EXPECT_GT(retry.value()->file.attempt, lease.file.attempt);
+            EXPECT_NE(retry.value()->owner.epoch, lease.owner.epoch);
+            ASSERT_TRUE(executor.begin(*retry.value(), now).isOk());
+        }
+        EXPECT_FALSE(executor.finalize(lease, Status::ok(), now + std::chrono::seconds(172)).isOk());
+        EXPECT_FALSE(executor.awaitResult(lease, now, now + std::chrono::minutes(10)).isOk());
+    }
+}
 TEST(WorkLeaseEdgeTest, TcpResetMakesOnlyUncommittedLeaseReclaimable) {
     const int listener = ::socket(AF_INET, SOCK_STREAM, 0); ASSERT_GE(listener, 0);
     sockaddr_in address{}; address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);

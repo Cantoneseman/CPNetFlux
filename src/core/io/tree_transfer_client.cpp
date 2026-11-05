@@ -20,6 +20,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
@@ -2510,7 +2511,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         if (transferOptions.hotPathCompression.maxPayloadBytes == 0)
             transferOptions.hotPathCompression.maxPayloadBytes = options.bufferSize;
     }
-    auto transactions = makePersistentTransferContext();
+    PersistentTransferPolicy receiverPolicy;
+    receiverPolicy.limits.taskDeadline = options.transferDeadline;
+    auto transactions = makePersistentTransferContext(receiverPolicy);
+    PersistentTransferLimits transferLimits;
+    transferLimits.taskDeadline = options.transferDeadline;
     workers.clear();
     for (std::uint32_t index = 0; index < channelCount; ++index) {
         workers.emplace_back([&, index]() {
@@ -2617,24 +2622,56 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 config::FileTransferOptions attemptOptions = transferOptions;
                 attemptOptions.resume = options.resume || laneAttempt != 0;
                 attemptOptions.reconnectAttempt = laneAttempt;
+                std::string terminal;
+                common::Status controlStatus;
+                std::atomic<bool> dataFinished{false};
+                bool controlInterruptedData = false;
+                std::promise<void> controlDone;
+                auto controlCompleted = controlDone.get_future();
+                // The terminal reader owns this control socket until joined below.
+                std::thread terminalReader([&] {
+                    controlStatus = channel.control->waitTransferComplete({}, &terminal);
+                    if (!controlStatus.isOk()) {
+                        std::lock_guard<std::mutex> lock(channel.dataMutex);
+                        if (!dataFinished.load(std::memory_order_acquire) && channel.data.valid()) {
+                            controlInterruptedData = true;
+                            channel.data.shutdown();
+                        }
+                    }
+                    controlDone.set_value();
+                });
                 common::Status transferStatus = upload
                     ? sendPersistentTree(&channel.data, options.sourceDir, channel.files,
                         &channel.observed, callback, dispatchWindow, index, channelCount, ready.get(),
-                        &attemptOptions, !options.dynamicFileScheduling, options.reconnectAttempts)
+                        &attemptOptions, !options.dynamicFileScheduling, options.reconnectAttempts, transferLimits)
                     : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
                         &channel.observed, callback, dispatchWindow, index, channelCount,
                         channel.expectedFileCount, options.dynamicFileScheduling,
                         attemptOptions.resume, transactions, ready.get(), options.reconnectAttempts);
+                dataFinished.store(true, std::memory_order_release);
                 {
                     std::lock_guard<std::mutex> lock(channel.dataMutex);
                     addRdmaTransportStats(&channel.rdmaTransport, channel.data.rdmaStats());
                     channel.data = FramedDataSocket{};
                 }
                 const auto waiting = std::chrono::steady_clock::now();
-                std::string terminal;
-                auto controlStatus = channel.control->waitTransferComplete({}, &terminal);
+                if (!transferStatus.isOk() &&
+                    transferStatus.code() != common::StatusCode::TransportError)
+                    channel.control->cancel();
+                const bool terminalTimedOut =
+                    controlCompleted.wait_for(std::chrono::seconds(60)) != std::future_status::ready;
+                if (terminalTimedOut)
+                    channel.control->cancel();
+                terminalReader.join();
+                if (terminalTimedOut)
+                    controlStatus = common::Status::transportError(
+                        "persistent directory terminal reply timed out", ETIMEDOUT);
                 channel.controlWaitSeconds += std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - waiting).count();
+                if (controlInterruptedData &&
+                    transferStatus.code() == common::StatusCode::TransportError &&
+                    controlStatus.code() == common::StatusCode::TransportError)
+                    transferStatus = controlStatus;
                 if (!controlStatus.isOk() &&
                     controlStatus.message().find("output already exists") != std::string::npos) {
                     channel.status = controlStatus;

@@ -14,6 +14,10 @@
 #include "cpnetflux/core/tree/tree_scan.h"
 
 namespace cpnetflux::core::io {
+struct PersistentTransferLimits {
+    SocketDeadline taskDeadline;
+    std::chrono::milliseconds resultTimeout = std::chrono::minutes(5);
+};
 struct PersistentTransferPolicy {
     config::FileTransferOptions options;
     std::string outputPath;
@@ -21,6 +25,7 @@ struct PersistentTransferPolicy {
     std::uint32_t rangeCheckpointBatchChunks = 0;
     // Internal S2 experiment; 0 keeps the existing direct/explicit file-IO policy.
     std::uint64_t rangeWriteBatchBytes = 0;
+    PersistentTransferLimits limits;
 };
 struct PersistentTransferContext;
 struct PersistentTreeChunkCrc {
@@ -122,7 +127,8 @@ using PersistentFileCallback = std::function<common::Status(
     std::uint32_t pendingWindow = 1, std::uint32_t channelIndex = 0,
     std::uint32_t channelCount = 1, DynamicFileQueue* ready = nullptr,
     const config::FileTransferOptions* options = nullptr,
-    bool continueAfterFileFailure = false, std::uint32_t maxRetries = 3);
+    bool continueAfterFileFailure = false, std::uint32_t maxRetries = 3,
+    const PersistentTransferLimits& limits = {});
 [[nodiscard]] common::Status receivePersistentTree(FramedDataSocket* socket,
     const std::string& root, bool download, const std::string& remoteRoot,
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},

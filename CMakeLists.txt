@@ -445,6 +445,12 @@ if(CPNETFLUX_BUILD_TESTS)
     set_tests_properties(cpnetflux_rdma_duplex_smoke PROPERTIES
         SKIP_RETURN_CODE 77 TIMEOUT 240 RUN_SERIAL TRUE)
 
+    add_test(NAME cpnetflux_rdma_control_loss_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_rdma_control_loss_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_rdma_control_loss_smoke PROPERTIES
+        SKIP_RETURN_CODE 77 TIMEOUT 45 RUN_SERIAL TRUE)
+
     add_test(NAME cpnetflux_v1_retirement_gate
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/check_v1_retired.py)
 

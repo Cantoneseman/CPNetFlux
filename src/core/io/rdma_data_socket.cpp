@@ -57,12 +57,15 @@ common::Status rdmaStatus(const char* operation, int errorNumber = errno) {
 
 common::Status waitForCompletionEvent(ibv_comp_channel* channel, ibv_cq* expectedCq,
                                       SocketDeadline deadline,
-                                      std::uint64_t* eventWaits) {
+                                      std::uint64_t* eventWaits,
+                                      const std::atomic_bool* disconnected) {
     if (channel == nullptr || expectedCq == nullptr || eventWaits == nullptr)
         return common::Status::invalidArgument("invalid RDMA completion event wait");
 
     pollfd descriptor{channel->fd, POLLIN, 0};
     while (true) {
+        if (disconnected->load(std::memory_order_acquire))
+            return common::Status::transportError("RDMA socket shut down");
         ++*eventWaits;
         const auto now = std::chrono::steady_clock::now();
         if (detail::rdmaCompletionDeadlineExpired(deadline, now))
@@ -504,6 +507,8 @@ struct RdmaDataSocket::Impl {
             return status;
         };
         auto pollOnce = [&]() -> common::Result<bool> {
+            if (disconnected.load(std::memory_order_acquire))
+                return common::Status::transportError("RDMA socket shut down");
             ++statistics.receiveCompletionPollCalls;
             const int count = ::ibv_poll_cq(recvCq, 1, completion);
             if (count < 0)
@@ -548,7 +553,7 @@ struct RdmaDataSocket::Impl {
 
             const auto eventStatus = waitForCompletionEvent(
                 receiveCompletionChannel, recvCq, deadline,
-                &statistics.receiveCompletionEventWaits);
+                &statistics.receiveCompletionEventWaits, &disconnected);
             if (!eventStatus.isOk()) return finishWait(eventStatus);
         }
     }
@@ -719,6 +724,8 @@ struct RdmaDataSocket::Impl {
             return status;
         };
         for (;;) {
+            if (disconnected.load(std::memory_order_acquire))
+                return finishWait(common::Status::transportError("RDMA socket shut down"));
             for (std::uint32_t spin = 0; spin < kRdmaCompletionSpinPollBudget; ++spin) {
                 auto completions = reapSendCompletions();
                 if (!completions.isOk()) return finishWait(completions.status());
@@ -743,7 +750,7 @@ struct RdmaDataSocket::Impl {
 
             const auto eventStatus = waitForCompletionEvent(
                 sendCompletionChannel, sendCq, deadline,
-                &statistics.sendCompletionEventWaits);
+                &statistics.sendCompletionEventWaits, &disconnected);
             if (!eventStatus.isOk()) return finishWait(eventStatus);
         }
     }

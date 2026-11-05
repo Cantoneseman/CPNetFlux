@@ -74,10 +74,14 @@ def main():
 
             def socket_fd_count(pid):
                 descriptor_dir = Path(f'/proc/{pid}/fd')
-                return sum(
-                    os.readlink(descriptor).startswith('socket:[')
-                    for descriptor in descriptor_dir.iterdir()
-                )
+                count = 0
+                for descriptor in descriptor_dir.iterdir():
+                    try:
+                        count += os.readlink(descriptor).startswith('socket:[')
+                    except FileNotFoundError:
+                        # A connection can close between directory listing and readlink.
+                        continue
+                return count
 
             baseline_sockets = socket_fd_count(server.pid)
             with socket.create_connection(('127.0.0.1', port), timeout=3) as sock:

@@ -5,11 +5,13 @@
 #include <charconv>
 #include <string_view>
 #include "cpnetflux/core/io/work_executor.h"
+#include "cpnetflux/core/io/detail/persistent_transfer_lifetime.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -104,6 +106,19 @@ using protocol::FrameType;
 namespace fs = std::filesystem;
 using Session = std::variant<session::TransferSession, session::DownloadSession>;
 using Clock = std::chrono::steady_clock;
+
+Status setPersistentReceiveDeadline(FramedDataSocket* socket, Clock::time_point deadline) {
+    if (socket->transport() == DataTransport::Rdma) return Status::ok();
+    const auto remaining = deadline - Clock::now();
+    if (remaining <= Clock::duration::zero())
+        return Status::runtimeError("V3 result/commit deadline exceeded");
+    const auto micros = std::max<std::int64_t>(1,
+        std::chrono::duration_cast<std::chrono::microseconds>(remaining).count());
+    const timeval timeout{micros / 1000000, micros % 1000000};
+    if (::setsockopt(socket->fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0)
+        return Status::runtimeError("persistent result receive timeout configuration failed");
+    return Status::ok();
+}
 
 void tracePersistentProtocol(const char* role, const char* event,
     std::uint32_t channelIndex, const PersistentFileIdentity* id = nullptr,
@@ -1074,7 +1089,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
     std::uint32_t channelIndex, std::uint32_t channelCount, DynamicFileQueue* ready,
     const config::FileTransferOptions* transferOptions, bool continueAfterFileFailure,
-    std::uint32_t maxRetries) {
+    std::uint32_t maxRetries, const PersistentTransferLimits& limits) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -1094,6 +1109,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (!context.isOk()) return context.status();
         executor.emplace(*ready, context.value());
     }
+    detail::PersistentTransferLifetime lifetime(socket, limits);
+    if (auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
     struct PendingFile {
         PersistentFileIdentity id;
         PersistentFileTiming timing;
@@ -1166,6 +1183,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     : executor->finalize(*lease, fileStatus);
                 if (!completed.isOk()) { requestAbort(completed); return; }
             }
+            lifetime.finishResult(expected);
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 if (pending.empty() || pending.front().id.fileId != expected.fileId ||
@@ -1277,6 +1295,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             id.rangeId ? id.rangeOffset+id.rangeLength : id.totalSize}};
         if (id.totalSize == 0) missing.clear();
         if (needsHandshake) {
+            status = setPersistentReceiveDeadline(socket, Clock::now() + std::chrono::seconds(30));
+            if (!status.isOk()) { failWriter(status); break; }
             auto resume = PersistentDataSession::readResumeResponse(socket, id);
             if (!resume.isOk()) { failWriter(resume.status()); break; }
             if (resume.value().statusCode != FrameStatusCode::Ok) {
@@ -1538,8 +1558,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 0, 0, static_cast<int>(status.code()));
         }
         if (writeFailed || !status.isOk()) { failWriter(status.isOk() ? Status::runtimeError("persistent data write failed") : status); break; }
+        const auto resultDeadline = lifetime.beginResult(id);
+        status = setPersistentReceiveDeadline(socket, resultDeadline);
+        if (!status.isOk()) { failWriter(status); break; }
         if (ready) {
-            status = executor->awaitResult(*lease);
+            status = executor->awaitResult(*lease, WorkClock::now(), resultDeadline);
             if (!status.isOk()) { failWriter(status); break; }
         }
         if (needsHandshake || socket->tlsEnabled()) {
@@ -1564,6 +1587,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     0, 0, static_cast<int>(completed.code()));
                 if (!completed.isOk()) { failWriter(completed); break; }
             }
+            lifetime.finishResult(id);
             stats->completeWaitSeconds += resultSeconds;
             {
                 std::lock_guard<std::mutex> lock(mutex);
@@ -1610,6 +1634,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (finalStatus.isOk() && !pending.empty())
             finalStatus = Status::runtimeError("persistent pending result queue not drained");
     }
+    if (const auto bounded = lifetime.status(); !bounded.isOk()) finalStatus = bounded;
     if (socket->valid() && finalStatus.isOk()) {
         const auto fileCount = stats->files - filesAtConnectionStart;
         tracePersistentProtocol("sender", "directory_end_write_begin",
@@ -1661,6 +1686,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
     if (!context) context = makePersistentTransferContext();
+    detail::PersistentTransferLifetime lifetime(socket, context->policy.limits);
+    if (auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
     PersistentDataSession state(dynamic);
     std::optional<WorkExecutor> executor;
     if (ready) {
@@ -1672,6 +1699,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     bool transportFailure = false;
     bool transportReconciled = false;
     auto finishTransport = [&](Status result) -> Status {
+        if (const auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
         if (result.code() != common::StatusCode::TransportError) return result;
         const auto integrity = verifyCommittedPersistentOutputs(context);
         if (!integrity.isOk()) return integrity;
@@ -1831,6 +1859,11 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 tracePersistentProtocol("receiver", "file_end_read", channelIndex, &id);
                 auto ended = state.end(data.value().header, data.value().payload.data(), data.value().payload.size());
                 if (!ended.isOk()) return ended.status();
+                const auto resultDeadline = lifetime.beginResult(id);
+                if (ready) {
+                    status = executor->awaitResult(*lease, WorkClock::now(), resultDeadline);
+                    if (!status.isOk()) return finishTransport(status);
+                }
                 if (fileStatus.isOk() && rangeEntry) {
                     Timer finalized{&timing.finalizeSeconds};
                     fileStatus = RangeFileCoordinator::complete(rangeEntry, ended.value(), ended.value().checksum,
@@ -1879,6 +1912,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 : state.data(logicalHeader, logical.size(), logical.data());
             timing.checksumSeconds += secondsSince(checksumStarted);
             if (!status.isOk()) return finishTransport(status);
+            if (ready) {
+                status = executor->startIo(*lease, logical.size());
+                if (!status.isOk()) return finishTransport(status);
+            }
             if (fileStatus.isOk()) {
                 Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
                 const checksum::ChecksumValue verifiedChecksum{id.checksumAlgorithm, expectedDigest.value_or(0)};
@@ -1900,6 +1937,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     stats->payloadBytes >= context->policy.options.maxChunks*id.chunkSize)
                     return Status::runtimeError("transfer interrupted by max-chunks");
             }
+            if (ready) {
+                status = executor->finishIo(*lease, logical.size());
+                if (!status.isOk()) return finishTransport(status);
+            }
         }
         tracePersistentProtocol("receiver", "commit_begin", channelIndex, &id);
         if (rangeEntry) {
@@ -1913,6 +1954,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         }
         tracePersistentProtocol("receiver", "commit_end", channelIndex, &id,
             0, 0, static_cast<int>(fileStatus.code()));
+        if (const auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
         const bool logicalFileComplete = id.rangeId == 0 || id.rangeId == id.rangeCount;
         if (logicalFileComplete) {
             ++stats->files;
@@ -1944,6 +1986,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         timing.manifestSeconds += secondsSince(completedStarted);
         if (!status.isOk()) return finishTransport(status);
         const auto resultStarted = Clock::now();
+        if (const auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
         tracePersistentProtocol("receiver", "file_result_write_begin", channelIndex, &id,
             0, 0, static_cast<int>(fileFailureCode(fileStatus)));
         status = PersistentDataSession::writeResult(socket, id, fileFailureCode(fileStatus));
@@ -1957,6 +2000,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             if (!status.isOk()) return finishTransport(status);
             leaseGuard.finished = true;
         }
+        lifetime.finishResult(id);
         stats->wireBytes += protocol::kFrameHeaderSize;
         timing.rdmaTransportStats = socket->rdmaStats();
         timing.rdmaReceiveObservationAvailable = socket->transport() == DataTransport::Rdma;

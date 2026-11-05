@@ -35,11 +35,12 @@ common::Status WorkExecutor::finishIo(
     return queue_->finishIo(lease, bytes, now);
 }
 
-common::Status WorkExecutor::awaitResult(const WorkLease& lease, WorkClock::time_point now) {
+common::Status WorkExecutor::awaitResult(const WorkLease& lease, WorkClock::time_point now,
+    std::optional<WorkClock::time_point> resultDeadline) {
     if (lease.owner != owner_) {
         return common::Status::invalidArgument("work executor owner mismatch");
     }
-    return queue_->awaitResult(lease, now);
+    return queue_->awaitResult(lease, now, resultDeadline);
 }
 
 common::Status WorkExecutor::commit(const WorkLease& lease, WorkClock::time_point now) {
