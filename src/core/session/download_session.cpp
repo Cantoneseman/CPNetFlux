@@ -168,6 +168,7 @@ common::Result<DownloadSession> DownloadSession::resume(
     session.manifestFlushIntervalChunks_ = manifestFlushIntervalChunks;
     session.manifestPath_ = manifestPath;
     session.manifest_ = std::move(loaded.value());
+    session.recordWatermark_.rebuild(session.manifest_.verifiedChunks);
     for (const checkpoint::ChunkChecksumRecord& record : session.manifest_.verifiedChunks) {
         const common::Status insertStatus =
             session.completed_.insert(record.offset, record.length, totalSize);
@@ -216,23 +217,22 @@ common::Status DownloadSession::recordVerifiedChunk(std::uint64_t chunkId, std::
 
     checkpoint::OptionalManifestTimer lookup(recordStats_ ? &recordStats_->lookupSeconds : nullptr);
     if (recordStats_) ++recordStats_->lookupCalls;
-    for (std::size_t index = 0; index < manifest_.verifiedChunks.size(); ++index) {
-        const auto& record = manifest_.verifiedChunks[index];
-        const bool sameIdentity =
-            record.offset == offset ||
-            (manifest_.checksumAlgorithm != checksum::ChecksumAlgorithm::None &&
-             record.chunkId == chunkId);
-        if (!sameIdentity) {
-            continue;
+    if (!recordWatermark_.canSkipLookup(chunkId, offset, manifest_.checksumAlgorithm,
+                                       manifest_.verifiedChunks.empty())) {
+        for (std::size_t index = 0; index < manifest_.verifiedChunks.size(); ++index) {
+            const auto& record = manifest_.verifiedChunks[index];
+            const bool sameIdentity = record.offset == offset ||
+                (manifest_.checksumAlgorithm != checksum::ChecksumAlgorithm::None && record.chunkId == chunkId);
+            if (!sameIdentity) continue;
+            if (recordStats_) recordStats_->candidateRecordsExamined += index + 1;
+            if (record.chunkId == chunkId && record.offset == offset && record.length == length &&
+                sameChecksum(record.checksum, checksumValue)) {
+                return common::Status::ok();
+            }
+            return common::Status::invalidArgument("download verified chunk checksum mismatch");
         }
-        if (recordStats_) recordStats_->candidateRecordsExamined += index + 1;
-        if (record.chunkId == chunkId && record.offset == offset && record.length == length &&
-            sameChecksum(record.checksum, checksumValue)) {
-            return common::Status::ok();
-        }
-        return common::Status::invalidArgument("download verified chunk checksum mismatch");
+        if (recordStats_) recordStats_->candidateRecordsExamined += manifest_.verifiedChunks.size();
     }
-    if (recordStats_) recordStats_->candidateRecordsExamined += manifest_.verifiedChunks.size();
     lookup.stop();
 
     const common::Status insertStatus = completed_.insert(offset, length, manifest_.totalSize);
@@ -241,6 +241,7 @@ common::Status DownloadSession::recordVerifiedChunk(std::uint64_t chunkId, std::
     }
     manifest_.verifiedChunks.push_back(
         checkpoint::ChunkChecksumRecord{chunkId, offset, length, checksumValue});
+    recordWatermark_.observe(manifest_.verifiedChunks.back());
     manifest_.completedRanges = completed_.ranges();
     manifest_.state = checkpoint::ManifestState::Transferring;
     dirtyVerifiedChunks_ += 1;
@@ -289,6 +290,7 @@ common::Status DownloadSession::verifyTempChunks(const storage::PosixFile& tempF
     }
 
     manifest_.verifiedChunks = std::move(kept);
+    recordWatermark_.rebuild(manifest_.verifiedChunks);
     completed_ = std::move(verified);
     manifest_.completedRanges = completed_.ranges();
     manifest_.state = checkpoint::ManifestState::Transferring;

@@ -419,6 +419,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/throughput_counter_test.cpp
         tests/unit/transfer_manifest_test.cpp
         tests/unit/transfer_session_test.cpp
+        tests/unit/session_record_lookup_test.cpp
         tests/unit/transfer_progress_test.cpp
         tests/unit/tree_manifest_test.cpp
         tests/unit/tree_manifest_writer_test.cpp

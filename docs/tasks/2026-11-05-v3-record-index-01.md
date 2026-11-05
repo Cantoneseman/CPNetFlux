@@ -29,3 +29,11 @@ The actual benchmark smoke exposed download_manifest.cpp's missing total saveSec
 
 Evidence root on both hosts: /home/Su/experiments/CPNetFlux/2026-11-05-v3-record-index-01.
 Initial tracked trees are clean; R770-2 is at the same input commit. No subagents/worktrees.
+
+## Profiling Decision
+
+Instrumented baseline ed8da0df2db15a9f105cc390fc13533b17b13ba7 completed 24 measurements. At 65536 records and every_n_chunks/16, median lookup is 1.429696 seconds (download) / 1.432952 (upload), versus serialize 22.656219 / 22.480161 seconds. Lookup is about 5.3% of metadata-only wall and roughly 1% of the prior 145 second file task, not the main file bottleneck.
+
+Implement a 16-byte maxima watermark to bypass identity scans only for provably new monotonically increasing identities; retain the original scan for irregular/duplicate identities, including checksum-none ID semantics. Rebuild maxima on resume and corrupt-record pruning; sorting/copy/move preserve them. Shared helper verified_chunk_append_watermark.h and typed behavioral tests session_record_lookup_test.cpp replace duplicated new tests in the two old test files.
+
+Per acceptance item 4's insignificant-lookup branch, bound end-to-end work to one fresh 64 GiB full and one verified_chunks native download as integrity/termination diagnostics after the final commit/build gates. Do not claim a file-task speedup from these samples or compare their rates causally to historical controls. Repeat all 24 metadata profiles for the candidate; the next main optimization remains serialization under the same checkpoint cadence.

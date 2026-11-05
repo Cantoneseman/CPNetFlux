@@ -12,6 +12,7 @@
 #include "cpnetflux/core/session/manifest_flush_policy.h"
 #include "cpnetflux/core/session/transfer_session_config.h"
 #include "cpnetflux/core/session/verified_chunk_record_stats.h"
+#include "cpnetflux/core/session/verified_chunk_append_watermark.h"
 #include "cpnetflux/storage/posix_file.h"
 
 namespace cpnetflux::core::session {
@@ -71,6 +72,7 @@ class DownloadSession {
    private:
     checkpoint::DownloadManifest manifest_;
     chunk::RangeList completed_;
+    VerifiedChunkAppendWatermark recordWatermark_;
     std::string manifestPath_;
     checksum::ChecksumBackend checksumBackend_ = checksum::ChecksumBackend::Software;
     ManifestFlushPolicy manifestFlushPolicy_ = ManifestFlushPolicy::EveryNChunks;
