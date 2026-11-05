@@ -12,6 +12,7 @@
 #include "cpnetflux/core/metrics/transfer_phase_stats.h"
 #include "cpnetflux/core/session/manifest_flush_policy.h"
 #include "cpnetflux/core/session/transfer_session_config.h"
+#include "cpnetflux/core/session/verified_chunk_record_stats.h"
 #include "cpnetflux/storage/posix_file.h"
 
 namespace cpnetflux::core::session {
@@ -65,6 +66,7 @@ class TransferSession {
     [[nodiscard]] const checkpoint::TransferManifest& manifest() const noexcept;
     [[nodiscard]] const std::string& manifestPath() const noexcept;
     void setManifestSaveStats(checkpoint::ManifestSaveStats* stats) noexcept { manifestSaveStats_ = stats; }
+    void setRecordStats(VerifiedChunkRecordStats* stats) noexcept { recordStats_ = stats; }
     void setPhaseStats(metrics::TransferPhaseStats* phaseStats) noexcept;
 
    private:
@@ -78,6 +80,7 @@ class TransferSession {
     TransferSessionStats stats_;
     metrics::TransferPhaseStats* phaseStats_ = nullptr;
     checkpoint::ManifestSaveStats* manifestSaveStats_ = nullptr;
+    VerifiedChunkRecordStats* recordStats_ = nullptr;
 };
 
 }  // namespace cpnetflux::core::session

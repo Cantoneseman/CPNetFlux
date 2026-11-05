@@ -495,6 +495,7 @@ common::Result<DownloadManifest> parseDownloadManifest(const std::string& text) 
 common::Status saveDownloadManifestAtomic(const std::string& path,
                                           const DownloadManifest& manifest, ManifestSaveStats* stats) {
     ManifestSaveAttempt attempt(stats);
+    OptionalManifestTimer wholeSave(stats ? &stats->saveSeconds : nullptr);
     OptionalManifestTimer serialization(stats ? &stats->serializeSeconds : nullptr);
     auto serialized = serializeDownloadManifest(manifest);
     serialization.stop();

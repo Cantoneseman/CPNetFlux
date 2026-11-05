@@ -191,7 +191,10 @@ common::Status TransferSession::save() {
     manifest_.updatedAtUnixNanos = checkpoint::nowUnixNanos();
     manifest_.version = checkpoint::kTransferManifestSchemaVersion;
     manifest_.completedRanges = completed_.ranges();
-    sortVerifiedChunks(&manifest_.verifiedChunks);
+    {
+        checkpoint::OptionalManifestTimer sorting(recordStats_ ? &recordStats_->sortSeconds : nullptr);
+        sortVerifiedChunks(&manifest_.verifiedChunks);
+    }
     metrics::ScopedPhaseTimer timer(phaseStats_, metrics::TransferPhase::ManifestFlush);
     const common::Status status = checkpoint::ManifestStore::saveAtomic(manifestPath_, manifest_, manifestSaveStats_);
     timer.stop();
@@ -219,7 +222,10 @@ common::Status TransferSession::recordVerifiedChunk(std::uint64_t chunkId, std::
         return common::Status::invalidArgument("chunk range exceeds transfer size");
     }
 
-    for (const checkpoint::ChunkChecksumRecord& record : manifest_.verifiedChunks) {
+    checkpoint::OptionalManifestTimer lookup(recordStats_ ? &recordStats_->lookupSeconds : nullptr);
+    if (recordStats_) ++recordStats_->lookupCalls;
+    for (std::size_t index = 0; index < manifest_.verifiedChunks.size(); ++index) {
+        const auto& record = manifest_.verifiedChunks[index];
         const bool sameIdentity =
             record.offset == offset ||
             (manifest_.checksumAlgorithm != checksum::ChecksumAlgorithm::None &&
@@ -227,12 +233,15 @@ common::Status TransferSession::recordVerifiedChunk(std::uint64_t chunkId, std::
         if (!sameIdentity) {
             continue;
         }
+        if (recordStats_) recordStats_->candidateRecordsExamined += index + 1;
         if (record.chunkId == chunkId && record.offset == offset && record.length == length &&
             sameChecksum(record.checksum, checksumValue)) {
             return common::Status::ok();
         }
         return common::Status::invalidArgument("verified chunk checksum mismatch");
     }
+    if (recordStats_) recordStats_->candidateRecordsExamined += manifest_.verifiedChunks.size();
+    lookup.stop();
 
     const common::Status insertStatus = completed_.insert(offset, length, manifest_.totalSize);
     if (!insertStatus.isOk()) {
