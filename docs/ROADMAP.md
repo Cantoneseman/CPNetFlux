@@ -1,7 +1,7 @@
 # CPNetFlux 性能路线图
 
 更新日期：2026-11-05
-最近修复与实测源码：`78e1e4ab7a2e08eb0fd27f3958fd8536ac75b301`；原 48 样本基线仍按其输入提交解释。
+最近修复与实测源码：`d323f1fa442071bee64650c44c96d8a11ba42b1f`；原 48 样本和上一轮 result 生命周期复测仍按各自输入提交解释。
 当前开发分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
 
 ## 当前目标
@@ -14,9 +14,13 @@
 
 11/5 后续的 [V3 result 生命周期修复](tasks/2026-11-05-v3-result-lifetime-01-result.md)已通过 R770-1 全量 503/503、R770-2 相关 76/76 CTest，以及 1/4 lane 各三次原生 RDMA 64 GiB 下载完整任务与独立 SHA-256。两端同提交、同配置，五个二进制 SHA-256 一致；每次任务均无恢复重试，全部数据/控制终态完成。独立 result/commit 预算为 5 分钟且受任务截止约束，payload 空闲租约仍为 30 秒，过期和 owner/epoch/attempt 隔离保留。最长实测结果等待 174.730 秒已正常结束。另有 31 秒实际 TCP 等待、原生 RDMA shutdown/control-EOF 和连续 10 次终态丢失恢复证据。
 
-当前下载 task rate 中位数为单通道 1.831384 Gbps（CV 0.254366%）、四通道 1.536711 Gbps（CV 0.348727%），均采用客户端接收端 full 校验和 commit_sync=none；外部 SHA 在任务计时之外。四通道约慢 16.1%，不能把本轮正确性修复当作吞吐提升。全文件复读校验约 149-158 秒，四通道后半组 range 还有约 80 秒事务锁等待；这些累计线程计时不可相加。RNR/out_of_buffer/transport retry/ACK timeout 增量为零，但 CQ error/flush 增量尚未归因，生产稳定性门未通过。原 48 样本的 42 PASS / 6 FAIL 保持历史结果，不改写成 48/48。
+上一轮源码 `78e1e4ab` 的下载 task rate 中位数为单通道 1.831384 Gbps（CV 0.254366%）、四通道 1.536711 Gbps（CV 0.348727%），均采用客户端接收端 full 校验和 commit_sync=none；外部 SHA 在任务计时之外。四通道约慢 16.1%，这是正确性修复后的结果。全文件复读校验约 149-158 秒，四通道后半组 range 还有约 80 秒事务锁等待；这些累计线程计时不可相加。该组 RNR/out_of_buffer/transport retry/ACK timeout 增量为零，但 CQ error/flush 增量尚未归因。原 48 样本的 42 PASS / 6 FAIL 保持历史结果，不改写成 48/48。
 
-当前下一步是显式暴露并报告实际接收端的 final-verify、manifest/checkpoint、commit-sync 策略，保持默认值；再以相同持久化策略比较 full 与 verified_chunks，各至少三次、保留外部 SHA 与损坏/恢复/发布测试，并明确两者写后复读故障覆盖不同。随后分别优化 manifest 序列化、checkpoint 频率与共享锁，逐项对照。批量 checkpoint 16 仅为 range 诊断变量，不能升为默认或视作非 range 路径也已批量化。RQ/CQ 资源、三阶段流水线及微批按这些结果继续推进。
+11/5 的[接收策略实现与对照](tasks/2026-11-05-v3-receiver-policy-01-result.md)已完成：下载 CLI/JSON 显式配置和报告本地 final-verify、manifest/checkpoint、commit-sync，上传接收策略标明远端未观测，默认值保留。R770-1 全量 514/514、R770-2 相关 137/137 CTest 通过。源码 `d323f1fa` 的单通道 64 GiB full/verified_chunks 交替各三次，全部协议终态与外部 SHA 通过；相同 every_n_chunks/16、commit_sync=none 和 CRC32C 下，task rate 中位数为 1.836107 / 3.794028 Gbps，CV 为 0.592008% / 0.463039%，约 2.066 倍。最终提交阶段中位数为 155.591705 / 0.058609 秒。verified_chunks 省去提交前复读，故障覆盖不同；默认 full 未改，不能称为同完整性语义下的算法提速或默认吞吐翻倍。
+
+本轮 full 三次接收端 out_of_buffer / 发送端 rnr_nak_retry_err 增量分别为 2685、7681、5633，分块策略三次为零；增量发生在 FILE_END 前，不能据此归因给最终校验策略。两端 CQ error/flush 仍有 65/64 或 129/128 增量，集中在成功结束附近；仅有时间相关性，尚未解释。生产稳定性门仍未通过，不能沿用上一组零 RNR 结论。
+
+当前下一步是分开测量和优化 recordVerifiedChunk 的线性查重扫描与 manifest 序列化。64 GiB 下载实际使用源端 1 MiB 分块，共 65536 条记录，逐块全表扫描有平方级工作量；先保持 checkpoint 间隔和校验语义做索引/追加路径对照，再单独研究 checkpoint 频率和共享锁。manifest 聚合计时约 52-62 秒，不能全部当作序列化时间。批量 checkpoint 16 仍仅为 range 诊断变量，本轮 whole-file 的实际 range batch 为 null；不能升为默认或视作非 range 路径也已批量化。数据尾部 RNR/buffer 与结束期 CQ 错误单独调查，随后按证据推进 RQ/CQ 资源、三阶段流水线及微批。
 
 接收策略实现中的截短回归发现：旧报告所说的 checksum=none 强制完整复读并非实际行为，session 会直接跳过该复读，且原发布路径缺少实际长度检查。本轮补上所有校验策略发布前的长度门，并明确摘要中的 coverage_only/no-readback 语义，见 [校验语义决策](DECISIONS/2026-11-05-v3-receiver-verification-semantics.md)。既有 CRC32C 测量不受这一描述纠正影响；无 checksum 模式不进入完整性合格的性能对照。
 
@@ -29,6 +33,7 @@
 | 原生链路 | `ib_send_bw` 约 92.59 Gbps | CPNetFlux 文件传输达到 92.59 或 100 Gbps |
 | CPNetFlux RDMA direct bench | 单连接长传输约 30.35 Gbps；4×64 GiB 组端到端约 82.97 Gbps | 文件系统、manifest 和完整任务时间有相同速率 |
 | V3 真实文件，源码 `78e1e4ab` | 64 GiB 下载 1/4 lane 各三次全部通过；task rate 中位数 1.831384 / 1.536711 Gbps | 100 Gbps 文件吞吐、持久化 fsync 验收、原 48 样本全量重跑或生产 readiness |
+| V3 接收策略对照，源码 `d323f1fa` | 单 lane 64 GiB full/verified_chunks 各三次通过；task rate 中位数 1.836107 / 3.794028 Gbps；相同 checkpoint/commit-sync | 两策略写后复读故障覆盖相同、默认提速、四 lane 策略成绩、无 RNR/CQ 错误或生产 readiness |
 | 硬件拓扑 | 每台 R770 一张 100GbE/RoCE 端口 | 10×100Gbps 多链路或 1Tbps 扩展 |
 
 稳态 payload rate、含建连/提交的 task rate、每 lane 吞吐分别记录，不合并计时口径。测试需固定提交、双端同配置构建，逐文件校验并保存 route、端口计数、CPU/RSS 和原始日志。
