@@ -78,6 +78,13 @@ void measure(Session& receiver, std::uint64_t records, const char* role,
               << ",\"save_attempts\":" << saved.attempts
               << ",\"save_seconds\":" << saved.saveSeconds
               << ",\"serialize_seconds\":" << saved.serializeSeconds
+              << ",\"record_preparation_calls\":" << saved.recordPreparationCalls
+              << ",\"record_sort_calls\":" << saved.recordSortCalls
+              << ",\"record_copy_items\":" << saved.recordCopyItems
+              << ",\"record_prepare_seconds\":" << saved.recordPreparationSeconds
+              << ",\"range_validation_seconds\":" << saved.rangeValidationSeconds
+              << ",\"record_format_seconds\":" << saved.recordFormatSeconds
+              << ",\"body_crc_seconds\":" << saved.bodyCrcSeconds
               << ",\"serialized_bytes\":" << saved.serializedBytes
               << ",\"temp_write_seconds\":" << saved.tempWriteSeconds
               << ",\"publish_seconds\":" << saved.renameSeconds

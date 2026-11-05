@@ -10,6 +10,8 @@
 
 namespace cpnetflux::checkpoint {
 
+struct ManifestSaveStats;
+
 inline constexpr std::uint32_t kTransferManifestSchemaVersion = 2;
 
 enum class ManifestState {
@@ -48,7 +50,7 @@ struct TransferManifest {
 [[nodiscard]] std::uint64_t nowUnixNanos() noexcept;
 
 [[nodiscard]] common::Result<std::string> serializeTransferManifest(
-    const TransferManifest& manifest);
+    const TransferManifest& manifest, ManifestSaveStats* stats = nullptr);
 [[nodiscard]] common::Result<TransferManifest> parseTransferManifest(const std::string& text);
 
 [[nodiscard]] const char* manifestStateName(ManifestState state) noexcept;

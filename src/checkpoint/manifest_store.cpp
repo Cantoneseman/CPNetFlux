@@ -46,7 +46,7 @@ common::Status ManifestStore::saveAtomic(const std::string& path,
     OptionalManifestTimer wholeSave(stats ? &stats->saveSeconds : nullptr);
     if (stats) ++stats->serializeCalls;
     OptionalManifestTimer serialization(stats ? &stats->serializeSeconds : nullptr);
-    auto serialized = serializeTransferManifest(manifest);
+    auto serialized = serializeTransferManifest(manifest, stats);
     serialization.stop();
     if (!serialized.isOk()) {
         return serialized.status();

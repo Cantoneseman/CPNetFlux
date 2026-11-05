@@ -239,11 +239,15 @@ class ObservedEntryLock {
 // The shared transaction must never retain a lane's stack observation pointer.
 class ScopedManifestObservation {
  public:
-    ScopedManifestObservation(Session& session, RangeObservation* observation) : session_(session) {
-        std::visit([&](auto& s) { s.setManifestSaveStats(observation ? &observation->manifestSave : nullptr); }, session_);
+    ScopedManifestObservation(Session& session, RangeObservation* observation,
+                              WholeFileObservation* whole = nullptr) : session_(session) {
+        std::visit([&](auto& s) {
+            s.setManifestSaveStats(observation ? &observation->manifestSave : whole ? &whole->manifestSave : nullptr);
+            s.setRecordStats(whole ? &whole->records : nullptr);
+        }, session_);
     }
     ~ScopedManifestObservation() {
-        std::visit([](auto& s) { s.setManifestSaveStats(nullptr); }, session_);
+        std::visit([](auto& s) { s.setManifestSaveStats(nullptr); s.setRecordStats(nullptr); }, session_);
     }
  private:
     Session& session_;
@@ -386,6 +390,7 @@ class FileTransaction {
             if (!created.isOk()) return created.status();
             session_ = std::move(created.value());
         }
+        ScopedManifestObservation observing(session_, observation, wholeObservation());
         temp_ = std::visit([](auto& s) { return s.manifest().tempPath; }, session_);
         const auto manifest = std::visit([](auto& s) { return s.manifestPath(); }, session_);
         if (!resume && fs::symlink_status(manifest, error).type() != fs::file_type::not_found)
@@ -410,12 +415,12 @@ class FileTransaction {
         writer_ = std::make_unique<storage::BufferedFileWriter>(file_,ioContext_,ioStats_);
         auto advice = storage::applyFileIoAdvice(file_,policy_.options.fileIo.advice,0,id.totalSize);
         if (!advice.isOk()) return advice;
-        ScopedManifestObservation observing(session_, observation);
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
         return resume ? common::Status::ok() : std::visit([](auto& s) { return s.save(); }, session_);
     }
     Status write(std::uint64_t offset, const std::vector<std::uint8_t>& bytes,
                  checksum::ChecksumValue verifiedChecksum) {
+        ScopedManifestObservation observing(session_, nullptr, wholeObservation());
         if (skipped_) return Status::ok();
         const auto writing = Clock::now();
         auto status = writer_->write(offset, bytes.data(), bytes.size());
@@ -453,7 +458,7 @@ class FileTransaction {
         return Status::ok();
     }
     Status commit(RangeObservation* observation = nullptr) {
-        ScopedManifestObservation observing(session_, observation);
+        ScopedManifestObservation observing(session_, observation, wholeObservation());
         std::lock_guard publicationLock(publicationMutex_);
         if (skipped_) { active_ = false; return Status::ok(); }
         auto flushed = writer_->flush();
@@ -687,6 +692,9 @@ class FileTransaction {
     storage::FileIoStats* ioStats_;
     PersistentTransferContext* context_;
     std::unique_ptr<storage::BufferedFileWriter> writer_;
+    WholeFileObservation* wholeObservation() const {
+        return timing_ && timing_->wholeFileObservationEnabled ? &timing_->wholeFileObservation : nullptr;
+    }
     Session session_;
     storage::PosixFile file_;
     PersistentFileIdentity identity_;
@@ -1780,6 +1788,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (!status.isOk()) return finishTransport(status);
         PersistentFileTiming timing;
         timing.file = id; timing.channel = channelIndex;
+        timing.wholeFileObservationEnabled = stats->phaseTiming && id.rangeId == 0;
         timing.rangeObservationEnabled = observeRanges(*stats);
         auto* observation = timing.rangeObservationEnabled ? &timing.rangeObservation : nullptr;
         const auto laneCpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
@@ -2034,6 +2043,30 @@ void optionalSeconds(std::ostream& out, const std::optional<double>& value) {
     if (value) out << *value; else out << "null";
 }
 }
+namespace {
+void appendManifestSaveObservation(std::ostream& out, const checkpoint::ManifestSaveStats& m) {
+    out << "{\"attempts\":" << m.attempts
+        << ",\"serialize_calls\":" << m.serializeCalls
+        << ",\"serialized_bytes\":" << m.serializedBytes
+        << ",\"save_seconds\":" << m.saveSeconds
+        << ",\"temp_write_calls\":" << m.tempWriteCalls
+        << ",\"rename_calls\":" << m.renameCalls
+        << ",\"publish_calls\":" << m.publishCalls
+        << ",\"publish_successes\":" << m.publishSuccesses
+        << ",\"failures\":" << m.failures
+        << ",\"serialize_seconds\":" << m.serializeSeconds
+        << ",\"temp_write_seconds\":" << m.tempWriteSeconds
+        << ",\"publish_seconds\":" << m.renameSeconds
+        << ",\"rename_seconds\":" << m.renameSeconds
+        << ",\"record_preparation_calls\":" << m.recordPreparationCalls
+        << ",\"record_sort_calls\":" << m.recordSortCalls
+        << ",\"record_copy_items\":" << m.recordCopyItems
+        << ",\"record_prepare_seconds\":" << m.recordPreparationSeconds
+        << ",\"range_validation_seconds\":" << m.rangeValidationSeconds
+        << ",\"record_format_seconds\":" << m.recordFormatSeconds
+        << ",\"body_crc_seconds\":" << m.bodyCrcSeconds << '}';
+}
+}  // namespace
 void appendPersistentFileTimings(std::ostream& out, const std::vector<PersistentFileTiming>& files) {
     out << std::setprecision(17) << '[';
     bool first = true;
@@ -2108,6 +2141,22 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
         } else {
             out << ",\"rdma_receive_observation\":null";
         }
+        out << ",\"whole_file_observation\":";
+        if (t.wholeFileObservationEnabled) {
+            const auto& whole = t.wholeFileObservation;
+            out << "{\"schema\":\"cpnetflux_whole_file_observation_v1\","
+                << "\"scope\":\"local whole-file session begin/write/commit; excludes preflight, callbacks and published-output revalidation\","
+                << "\"clock\":\"steady_clock; lookup excludes nested save; serialize substeps are disjoint subsets of serialize_seconds; session sort precedes save; do not add aggregates\","
+                << "\"record_lookup_calls\":" << whole.records.lookupCalls
+                << ",\"record_candidates_examined\":" << whole.records.candidateRecordsExamined
+                << ",\"record_lookup_seconds\":" << whole.records.lookupSeconds
+                << ",\"session_sort_seconds\":" << whole.records.sortSeconds
+                << ",\"manifest_save\":";
+            appendManifestSaveObservation(out, whole.manifestSave);
+            out << '}';
+        } else {
+            out << "null";
+        }
         const auto& r = t.rangeObservation;
         const auto& m = r.manifestSave;
         out << ",\"range_observation\":{\"schema_version\":2,\"data_frame_count\":" << r.dataFrameCount
@@ -2134,19 +2183,9 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"checkpoint_manifest_flush_seconds\":" << r.checkpointManifestFlushSeconds
             << ",\"background_checkpoint_thread_cpu_seconds\":" << r.backgroundCheckpointCpuSeconds
             << ",\"background_checkpoint_cpu_seconds\":" << r.backgroundCheckpointCpuSeconds
-            << ",\"manifest_save\":{\"attempts\":" << m.attempts
-            << ",\"serialize_calls\":" << m.serializeCalls
-            << ",\"serialized_bytes\":" << m.serializedBytes
-            << ",\"save_seconds\":" << m.saveSeconds
-            << ",\"temp_write_calls\":" << m.tempWriteCalls
-            << ",\"rename_calls\":" << m.renameCalls
-            << ",\"publish_calls\":" << m.publishCalls
-            << ",\"publish_successes\":" << m.publishSuccesses
-            << ",\"failures\":" << m.failures
-            << ",\"serialize_seconds\":" << m.serializeSeconds
-            << ",\"temp_write_seconds\":" << m.tempWriteSeconds
-            << ",\"publish_seconds\":" << m.renameSeconds
-            << ",\"rename_seconds\":" << m.renameSeconds << "}}";
+            << ",\"manifest_save\":";
+        appendManifestSaveObservation(out, m);
+        out << '}';
         out << ",\"wall_seconds\":" << t.wallSeconds << '}';
     }
     out << ']';

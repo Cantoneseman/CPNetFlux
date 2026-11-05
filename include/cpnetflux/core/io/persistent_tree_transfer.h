@@ -2,6 +2,7 @@
 
 #include <functional>
 #include "cpnetflux/checkpoint/manifest_save_stats.h"
+#include "cpnetflux/core/session/verified_chunk_record_stats.h"
 #include "cpnetflux/config/file_transfer_options.h"
 #include <memory>
 #include <cstdint>
@@ -69,11 +70,17 @@ struct RangeObservation {
     storage::FileWriteObservation fileWrite;
     checkpoint::ManifestSaveStats manifestSave;
 };
+struct WholeFileObservation {
+    checkpoint::ManifestSaveStats manifestSave;
+    session::VerifiedChunkRecordStats records;
+};
 struct PersistentFileTiming {
     PersistentFileIdentity file;
     std::uint32_t channel = 0;
     bool sender = false;
     bool rangeObservationEnabled = false;
+    bool wholeFileObservationEnabled = false;
+    WholeFileObservation wholeFileObservation;
     bool rdmaReceiveObservationAvailable = false;
     RdmaTransportStats rdmaTransportStats;
     RangeObservation rangeObservation;

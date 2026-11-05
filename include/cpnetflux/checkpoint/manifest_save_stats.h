@@ -9,6 +9,10 @@ struct ManifestSaveStats {
     std::uint64_t tempWriteCalls = 0, renameCalls = 0, publishCalls = 0;
     std::uint64_t publishSuccesses = 0, failures = 0;
     double saveSeconds = 0, serializeSeconds = 0, tempWriteSeconds = 0, renameSeconds = 0;
+    std::uint64_t recordPreparationCalls = 0, recordSortCalls = 0, recordCopyItems = 0;
+    // Disjoint serialization substeps; scalar headers/body assembly remain in total serializeSeconds.
+    double recordPreparationSeconds = 0, rangeValidationSeconds = 0;
+    double recordFormatSeconds = 0, bodyCrcSeconds = 0;
 };
 class OptionalManifestTimer {
  public:

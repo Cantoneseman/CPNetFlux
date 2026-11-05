@@ -35,7 +35,7 @@ struct DownloadManifest {
                                                     const std::string& transferId);
 
 [[nodiscard]] common::Result<std::string> serializeDownloadManifest(
-    const DownloadManifest& manifest);
+    const DownloadManifest& manifest, ManifestSaveStats* stats = nullptr);
 [[nodiscard]] common::Result<DownloadManifest> parseDownloadManifest(const std::string& text);
 [[nodiscard]] common::Status saveDownloadManifestAtomic(const std::string& path,
                                                         const DownloadManifest& manifest, ManifestSaveStats* stats = nullptr);

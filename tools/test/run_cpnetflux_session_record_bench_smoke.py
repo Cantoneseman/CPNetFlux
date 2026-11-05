@@ -24,4 +24,9 @@ for role in ['download', 'upload']:
             assert row['wall_seconds'] >= row['lookup_seconds'] >= 0
             assert row['serialize_seconds'] > 0 and row['serialized_bytes'] > 0
             assert row['save_seconds'] >= row['serialize_seconds'], row
+            substeps = [row[key] for key in ['record_prepare_seconds', 'range_validation_seconds',
+                                             'record_format_seconds', 'body_crc_seconds']]
+            assert all(value >= 0 for value in substeps)
+            assert sum(substeps) <= row['serialize_seconds'], row
+            assert row['record_preparation_calls'] > 0
             print(role, policy, 'PASS')
