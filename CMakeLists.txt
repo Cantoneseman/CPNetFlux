@@ -393,6 +393,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/control_session_test.cpp
         tests/unit/compressed_data_test.cpp
         tests/unit/download_manifest_test.cpp
+        tests/unit/manifest_serialization_work_test.cpp
         tests/unit/download_session_test.cpp
         tests/unit/event_log_test.cpp
         tests/unit/file_download_options_test.cpp

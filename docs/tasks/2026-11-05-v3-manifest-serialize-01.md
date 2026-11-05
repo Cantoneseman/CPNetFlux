@@ -27,3 +27,11 @@ include/cpnetflux/checkpoint/{manifest_save_stats.h,transfer_manifest.h,download
 6. Only one fresh 64 GiB output at a time, preserve failure outputs and frozen seed; remove successful outputs after SHA, retain checkpoints/logs. Preserve production PIDs 126766/164834, verify no temporary process/listener/application QP, and retain final HANDOFF/backup receipts and next input commit.
 
 Evidence root: /home/Su/experiments/CPNetFlux/2026-11-05-v3-manifest-serialize-01 on both hosts. Stage gates are build/CTest, metadata profiles and fixed-build native transfers in that order. No transfer from a dirty source tree. Tool audit: dedicated chat messaging and shell are exposed but no messaging was requested; R770-1 codex CLI was not found. No delegation is used.
+
+## Profiling Decision
+
+Instrumented baseline d0d98c74b15b728cf2853ec168c26a7a3cc27c70 completed 24 metadata cases and relevant R770-1/peer gates 149/149 and 157/157. Every16 download/upload medians: serialization 22.276926/22.669354 seconds, record formatting 15.235227/15.641791, record copy/sort preparation 3.573700/3.575302, range validation 1.195678/1.194921, body CRC 0.140623/0.140684. Each case copies 268632064 cumulative record items inside serialization.
+
+The first native whole-file control exposes a larger real manifest cost: aggregate 56.862784, save 53.693882, serialization 37.713648 (record formatting 26.313105, preparation 6.579731, validation 2.290911, CRC 0.174219) and publication 14.342101 seconds. These are nested scopes; publication is not CPU serialization. Full three-sample controls must finish before copying/building the candidate on the authoritative tree.
+
+Choose a single shared ordered record view for serialization: borrow already ordered input, otherwise copy/sort once and reuse it for validation/formatting; keep existing RangeList rejection. Replace per-record stream formatting with a reserved string buffer and to_chars decimal / fixed-width hex output, preserving byte output and input immutability. Leave scalar headers, schema/CRC algorithm, parse paths, session outer save sorting, policy and publication unchanged. Tests include independent legacy stream bytes and bounded copy/sort counts, with red observed before implementation.

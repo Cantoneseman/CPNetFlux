@@ -12,6 +12,7 @@
 
 #include "cpnetflux/checksum/crc32c.h"
 #include "cpnetflux/checkpoint/manifest_save_stats.h"
+#include "manifest_record_serialization.h"
 
 namespace cpnetflux::checkpoint {
 namespace {
@@ -136,23 +137,6 @@ std::vector<ChunkChecksumRecord> sortedRecords(const std::vector<ChunkChecksumRe
                   return left.chunkId < right.chunkId;
               });
     return sorted;
-}
-
-std::string serializeVerifiedChunks(const std::vector<ChunkChecksumRecord>& records,
-                                  ManifestSaveStats* stats) {
-    std::ostringstream output;
-    const std::vector<ChunkChecksumRecord> sorted = sortedRecords(records, stats);
-    OptionalManifestTimer formatting(stats ? &stats->recordFormatSeconds : nullptr);
-    for (std::size_t index = 0; index < sorted.size(); ++index) {
-        if (index != 0) {
-            output << ',';
-        }
-        output << sorted[index].chunkId << ':' << sorted[index].offset << ':'
-               << sorted[index].length << ':'
-               << checksum::checksumAlgorithmName(sorted[index].checksum.algorithm) << ':'
-               << hex32(sorted[index].checksum.value);
-    }
-    return output.str();
 }
 
 common::Result<std::vector<core::chunk::CompletedRange>> parseRanges(const std::string& text,
@@ -283,6 +267,7 @@ common::Result<core::chunk::RangeList> completedFromVerified(
 
 std::string buildManifestBody(const TransferManifest& manifest,
                               const std::vector<core::chunk::CompletedRange>& ranges,
+                              const std::vector<ChunkChecksumRecord>& records,
                               ManifestSaveStats* stats) {
     std::ostringstream output;
     output << "manifest_version=" << manifest.version << '\n';
@@ -297,7 +282,7 @@ std::string buildManifestBody(const TransferManifest& manifest,
     output << "updated_at_unix_ns=" << manifest.updatedAtUnixNanos << '\n';
     output << "state=" << manifestStateName(manifest.state) << '\n';
     output << "completed_ranges=" << serializeRanges(ranges) << '\n';
-    output << "verified_chunks=" << serializeVerifiedChunks(manifest.verifiedChunks, stats) << '\n';
+    output << "verified_chunks=" << detail::serializeOrderedRecords(records, stats) << '\n';
     return output.str();
 }
 
@@ -371,11 +356,12 @@ common::Result<std::string> serializeTransferManifest(const TransferManifest& ma
         return common::Status::invalidArgument("manifest chunk_size must be greater than zero");
     }
 
-    auto completed = completedFromVerified(manifest.verifiedChunks, manifest.totalSize, stats);
+    const detail::OrderedManifestRecords records(manifest.verifiedChunks, stats);
+    auto completed = detail::completedFromOrderedRecords(records.records(), manifest.totalSize, stats);
     if (!completed.isOk()) {
         return completed.status();
     }
-    const std::string body = buildManifestBody(manifest, completed.value().ranges(), stats);
+    const std::string body = buildManifestBody(manifest, completed.value().ranges(), records.records(), stats);
     OptionalManifestTimer bodyCrc(stats ? &stats->bodyCrcSeconds : nullptr);
     const std::uint32_t bodyChecksum =
         checksum::crc32c(reinterpret_cast<const std::uint8_t*>(body.data()), body.size());
