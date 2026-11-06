@@ -442,6 +442,8 @@ if(CPNETFLUX_BUILD_TESTS)
     gtest_discover_tests(cpnetflux_unit_tests)
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_sources(cpnetflux_unit_tests PRIVATE tests/unit/gathered_write_test.cpp)
+        target_link_options(cpnetflux_unit_tests PRIVATE "-Wl,--wrap=pwritev")
         add_executable(cpnetflux_framed_socket_tests tests/unit/framed_data_socket_test.cpp)
         target_link_libraries(cpnetflux_framed_socket_tests PRIVATE CPNetFlux::core GTest::gtest_main)
         target_link_options(cpnetflux_framed_socket_tests PRIVATE

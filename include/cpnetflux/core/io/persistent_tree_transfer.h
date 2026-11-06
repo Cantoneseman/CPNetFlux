@@ -100,6 +100,9 @@ struct PersistentFileTiming {
     RangeObservation rangeObservation;
     std::uint32_t payloadPipelineDepth = 0;
     bool receiverEmptyQueueWake = false;
+    std::uint32_t receiverWriteBatchLimit = 1;
+    // Actual two-frame wrapper attempts; may include failed writes, never certified bytes.
+    std::uint64_t gatheredWriteCalls = 0, gatheredWriteFrames = 0, gatheredWriteBytes = 0;
     std::uint64_t pipelineBudgetBytes = 0, pipelineHighWatermarkBytes = 0;
     std::uint64_t payloadBufferAllocations = 0, payloadBufferReuses = 0;
     std::uint64_t payloadBufferAllocatedCapacityBytes = 0, payloadBufferOwnershipBudgetBytes = 0;

@@ -7,6 +7,7 @@
 #include <iosfwd>
 #include <string>
 #include <string_view>
+#include <span>
 #include <vector>
 
 #include "cpnetflux/common/status.h"
@@ -169,6 +170,15 @@ using IoUringCompletionFn = common::Status (*)(std::uint64_t offset, std::size_t
     IoUringOperation operation, std::uint64_t offset, std::size_t length,
     std::uint64_t queueDepth, std::uint64_t batchSize, std::size_t maxBytesPerSqe,
     IoUringCompletionFn completion, void* userData, FileIoStats* stats);
+
+struct FileWriteSlice {
+    const std::uint8_t* data = nullptr;
+    std::size_t size = 0;
+};
+// At most two borrowed slices; no payload copy or retained references.
+[[nodiscard]] common::Status writeGatheredAtAll(const PosixFile& file, std::uint64_t offset,
+    std::span<const FileWriteSlice> slices, FileIoStats* stats,
+    FileWriteObservation* observation = nullptr);
 
 class BufferedFileWriter {
    public:

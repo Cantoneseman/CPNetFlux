@@ -14,6 +14,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -189,6 +190,12 @@ common::Result<ProducerWakePolicy> diagnosticReceiverWakePolicy() {
     if (!setting || std::string_view(setting) == "available") return ProducerWakePolicy::AvailableCapacity;
     if (std::string_view(setting) == "empty") return ProducerWakePolicy::EmptyQueue;
     return Status::invalidArgument("CPNETFLUX_RECEIVER_PIPELINE_WAKE must be available or empty");
+}
+common::Result<std::size_t> diagnosticReceiverWriteBatch() {
+    const auto* setting = std::getenv("CPNETFLUX_RECEIVER_WRITE_BATCH");
+    if (!setting || std::string_view(setting) == "1") return std::size_t{1};
+    if (std::string_view(setting) == "2") return std::size_t{2};
+    return Status::invalidArgument("CPNETFLUX_RECEIVER_WRITE_BATCH must be 1 or 2");
 }
 common::Result<std::uint32_t> rangeCheckpointBatch(const PersistentTransferPolicy& policy) {
     if (policy.rangeCheckpointBatchChunks) {
@@ -443,7 +450,46 @@ class FileTransaction {
         auto status = writer_->write(offset, bytes.data(), bytes.size(), receiverWriteObservation());
         if (timing_) timing_->writeSeconds += secondsSince(writing);
         if (!status.isOk()) return status;
-        const auto end = offset + bytes.size();
+        return recordWritten(offset, bytes, verifiedChecksum);
+    }
+    Status writeGathered(std::span<const PreparedPayload> items) {
+        if (items.size() != 2) return Status::invalidArgument("gathered receiver write needs two frames");
+        if (skipped_) return Status::ok();
+        std::array<storage::FileWriteSlice, 2> slices;
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            const auto& item = items[i];
+            if (item.logicalOffset > item.bytes.size())
+                return Status::invalidArgument("gathered logical offset exceeds buffer");
+            const auto size = item.logicalBytes ? item.logicalBytes : item.bytes.size() - item.logicalOffset;
+            if (size > item.bytes.size() - item.logicalOffset || item.offset > identity_.totalSize ||
+                size > identity_.totalSize - item.offset)
+                return Status::invalidArgument("gathered write exceeds buffer or file");
+            slices[i] = {item.bytes.data() + item.logicalOffset, size};
+        }
+        if (items[1].offset != items[0].offset + slices[0].size)
+            return Status::invalidArgument("gathered receiver frames must be contiguous");
+        const auto writing = Clock::now();
+        auto status = storage::writeGatheredAtAll(file_, items[0].offset, slices, ioStats_, receiverWriteObservation());
+        if (timing_) {
+            timing_->writeSeconds += secondsSince(writing);
+            ++timing_->gatheredWriteCalls;
+            timing_->gatheredWriteFrames += items.size();
+            timing_->gatheredWriteBytes += slices[0].size + slices[1].size;
+        }
+        // Even a partial kernel write must not certify any frame in this batch.
+        if (!status.isOk()) return status;
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            status = recordWritten(items[i].offset, {slices[i].data, slices[i].size},
+                {identity_.checksumAlgorithm, items[i].frameChecksum});
+            if (!status.isOk()) return status;
+        }
+        return Status::ok();
+    }
+   private:
+    Status recordWritten(std::uint64_t offset, std::span<const std::uint8_t> bytes,
+                         checksum::ChecksumValue verifiedChecksum) {
+        ScopedManifestObservation observing(session_, nullptr, wholeObservation());
+        Status status = Status::ok();
         std::size_t consumed = 0;
         while (consumed < bytes.size()) {
             const auto chunkOffset = (offset + consumed) / identity_.chunkSize * identity_.chunkSize;
@@ -474,6 +520,7 @@ class FileTransaction {
         }
         return Status::ok();
     }
+   public:
     Status commit(RangeObservation* observation = nullptr) {
         ScopedManifestObservation observing(session_, observation, wholeObservation());
         std::lock_guard publicationLock(publicationMutex_);
@@ -1730,6 +1777,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         return Status::invalidArgument("persistent channel index/count is invalid");
     const auto receiverWake = diagnosticReceiverWakePolicy();
     if (!receiverWake.isOk()) return receiverWake.status();
+    const auto receiverWriteBatch = diagnosticReceiverWriteBatch();
+    if (!receiverWriteBatch.isOk()) return receiverWriteBatch.status();
     stats->pendingWindow = pendingWindow; // Receiver stays serial; report negotiated sender credit.
     const std::uint64_t filesAtConnectionStart = stats->files;
     auto status = PersistentDataSession::setTimeout(socket, 30);
@@ -1908,6 +1957,11 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         auto receiverDepth = diagnosticPipelineDepth();
         if (!receiverDepth.isOk()) return finishTransport(receiverDepth.status());
         timing.receiverEmptyQueueWake = receiverWake.value() == ProducerWakePolicy::EmptyQueue;
+        const auto& receiverIo = context->policy.options.fileIo;
+        timing.receiverWriteBatchLimit = !rangeEntry && !context->policy.options.maxChunks &&
+            receiverIo.backend == storage::FileIoBackendKind::Posix &&
+            storage::effectivePosixWriteStrategy(receiverIo) == storage::PosixWriteStrategy::Direct
+            ? static_cast<std::uint32_t>(receiverWriteBatch.value()) : 1;
         const std::size_t receiverPipelineChunkBytes = PersistentDataSession::kMaxPayload;
         BoundedPayloadPipeline receiverPipeline(receiverPipelineChunkBytes * receiverDepth.value(),
             receiverDepth.value(), timing.rangeObservationEnabled, receiverWake.value());
@@ -1925,70 +1979,78 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         } writerGuard{&receiverPipeline, &receiverWriter};
         receiverWriter = std::thread([&] {
             const auto writerCpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
-            Status writerStatus = Status::ok();
-            std::vector<std::uint8_t> reusablePayload;
-            for (;;) {
-                auto next = receiverPipeline.pop(std::move(reusablePayload));
-                if (!next.isOk()) {
-                    writerTerminal = next.status();
-                    break;
+            std::array<PreparedPayload, 2> slots;
+            bool stop = false;
+            while (!stop) {
+                std::size_t count = 0;
+                if (timing.receiverWriteBatchLimit == 2) {
+                    auto next = receiverPipeline.popBatch(slots);
+                    if (!next.isOk()) { writerTerminal = next.status(); break; }
+                    count = next.value();
+                } else {
+                    auto next = receiverPipeline.pop(std::move(slots[0].bytes));
+                    if (!next.isOk()) { writerTerminal = next.status(); break; }
+                    if (next.value()) { slots[0] = std::move(*next.value()); count = 1; }
                 }
-                if (!next.value()) break;
-                auto item = std::move(next.value().value());
-                const auto logicalOffset = item.logicalOffset;
-                const auto logicalBytes = item.logicalBytes == 0
-                    ? item.bytes.size() - logicalOffset : item.logicalBytes;
-                if (logicalOffset > item.bytes.size() || logicalBytes > item.bytes.size() - logicalOffset) {
-                    writerTerminal = Status::invalidArgument("receiver pipeline logical payload is invalid");
-                    receiverPipeline.cancel(writerTerminal);
-                    break;
-                }
-                const std::span<const std::uint8_t> logical(
-                    item.bytes.data() + logicalOffset, logicalBytes);
-                if (ready) {
-                    writerStatus = executor->startIo(*lease, logical.size());
-                    if (!writerStatus.isOk()) {
-                        writerTerminal = writerStatus;
-                        receiverPipeline.cancel(writerStatus);
+                if (count == 0) break;
+                std::array<std::span<const std::uint8_t>, 2> logical;
+                for (std::size_t i = 0; i < count; ++i) {
+                    const auto& item = slots[i];
+                    if (item.logicalOffset > item.bytes.size() ||
+                        item.logicalBytes > item.bytes.size() - item.logicalOffset) {
+                        writerTerminal = Status::invalidArgument("receiver pipeline logical payload is invalid");
+                        stop = true;
                         break;
                     }
+                    const auto size = item.logicalBytes ? item.logicalBytes : item.bytes.size() - item.logicalOffset;
+                    logical[i] = {item.bytes.data() + item.logicalOffset, size};
                 }
-                if (fileStatus.isOk()) {
-                    Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
-                    const checksum::ChecksumValue verifiedChecksum{id.checksumAlgorithm, item.frameChecksum};
-                    fileStatus = rangeEntry
-                        ? RangeFileCoordinator::write(rangeEntry, id, item.offset, logical,
-                                                       verifiedChecksum, observation)
-                        : transaction->write(item.offset, logical, verifiedChecksum);
-                    if (fileStatus.isOk()) {
-                        stats->payloadBytes += logical.size();
-                        if (observation && id.rangeId != 0) {
-                            ++observation->dataFrameCount;
-                            observation->effectiveDataBytes += logical.size();
-                        }
-                        if (item.checksumPresent &&
-                            id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c) {
-                            stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
-                                id.relativePath, id.totalSize, item.offset,
-                                static_cast<std::uint64_t>(logical.size()), item.frameChecksum});
-                        }
-                        if (context->policy.options.maxChunks &&
-                            stats->payloadBytes >= context->policy.options.maxChunks * id.chunkSize) {
-                            writerTerminal = Status::runtimeError("transfer interrupted by max-chunks");
-                            receiverPipeline.cancel(writerTerminal);
-                            break;
+                for (std::size_t first = 0; first < count && !stop;) {
+                    const std::size_t group = count == 2 && first == 0 &&
+                        slots[0].offset <= UINT64_MAX - logical[0].size() &&
+                        slots[1].offset == slots[0].offset + logical[0].size() ? 2 : 1;
+                    std::size_t issued = 0;
+                    if (ready) {
+                        for (; issued < group; ++issued) {
+                            auto status = executor->startIo(*lease, logical[first + issued].size());
+                            if (!status.isOk()) { writerTerminal = status; stop = true; break; }
                         }
                     }
-                }
-                if (ready) {
-                    writerStatus = executor->finishIo(*lease, logical.size());
-                    if (!writerStatus.isOk()) {
-                        writerTerminal = writerStatus;
-                        receiverPipeline.cancel(writerStatus);
-                        break;
+                    if (!stop && fileStatus.isOk()) {
+                        Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
+                        const auto& item = slots[first];
+                        const checksum::ChecksumValue verifiedChecksum{id.checksumAlgorithm, item.frameChecksum};
+                        fileStatus = group == 2 ? transaction->writeGathered({slots.data(), group}) : rangeEntry
+                            ? RangeFileCoordinator::write(rangeEntry, id, item.offset, logical[first], verifiedChecksum, observation)
+                            : transaction->write(item.offset, logical[first], verifiedChecksum);
+                        if (fileStatus.isOk()) {
+                            for (std::size_t n = 0; n < group; ++n) {
+                                const auto i = first + n;
+                                stats->payloadBytes += logical[i].size();
+                                if (observation && id.rangeId != 0) {
+                                    ++observation->dataFrameCount;
+                                    observation->effectiveDataBytes += logical[i].size();
+                                }
+                                if (slots[i].checksumPresent && id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c)
+                                    stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
+                                        id.relativePath, id.totalSize, slots[i].offset,
+                                        static_cast<std::uint64_t>(logical[i].size()), slots[i].frameChecksum});
+                            }
+                            if (context->policy.options.maxChunks &&
+                                stats->payloadBytes >= context->policy.options.maxChunks * id.chunkSize) {
+                                writerTerminal = Status::runtimeError("transfer interrupted by max-chunks");
+                                stop = true;
+                            }
+                        }
                     }
+                    // Balance every successful issue, including an issue or write failure.
+                    for (std::size_t n = 0; n < issued; ++n) {
+                        auto status = executor->finishIo(*lease, logical[first + n].size());
+                        if (!status.isOk()) { writerTerminal = status; stop = true; }
+                    }
+                    first += group;
                 }
-                reusablePayload = std::move(item.bytes);
+                if (stop) receiverPipeline.cancel(writerTerminal);
             }
             timing.receiverWriterThreadCpuSeconds +=
                 threadCpuSeconds(timing.rangeObservationEnabled) - writerCpuStarted;
@@ -2280,6 +2342,12 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
         if (allocationObserved) out << t.preallocateSeconds; else out << "null";
         out << ",\"preallocate_cpu_seconds\":";
         if (allocationObserved) out << t.preallocateCpuSeconds; else out << "null";
+        out << ",\"receiver_write_batch_limit\":";
+        if (allocationObserved) out << t.receiverWriteBatchLimit; else out << "null";
+        out << ",\"gathered_write_scope\":\"two_contiguous_frames_wrapper_attempts_not_verified_progress\""
+            << ",\"gathered_write_calls\":" << t.gatheredWriteCalls
+            << ",\"gathered_write_frames\":" << t.gatheredWriteFrames
+            << ",\"gathered_write_bytes\":" << t.gatheredWriteBytes;
         out << ",\"range_observation_enabled\":" << (t.rangeObservationEnabled ? "true" : "false")
             << ",\"range_observation_scope\":\"local_range_begin_write_complete_subintervals_overlap_not_wall\""
             << ",\"lane_thread_cpu_seconds\":" << t.laneThreadCpuSeconds

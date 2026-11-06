@@ -563,6 +563,63 @@ TEST(PersistentSessionTest, ReceiverRejectsInvalidWakePolicyBeforeCreatingCheckp
     EXPECT_EQ(stats.payloadBytes, 0U);
 }
 
+TEST(PersistentSessionTest, ReceiverRejectsInvalidWriteBatchBeforeCreatingCheckpoint) {
+    ScopedEnvironment setting("CPNETFLUX_RECEIVER_WRITE_BATCH", "3");
+    SocketPair pair;
+    TempRoot root;
+    PersistentTreeStats stats;
+    const PersistentFileIdentity id{1, 1, 1, "invalid-write.bin", "invalid-write"};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    const auto status = receivePersistentTree(&pair.receiver, root.path.string(), false, "", &stats);
+    EXPECT_FALSE(status.isOk());
+    EXPECT_NE(status.message().find("CPNETFLUX_RECEIVER_WRITE_BATCH"), std::string::npos);
+    EXPECT_TRUE(std::filesystem::is_empty(root.path));
+    EXPECT_EQ(stats.payloadBytes, 0U);
+}
+
+TEST(PersistentSessionTest, WriteBatchPreservesWholeFileCrcAndHonorsBufferedExclusion) {
+    ScopedEnvironment setting("CPNETFLUX_RECEIVER_WRITE_BATCH", "2");
+    for (const bool buffered : {false, true}) {
+        SocketPair pair;
+        TempRoot source, destination;
+        std::string content(524305, '\0');
+        for (std::size_t i = 0; i < content.size(); ++i) content[i] = static_cast<char>((i * 31) % 251);
+        std::ofstream(source.path / "gathered.bin", std::ios::binary) << content;
+        struct stat st{};
+        ASSERT_EQ(::stat((source.path / "gathered.bin").c_str(), &st), 0);
+        PersistentFileIdentity id{1, 1, content.size(), "gathered.bin", "gathered-unit", 65536,
+            st.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+        PersistentTransferPolicy policy;
+        policy.options.finalVerifyPolicy = cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks;
+        if (buffered) policy.options.fileIo.bufferSize = 131072;
+        auto context = makePersistentTransferContext(policy);
+        PersistentTreeStats received, sent;
+        received.phaseTiming = true;
+        cpnetflux::common::Status result;
+        std::jthread receiver([&] {
+            result = receivePersistentTree(&pair.receiver, destination.path.string(), false, "", &received,
+                {}, 1, 0, 1, 1, false, false, context);
+        });
+        const auto sentStatus = sendPersistentTree(&pair.sender, source.path.string(), {id}, &sent);
+        if (!sentStatus.isOk()) ::shutdown(pair.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        ASSERT_TRUE(sentStatus.isOk()) << sentStatus.message();
+        ASSERT_TRUE(result.isOk()) << result.message();
+        EXPECT_EQ(received.payloadBytes, content.size());
+        std::ifstream input(destination.path / "gathered.bin", std::ios::binary);
+        EXPECT_EQ(std::string((std::istreambuf_iterator<char>(input)), {}), content);
+        const auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+            cpnetflux::checkpoint::manifestPathForOutput((destination.path / "gathered.bin").string()));
+        ASSERT_TRUE(manifest.isOk()) << manifest.status().message();
+        EXPECT_EQ(manifest.value().verifiedChunks.size(), 9U);
+        std::ostringstream exported;
+        appendPersistentFileTimings(exported, received.fileTimings);
+        EXPECT_NE(exported.str().find(buffered ? "\"receiver_write_batch_limit\":1" :
+            "\"receiver_write_batch_limit\":2"), std::string::npos);
+    }
+}
+
 TEST(PersistentSessionTest, ReceiverRejectsFileAssignedToAnotherChannel) {
     SocketPair pair;
     TempRoot root;
@@ -2281,4 +2338,64 @@ TEST(PersistentResumeMaskTest, FragmentedCheckpointIsPaginatedBeforeDataPhase) {
     auto saved = cpnetflux::checkpoint::ManifestStore::load(cpnetflux::checkpoint::manifestPathForOutput(output));
     ASSERT_TRUE(saved.isOk()) << saved.status().message();
     EXPECT_EQ(saved.value().verifiedChunks.size(), 4096U);
+}
+
+
+TEST(BoundedPayloadPipelineTest, BatchPopsAvailableOwnersInOrderWithoutWaitingToFill) {
+    BoundedPayloadPipeline pipeline(32,2);
+    PreparedPayload a{1,{1,2,3}},b{4,{4,5}};
+    const auto* pa=a.bytes.data();const auto* pb=b.bytes.data();
+    ASSERT_TRUE(pipeline.push(std::move(a)).isOk());ASSERT_TRUE(pipeline.push(std::move(b)).isOk());
+    std::array<PreparedPayload,2> slots;
+    auto count=pipeline.popBatch(slots);ASSERT_TRUE(count.isOk())<<count.status().message();
+    ASSERT_EQ(count.value(),2U);EXPECT_EQ(slots[0].bytes.data(),pa);EXPECT_EQ(slots[1].bytes.data(),pb);
+    EXPECT_EQ(slots[0].offset,1U);EXPECT_EQ(slots[1].offset,4U);EXPECT_EQ(pipeline.queuedBytes(),0U);
+    PreparedPayload c{6,{6}};ASSERT_TRUE(pipeline.push(std::move(c)).isOk());
+    auto single=pipeline.popBatch(slots);ASSERT_TRUE(single.isOk());EXPECT_EQ(single.value(),1U);
+    EXPECT_EQ(slots[0].offset,6U);EXPECT_LE(pipeline.recycledCapacityBytes(),48U);
+    pipeline.close();auto end=pipeline.popBatch(slots);ASSERT_TRUE(end.isOk());EXPECT_EQ(end.value(),0U);
+}
+TEST(BoundedPayloadPipelineTest, BatchDrainsCloseAndCancellationWakesWaiter) {
+    BoundedPayloadPipeline pipeline(8,2);ASSERT_TRUE(pipeline.push(PreparedPayload{1,{1,2}}).isOk());
+    pipeline.close();std::array<PreparedPayload,2> slots;
+    auto count=pipeline.popBatch(slots);ASSERT_TRUE(count.isOk());ASSERT_EQ(count.value(),1U);
+    EXPECT_EQ(slots[0].bytes,(std::vector<std::uint8_t>{1,2}));
+    auto end=pipeline.popBatch(slots);ASSERT_TRUE(end.isOk());EXPECT_EQ(end.value(),0U);
+    BoundedPayloadPipeline cancelled(8,2);
+    auto waiting=std::async(std::launch::async,[&]{std::array<PreparedPayload,2> items;return cancelled.popBatch(items);});
+    cancelled.cancel(cpnetflux::common::Status::runtimeError("batch cancelled"));
+    ASSERT_EQ(waiting.wait_for(std::chrono::seconds(1)),std::future_status::ready);
+    EXPECT_FALSE(waiting.get().isOk());
+    EXPECT_FALSE(cancelled.popBatch(std::span<PreparedPayload>{}).isOk());
+}
+TEST(BoundedPayloadPipelineTest, BatchReusesConcurrentVariablePayloadsWithinOwnershipBudget) {
+    BoundedPayloadPipeline pipeline(32,2);
+    std::size_t allocations=0;cpnetflux::common::Status produced;
+    std::jthread producer([&]{
+        std::vector<std::uint8_t> buffer;
+        for(unsigned frame=0;frame<2000;++frame){
+            if(buffer.capacity()<16){buffer.reserve(16);++allocations;}
+            buffer.resize(frame%16+1);std::fill(buffer.begin(),buffer.end(),static_cast<std::uint8_t>(frame));
+            produced=pipeline.push(PreparedPayload{frame,std::move(buffer)},&buffer);
+            if(!produced.isOk())return;
+        }
+        pipeline.close();
+    });
+    std::array<PreparedPayload,2> slots;unsigned seen=0;
+    for(;;){
+        auto count=pipeline.popBatch(slots);
+        if(!count.isOk()){
+            pipeline.cancel(count.status());producer.join();
+            FAIL()<<count.status().message();return;
+        }
+        if(!count.value())break;
+        for(std::size_t i=0;i<count.value();++i){
+            EXPECT_EQ(slots[i].offset,seen);EXPECT_EQ(slots[i].bytes.size(),seen%16+1);
+            for(auto byte:slots[i].bytes)EXPECT_EQ(byte,static_cast<std::uint8_t>(seen));
+            ++seen;
+        }
+    }
+    producer.join();EXPECT_TRUE(produced.isOk());EXPECT_EQ(seen,2000U);
+    EXPECT_LE(allocations,5U);EXPECT_LE(pipeline.highWatermarkBytes(),32U);
+    EXPECT_EQ(pipeline.recycledCapacityBytes(),0U);
 }

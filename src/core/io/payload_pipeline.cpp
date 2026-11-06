@@ -135,6 +135,44 @@ common::Result<std::optional<PreparedPayload>> BoundedPayloadPipeline::pop(
     return std::optional<PreparedPayload>(std::move(payload));
 }
 
+common::Result<std::size_t> BoundedPayloadPipeline::popBatch(std::span<PreparedPayload> slots) {
+    if (slots.empty() || slots.size() > 2)
+        return Status::invalidArgument("payload batch slots must be one or two");
+    auto state = state_;
+    std::unique_lock<std::mutex> lock(state->mutex);
+    // Hand back every finished owner before freeing queue capacity for the producer.
+    for (auto& slot : slots) {
+        const auto capacity = slot.bytes.capacity();
+        if (!state->closed && !state->cancelled && capacity &&
+            state->recycledBuffers.size() < state->maxRecycledChunks &&
+            capacity <= state->maxRecycledBytes - state->recycledCapacityBytes) {
+            state->recycledBuffers.push_back(std::move(slot.bytes));
+            state->recycledCapacityBytes += capacity;
+        }
+        slot = PreparedPayload{};
+    }
+    const auto canPop = [&] { return state->cancelled || !state->queue.empty() || state->closed; };
+    if (!canPop()) {
+        ++state->consumerWaitCount;
+        const auto started = state->observeWaits ? std::chrono::steady_clock::now()
+                                                 : std::chrono::steady_clock::time_point{};
+        state->canPop.wait(lock, canPop);
+        if (state->observeWaits) state->consumerWaitSeconds +=
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    }
+    if (state->cancelled || !state->terminal.isOk()) return state->terminal;
+    const auto count = std::min(slots.size(), state->queue.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        slots[index] = std::move(state->queue.front());
+        state->queue.pop_front();
+        state->queuedBytes -= slots[index].bytes.size();
+    }
+    const bool wakeProducer = state->wakePolicy == ProducerWakePolicy::AvailableCapacity || state->queue.empty();
+    lock.unlock();
+    if (count && wakeProducer) state->canPush.notify_one();
+    return count;
+}
+
 void BoundedPayloadPipeline::close() {
     auto state = state_;
     {

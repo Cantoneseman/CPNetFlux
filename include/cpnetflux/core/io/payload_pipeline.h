@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <memory>
 #include <vector>
 
@@ -35,6 +36,9 @@ class BoundedPayloadPipeline {
                                       std::vector<std::uint8_t>* reusableBuffer = nullptr);
     [[nodiscard]] common::Result<std::optional<PreparedPayload>> pop(
         std::vector<std::uint8_t> reusableBuffer = {});
+
+    // Recycle prior slots, then consume up to two available items; never wait to fill.
+    [[nodiscard]] common::Result<std::size_t> popBatch(std::span<PreparedPayload> slots);
 
     [[nodiscard]] double producerWaitSeconds() const;
     [[nodiscard]] double consumerWaitSeconds() const;
