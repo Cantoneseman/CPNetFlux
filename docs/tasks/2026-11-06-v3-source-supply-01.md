@@ -56,3 +56,17 @@ External evidence: /home/Su/experiments/CPNetFlux/2026-11-06-v3-source-supply-01
 Tool audit: exec_command/write_stdin/apply_patch and dedicated chat messaging exposed.
 No delegation requested/called. R770-2 codex CLI check returned not found. Only SSH
 shell execution is used, per user request; no desktop automation.
+
+## Outcome
+
+Implementation 5b8be5af0c034451c117f372e346c049228299cc committed/pushed/read back;
+both builds and related 51/51 CTest gates passed. Seven hashes/config/version match,
+and six transfer-related hashes are identical to previous native measured source.
+All 12 source-read cases passed, source identity and independent SHA unchanged.
+64 KiB/1 MiB/8 MiB pure read medians 4.04734/3.95836/3.96494 Gbps; 65532-byte
+read plus hardware CRC median 4.04570 Gbps, checksum/combine subset 2.68731 seconds.
+No useful larger-read-block gain; runtime defaults/pipeline remain unchanged. This
+source path is near the previous native task rate, but is not a device hardware maximum.
+Next: read-only io_uring queue/lifetime controls and separately verified cached/faster
+source native controls, then evidence-based prefetch choice. CQ/RNR attribution stays
+separate. All evidence and next-step detail: [result](2026-11-06-v3-source-supply-01-result.md).
