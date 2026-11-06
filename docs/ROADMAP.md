@@ -4,7 +4,7 @@
 最近原生文件实测源码：`791c2eee785d0c197f8ff86d902f6ce8688112c8`（清单序列化优化），同组观测基线为 `d0d98c74b15b728cf2853ec168c26a7a3cc27c70`；最新源供数工具源码为 `5b8be5af0c034451c117f372e346c049228299cc`，其六个传输相关二进制与前者相同。接收策略对照源码为 `d323f1fa442071bee64650c44c96d8a11ba42b1f`。原 48 样本和 result 生命周期复测仍按各自输入提交解释。
 此前接收 span 的小规模 tmpfs 原生文件优化源码：`c4c1b4a134662a740e438da2f34b8aceea7d24fe`（接收 logical span），对照/写合并配置为 `a9ecbe9179c3d8154a91e17fe23b4c9d445f5a74`。此前接收端剖析为 `bdc82c13`、payload 复用为 `7aab4e68`、基线 `6025f54e`，CRC 拼接优化为 `46be03da`。上行所述 `791c2eee` 仍是最近 64 GiB 盘上负载源码，两类负载分别解释。
 当前开发分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
-最新三阶段流水线实测源码：545b92984fd3172582e48349e798673392fcb98b；交接调度/pwrite 归因及预分配已接通，两种候选均无净吞吐收益，默认保持容量可用唤醒、depth 2、预分配 off。
+最新非 RDMA 软件路径实测源码：`57502f309cbcde56e2e25f1cd49bf2b0da046b8d`；[有界无额外复制聚合写入](tasks/2026-11-07-v3-gathered-write-01-result.md)在 TCP 同提交四对对照中无净收益，默认 batch1。单 lane 1GiB tmpfs verified_chunks/commit-none task 中位数20.099 Gbps，候选17.045 Gbps；不与旧 RDMA 冷池数据做提速比。交接/预分配负结果保留，默认容量可用唤醒、depth2、preallocate off。
 
 ## 当前目标
 
@@ -78,6 +78,7 @@
 | 接收帧复用，源码 `5ef3c683` | 每 GiB DATA 分配17408→1；1 GiB tmpfs 各三次及一次 full 控制，文件阶段 19.21/19.82 Gbps，task 3.10/3.10 Gbps；七样本通过并清理 | 完整任务等比例提速、零拷贝、持久化/100G 或 CQ 稳定性通过 |
 | 冷 RDMA 缓冲池，源码 `aa5efcc0` | 对齐映射＋进程内 THP 提示；1 GiB tmpfs 各三次和一次 full 控制，建连 2.102/1.058 s，task 3.104/5.315 Gbps（+71.25%）；文件阶段 19.925/19.170 Gbps；七样本通过并清理 | 文件处理阶段提速、长期稳定、持久化/100G；部分候选 CQ response/flush 增量更高且未解释 |
 | 流水线交接/预分配，源码 c572b39 / 545b929 | 同源 1 GiB 四对唤醒、三对预分配共 14 正式样本通过；独立 pwrite CPU 归因；两种候选均降低吞吐；R1 557/557、R2 152/152 | 新提速、完整三阶段 worker 池、持久化/100G 或 CQ 稳定性通过 |
+| 无额外复制 gathering，源码 `57502f30` | TCP 同源1GiB四对、task20.099/17.045 Gbps，候选CPU增加且拒绝默认推广；R1 568/568、R2 219/219，部分写后恢复/SHA通过 | 默认提速、持久化/100G、RDMA对照收益、完整独立三阶段worker池 |
 | 硬件拓扑 | 每台 R770 一张 100GbE/RoCE 端口 | 10×100Gbps 多链路或 1Tbps 扩展 |
 
 稳态 payload rate、含建连/提交的 task rate、每 lane 吞吐分别记录，不合并计时口径。测试需固定提交、双端同配置构建，逐文件校验并保存 route、端口计数、CPU/RSS 和原始日志。

@@ -23,4 +23,11 @@
 
 详见[流水线 02 结果](../tasks/2026-11-07-v3-pipeline-02-result.md)。c572b39 的四对唤醒对照证实减少 waits/switch 不等于降 CPU，故 c876d642 恢复 AvailableCapacity 默认。独立 pwrite 探针显示 writer 主要 CPU 在实际 kernel 写路径。545b929 接通 V3 下载已有 off/full 预分配，准备 wall/CPU 保留在总计时内；三对对照无净收益，默认 off。实现、局部 write_seconds 下降与性能验收分别判断。
 
-下一步仅评估现有 ownership 预算内无额外复制 gathering write；先测连续 offset、部分写/错误及恢复记账契约，再做 direct pwrite 固定对照。旧带复制 coalescing 结果不能当该方案成绩，syscall 数下降不能代替性能验收。独立三阶段全局 worker 池未实现，RDMA 优化仍暂停，CQ/peer-mapping、100G 稳定性门仍开放。
+第二轮提出的 ownership 预算内无额外复制 gathering write 已完成评估，见第三轮；不再作为待实现任务。旧带复制 coalescing 结果不能当该方案成绩，syscall 数下降不能代替性能验收。独立三阶段全局 worker 池未实现，RDMA 优化仍暂停，CQ/peer-mapping、100G 稳定性门仍开放。
+
+
+## 第三轮 gathering 处置（2026-11-07）
+
+[实现和 TCP 对照结果](../tasks/2026-11-07-v3-gathered-write-01-result.md)：`57502f30` 保留最多两帧借用 span 的候选、回收修正和实际 partial-write 恢复测试。固定同提交四对 TCP 内存对照，调用减少但完整 task20.099→17.045 Gbps、接收线程CPU+13.54%，因此默认保持 batch1，batch2仅为显式诊断。首版回收问题经确定性 RED/GREEN 修复，两端最终门通过，不能把减少 syscall/writer calls 当验收。
+
+当前下一步改为 TCP 1/2/4 lane 有界伸缩归因，先用现有 timing 观察 range共享事务锁、读/CRC、网络与writer服务率，再选择一个因素实现与对照。没有执行该新实验，没有解锁 RDMA 优化，也没有实现全局独立三阶段 worker 池。小规模非持久化TCP成绩与旧原生RDMA冷启动成绩分别解释。
