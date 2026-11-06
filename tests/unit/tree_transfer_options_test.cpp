@@ -23,6 +23,8 @@ TEST(TreeTransferOptionsTest, DownloadReceiverDefaultsMatchPersistentPolicy) {
     EXPECT_EQ(options.manifestFlushPolicy, runtime.options.manifestFlushPolicy);
     EXPECT_EQ(options.manifestFlushIntervalChunks, runtime.options.manifestFlushIntervalChunks);
     EXPECT_EQ(options.commitSyncPolicy, runtime.options.commitSyncPolicy);
+    EXPECT_EQ(options.fileIo.bufferSize, runtime.options.fileIo.bufferSize);
+    EXPECT_EQ(options.fileIo.posixWriteStrategy, runtime.options.fileIo.posixWriteStrategy);
     EXPECT_EQ(options.rangeCheckpointBatchChunks, runtime.rangeCheckpointBatchChunks);
 }
 
@@ -100,6 +102,43 @@ TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
     EXPECT_TRUE(parsed.value().authProbe);
     EXPECT_TRUE(parsed.value().sourceDir.empty());
     EXPECT_TRUE(parsed.value().destDir.empty());
+}
+
+TEST(TreeTransferOptionsTest, DownloadWriteBufferOptionsAreValidatedAndRoleScoped) {
+    using cpnetflux::config::TreeTransferRole;
+    const char* valid[]{"client", "--auth-probe", "--file-io-buffer-size", "262144",
+        "--posix-write-strategy", "coalesced"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        std::size(valid), valid, TreeTransferRole::Download);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().fileIo.bufferSize, 262144U);
+    EXPECT_EQ(parsed.value().fileIo.posixWriteStrategy, cpnetflux::storage::PosixWriteStrategy::Coalesced);
+    for (const auto* size : {"0", "67108864"}) {
+        const char* argv[]{"client", "--auth-probe", "--file-io-buffer-size", size,
+            "--posix-write-strategy", "direct"};
+        EXPECT_TRUE(cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, TreeTransferRole::Download).isOk());
+    }
+    const std::vector<std::pair<std::string, std::string>> invalid{
+        {"--file-io-buffer-size", "-1"}, {"--file-io-buffer-size", "67108865"},
+        {"--file-io-buffer-size", "256x"}, {"--posix-write-strategy", "unknown"},
+        {"--posix-write-strategy", "coalesced"}};
+    for (const auto& [option, value] : invalid) {
+        const char* argv[]{"client", "--auth-probe", option.c_str(), value.c_str()};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, TreeTransferRole::Download).isOk()) << option << '=' << value;
+    }
+    for (const auto* option : {"--file-io-buffer-size", "--posix-write-strategy"}) {
+        const char* argv[]{"client", "--auth-probe", option, "0"};
+        auto upload = cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, TreeTransferRole::Upload);
+        ASSERT_FALSE(upload.isOk());
+        EXPECT_NE(upload.status().message().find("download-only"), std::string::npos);
+        const auto downloadUsage = cpnetflux::config::treeTransferUsage("client", TreeTransferRole::Download);
+        EXPECT_NE(downloadUsage.find(option), std::string::npos);
+        EXPECT_EQ(cpnetflux::config::treeTransferUsage("client", TreeTransferRole::Upload).find(option),
+            std::string::npos);
+    }
 }
 
 TEST(TreeTransferOptionsTest, ParsesRdmaDataTransportForV3) {

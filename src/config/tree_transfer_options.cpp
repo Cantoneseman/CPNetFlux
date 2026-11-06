@@ -225,7 +225,8 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
 
         const bool receiverOption = option == "--manifest-flush-policy" ||
             option == "--manifest-flush-interval-chunks" || option == "--final-verify-policy" ||
-            option == "--commit-sync-policy" || option == "--range-checkpoint-batch-chunks";
+            option == "--commit-sync-policy" || option == "--range-checkpoint-batch-chunks" ||
+            option == "--file-io-buffer-size" || option == "--posix-write-strategy";
         if (receiverOption && role != TreeTransferRole::Download) {
             return common::Status::invalidArgument(std::string(option) +
                 " is download-only; configure the upload receiver on the server");
@@ -380,6 +381,16 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             auto parsed = core::session::parseCommitSyncPolicy(value);
             if (!parsed.isOk()) return parsed.status();
             options.commitSyncPolicy = parsed.value();
+        } else if (option == "--file-io-buffer-size") {
+            auto parsed = parseUnsigned(value, option);
+            if (!parsed.isOk() || parsed.value() > 67108864)
+                return common::Status::invalidArgument(
+                    "--file-io-buffer-size must be in range 0..67108864");
+            options.fileIo.bufferSize = parsed.value();
+        } else if (option == "--posix-write-strategy") {
+            auto parsed = storage::parsePosixWriteStrategy(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.fileIo.posixWriteStrategy = parsed.value();
         } else if (option == "--range-checkpoint-batch-chunks") {
             if (value == "auto") {
                 options.rangeCheckpointBatchChunks = 0;
@@ -549,6 +560,8 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         index += 2;
     }
 
+    const auto fileIoStatus = storage::validateFileIoConfig(options.fileIo);
+    if (!fileIoStatus.isOk()) return fileIoStatus;
     if (!options.authProbe && !hasSourceDir) {
         return common::Status::invalidArgument("--source-dir is required");
     }
@@ -672,7 +685,8 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
           "[--manifest-flush-policy every_n_chunks|final_only] "
           "[--manifest-flush-interval-chunks 1..65536] "
           "[--commit-sync-policy none|fsync_file|fsync_file_and_dir] "
-          "[--range-checkpoint-batch-chunks auto|1|4|16]"
+          "[--range-checkpoint-batch-chunks auto|1|4|16] "
+          "[--file-io-buffer-size 0..67108864] [--posix-write-strategy auto|direct|coalesced]"
         : "";
     return std::string("Usage: ") + programName +
            " --host <server-ip> --port <port> --source-dir " + sourceText + " --dest-dir " +

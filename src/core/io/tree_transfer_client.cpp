@@ -2553,6 +2553,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     receiverPolicy.options.manifestFlushIntervalChunks = options.manifestFlushIntervalChunks;
     receiverPolicy.options.finalVerifyPolicy = options.finalVerifyPolicy;
     receiverPolicy.options.commitSyncPolicy = options.commitSyncPolicy;
+    receiverPolicy.options.fileIo = options.fileIo;
     receiverPolicy.rangeCheckpointBatchChunks = options.rangeCheckpointBatchChunks;
     receiverPolicy.limits.taskDeadline = options.transferDeadline;
     auto transactions = makePersistentTransferContext(receiverPolicy);

@@ -53,7 +53,16 @@ Runtime helper scripts/evidence stay outside Git. No new infrastructure needed.
 Evidence: /home/Su/experiments/CPNetFlux/2026-11-06-v3-receiver-path-01.
 Payload: /dev/shm/cpnetflux-v3-receiver-path-20261106.
 Reuse prior memory guard and validated small-run harness with explicit new roots.
-CLI/config coalescing stage does not modify production code.
+Initial configuration probe failed before transfer: the V3 tree download CLI
+does not expose file write coalescing. Add download-only --file-io-buffer-size
+(0..67108864) and --posix-write-strategy (auto/direct/coalesced), validate with
+the existing storage helper, and pass FileIoConfig to the local receiver policy.
+Keep defaults and upload receiver ownership unchanged. A parse regression and
+observed actual write counts validate this prerequisite before comparison.
+Additional files: include/cpnetflux/config/tree_transfer_options.h,
+src/config/tree_transfer_options.cpp, src/core/io/tree_transfer_client.cpp,
+tests/unit/tree_transfer_options_test.cpp. The failed startup is retained and
+excluded from performance samples; use fresh labels for successful runs.
 
 Tools checked: shell and dedicated chat messaging exposed; chat messaging unused.
 No codex CLI found on R770-1. No delegation requested or performed.
