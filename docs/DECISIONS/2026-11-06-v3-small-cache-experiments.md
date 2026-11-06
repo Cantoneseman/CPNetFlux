@@ -20,3 +20,13 @@ and receipts; delete task-owned payloads after integrity verification. Inspect
 exact ownership/path before cleanup; historical payloads require separate review.
 
 Scope and gates: ../tasks/2026-11-06-v3-cache-path-01.md.
+
+2026-11-06 follow-up: subsequent routine software experiments use memory-backed
+source and target, with explicit memory budgets. Start with one lane and 1 GiB,
+one output at a time; include registered RDMA receive/send pools in resource
+accounting. Check resident pages, process physical I/O, host swap activity and
+RSS/minimum MemAvailable. Abort owned experiment processes on the task's sampled
+memory threshold, preserve failed workload evidence, and clean only owned paths.
+Do not enlarge payloads or concurrent lanes without revisiting the memory budget.
+Historical disk service rates remain a separate workload; tmpfs is non-durable.
+Current gates: ../tasks/2026-11-06-v3-receiver-profile-01.md.

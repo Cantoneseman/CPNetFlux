@@ -22,6 +22,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -263,6 +264,20 @@ TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalW
         }
         return crc ^ 0xffffffffU;
     };
+    struct ProfileSetting {
+        std::optional<std::string> previous;
+        explicit ProfileSetting(bool enabled) {
+            const auto* value = std::getenv("CPNETFLUX_RECEIVER_PROFILE");
+            if (value) previous = value;
+            ::setenv("CPNETFLUX_RECEIVER_PROFILE", enabled ? "1" : "0", 1);
+        }
+        ~ProfileSetting() {
+            if (previous) ::setenv("CPNETFLUX_RECEIVER_PROFILE", previous->c_str(), 1);
+            else ::unsetenv("CPNETFLUX_RECEIVER_PROFILE");
+        }
+    };
+    for (const bool profileEnabled : {false, true}) {
+    ProfileSetting profile(profileEnabled);
     for (const auto algorithm : {ChecksumAlgorithm::None, ChecksumAlgorithm::Crc32c}) {
         for (const bool compressed : {false, true}) {
             Directory source, destination;
@@ -284,6 +299,7 @@ TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalW
             ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sockets), 0);
             FramedDataSocket sender{UniqueFd(sockets[0])}, receiver{UniqueFd(sockets[1])};
             PersistentTreeStats received, sent;
+            received.phaseTiming = true;
             Status receiveStatus;
             std::jthread reader([&] {
                 receiveStatus = receivePersistentTree(&receiver, destination.path.string(),
@@ -341,7 +357,39 @@ TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalW
             std::ifstream output(destination.path / "spans.bin", std::ios::binary);
             const std::vector<std::uint8_t> actual((std::istreambuf_iterator<char>(output)), {});
             EXPECT_EQ(actual, content);
+            std::ostringstream timing;
+            appendPersistentFileTimings(timing, received.fileTimings);
+            if (!profileEnabled) {
+                EXPECT_NE(timing.str().find("\"receiver_payload_observation\":null"), std::string::npos);
+            } else {
+                EXPECT_NE(timing.str().find("\"schema\":\"cpnetflux_receiver_payload_observation_v1\""), std::string::npos);
+                std::uint64_t wireBytes = 0, shiftedBytes = 0, decodedFrames = 0;
+                for (const auto& write : script.dataWrites) {
+                    wireBytes += write.body.size();
+                    if (algorithm == ChecksumAlgorithm::Crc32c) shiftedBytes += write.body.size() - 4;
+                    if (write.header.flags & kDataCompressed) ++decodedFrames;
+                }
+                const auto count = [&](const char* key, std::uint64_t expected) {
+                    EXPECT_NE(timing.str().find(std::string("\"") + key + "\":" +
+                        std::to_string(expected) + ","), std::string::npos) << key;
+                };
+                const auto frames = script.dataWrites.size();
+                count("data_frame_count", frames);
+                count("frame_payload_allocations", frames);
+                count("frame_payload_bytes", wireBytes);
+                count("logical_buffer_allocations", frames);
+                count("logical_copy_bytes", wireBytes);
+                count("prefix_shift_calls", algorithm == ChecksumAlgorithm::Crc32c ? frames : 0);
+                count("prefix_shift_bytes", shiftedBytes);
+                count("decompression_calls", decodedFrames);
+                count("frame_crc_bytes", algorithm == ChecksumAlgorithm::Crc32c ? content.size() : 0);
+                count("whole_file_write_at_all_calls", frames);
+                count("whole_file_write_at_all_bytes", content.size());
+                EXPECT_EQ(received.fileIoStats.writeBytes(), content.size());
+                EXPECT_EQ(received.fileIoStats.posixWriteSyscallCount(), frames);
+            }
         }
+    }
     }
 }
 

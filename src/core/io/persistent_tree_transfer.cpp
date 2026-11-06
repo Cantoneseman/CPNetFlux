@@ -423,7 +423,7 @@ class FileTransaction {
         ScopedManifestObservation observing(session_, nullptr, wholeObservation());
         if (skipped_) return Status::ok();
         const auto writing = Clock::now();
-        auto status = writer_->write(offset, bytes.data(), bytes.size());
+        auto status = writer_->write(offset, bytes.data(), bytes.size(), receiverWriteObservation());
         if (timing_) timing_->writeSeconds += secondsSince(writing);
         if (!status.isOk()) return status;
         const auto end = offset + bytes.size();
@@ -444,7 +444,7 @@ class FileTransaction {
             chunkBytes_ += part;
             consumed += part;
             if (chunkBytes_ != length) continue;
-            auto flushed = writer_->flush();
+            auto flushed = writer_->flush(receiverWriteObservation());
             if (!flushed.isOk()) return flushed;
             Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
             status = std::visit([&](auto& s) { return s.recordVerifiedChunk(
@@ -461,7 +461,7 @@ class FileTransaction {
         ScopedManifestObservation observing(session_, observation, wholeObservation());
         std::lock_guard publicationLock(publicationMutex_);
         if (skipped_) { active_ = false; return Status::ok(); }
-        auto flushed = writer_->flush();
+        auto flushed = writer_->flush(receiverWriteObservation());
         if (!flushed.isOk()) return flushed;
         if (!std::visit([](const auto& s) { return s.missingRanges().empty(); }, session_))
             return Status::invalidArgument("persistent commit requires complete verified coverage");
@@ -694,6 +694,10 @@ class FileTransaction {
     std::unique_ptr<storage::BufferedFileWriter> writer_;
     WholeFileObservation* wholeObservation() const {
         return timing_ && timing_->wholeFileObservationEnabled ? &timing_->wholeFileObservation : nullptr;
+    }
+    storage::FileWriteObservation* receiverWriteObservation() const {
+        return timing_ && timing_->receiverPayloadObservationEnabled
+            ? &timing_->receiverPayloadObservation.wholeFileWrite : nullptr;
     }
     Session session_;
     storage::PosixFile file_;
@@ -1804,6 +1808,11 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         timing.file = id; timing.channel = channelIndex;
         timing.wholeFileObservationEnabled = stats->phaseTiming && id.rangeId == 0;
         timing.rangeObservationEnabled = observeRanges(*stats);
+        const auto* receiverProfile = std::getenv("CPNETFLUX_RECEIVER_PROFILE");
+        timing.receiverPayloadObservationEnabled = stats->phaseTiming && receiverProfile &&
+            std::string_view(receiverProfile) == "1";
+        auto* payloadObservation = timing.receiverPayloadObservationEnabled
+            ? &timing.receiverPayloadObservation : nullptr;
         auto* observation = timing.rangeObservationEnabled ? &timing.rangeObservation : nullptr;
         const auto laneCpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
         const auto fileStarted = Clock::now();
@@ -1902,7 +1911,18 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             timing.payloadIoSeconds += secondsSince(payloadStarted);
             if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
             const auto checksumStarted = Clock::now();
+            const auto copyStarted = payloadObservation ? Clock::now() : Clock::time_point{};
             std::vector<std::uint8_t> logical = data.value().payload;
+            if (payloadObservation) {
+                auto& p = *payloadObservation;
+                ++p.dataFrameCount;
+                p.framePayloadAllocations += data.value().payload.capacity() != 0;
+                p.framePayloadBytes += data.value().payload.size();
+                p.framePayloadCapacityBytes += data.value().payload.capacity();
+                p.logicalBufferAllocations += logical.capacity() != 0;
+                p.logicalCopyBytes += logical.size();
+                p.logicalCopySeconds += secondsSince(copyStarted);
+            }
             std::optional<std::uint32_t> expectedDigest;
             if (data.value().header.flags & protocol::kDataChecksum) {
                 if (id.checksumAlgorithm==checksum::ChecksumAlgorithm::None || logical.size()<=4)
@@ -1910,9 +1930,16 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 expectedDigest=(static_cast<std::uint32_t>(logical[0])<<24)|
                     (static_cast<std::uint32_t>(logical[1])<<16)|
                     (static_cast<std::uint32_t>(logical[2])<<8)|logical[3];
+                const auto shifting = payloadObservation ? Clock::now() : Clock::time_point{};
                 logical.erase(logical.begin(),logical.begin()+4);
+                if (payloadObservation) {
+                    ++payloadObservation->prefixShiftCalls;
+                    payloadObservation->prefixShiftBytes += logical.size();
+                    payloadObservation->prefixShiftSeconds += secondsSince(shifting);
+                }
             }
             if (data.value().header.flags & protocol::kDataCompressed) {
+                const auto decoding = payloadObservation ? Clock::now() : Clock::time_point{};
                 auto size = protocol::compressedDataPayloadLogicalLength(logical.data(),logical.size());
                 if (!size.isOk()) return size.status();
                 auto decoded = protocol::decodeCompressedDataPayload(logical.data(),logical.size(),
@@ -1920,6 +1947,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 if (!decoded.isOk()) { ++stats->runtime.decompressionFailures; return decoded.status(); }
                 ++timing.compressedFrames;
                 logical = std::move(decoded.value());
+                if (payloadObservation) {
+                    ++payloadObservation->decompressionCalls;
+                    payloadObservation->decompressionSeconds += secondsSince(decoding);
+                }
                 ++stats->runtime.compressedFrames;
                 stats->runtime.compressedLogicalBytes += logical.size();
                 stats->runtime.compressedWireBytes += data.value().payload.size();
@@ -1927,9 +1958,15 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             if (id.checksumAlgorithm!=checksum::ChecksumAlgorithm::None && !expectedDigest)
                 return Status::invalidArgument("DATA checksum is required before checkpointing");
             if (expectedDigest) {
+                const auto checking = payloadObservation ? Clock::now() : Clock::time_point{};
                 checksum::ChecksumComputer checksum(id.checksumAlgorithm);
                 checksum.update(logical.data(),logical.size());
-                if (checksum.finalize().value!=*expectedDigest)
+                const auto actualDigest = checksum.finalize().value;
+                if (payloadObservation) {
+                    payloadObservation->frameCrcBytes += logical.size();
+                    payloadObservation->frameCrcSeconds += secondsSince(checking);
+                }
+                if (actualDigest!=*expectedDigest)
                     return Status::invalidArgument("DATA checksum mismatch before write");
             }
             auto logicalHeader=data.value().header;
@@ -2158,6 +2195,34 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
                 << static_cast<double>(rdma.receiveCompletionWaitNanoseconds) / 1e9 << '}';
         } else {
             out << ",\"rdma_receive_observation\":null";
+        }
+        out << ",\"receiver_payload_observation\":";
+        if (t.receiverPayloadObservationEnabled && !t.sender) {
+            const auto& p = t.receiverPayloadObservation;
+            out << "{\"schema\":\"cpnetflux_receiver_payload_observation_v1\","
+                << "\"scope\":\"local DATA processing; frame capacity counts delivered fresh readNext vectors; whole-file writes exclude range writer\","
+                << "\"clock\":\"steady_clock seconds; copy/shift/decode/CRC are nested in checksum_seconds; storage writes nested in write_seconds or flush; do not add aggregates\","
+                << "\"capacity_scope\":\"cumulative vector capacity, not live memory or RSS; excludes decoder and RDMA allocations\","
+                << "\"data_frame_count\":" << p.dataFrameCount
+                << ",\"frame_payload_allocations\":" << p.framePayloadAllocations
+                << ",\"frame_payload_bytes\":" << p.framePayloadBytes
+                << ",\"frame_payload_capacity_bytes\":" << p.framePayloadCapacityBytes
+                << ",\"logical_buffer_allocations\":" << p.logicalBufferAllocations
+                << ",\"logical_copy_bytes\":" << p.logicalCopyBytes
+                << ",\"logical_copy_seconds\":" << p.logicalCopySeconds
+                << ",\"prefix_shift_calls\":" << p.prefixShiftCalls
+                << ",\"prefix_shift_bytes\":" << p.prefixShiftBytes
+                << ",\"prefix_shift_seconds\":" << p.prefixShiftSeconds
+                << ",\"decompression_calls\":" << p.decompressionCalls
+                << ",\"decompression_seconds\":" << p.decompressionSeconds
+                << ",\"frame_crc_bytes\":" << p.frameCrcBytes
+                << ",\"frame_crc_seconds\":" << p.frameCrcSeconds
+                << ",\"whole_file_write_at_all_calls\":" << p.wholeFileWrite.writeAtAllCalls
+                << ",\"whole_file_write_at_all_bytes\":" << p.wholeFileWrite.writeAtAllBytes
+                << ",\"whole_file_write_at_all_failures\":" << p.wholeFileWrite.writeAtAllFailures
+                << ",\"whole_file_write_at_all_seconds\":" << p.wholeFileWrite.writeAtAllSeconds << '}';
+        } else {
+            out << "null";
         }
         out << ",\"whole_file_observation\":";
         if (t.wholeFileObservationEnabled) {

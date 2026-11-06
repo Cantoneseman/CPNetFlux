@@ -74,6 +74,16 @@ struct WholeFileObservation {
     checkpoint::ManifestSaveStats manifestSave;
     session::VerifiedChunkRecordStats records;
 };
+struct ReceiverPayloadObservation {
+    std::uint64_t dataFrameCount = 0, framePayloadAllocations = 0;
+    std::uint64_t framePayloadBytes = 0, framePayloadCapacityBytes = 0;
+    std::uint64_t logicalBufferAllocations = 0, logicalCopyBytes = 0;
+    std::uint64_t prefixShiftCalls = 0, prefixShiftBytes = 0;
+    std::uint64_t decompressionCalls = 0, frameCrcBytes = 0;
+    double logicalCopySeconds = 0, prefixShiftSeconds = 0;
+    double decompressionSeconds = 0, frameCrcSeconds = 0;
+    storage::FileWriteObservation wholeFileWrite;
+};
 struct PersistentFileTiming {
     PersistentFileIdentity file;
     std::uint32_t channel = 0;
@@ -81,6 +91,8 @@ struct PersistentFileTiming {
     bool rangeObservationEnabled = false;
     bool wholeFileObservationEnabled = false;
     WholeFileObservation wholeFileObservation;
+    bool receiverPayloadObservationEnabled = false;
+    ReceiverPayloadObservation receiverPayloadObservation;
     bool rdmaReceiveObservationAvailable = false;
     RdmaTransportStats rdmaTransportStats;
     RangeObservation rangeObservation;
