@@ -4,7 +4,7 @@
 最近原生文件实测源码：`791c2eee785d0c197f8ff86d902f6ce8688112c8`（清单序列化优化），同组观测基线为 `d0d98c74b15b728cf2853ec168c26a7a3cc27c70`；最新源供数工具源码为 `5b8be5af0c034451c117f372e346c049228299cc`，其六个传输相关二进制与前者相同。接收策略对照源码为 `d323f1fa442071bee64650c44c96d8a11ba42b1f`。原 48 样本和 result 生命周期复测仍按各自输入提交解释。
 此前接收 span 的小规模 tmpfs 原生文件优化源码：`c4c1b4a134662a740e438da2f34b8aceea7d24fe`（接收 logical span），对照/写合并配置为 `a9ecbe9179c3d8154a91e17fe23b4c9d445f5a74`。此前接收端剖析为 `bdc82c13`、payload 复用为 `7aab4e68`、基线 `6025f54e`，CRC 拼接优化为 `46be03da`。上行所述 `791c2eee` 仍是最近 64 GiB 盘上负载源码，两类负载分别解释。
 当前开发分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
-最新非 RDMA 软件路径实测源码：`57502f309cbcde56e2e25f1cd49bf2b0da046b8d`；[有界无额外复制聚合写入](tasks/2026-11-07-v3-gathered-write-01-result.md)在 TCP 同提交四对对照中无净收益，默认 batch1。单 lane 1GiB tmpfs verified_chunks/commit-none task 中位数20.099 Gbps，候选17.045 Gbps；不与旧 RDMA 冷池数据做提速比。交接/预分配负结果保留，默认容量可用唤醒、depth2、preallocate off。
+最新非 RDMA 软件路径实测源码：`60873ba0dc21ca7d79236071c7250eac45029104`；[TCP伸缩与range独立写入](tasks/2026-11-07-v3-tcp-scaling-01-result.md)已完成。同提交四对对照，2 lane task中位数12.394→17.603 Gbps（+42.03%），4 lane8.640→13.666（+58.17%）；双端CPU分别增加4.39%/46.22%，单lane控制20.022仍最快。保留eligible POSIX direct并行写及serial诊断开关，不提高默认lane。此前[gathering负结果](tasks/2026-11-07-v3-gathered-write-01-result.md)保留，batch1/depth2/容量可用唤醒/preallocate off不变；小规模非持久化TCP成绩不是100G验收。
 
 ## 当前目标
 
@@ -52,7 +52,7 @@
 
 11/7 的 [V3 三阶段流水线 01 结果](tasks/2026-11-06-v3-pipeline-01-result.md)已完成：接收端引入有界 network/checksum→write 队列和独立 writer，保留 checksum 前缀逻辑视图与断连排空语义。互传输入固定提交 `50efc0e`；后续清理/测试提交 `efbc3e5` 下 R770-1 全量 552/552、R770-2 相关 134/134 通过且八个二进制摘要一致；1 GiB tmpfs verified_chunks 深度 2/8 各三次均通过 CRC、独立 SHA、原生 QP、RSS/交换分区和清理门。深度 2/8 的完整 task rate 中位数为 5.484997/5.484676 Gbps，文件阶段为 21.777862/21.922598 Gbps；消费者等待 12/1 次，完整任务无可重复收益。写入与建连仍是主路径候选，不能把本轮结果说成 100 Gbps 或 RDMA 优化。
 
-当前下一步：按[内存实验决策](DECISIONS/2026-11-06-v3-small-cache-experiments.md)继续采用内存源/目标、单 lane、1 GiB、一个输出和内存/交换分区守护。[流水线 02](tasks/2026-11-07-v3-pipeline-02-result.md)已完成：writer 主要 CPU 位于实际 pwrite kernel 路径；排空唤醒减少等待却降低吞吐，整文件预分配把 write wall 约 0.359→0.194 秒，但额外分配约 0.255 秒，完整 task 5.587→5.248 Gbps。两种默认均未改变。下一步评估现有 ownership 预算内连续 offset 的无额外复制 gathering write，先保证部分写/错误/断连排空/verified chunk checkpoint，再同提交与 direct pwrite 对照；不能重做带复制 coalescing 后只看调用数。固定版本、恢复、原子发布和清理门保持。RDMA CQ/RQ/SQ/QP、peer-mapping、磁盘继续独立，整体性能门和 100G 门未通过。
+当前下一步：按[内存实验决策](DECISIONS/2026-11-06-v3-small-cache-experiments.md)继续总量1GiB、单源/当前单输出、内存/交换分区守护。[流水线02](tasks/2026-11-07-v3-pipeline-02-result.md)的唤醒/预分配与[gathering](tasks/2026-11-07-v3-gathered-write-01-result.md)已完成且无净收益，不再列为待实现。[TCP range锁拆分](tasks/2026-11-07-v3-tcp-scaling-01-result.md)缓解多lane退化但增加CPU，当前仍在阶段3；先归因writer系统CPU、同inode并发pwrite与lane交接，再按证据选择按文件固定writer/有界写队列或其他一个因素。独立全局三阶段worker池未实现；不先扩线程/缓冲，不自动提高lane。固定版本、八哈希、CRC/SHA、恢复、发布与清理门保持；RDMA、磁盘和100G稳定性门仍独立开放。
 
 稳定性调查保持独立门：旧组第 1 次出现 out_of_buffer/发送端 RNR 7851 次，候选第 2 次为 12762 次，其余 verified_chunks 样本为零。CQ error/flush 的端点增量仍有 65/64 或 1/0，不能凭成功结束就认定无害。先分段记录传输、FILE_RESULT/DirectoryEnd、QP close/destroy 和在途接收所有权，再按证据推进 RQ/CQ 资源与三阶段流水线；生产稳定性门未通过。range checkpoint override 16 的 whole-file 实际值仍为 null，默认校验、checkpoint 和 commit-sync 均未改变。
 
@@ -79,6 +79,7 @@
 | 冷 RDMA 缓冲池，源码 `aa5efcc0` | 对齐映射＋进程内 THP 提示；1 GiB tmpfs 各三次和一次 full 控制，建连 2.102/1.058 s，task 3.104/5.315 Gbps（+71.25%）；文件阶段 19.925/19.170 Gbps；七样本通过并清理 | 文件处理阶段提速、长期稳定、持久化/100G；部分候选 CQ response/flush 增量更高且未解释 |
 | 流水线交接/预分配，源码 c572b39 / 545b929 | 同源 1 GiB 四对唤醒、三对预分配共 14 正式样本通过；独立 pwrite CPU 归因；两种候选均降低吞吐；R1 557/557、R2 152/152 | 新提速、完整三阶段 worker 池、持久化/100G 或 CQ 稳定性通过 |
 | 无额外复制 gathering，源码 `57502f30` | TCP 同源1GiB四对、task20.099/17.045 Gbps，候选CPU增加且拒绝默认推广；R1 568/568、R2 219/219，部分写后恢复/SHA通过 | 默认提速、持久化/100G、RDMA对照收益、完整独立三阶段worker池 |
+| TCP range独立写入，源码 `60873ba0` | 同提交2/4 lane各四对task12.394/8.640→17.603/13.666 Gbps，双端CPU+4.39%/+46.22%；单lane控制20.022仍最快；29正式样本校验清理，R1 579/579、R2 241/241 | 单lane提速、CPU效率提升、持久化/100G、全局worker池完成或RDMA/CQ稳定性通过 |
 | 硬件拓扑 | 每台 R770 一张 100GbE/RoCE 端口 | 10×100Gbps 多链路或 1Tbps 扩展 |
 
 稳态 payload rate、含建连/提交的 task rate、每 lane 吞吐分别记录，不合并计时口径。测试需固定提交、双端同配置构建，逐文件校验并保存 route、端口计数、CPU/RSS 和原始日志。

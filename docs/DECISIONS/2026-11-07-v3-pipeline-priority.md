@@ -30,4 +30,13 @@
 
 [实现和 TCP 对照结果](../tasks/2026-11-07-v3-gathered-write-01-result.md)：`57502f30` 保留最多两帧借用 span 的候选、回收修正和实际 partial-write 恢复测试。固定同提交四对 TCP 内存对照，调用减少但完整 task20.099→17.045 Gbps、接收线程CPU+13.54%，因此默认保持 batch1，batch2仅为显式诊断。首版回收问题经确定性 RED/GREEN 修复，两端最终门通过，不能把减少 syscall/writer calls 当验收。
 
-当前下一步改为 TCP 1/2/4 lane 有界伸缩归因，先用现有 timing 观察 range共享事务锁、读/CRC、网络与writer服务率，再选择一个因素实现与对照。没有执行该新实验，没有解锁 RDMA 优化，也没有实现全局独立三阶段 worker 池。小规模非持久化TCP成绩与旧原生RDMA冷启动成绩分别解释。
+第三轮交接提出的TCP 1/2/4 lane伸缩归因与一个因素优化现已执行，见第四轮；不再作为尚未执行任务。仍没有解锁RDMA优化或实现全局独立三阶段worker池，小规模非持久化TCP与旧原生RDMA冷启动成绩分别解释。
+
+
+## 第四轮 TCP range锁拆分处置（2026-11-07）
+
+[完整结果](../tasks/2026-11-07-v3-tcp-scaling-01-result.md)：60873ba0在eligible POSIX direct路径采用不重叠range锁外writeAtAll；保留slot/attempt排空、校验认证、checkpoint和原子发布，buffered/io_uring仍串行。10个确定性upload/download行为测试，R1全量579/579、R2相关241/241通过；失败记录与复测边界保留。
+
+同提交、分离stdout/stderr取证的2/4 lane四对TCP tmpfs对照，task12.394→17.603 Gbps（+42.03%）、8.640→13.666（+58.17%），八对均更快；Entry wait下降约98%。双端CPU却增加4.39%/46.22%，4 lane接收CPU增加68.75%。保留eligible parallel默认与CPNETFLUX_RANGE_DIRECT_WRITE=serial诊断，不提高默认lane，不称CPU效率改善。单lane控制20.022仍最快，2 lane串行CV11.45%及小样本边界明确保留；不构成长期性能门。
+
+当前下一步：先归因raw pwrite系统CPU/同inode争用、每lane交接与源端服务率；再依据证据选择按文件固定writer/有界队列或其他一个因素，继续独立控制网络lane与writer并发。总字节预算、恢复和版本/哈希/清理门不变。29正式样本与full控制校验通过、两端fixture已清理；全局worker池、小文件微批、100G与CQ/peer-mapping未关闭。
