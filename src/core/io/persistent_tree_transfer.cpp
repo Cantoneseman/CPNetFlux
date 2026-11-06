@@ -1459,15 +1459,14 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     }
                 }
             }
-            std::vector<std::uint8_t> protectedPayload;
+            std::array<std::uint8_t, 4> checksumPrefix{};
+            std::size_t checksumPrefixSize = 0;
             if (id.checksumAlgorithm != checksum::ChecksumAlgorithm::None) {
-                protectedPayload = {static_cast<std::uint8_t>(frameDigest >> 24),
+                checksumPrefix = {static_cast<std::uint8_t>(frameDigest >> 24),
                     static_cast<std::uint8_t>(frameDigest >> 16),
                     static_cast<std::uint8_t>(frameDigest >> 8),
                     static_cast<std::uint8_t>(frameDigest)};
-                protectedPayload.insert(protectedPayload.end(), bytes, bytes + wireLength);
-                bytes = protectedPayload.data();
-                wireLength = protectedPayload.size();
+                checksumPrefixSize = checksumPrefix.size();
                 flags |= protocol::kDataChecksum;
             }
             protocol::FrameHeader header;
@@ -1478,13 +1477,13 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             header.attempt = id.attempt;
             header.offset = offset;
             header.totalSize = id.totalSize;
-            header.payloadSize = wireLength;
+            header.payloadSize = wireLength + checksumPrefixSize;
             header.flags = flags;
             auto encoded = protocol::encodeFrameHeader(header);
             preparing.stop();
             const auto payloadStarted = Clock::now();
             auto writePayload = [&](const std::uint8_t* payload, std::size_t size) {
-                const auto frameBytes = encoded.size() + size;
+                const auto frameBytes = encoded.size() + checksumPrefixSize + size;
                 if (ready) {
                     auto reserved = executor->startIo(*lease, frameBytes);
                     if (!reserved.isOk()) return reserved;
@@ -1492,7 +1491,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 checkpoint::OptionalManifestTimer socketWriting(timing.rangeObservationEnabled ? &timing.socketWriteSeconds : nullptr);
                 if (timing.rangeObservationEnabled) ++timing.socketWriteCalls;
                 auto written = socket->writeFrameBuffered(
-                    encoded.data(), encoded.size(), nullptr, 0, payload, size);
+                    encoded.data(), encoded.size(), checksumPrefix.data(), checksumPrefixSize,
+                    payload, size);
                 socketWriting.stop();
                 if (written.isOk() && ready) written = executor->finishIo(*lease, frameBytes);
                 return written;
@@ -1518,7 +1518,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             }
             payloadSent += length;
             stats->payloadBytes += length;
-            addWire(protocol::kFrameHeaderSize + wireLength);
+            addWire(protocol::kFrameHeaderSize + checksumPrefixSize + wireLength);
         }
         if (writeFailed)
             pipeline.cancel(status.isOk() ? Status::runtimeError("persistent data write failed") : status);

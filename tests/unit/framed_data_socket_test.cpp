@@ -1,8 +1,11 @@
 #include "cpnetflux/core/io/framed_data_socket.h"
+#include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/protocol/compressed_data.h"
 
 #include <gtest/gtest.h>
 
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -13,6 +16,8 @@
 #include <chrono>
 #include <csignal>
 #include <future>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -25,6 +30,11 @@ using cpnetflux::common::StatusCode;
 using cpnetflux::core::io::FramedDataSocket;
 using cpnetflux::core::io::UniqueFd;
 
+struct DataWrite {
+    cpnetflux::core::protocol::FrameHeader header;
+    std::vector<std::size_t> spans;
+    std::vector<std::uint8_t> body;
+};
 struct SendScript {
     std::vector<ssize_t> steps;
     std::size_t next = 0;
@@ -32,6 +42,8 @@ struct SendScript {
     bool noSignal = true;
     std::promise<void>* firstSendReturned = nullptr;
     bool timeoutCleared = false;
+    bool observeData = false;
+    std::vector<DataWrite> dataWrites;
 };
 thread_local SendScript* currentScript = nullptr;
 struct ObserveSends {
@@ -87,6 +99,25 @@ extern "C" ssize_t __wrap_sendmsg(int fd, const msghdr* message, int flags) {
     auto& script = *currentScript;
     ++script.sendmsgCalls;
     script.noSignal = script.noSignal && (flags & MSG_NOSIGNAL) != 0;
+    if (script.observeData && message->msg_iovlen > 1 &&
+        message->msg_iov[0].iov_len == cpnetflux::core::protocol::kFrameHeaderSize) {
+        cpnetflux::core::protocol::EncodedFrameHeader encoded;
+        std::copy_n(static_cast<const std::uint8_t*>(message->msg_iov[0].iov_base),
+                    encoded.size(), encoded.begin());
+        const auto header = cpnetflux::core::protocol::decodeFrameHeader(encoded);
+        if (header.isOk() && header.value().type == cpnetflux::core::protocol::FrameType::Data) {
+            DataWrite observed{header.value(), {}, {}};
+            for (std::size_t index = 0; index < message->msg_iovlen; ++index) {
+                const auto& span = message->msg_iov[index];
+                observed.spans.push_back(span.iov_len);
+                if (index != 0) {
+                    const auto* bytes = static_cast<const std::uint8_t*>(span.iov_base);
+                    observed.body.insert(observed.body.end(), bytes, bytes + span.iov_len);
+                }
+            }
+            script.dataWrites.push_back(std::move(observed));
+        }
+    }
     if (script.next == script.steps.size()) {
         const auto result = __real_sendmsg(fd, message, flags);
         if (script.firstSendReturned) {
@@ -130,6 +161,111 @@ TEST(FramedDataSocketTest, BufferedFrameWritePreservesTcpByteStreamBytes) {
     expected.insert(expected.end(), prefix.begin(), prefix.end());
     expected.insert(expected.end(), payload.begin(), payload.end());
     EXPECT_EQ(readBytes(pair.receiver.get(), expected.size()), expected);
+}
+
+TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalWireContent) {
+    using namespace cpnetflux::core::io;
+    using namespace cpnetflux::core::protocol;
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    struct Directory {
+        std::filesystem::path path;
+        Directory() {
+            char pattern[] = "/tmp/cpnetflux-span-unit-XXXXXX";
+            const auto* name = ::mkdtemp(pattern);
+            if (!name) throw std::runtime_error("mkdtemp");
+            path = name;
+        }
+        ~Directory() { std::error_code error; std::filesystem::remove_all(path, error); }
+    };
+    const auto oracleCrc = [](const std::vector<std::uint8_t>& bytes) {
+        std::uint32_t crc = 0xffffffffU;
+        for (const auto byte : bytes) {
+            crc ^= byte;
+            for (unsigned bit = 0; bit < 8; ++bit)
+                crc = (crc >> 1U) ^ ((crc & 1U) ? 0x82f63b78U : 0U);
+        }
+        return crc ^ 0xffffffffU;
+    };
+    for (const auto algorithm : {ChecksumAlgorithm::None, ChecksumAlgorithm::Crc32c}) {
+        for (const bool compressed : {false, true}) {
+            Directory source, destination;
+            const auto content = testBytes(2 * 70001 + 17);
+            {
+                std::ofstream output(source.path / "spans.bin", std::ios::binary);
+                output.write(reinterpret_cast<const char*>(content.data()), content.size());
+            }
+            struct stat metadata{};
+            ASSERT_EQ(::stat((source.path / "spans.bin").c_str(), &metadata), 0);
+            PersistentFileIdentity id{1, 7, content.size(), "spans.bin", "span-test",
+                70001, metadata.st_mtim.tv_sec, algorithm};
+            cpnetflux::config::FileTransferOptions options;
+            options.hotPathCompression.enabled = options.hotPathCompression.candidate = compressed;
+            PersistentTransferPolicy policy;
+            policy.options = options;
+            auto context = makePersistentTransferContext(policy);
+            int sockets[2];
+            ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sockets), 0);
+            FramedDataSocket sender{UniqueFd(sockets[0])}, receiver{UniqueFd(sockets[1])};
+            PersistentTreeStats received, sent;
+            Status receiveStatus;
+            std::jthread reader([&] {
+                receiveStatus = receivePersistentTree(&receiver, destination.path.string(),
+                    false, "", &received, {}, 1, 0, 1, 1, false, false, context);
+            });
+            SendScript script;
+            script.observeData = true;
+            Status sendStatus;
+            {
+                ObserveSends observe(script);
+                sendStatus = sendPersistentTree(&sender, source.path.string(), {id}, &sent,
+                    {}, 1, 0, 1, nullptr, &options);
+            }
+            if (!sendStatus.isOk()) receiver.shutdown();
+            reader.join();
+            ASSERT_TRUE(sendStatus.isOk()) << sendStatus.message();
+            ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+            ASSERT_FALSE(script.dataWrites.empty());
+            std::size_t offset = 0;
+            for (const auto& write : script.dataWrites) {
+                const bool crc = algorithm == ChecksumAlgorithm::Crc32c;
+                EXPECT_EQ(write.spans.size(), crc ? 3U : 2U);
+                if (crc && write.spans.size() == 3) EXPECT_EQ(write.spans[1], 4U);
+                EXPECT_EQ(write.header.offset, offset);
+                EXPECT_EQ(write.header.payloadSize, write.body.size());
+                EXPECT_EQ(bool(write.header.flags & kDataChecksum), crc);
+                const auto prefix = crc ? 4U : 0U;
+                ASSERT_GT(write.body.size(), prefix);
+                std::vector<std::uint8_t> logical(write.body.begin() + prefix, write.body.end());
+                const auto expectedLength = std::min<std::size_t>({65532,
+                    content.size() - offset, id.chunkSize - offset % id.chunkSize});
+                const bool frameCompressed = (write.header.flags & kDataCompressed) != 0;
+                EXPECT_TRUE(compressed || !frameCompressed);
+                if (frameCompressed) {
+                    auto decoded = decodeCompressedDataPayload(logical.data(), logical.size(),
+                        expectedLength, 65536);
+                    ASSERT_TRUE(decoded.isOk()) << decoded.status().message();
+                    logical = std::move(decoded.value());
+                }
+                EXPECT_EQ(logical.size(), expectedLength);
+                ASSERT_LE(offset + logical.size(), content.size());
+                EXPECT_TRUE(std::equal(logical.begin(), logical.end(), content.begin() + offset));
+                if (crc) {
+                    const auto expected = oracleCrc(logical);
+                    const std::array<std::uint8_t, 4> bytes{
+                        static_cast<std::uint8_t>(expected >> 24U), static_cast<std::uint8_t>(expected >> 16U),
+                        static_cast<std::uint8_t>(expected >> 8U), static_cast<std::uint8_t>(expected)};
+                    EXPECT_TRUE(std::equal(bytes.begin(), bytes.end(), write.body.begin()));
+                }
+                offset += logical.size();
+            }
+            EXPECT_EQ(offset, content.size());
+            if (compressed) EXPECT_GT(sent.runtime.compressedFrames, 0U);
+            else EXPECT_EQ(sent.runtime.compressedFrames, 0U);
+            std::ifstream output(destination.path / "spans.bin", std::ios::binary);
+            const std::vector<std::uint8_t> actual((std::istreambuf_iterator<char>(output)), {});
+            EXPECT_EQ(actual, content);
+        }
+    }
 }
 
 TEST(FramedDataSocketTest, BatchesThreeSpansIntoOneSyscallWithIdenticalBytes) {
