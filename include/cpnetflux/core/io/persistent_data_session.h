@@ -76,6 +76,11 @@ class PersistentDataSession {
                                                     protocol::FrameStatusCode status);
     [[nodiscard]] static common::Result<PersistentFrame> readNext(FramedDataSocket* socket,
                                                                   std::uint32_t maxPayloadSize);
+    // Reuses caller-owned storage (<= kMaxPayload for an initially empty frame).
+    // All views must be consumed before the next read; failures clear valid data.
+    [[nodiscard]] static common::Status readNext(FramedDataSocket* socket,
+                                                 std::uint32_t maxPayloadSize,
+                                                 PersistentFrame* frame);
     [[nodiscard]] static common::Result<PersistentFileIdentity> decodeBegin(const PersistentFrame& frame);
     [[nodiscard]] static common::Result<protocol::FrameStatusCode> readResult(
         FramedDataSocket* socket, const PersistentFileIdentity& identity);

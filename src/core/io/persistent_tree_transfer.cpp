@@ -1720,6 +1720,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     detail::PersistentTransferLifetime lifetime(socket, context->policy.limits);
     if (auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
     PersistentDataSession state(dynamic);
+    PersistentFrame incoming; // One owner per connection; all writes below are synchronous.
     std::optional<WorkExecutor> executor;
     if (ready) {
         auto owner = ready->worker(channelIndex);
@@ -1753,26 +1754,27 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     for (;;) {
         tracePersistentProtocol("receiver", "next_frame_read_begin", channelIndex,
             nullptr, stats->files - filesAtConnectionStart);
-        auto frame = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
-        if (!frame.isOk()) {
+        status = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload, &incoming);
+        const auto& frame = incoming;
+        if (!status.isOk()) {
             tracePersistentProtocol("receiver", "next_frame_read_error", channelIndex,
                 nullptr, stats->files - filesAtConnectionStart, 0,
-                static_cast<int>(frame.status().code()));
-            return finishTransport(frame.status());
+                static_cast<int>(status.code()));
+            return finishTransport(status);
         }
-        stats->wireBytes += protocol::kFrameHeaderSize + frame.value().payload.size();
-        if (frame.value().header.type == FrameType::DirectoryEnd) {
+        stats->wireBytes += protocol::kFrameHeaderSize + frame.payload.size();
+        if (frame.header.type == FrameType::DirectoryEnd) {
             const auto filesOnConnection = stats->files - filesAtConnectionStart;
             tracePersistentProtocol("receiver", "directory_end_read", channelIndex,
-                nullptr, filesOnConnection, frame.value().header.totalSize);
-            if (frame.value().header.totalSize != filesOnConnection)
+                nullptr, filesOnConnection, frame.header.totalSize);
+            if (frame.header.totalSize != filesOnConnection)
                 return Status::invalidArgument("persistent directory file count mismatch");
             if (expectedFileCount != kUnknownPersistentFileCount &&
                 expectedFileCount != filesOnConnection)
                 return Status::invalidArgument("persistent channel file count mismatch");
             return finishTransport(overall);
         }
-        auto decoded = PersistentDataSession::decodeBegin(frame.value());
+        auto decoded = PersistentDataSession::decodeBegin(frame);
         if (!decoded.isOk()) return decoded.status();
         const auto id = decoded.value();
         tracePersistentProtocol("receiver", "file_begin_read", channelIndex, &id);
@@ -1803,7 +1805,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             : (id.fileId - 1) % channelCount;
         if (!dynamic && assignedChannel != channelIndex)
             return Status::invalidArgument("persistent file arrived on wrong channel");
-        status = state.begin(frame.value().header, id);
+        status = state.begin(frame.header, id);
         if (!status.isOk()) return finishTransport(status);
         PersistentFileTiming timing;
         timing.file = id; timing.channel = channelIndex;
@@ -1864,13 +1866,13 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     return transaction->verifyPublished();
                 });
             }
-            const bool requestedResume = resume || (frame.value().header.flags & protocol::kFileResume);
+            const bool requestedResume = resume || (frame.header.flags & protocol::kFileResume);
             fileStatus = transaction->begin(root, id, download, remoteRoot, requestedResume);
             if (fileStatus.isOk()) {
                 stats->loadedVerifiedChunks += transaction->loadedVerifiedChunks();
                 stats->removedCorruptChunks += transaction->removedCorruptChunks();
             }
-            if (frame.value().header.flags & protocol::kFileResume) {
+            if (frame.header.flags & protocol::kFileResume) {
                 if (!fileStatus.isOk()) {
                     (void)PersistentDataSession::writeResumeResponse(socket,id,{},fileFailureCode(fileStatus));
                     return fileStatus;
@@ -1887,15 +1889,17 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         }
         for (;;) {
             const auto payloadStarted = Clock::now();
-            auto data = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload);
-            if (!data.isOk()) {
-                (void)notify(callback, id, data.status(), true);
-                return finishTransport(data.status());
+            const auto previousCapacity = incoming.payload.capacity();
+            status = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload, &incoming);
+            const auto& data = incoming;
+            if (!status.isOk()) {
+                (void)notify(callback, id, status, true);
+                return finishTransport(status);
             }
-            stats->wireBytes += protocol::kFrameHeaderSize + data.value().payload.size();
-            if (data.value().header.type == FrameType::FileEnd) {
+            stats->wireBytes += protocol::kFrameHeaderSize + data.payload.size();
+            if (data.header.type == FrameType::FileEnd) {
                 tracePersistentProtocol("receiver", "file_end_read", channelIndex, &id);
-                auto ended = state.end(data.value().header, data.value().payload.data(), data.value().payload.size());
+                auto ended = state.end(data.header, data.payload.data(), data.payload.size());
                 if (!ended.isOk()) return ended.status();
                 const auto resultDeadline = lifetime.beginResult(id);
                 if (ready) {
@@ -1905,7 +1909,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 if (fileStatus.isOk() && rangeEntry) {
                     Timer finalized{&timing.finalizeSeconds};
                     fileStatus = RangeFileCoordinator::complete(rangeEntry, ended.value(), ended.value().checksum,
-                        (data.value().header.flags & protocol::kRangeSkipped) != 0, observation);
+                        (data.header.flags & protocol::kRangeSkipped) != 0, observation);
                 }
                 break;
             }
@@ -1913,17 +1917,22 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
             const auto checksumStarted = Clock::now();
             // Validation and writes consume this view before the frame is released.
-            std::span<const std::uint8_t> logical(data.value().payload);
+            std::span<const std::uint8_t> logical(data.payload);
             std::vector<std::uint8_t> decodedPayload;
             if (payloadObservation) {
                 auto& p = *payloadObservation;
                 ++p.dataFrameCount;
-                p.framePayloadAllocations += data.value().payload.capacity() != 0;
-                p.framePayloadBytes += data.value().payload.size();
-                p.framePayloadCapacityBytes += data.value().payload.capacity();
+                const bool allocated = data.payload.capacity() > previousCapacity;
+                p.framePayloadAllocations += allocated;
+                p.framePayloadReuses += !allocated;
+                if (allocated) p.framePayloadAllocatedCapacityBytes += data.payload.capacity();
+                p.framePayloadPeakCapacityBytes = std::max<std::uint64_t>(
+                    p.framePayloadPeakCapacityBytes, data.payload.capacity());
+                p.framePayloadBytes += data.payload.size();
+                p.framePayloadCapacityBytes += data.payload.capacity();
             }
             std::optional<std::uint32_t> expectedDigest;
-            if (data.value().header.flags & protocol::kDataChecksum) {
+            if (data.header.flags & protocol::kDataChecksum) {
                 if (id.checksumAlgorithm==checksum::ChecksumAlgorithm::None || logical.size()<=4)
                     return Status::invalidArgument("unexpected DATA checksum");
                 expectedDigest=(static_cast<std::uint32_t>(logical[0])<<24)|
@@ -1931,7 +1940,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     (static_cast<std::uint32_t>(logical[2])<<8)|logical[3];
                 logical = logical.subspan(4);
             }
-            if (data.value().header.flags & protocol::kDataCompressed) {
+            if (data.header.flags & protocol::kDataCompressed) {
                 const auto decoding = payloadObservation ? Clock::now() : Clock::time_point{};
                 auto size = protocol::compressedDataPayloadLogicalLength(logical.data(),logical.size());
                 if (!size.isOk()) return size.status();
@@ -1947,7 +1956,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 }
                 ++stats->runtime.compressedFrames;
                 stats->runtime.compressedLogicalBytes += logical.size();
-                stats->runtime.compressedWireBytes += data.value().payload.size();
+                stats->runtime.compressedWireBytes += data.payload.size();
             }
             if (id.checksumAlgorithm!=checksum::ChecksumAlgorithm::None && !expectedDigest)
                 return Status::invalidArgument("DATA checksum is required before checkpointing");
@@ -1963,7 +1972,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 if (actualDigest!=*expectedDigest)
                     return Status::invalidArgument("DATA checksum mismatch before write");
             }
-            auto logicalHeader=data.value().header;
+            auto logicalHeader=data.header;
             logicalHeader.flags=0;logicalHeader.payloadSize=logical.size();
             status = expectedDigest
                 ? state.dataWithChecksum(logicalHeader, logical.size(),
@@ -1978,9 +1987,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             if (fileStatus.isOk()) {
                 Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
                 const checksum::ChecksumValue verifiedChecksum{id.checksumAlgorithm, expectedDigest.value_or(0)};
-                fileStatus = rangeEntry ? RangeFileCoordinator::write(rangeEntry, id, data.value().header.offset,
+                fileStatus = rangeEntry ? RangeFileCoordinator::write(rangeEntry, id, data.header.offset,
                                                                        logical, verifiedChecksum, observation)
-                                         : transaction->write(data.value().header.offset, logical, verifiedChecksum);
+                                         : transaction->write(data.header.offset, logical, verifiedChecksum);
                 stats->payloadBytes += logical.size();
                 if (fileStatus.isOk() && observation && id.rangeId != 0) {
                     ++observation->dataFrameCount;
@@ -1989,7 +1998,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 if (fileStatus.isOk() && expectedDigest &&
                     id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c) {
                     stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
-                        id.relativePath, id.totalSize, data.value().header.offset,
+                        id.relativePath, id.totalSize, data.header.offset,
                         static_cast<std::uint64_t>(logical.size()), *expectedDigest});
                 }
                 if (context->policy.options.maxChunks &&
@@ -2193,12 +2202,15 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
         out << ",\"receiver_payload_observation\":";
         if (t.receiverPayloadObservationEnabled && !t.sender) {
             const auto& p = t.receiverPayloadObservation;
-            out << "{\"schema\":\"cpnetflux_receiver_payload_observation_v1\","
-                << "\"scope\":\"local DATA processing; frame capacity counts delivered fresh readNext vectors; whole-file writes exclude range writer\","
+            out << "{\"schema\":\"cpnetflux_receiver_payload_observation_v2\","
+                << "\"scope\":\"local DATA processing; allocations count DATA capacity growth, reuse retains a connection-owned frame; excludes control-frame growth; whole-file write counts exclude range writer\","
                 << "\"clock\":\"steady_clock seconds; copy/shift/decode/CRC are nested in checksum_seconds; storage writes nested in write_seconds or flush; do not add aggregates\","
-                << "\"capacity_scope\":\"cumulative vector capacity, not live memory or RSS; excludes decoder and RDMA allocations\","
+                << "\"capacity_scope\":\"capacity_bytes sums retained capacity per DATA; allocated_capacity_bytes sums new capacity on DATA growth; peak is retained DATA capacity, not RSS; excludes control growth, decoder and RDMA\","
                 << "\"data_frame_count\":" << p.dataFrameCount
                 << ",\"frame_payload_allocations\":" << p.framePayloadAllocations
+                << ",\"frame_payload_reuses\":" << p.framePayloadReuses
+                << ",\"frame_payload_allocated_capacity_bytes\":" << p.framePayloadAllocatedCapacityBytes
+                << ",\"frame_payload_peak_capacity_bytes\":" << p.framePayloadPeakCapacityBytes
                 << ",\"frame_payload_bytes\":" << p.framePayloadBytes
                 << ",\"frame_payload_capacity_bytes\":" << p.framePayloadCapacityBytes
                 << ",\"logical_buffer_allocations\":" << p.logicalBufferAllocations

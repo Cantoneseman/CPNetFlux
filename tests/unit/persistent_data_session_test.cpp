@@ -300,6 +300,111 @@ TEST(PersistentSessionTest, CombinesOnlyMissingRangeFramesInTransferOrder) {
     EXPECT_EQ(completed.value().checksum.value, value);
 }
 
+
+TEST(PersistentSessionTest, CallerOwnedFrameReusesStorageAcrossShortAndControlFrames) {
+    SocketPair pair;
+    PersistentFrame frame;
+    PersistentFileIdentity id{1, 1, 65536, "reuse.bin", "reuse"};
+    const std::vector<std::uint8_t> full(65536, 0xa5);
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+    ASSERT_TRUE(PersistentDataSession::decodeBegin(frame).isOk());
+    for (const auto size : {50000U, 60000U, 65536U}) {
+        ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, full.data(), size).isOk());
+        ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+        EXPECT_EQ(frame.payload.size(), size);
+        EXPECT_LE(frame.payload.capacity(), 65536U) << "growth must stay within the wire bound";
+        EXPECT_TRUE(std::equal(frame.payload.begin(), frame.payload.end(), full.begin()));
+    }
+    const auto* storage = frame.payload.data();
+    const auto capacity = frame.payload.capacity();
+    const std::uint8_t shortPayload[]{0x12, 0x34, 0x56};
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, shortPayload, 3).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+    EXPECT_EQ(frame.payload, (std::vector<std::uint8_t>{0x12, 0x34, 0x56}));
+    EXPECT_EQ(frame.payload.data(), storage);
+    ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 0, &frame).isOk());
+    EXPECT_EQ(frame.header.type, FrameType::FileEnd);
+    EXPECT_TRUE(frame.payload.empty());
+    EXPECT_EQ(frame.payload.capacity(), capacity);
+    ASSERT_TRUE(PersistentDataSession::writeDirectoryEnd(&pair.sender, 1).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 0, &frame).isOk());
+    EXPECT_EQ(frame.header.type, FrameType::DirectoryEnd);
+    EXPECT_TRUE(frame.payload.empty());
+    // A new file uses the same storage; previous short/control sizes leave no tail.
+    ++id.fileId; ++id.generation;
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, full.data(), full.size()).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+    EXPECT_EQ(frame.payload, full);
+    EXPECT_EQ(frame.payload.data(), storage);
+    EXPECT_EQ(frame.payload.capacity(), capacity);
+}
+
+TEST(PersistentSessionTest, CallerOwnedFrameRejectsInvalidHeadersBeforeGrowingStorage) {
+    for (const auto invalidMagic : {false, true}) {
+        SocketPair pair;
+        PersistentFrame frame;
+        frame.payload.assign(37, 0xa5);
+        const auto capacity = frame.payload.capacity();
+        auto header = beginHeader(1);
+        header.payloadSize = invalidMagic ? 1 : PersistentDataSession::kMaxPayload + 1;
+        if (invalidMagic) header.magic = 0;
+        const auto wire = encodeFrameHeader(header);
+        ASSERT_TRUE(pair.sender.writeAll(wire.data(), wire.size()).isOk());
+        EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+        EXPECT_TRUE(frame.payload.empty());
+        EXPECT_EQ(frame.header.payloadSize, 0U);
+        EXPECT_EQ(frame.payload.capacity(), capacity);
+    }
+    PersistentFrame frame;
+    frame.payload.assign(37, 0xa5);
+    EXPECT_FALSE(PersistentDataSession::readNext(nullptr, 65536, &frame).isOk());
+    EXPECT_TRUE(frame.payload.empty());
+    SocketPair pair;
+    EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver, 65537, &frame).isOk());
+    EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver, 65536, nullptr).isOk());
+}
+
+TEST(PersistentSessionTest, CallerOwnedFrameClearsTruncatedHeaderOrPayload) {
+    for (const auto partialHeader : {false, true}) {
+        SocketPair pair;
+        PersistentFrame frame;
+        frame.payload.assign(65536, 0xa5);
+        auto header = beginHeader(65536);
+        header.type = FrameType::Data;
+        header.payloadSize = 65536;
+        const auto wire = encodeFrameHeader(header);
+        ASSERT_TRUE(pair.sender.writeAll(wire.data(), partialHeader ? 7 : wire.size()).isOk());
+        if (!partialHeader) {
+            const std::uint8_t partial[]{1, 2, 3};
+            ASSERT_TRUE(pair.sender.writeAll(partial, sizeof(partial)).isOk());
+        }
+        pair.sender.close();
+        EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+        EXPECT_TRUE(frame.payload.empty());
+        EXPECT_EQ(frame.header.payloadSize, 0U);
+        EXPECT_EQ(frame.payload.capacity(), 65536U);
+    }
+}
+
+TEST(PersistentSessionTest, CallerOwnedFrameShutdownWakesReadAndInvalidatesPayload) {
+    SocketPair pair;
+    PersistentFrame frame;
+    frame.payload.assign(65536, 0xa5);
+    auto read = std::async(std::launch::async, [&] {
+        return PersistentDataSession::readNext(&pair.receiver, 65536, &frame);
+    });
+    pair.receiver.shutdown();
+    EXPECT_EQ(read.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    pair.sender.close(); // Ensure cleanup can finish even if shutdown regresses.
+    EXPECT_FALSE(read.get().isOk());
+    EXPECT_TRUE(frame.payload.empty());
+    EXPECT_EQ(frame.header.payloadSize, 0U);
+}
+
 TEST(PersistentSessionTest, OversizedFrameRejectedBeforePayloadRead) {
     SocketPair pair;
     auto h = beginHeader(1);

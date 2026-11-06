@@ -77,6 +77,8 @@ struct WholeFileObservation {
 struct ReceiverPayloadObservation {
     std::uint64_t dataFrameCount = 0, framePayloadAllocations = 0;
     std::uint64_t framePayloadBytes = 0, framePayloadCapacityBytes = 0;
+    std::uint64_t framePayloadReuses = 0, framePayloadAllocatedCapacityBytes = 0;
+    std::uint64_t framePayloadPeakCapacityBytes = 0;
     std::uint64_t logicalBufferAllocations = 0, logicalCopyBytes = 0;
     std::uint64_t prefixShiftCalls = 0, prefixShiftBytes = 0;
     std::uint64_t decompressionCalls = 0, frameCrcBytes = 0;

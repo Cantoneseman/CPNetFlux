@@ -483,17 +483,39 @@ common::Status PersistentDataSession::writeResult(FramedDataSocket* socket,
 
 common::Result<PersistentFrame> PersistentDataSession::readNext(FramedDataSocket* socket,
                                                                   std::uint32_t maxPayloadSize) {
-    if (socket == nullptr || !socket->valid() || maxPayloadSize > kMaxPayload)
-        return common::Status::invalidArgument("invalid persistent input");
     PersistentFrame frame;
-    auto status = readHeader(socket, &frame.header, maxPayloadSize);
+    const auto status = readNext(socket, maxPayloadSize, &frame);
     if (!status.isOk()) return status;
-    frame.payload.resize(frame.header.payloadSize);
-    if (!frame.payload.empty()) {
-        status = socket->readAll(frame.payload.data(), frame.payload.size());
-        if (!status.isOk()) return status;
-    }
     return frame;
+}
+
+common::Status PersistentDataSession::readNext(FramedDataSocket* socket,
+                                               std::uint32_t maxPayloadSize,
+                                               PersistentFrame* frame) {
+    if (!frame) return common::Status::invalidArgument("missing persistent frame");
+    frame->header = {};
+    const auto fail = [&](common::Status status) {
+        frame->payload.clear();
+        return status;
+    };
+    if (!socket || !socket->valid() || maxPayloadSize > kMaxPayload)
+        return fail(common::Status::invalidArgument("invalid persistent input"));
+    protocol::FrameHeader header;
+    auto status = readHeader(socket, &header, maxPayloadSize);
+    if (!status.isOk()) return fail(status);
+    if (header.payloadSize > frame->payload.capacity()) {
+        // Exact growth prevents vector::resize doubling capacity beyond the wire
+        // bound. Repeated full DATA frames neither allocate nor value-initialize.
+        std::vector<std::uint8_t>(header.payloadSize).swap(frame->payload);
+    } else {
+        frame->payload.resize(header.payloadSize);
+    }
+    if (!frame->payload.empty()) {
+        status = socket->readAll(frame->payload.data(), frame->payload.size());
+        if (!status.isOk()) return fail(status);
+    }
+    frame->header = header; // Publish only a complete, validated frame.
+    return common::Status::ok();
 }
 
 common::Result<PersistentFileIdentity> PersistentDataSession::decodeBegin(const PersistentFrame& frame) {

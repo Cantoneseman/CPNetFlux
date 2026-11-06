@@ -243,10 +243,10 @@ TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFra
     EXPECT_GT(allocations, 0U) << "the observer must detect a real initial payload allocation";
     EXPECT_LE(allocations, 4U) << "depth two plus one producer and one consumer buffer";
     const auto receiverAllocations = receiverFrameAllocations.load(std::memory_order_relaxed);
-    EXPECT_GE(receiverAllocations, 64U) << "observe the 64 full wire frames independently of profiling";
+    EXPECT_GT(receiverAllocations, 0U) << "observe real receiver allocations independently of profiling";
     const auto verifiedChunks = (content.size() + id.chunkSize - 1) / id.chunkSize;
-    EXPECT_LE(receiverAllocations, 64U + verifiedChunks)
-        << "one allocation per full frame and one readback buffer per verified chunk";
+    EXPECT_LE(receiverAllocations, 1U + verifiedChunks)
+        << "one reusable full frame and one readback buffer per verified chunk";
     std::ifstream output(destination.path / "buffers.bin", std::ios::binary);
     const std::vector<std::uint8_t> actual((std::istreambuf_iterator<char>(output)), {});
     EXPECT_EQ(actual, content);
@@ -374,7 +374,7 @@ TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalW
             if (!profileEnabled) {
                 EXPECT_NE(timing.str().find("\"receiver_payload_observation\":null"), std::string::npos);
             } else {
-                EXPECT_NE(timing.str().find("\"schema\":\"cpnetflux_receiver_payload_observation_v1\""), std::string::npos);
+                EXPECT_NE(timing.str().find("\"schema\":\"cpnetflux_receiver_payload_observation_v2\""), std::string::npos);
                 std::uint64_t wireBytes = 0, decodedFrames = 0;
                 for (const auto& write : script.dataWrites) {
                     wireBytes += write.body.size();
@@ -386,7 +386,8 @@ TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalW
                 };
                 const auto frames = script.dataWrites.size();
                 count("data_frame_count", frames);
-                count("frame_payload_allocations", frames);
+                count("frame_payload_allocations", 1);
+                count("frame_payload_reuses", frames - 1);
                 count("frame_payload_bytes", wireBytes);
                 count("logical_buffer_allocations", 0);
                 count("logical_copy_bytes", 0);
