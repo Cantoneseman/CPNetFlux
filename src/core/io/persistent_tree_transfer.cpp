@@ -1887,18 +1887,128 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 if (!status.isOk()) return finishTransport(status);
             }
         }
+        auto receiverDepth = diagnosticPipelineDepth();
+        if (!receiverDepth.isOk()) return finishTransport(receiverDepth.status());
+        const std::size_t receiverPipelineChunkBytes = PersistentDataSession::kMaxPayload;
+        BoundedPayloadPipeline receiverPipeline(receiverPipelineChunkBytes * receiverDepth.value(),
+            receiverDepth.value(), timing.rangeObservationEnabled);
+        Status writerTerminal = Status::ok();
+        std::thread receiverWriter;
+        struct ReceiverWriterGuard {
+            BoundedPayloadPipeline* pipeline = nullptr;
+            std::thread* writer = nullptr;
+            ~ReceiverWriterGuard() {
+                if (pipeline && writer && writer->joinable()) {
+                    pipeline->cancel(Status::runtimeError("receiver writer interrupted"));
+                    writer->join();
+                }
+            }
+        } writerGuard{&receiverPipeline, &receiverWriter};
+        receiverWriter = std::thread([&] {
+            const auto writerCpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
+            Status writerStatus = Status::ok();
+            std::vector<std::uint8_t> reusablePayload;
+            for (;;) {
+                auto next = receiverPipeline.pop(std::move(reusablePayload));
+                if (!next.isOk()) {
+                    writerTerminal = next.status();
+                    break;
+                }
+                if (!next.value()) break;
+                auto item = std::move(next.value().value());
+                const auto logicalOffset = item.logicalOffset;
+                const auto logicalBytes = item.logicalBytes == 0
+                    ? item.bytes.size() - logicalOffset : item.logicalBytes;
+                if (logicalOffset > item.bytes.size() || logicalBytes > item.bytes.size() - logicalOffset) {
+                    writerTerminal = Status::invalidArgument("receiver pipeline logical payload is invalid");
+                    receiverPipeline.cancel(writerTerminal);
+                    break;
+                }
+                const std::span<const std::uint8_t> logical(
+                    item.bytes.data() + logicalOffset, logicalBytes);
+                if (ready) {
+                    writerStatus = executor->startIo(*lease, logical.size());
+                    if (!writerStatus.isOk()) {
+                        writerTerminal = writerStatus;
+                        receiverPipeline.cancel(writerStatus);
+                        break;
+                    }
+                }
+                if (fileStatus.isOk()) {
+                    Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
+                    const checksum::ChecksumValue verifiedChecksum{id.checksumAlgorithm, item.frameChecksum};
+                    fileStatus = rangeEntry
+                        ? RangeFileCoordinator::write(rangeEntry, id, item.offset, logical,
+                                                       verifiedChecksum, observation)
+                        : transaction->write(item.offset, logical, verifiedChecksum);
+                    if (fileStatus.isOk()) {
+                        stats->payloadBytes += logical.size();
+                        if (observation && id.rangeId != 0) {
+                            ++observation->dataFrameCount;
+                            observation->effectiveDataBytes += logical.size();
+                        }
+                        if (item.checksumPresent &&
+                            id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c) {
+                            stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
+                                id.relativePath, id.totalSize, item.offset,
+                                static_cast<std::uint64_t>(logical.size()), item.frameChecksum});
+                        }
+                        if (context->policy.options.maxChunks &&
+                            stats->payloadBytes >= context->policy.options.maxChunks * id.chunkSize) {
+                            writerTerminal = Status::runtimeError("transfer interrupted by max-chunks");
+                            receiverPipeline.cancel(writerTerminal);
+                            break;
+                        }
+                    }
+                }
+                if (ready) {
+                    writerStatus = executor->finishIo(*lease, logical.size());
+                    if (!writerStatus.isOk()) {
+                        writerTerminal = writerStatus;
+                        receiverPipeline.cancel(writerStatus);
+                        break;
+                    }
+                }
+                reusablePayload = std::move(item.bytes);
+            }
+            timing.receiverWriterThreadCpuSeconds +=
+                threadCpuSeconds(timing.rangeObservationEnabled) - writerCpuStarted;
+        });
+        auto stopReceiverWriter = [&] {
+            if (receiverWriter.joinable()) {
+                receiverPipeline.cancel(Status::runtimeError("receiver writer interrupted"));
+                receiverWriter.join();
+            }
+        };
+        auto drainReceiverWriter = [&] {
+            if (receiverWriter.joinable()) {
+                receiverPipeline.close();
+                receiverWriter.join();
+            }
+        };
         for (;;) {
             const auto payloadStarted = Clock::now();
             const auto previousCapacity = incoming.payload.capacity();
             status = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload, &incoming);
             const auto& data = incoming;
             if (!status.isOk()) {
+                drainReceiverWriter();
                 (void)notify(callback, id, status, true);
                 return finishTransport(status);
             }
             stats->wireBytes += protocol::kFrameHeaderSize + data.payload.size();
             if (data.header.type == FrameType::FileEnd) {
                 tracePersistentProtocol("receiver", "file_end_read", channelIndex, &id);
+                receiverPipeline.close();
+                if (receiverWriter.joinable()) receiverWriter.join();
+                timing.payloadPipelineDepth = static_cast<std::uint32_t>(receiverDepth.value());
+                timing.pipelineBudgetBytes = receiverPipelineChunkBytes * receiverDepth.value();
+                timing.pipelineHighWatermarkBytes = receiverPipeline.highWatermarkBytes();
+                timing.pipelineProducerWaits = receiverPipeline.producerWaitCount();
+                timing.pipelineConsumerWaits = receiverPipeline.consumerWaitCount();
+                timing.pipelineProducerWaitSeconds = receiverPipeline.producerWaitSeconds();
+                timing.pipelineConsumerWaitSeconds = receiverPipeline.consumerWaitSeconds();
+                if (!writerTerminal.isOk()) return finishTransport(writerTerminal);
                 auto ended = state.end(data.header, data.payload.data(), data.payload.size());
                 if (!ended.isOk()) return ended.status();
                 const auto resultDeadline = lifetime.beginResult(id);
@@ -1933,8 +2043,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             }
             std::optional<std::uint32_t> expectedDigest;
             if (data.header.flags & protocol::kDataChecksum) {
-                if (id.checksumAlgorithm==checksum::ChecksumAlgorithm::None || logical.size()<=4)
+                if (id.checksumAlgorithm==checksum::ChecksumAlgorithm::None || logical.size()<=4) {
+                    drainReceiverWriter();
                     return Status::invalidArgument("unexpected DATA checksum");
+                }
                 expectedDigest=(static_cast<std::uint32_t>(logical[0])<<24)|
                     (static_cast<std::uint32_t>(logical[1])<<16)|
                     (static_cast<std::uint32_t>(logical[2])<<8)|logical[3];
@@ -1943,10 +2055,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             if (data.header.flags & protocol::kDataCompressed) {
                 const auto decoding = payloadObservation ? Clock::now() : Clock::time_point{};
                 auto size = protocol::compressedDataPayloadLogicalLength(logical.data(),logical.size());
-                if (!size.isOk()) return size.status();
+                if (!size.isOk()) { drainReceiverWriter(); return size.status(); }
                 auto decoded = protocol::decodeCompressedDataPayload(logical.data(),logical.size(),
                     size.value(),PersistentDataSession::kMaxPayload);
-                if (!decoded.isOk()) { ++stats->runtime.decompressionFailures; return decoded.status(); }
+                if (!decoded.isOk()) { ++stats->runtime.decompressionFailures; drainReceiverWriter(); return decoded.status(); }
                 ++timing.compressedFrames;
                 decodedPayload = std::move(decoded.value());
                 logical = decodedPayload;
@@ -1958,8 +2070,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 stats->runtime.compressedLogicalBytes += logical.size();
                 stats->runtime.compressedWireBytes += data.payload.size();
             }
-            if (id.checksumAlgorithm!=checksum::ChecksumAlgorithm::None && !expectedDigest)
+            if (id.checksumAlgorithm!=checksum::ChecksumAlgorithm::None && !expectedDigest) {
+                drainReceiverWriter();
                 return Status::invalidArgument("DATA checksum is required before checkpointing");
+            }
             if (expectedDigest) {
                 const auto checking = payloadObservation ? Clock::now() : Clock::time_point{};
                 checksum::ChecksumComputer checksum(id.checksumAlgorithm);
@@ -1969,8 +2083,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     payloadObservation->frameCrcBytes += logical.size();
                     payloadObservation->frameCrcSeconds += secondsSince(checking);
                 }
-                if (actualDigest!=*expectedDigest)
+                if (actualDigest!=*expectedDigest) {
+                    drainReceiverWriter();
                     return Status::invalidArgument("DATA checksum mismatch before write");
+                }
             }
             auto logicalHeader=data.header;
             logicalHeader.flags=0;logicalHeader.payloadSize=logical.size();
@@ -1979,36 +2095,21 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     checksum::ChecksumValue{id.checksumAlgorithm, *expectedDigest})
                 : state.data(logicalHeader, logical.size(), logical.data());
             timing.checksumSeconds += secondsSince(checksumStarted);
-            if (!status.isOk()) return finishTransport(status);
-            if (ready) {
-                status = executor->startIo(*lease, logical.size());
-                if (!status.isOk()) return finishTransport(status);
+            if (!status.isOk()) { drainReceiverWriter(); return finishTransport(status); }
+            PreparedPayload prepared;
+            prepared.offset = data.header.offset;
+            prepared.frameChecksum = expectedDigest.value_or(0);
+            prepared.checksumPresent = expectedDigest.has_value();
+            if (!decodedPayload.empty()) {
+                prepared.bytes = std::move(decodedPayload);
+                prepared.logicalBytes = prepared.bytes.size();
+            } else {
+                prepared.bytes = std::move(incoming.payload);
+                prepared.logicalOffset = expectedDigest ? 4 : 0;
+                prepared.logicalBytes = logical.size();
             }
-            if (fileStatus.isOk()) {
-                Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
-                const checksum::ChecksumValue verifiedChecksum{id.checksumAlgorithm, expectedDigest.value_or(0)};
-                fileStatus = rangeEntry ? RangeFileCoordinator::write(rangeEntry, id, data.header.offset,
-                                                                       logical, verifiedChecksum, observation)
-                                         : transaction->write(data.header.offset, logical, verifiedChecksum);
-                stats->payloadBytes += logical.size();
-                if (fileStatus.isOk() && observation && id.rangeId != 0) {
-                    ++observation->dataFrameCount;
-                    observation->effectiveDataBytes += logical.size();
-                }
-                if (fileStatus.isOk() && expectedDigest &&
-                    id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c) {
-                    stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
-                        id.relativePath, id.totalSize, data.header.offset,
-                        static_cast<std::uint64_t>(logical.size()), *expectedDigest});
-                }
-                if (context->policy.options.maxChunks &&
-                    stats->payloadBytes >= context->policy.options.maxChunks*id.chunkSize)
-                    return Status::runtimeError("transfer interrupted by max-chunks");
-            }
-            if (ready) {
-                status = executor->finishIo(*lease, logical.size());
-                if (!status.isOk()) return finishTransport(status);
-            }
+            status = receiverPipeline.push(std::move(prepared), &incoming.payload);
+            if (!status.isOk()) { drainReceiverWriter(); return finishTransport(status); }
         }
         tracePersistentProtocol("receiver", "commit_begin", channelIndex, &id);
         if (rangeEntry) {
@@ -2157,12 +2258,14 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"range_observation_scope\":\"local_range_begin_write_complete_subintervals_overlap_not_wall\""
             << ",\"lane_thread_cpu_seconds\":" << t.laneThreadCpuSeconds
             << ",\"lane_thread_cpu_scope\":\"" << (t.sender ? "payload_prepare_send_and_join" : "file_begin_through_result") << "\""
+            << ",\"receiver_writer_thread_cpu_seconds\":" << t.receiverWriterThreadCpuSeconds
             << ",\"producer_thread_cpu_seconds\":" << t.producerThreadCpuSeconds
             << ",\"frame_prepare_seconds\":" << t.framePrepareSeconds
             << ",\"socket_write_seconds\":" << t.socketWriteSeconds
             << ",\"socket_write_frame_calls\":" << t.socketWriteCalls
             << ",\"socket_write_scope\":\"DATA_header_and_payload_writeFrame_includes_TLS_when_enabled\""
             << ",\"pipeline_wait_scope\":\"condition_wait_through_mutex_reacquire_subintervals_not_wall\""
+            << ",\"payload_pipeline_stage\":\"" << (t.sender ? "source_read_checksum_to_network" : "network_checksum_to_write") << "\""
             << ",\"write_seconds_scope\":\"" << (t.file.rangeId ? "range_coordinator_includes_entry_wait_crc_checkpoint" : "writer_write_only") << "\""
             << ",\"payload_pipeline_depth\":" << t.payloadPipelineDepth
             << ",\"payload_buffer_allocations\":" << t.payloadBufferAllocations

@@ -1704,6 +1704,31 @@ TEST(PersistentSessionTest, LogicalLinkMatrixRangesPartitionSourceExactlyOnce) {
 }
 
 
+TEST(BoundedPayloadPipelineTest, PreservesReceiverLogicalViewMetadata) {
+    using cpnetflux::core::io::BoundedPayloadPipeline;
+    using cpnetflux::core::io::PreparedPayload;
+    BoundedPayloadPipeline pipeline(16, 2);
+    PreparedPayload prepared;
+    prepared.offset = 4096;
+    prepared.bytes = {0xaa, 0xbb, 0x01, 0x02, 0x03, 0x04};
+    prepared.logicalOffset = 2;
+    prepared.logicalBytes = 4;
+    prepared.frameChecksum = 0x12345678;
+    prepared.checksumPresent = true;
+    ASSERT_TRUE(pipeline.push(std::move(prepared)).isOk());
+    pipeline.close();
+    auto next = pipeline.pop();
+    ASSERT_TRUE(next.isOk() && next.value());
+    EXPECT_EQ(next.value()->offset, 4096U);
+    EXPECT_EQ(next.value()->logicalOffset, 2U);
+    EXPECT_EQ(next.value()->logicalBytes, 4U);
+    EXPECT_EQ(next.value()->frameChecksum, 0x12345678U);
+    EXPECT_TRUE(next.value()->checksumPresent);
+    EXPECT_EQ(std::vector<std::uint8_t>(next.value()->bytes.begin() + next.value()->logicalOffset,
+                                        next.value()->bytes.begin() + next.value()->logicalOffset + next.value()->logicalBytes),
+              (std::vector<std::uint8_t>{1, 2, 3, 4}));
+}
+
 TEST(BoundedPayloadPipelineTest, BlocksAtByteBudgetAndWakesWhenConsumerPops) {
     using cpnetflux::core::io::BoundedPayloadPipeline;
     using cpnetflux::core::io::PreparedPayload;

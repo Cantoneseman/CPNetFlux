@@ -15,6 +15,10 @@ struct PreparedPayload {
     std::vector<std::uint8_t> bytes;
     std::uint64_t chunkIndex = 0;
     std::uint32_t frameChecksum = 0;
+    // Receiver writers can retain a checksum prefix or a decoded payload without copying it.
+    std::size_t logicalOffset = 0;
+    std::size_t logicalBytes = 0;
+    bool checksumPresent = false;
 };
 
 class BoundedPayloadPipeline {

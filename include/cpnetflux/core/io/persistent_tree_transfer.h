@@ -104,7 +104,7 @@ struct PersistentFileTiming {
     std::uint64_t payloadBufferAllocatedCapacityBytes = 0, payloadBufferOwnershipBudgetBytes = 0;
     std::uint64_t pipelineProducerWaits = 0, pipelineConsumerWaits = 0;
     double pipelineProducerWaitSeconds = 0, pipelineConsumerWaitSeconds = 0;
-    double producerThreadCpuSeconds = 0, laneThreadCpuSeconds = 0;
+    double producerThreadCpuSeconds = 0, laneThreadCpuSeconds = 0, receiverWriterThreadCpuSeconds = 0;
     double framePrepareSeconds = 0, socketWriteSeconds = 0;
     std::uint64_t socketWriteCalls = 0;
     std::optional<double> queueWaitSeconds, firstPayloadSeconds;
