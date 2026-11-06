@@ -785,6 +785,9 @@ if(CPNETFLUX_BUILD_TESTS)
     add_test(NAME cpnetflux_range_observability_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_range_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_serial_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --direct-write serial)
+    set_tests_properties(cpnetflux_range_serial_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME cpnetflux_range_checkpoint_batch_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --checkpoint-batch 16)
     set_tests_properties(cpnetflux_range_checkpoint_batch_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)

@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--observation", choices=("on","off"), default="on")
     parser.add_argument("--checkpoint-batch", choices=("1","4","16"), default="1")
+    parser.add_argument("--direct-write", choices=("serial","parallel"), default="parallel")
     args = parser.parse_args()
     build = args.build_dir.absolute()
     with tempfile.TemporaryDirectory(prefix="cpnetflux-range-observation-") as tmp:
@@ -27,7 +28,8 @@ def main():
         expected = tree_hash(source)
         port, data = free_port(), clamp_passive_data_port_base(free_port())
         env = dict(os.environ, CPNETFLUX_PAYLOAD_PIPELINE_DEPTH="8", CPNETFLUX_RANGE_TIMING=args.observation,
-                   CPNETFLUX_RANGE_CHECKPOINT_BATCH=args.checkpoint_batch)
+                   CPNETFLUX_RANGE_CHECKPOINT_BATCH=args.checkpoint_batch,
+                   CPNETFLUX_RANGE_DIRECT_WRITE=args.direct_write)
         log = root/"server.log"
         with log.open("w") as output:
             server = subprocess.Popen([str(build/"cpnetflux-gridftp-server"),
@@ -85,13 +87,22 @@ def main():
                 if args.observation=="off":
                     assert f["lane_thread_cpu_seconds"]==0
                     assert f["range_observation"]["entry_lock_calls"]==0
+                    assert f["range_observation"]["parallel_direct_write_calls"]==0
+                    assert f["range_observation"]["reclaim_wait_calls"]==0
+                    assert f["range_observation"]["reclaim_wait_seconds"]==0
                     assert f["range_observation"]["manifest_save"]["attempts"]==0
                     assert f["pipeline_producer_wait_seconds"]==0
                     continue
                 assert f["lane_thread_cpu_seconds"]>0
                 if f["measurement_scope"]=="local_receiver":
                     m=f["range_observation"]
-                    assert m["entry_lock_hold_seconds"]>=m["offset_write_seconds"]
+                    if args.direct_write=="parallel":
+                        assert m["parallel_direct_write_calls"]==m["data_frame_count"]>0
+                        assert m["entry_lock_calls"]>=2*m["writer_call_count"]
+                        assert "outside Entry" in contract["metrics"]["parallel_direct_write_calls"]["scope"]
+                    else:
+                        assert m["parallel_direct_write_calls"]==0
+                        assert m["entry_lock_hold_seconds"]>=m["offset_write_seconds"]
                     assert m["entry_lock_hold_seconds"]>=m["checkpoint_seconds"]
                     assert m["manifest_save"]["failures"]==0
                 else:
@@ -111,6 +122,11 @@ def main():
             assert server_receivers
             if args.observation=="on":
                 assert any(f["range_observation"]["data_frame_count"] for f in server_receivers)
+                for f in server_receivers:
+                    m=f["range_observation"]
+                    assert m["parallel_direct_write_calls"]==(m["data_frame_count"] if args.direct_write=="parallel" else 0)
+                    if args.direct_write=="serial":
+                        assert m["entry_lock_hold_seconds"]>=m["offset_write_seconds"]
             else:
                 assert not any(f["range_observation_enabled"] for f in remote)
                 assert all(f["range_observation"]["data_frame_count"]==0 for f in remote)
