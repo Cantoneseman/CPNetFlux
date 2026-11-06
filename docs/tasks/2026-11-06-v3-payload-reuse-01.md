@@ -1,6 +1,8 @@
 # V3 Payload Reuse 01
 
-Status: in progress, 2026-11-06. Input 6025f54efeb4fe87d69b32b15fcd9513fa431921.
+Status: completed, 2026-11-06. Input 6025f54efeb4fe87d69b32b15fcd9513fa431921.
+Measured implementation: 7aab4e683e1a029a298731a819d32a6c471750bb.
+Result: [acceptance and measurements](2026-11-06-v3-payload-reuse-01-result.md).
 Single R770-1 writer through SSH; R770-2 receives fixed commits only.
 
 ## Scope
@@ -69,5 +71,18 @@ are retained; this budget correction precedes further implementation.
 - Queue/ownership/cancellation tests: 10 tests, 30 consecutive passes.
 - R770-1 CMake build and full CTest: 542/542 passed in 207.92 seconds.
 - Fresh input-commit tmpfs baseline: three successful 1 GiB native RDMA runs.
-- Next: commit/push this implementation, peer build/gates, three candidate runs
-  and one full-verification control, cleanup and final result/backup receipts.
+- Implementation committed/pushed; remote SHA read back. R770-2 build and related
+  CTest: 146/146 passed, eight binary hashes/config/version matched before runs.
+- Three resident candidate runs and one full control passed CRC, external SHA,
+  native QPs and terminals, with zero sender process physical reads. Four buffers
+  and 17404 reuses per candidate; producer+lane CPU median decreased 22.54%,
+  while file/task throughput did not improve.
+- One earlier candidate was excluded because source pages were swapped out;
+  retain its fail record. Prewarm outside the task timer and assert residency
+  before starting payload, then repeat under separate candidate-warm labels.
+- Outputs removed after SHA; final source SHA confirmed and both temporary
+  roots removed. Production PIDs and idle kernel GSI QPs preserved.
+- Final documentation commit, peer synchronization and GitHub SHA readback are
+  recorded by the external acceptance/github-backup.json and HANDOFF.md receipts.
+- Next serial stage: profile receiver frame allocation/copy and fresh-page
+  writes, then independently investigate cold RDMA pool/setup and CQ lifecycle.
