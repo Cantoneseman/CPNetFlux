@@ -235,7 +235,10 @@ double threadCpuSeconds(bool enabled) {
 class ObservedEntryLock {
  public:
     ObservedEntryLock(std::mutex& mutex, RangeObservation* observation)
-        : observation_(observation), lock_(mutex, std::defer_lock) {
+        : observation_(observation), lock_(mutex, std::defer_lock) { lock(); }
+    ~ObservedEntryLock() { accountHold(); }
+    void unlock() { accountHold(); lock_.unlock(); }
+    void lock() {
         const auto started = observation_ ? Clock::now() : Clock::time_point{};
         lock_.lock();
         if (observation_) {
@@ -244,10 +247,24 @@ class ObservedEntryLock {
             observation_->entryLockWaitSeconds += std::chrono::duration<double>(acquired_-started).count();
         }
     }
-    ~ObservedEntryLock() {
-        if (observation_) observation_->entryLockHoldSeconds += secondsSince(acquired_);
+    template<class Predicate>
+    void waitForReclaim(std::condition_variable& drained, Predicate predicate) {
+        if (predicate()) return;
+        accountHold();
+        const auto started = observation_ ? Clock::now() : Clock::time_point{};
+        drained.wait(lock_, predicate);
+        if (observation_) {
+            acquired_ = Clock::now();
+            ++observation_->entryLockCalls;
+            ++observation_->reclaimWaitCalls;
+            observation_->reclaimWaitSeconds += std::chrono::duration<double>(acquired_-started).count();
+        }
     }
  private:
+    void accountHold() {
+        if (observation_ && lock_.owns_lock())
+            observation_->entryLockHoldSeconds += secondsSince(acquired_);
+    }
     RangeObservation* observation_;
     std::unique_lock<std::mutex> lock_;
     Clock::time_point acquired_{};
@@ -663,7 +680,12 @@ class FileTransaction {
         }
         return true;
     }
-    Status writeRange(std::uint64_t offset, std::span<const std::uint8_t> bytes, RangeObservation* observation) {
+    bool permitsParallelRangeWrites() const {
+        return ioContext_.backend() == storage::FileIoBackendKind::Posix &&
+            storage::effectivePosixWriteStrategy(ioContext_.config()) == storage::PosixWriteStrategy::Direct;
+    }
+    Status writeRange(std::uint64_t offset, std::span<const std::uint8_t> bytes,
+                      RangeObservation* observation, bool independent = false) {
         if (skipped_) return Status::ok();
         if (!active_ || offset > identity_.totalSize || bytes.size() > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range write exceeds file boundary");
@@ -672,8 +694,13 @@ class FileTransaction {
             ++observation->writerCallCount;
         }
         const auto started = Clock::now();
-        auto status = writer_->write(offset, bytes.data(), bytes.size(),
-                                     observation ? &observation->fileWrite : nullptr);
+        // Independent ranges bypass the mutable buffered writer. The coordinator
+        // pins this transaction and its fd until the syscall and certification finish.
+        auto status = independent
+            ? storage::writeAtAll(file_, offset, bytes.data(), bytes.size(), ioContext_, ioStats_,
+                                  observation ? &observation->fileWrite : nullptr)
+            : writer_->write(offset, bytes.data(), bytes.size(),
+                             observation ? &observation->fileWrite : nullptr);
         const auto elapsed = secondsSince(started);
         if (observation) {
             observation->offsetWriteSeconds += elapsed;
@@ -792,7 +819,7 @@ class RangeFileCoordinator {
  public:
     struct Slot {
         PersistentFileIdentity id;
-        bool active = true, completed = false;
+        bool active = true, completed = false, writing = false;
         std::vector<chunk::CompletedRange> missing;
         std::size_t next = 0;
         std::uint64_t position = 0;
@@ -800,6 +827,8 @@ class RangeFileCoordinator {
     };
     struct Entry {
         std::mutex mutex;
+        std::condition_variable writersDrained;
+        bool parallelDirectWrites = false;
         std::unique_ptr<FileTransaction> transaction;
         PersistentFileIdentity base;
         std::unordered_map<std::uint64_t, Slot> slots;
@@ -831,6 +860,10 @@ class RangeFileCoordinator {
             ? common::Result<std::uint64_t>(std::uint64_t{0})
             : rangeWriteBatchBytes(context.policy);
         if (!writeBatch.isOk()) return writeBatch.status();
+        const auto* directSetting = std::getenv("CPNETFLUX_RANGE_DIRECT_WRITE");
+        if (directSetting && std::string_view(directSetting) != "serial" &&
+            std::string_view(directSetting) != "parallel")
+            return Status::invalidArgument("CPNETFLUX_RANGE_DIRECT_WRITE must be serial or parallel");
         const auto key = (fs::path(root) / id.relativePath).lexically_normal().string();
         std::shared_ptr<Entry> entry;
         {
@@ -864,6 +897,8 @@ class RangeFileCoordinator {
                 entry->transaction = std::make_unique<FileTransaction>(nullptr,rangePolicy,nullptr,&context);
                 auto status = entry->transaction->begin(root,entry->base,download,remoteRoot,resume,observation);
                 if (!status.isOk()) return status;
+                entry->parallelDirectWrites = entry->transaction->permitsParallelRangeWrites() &&
+                    (!directSetting || std::string_view(directSetting) == "parallel");
                 entry->loadedVerifiedChunks = entry->transaction->loadedVerifiedChunks();
                 entry->removedCorruptChunks = entry->transaction->removedCorruptChunks();
                 context.files.emplace(key,entry);
@@ -896,6 +931,19 @@ class RangeFileCoordinator {
             }
             found = entry->slots.emplace(id.rangeId, Slot{}).first;
         } else {
+            if (found->second.id.rangeOffset != id.rangeOffset ||
+                found->second.id.rangeLength != id.rangeLength)
+                return Status::invalidArgument("range retry changed its partition");
+            // Never reset a slot while an older attempt can still modify the fd.
+            // Wait releases Entry so independent ranges and write completion proceed.
+            if (id.attempt <= found->second.id.attempt)
+                return Status::invalidArgument("range slot already claimed");
+            lock.waitForReclaim(entry->writersDrained, [&] {
+                return !entry->slots.at(id.rangeId).writing;
+            });
+            // Another waiter may have reclaimed the slot, or a checkpoint failed.
+            found = entry->slots.find(id.rangeId);
+            if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
             auto& previous = found->second;
             if (id.attempt <= previous.id.attempt)
                 return Status::invalidArgument("range slot already claimed");
@@ -931,7 +979,7 @@ class RangeFileCoordinator {
         ObservedEntryLock lock(entry->mutex, observation);
         if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
         const auto slot = entry->slots.find(id.rangeId);
-        if (entry->committed || slot == entry->slots.end() || !slot->second.active ||
+        if (entry->committed || slot == entry->slots.end() || !slot->second.active || slot->second.writing ||
             !samePersistentIdentity(slot->second.id,id) || offset < id.rangeOffset ||
             offset > id.rangeOffset+id.rangeLength ||
             bytes.size() > id.rangeOffset+id.rangeLength-offset)
@@ -940,8 +988,27 @@ class RangeFileCoordinator {
         if (lease.next>=lease.missing.size() || offset!=lease.position ||
             bytes.size()>lease.missing[lease.next].end-lease.position)
             return Status::invalidArgument("range DATA touches already verified bytes");
-        auto status=entry->transaction->writeRange(offset,bytes,observation);
+        auto status = Status::ok();
+        if (entry->parallelDirectWrites) {
+            // Slot identity/position remain pinned until both IO and the following
+            // certification finish under Entry. Other slots are disjoint by begin().
+            lease.writing = true;
+            if (observation) ++observation->parallelDirectWriteCalls;
+            lock.unlock();
+            try {
+                status = entry->transaction->writeRange(offset, bytes, observation, true);
+            } catch (...) {
+                lock.lock(); lease.writing = false; entry->writersDrained.notify_all();
+                throw;
+            }
+            lock.lock();
+            lease.writing = false;
+            entry->writersDrained.notify_all();
+        } else {
+            status = entry->transaction->writeRange(offset, bytes, observation);
+        }
         if (!status.isOk()) return status;
+        if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
         checkpoint::OptionalManifestTimer checksumming(observation ? &observation->chunkChecksumSeconds : nullptr);
         if (!lease.checksum.combine(verifiedChecksum, bytes.size()))
             return Status::invalidArgument("range chunk checksum algorithm mismatch");
@@ -985,6 +1052,9 @@ class RangeFileCoordinator {
         if (!observation) return;
         auto& a = *observation; auto& b = entry.background;
         a.entryLockCalls += b.entryLockCalls;
+        a.parallelDirectWriteCalls += b.parallelDirectWriteCalls;
+        a.reclaimWaitCalls += b.reclaimWaitCalls;
+        a.reclaimWaitSeconds += b.reclaimWaitSeconds;
         a.entryLockWaitSeconds += b.entryLockWaitSeconds;
         a.entryLockHoldSeconds += b.entryLockHoldSeconds;
         a.dataFrameCount += b.dataFrameCount;
@@ -1060,7 +1130,7 @@ class RangeFileCoordinator {
             if (entry->committed && skipped) return Status::ok();
             return Status::invalidArgument("invalid or duplicate range completion");
         }
-        if (!slot->second.active || (entry->committed && !skipped))
+        if (!slot->second.active || slot->second.writing || (entry->committed && !skipped))
             return Status::invalidArgument("invalid or duplicate range completion");
         if (skipped && !entry->committed &&
             !entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength))
@@ -2450,6 +2520,9 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
         out << ",\"range_observation\":{\"schema_version\":2,\"data_frame_count\":" << r.dataFrameCount
             << ",\"effective_data_bytes\":" << r.effectiveDataBytes
             << ",\"range_write_batch_bytes\":" << r.rangeWriteBatchBytes
+            << ",\"parallel_direct_write_calls\":" << r.parallelDirectWriteCalls
+            << ",\"reclaim_wait_calls\":" << r.reclaimWaitCalls
+            << ",\"reclaim_wait_seconds\":" << r.reclaimWaitSeconds
             << ",\"entry_lock_calls\":" << r.entryLockCalls
             << ",\"entry_lock_wait_seconds\":" << r.entryLockWaitSeconds
             << ",\"entry_lock_hold_seconds\":" << r.entryLockHoldSeconds
@@ -2487,11 +2560,14 @@ void appendRangeObservationContract(std::ostream& out) {
         R"obs("metrics":{"data_frame_count":{"unit":"frames","scope":"successfully validated DATA frames accepted by this range writer","overlap":"not applicable"},)obs"
         R"obs("effective_data_bytes":{"unit":"logical bytes","scope":"decompressed payload after checksum prefix removal, accepted by this range writer","overlap":"not applicable"},)obs"
         R"obs("range_write_batch_bytes":{"unit":"bytes","scope":"effective BufferedFileWriter contiguous buffer configured for this range; zero means batching is disabled or direct writes are selected","overlap":"configuration value, not elapsed time"},)obs"
-        R"obs("entry_lock_calls":{"unit":"calls","scope":"Entry mutex acquisitions during this range plus deferred checkpoint acquisitions merged since the preceding reporting boundary","overlap":"not applicable"},)obs"
+        R"obs("parallel_direct_write_calls":{"unit":"calls","scope":"POSIX direct writeRange attempts executed outside Entry; not certified progress; zero for serialized backends or serial diagnostic override","overlap":"storage interval is outside entry_lock_hold_seconds"},)obs"
+        R"obs("reclaim_wait_calls":{"unit":"calls","scope":"higher-attempt begin calls that waited for the preceding slot write to drain","overlap":"not applicable"},)obs"
+        R"obs("reclaim_wait_seconds":{"unit":"seconds","scope":"condition wait and mutex reacquisition during those reclaim waits","overlap":"excluded from entry_lock_wait_seconds and entry_lock_hold_seconds"},)obs"
+        R"obs("entry_lock_calls":{"unit":"calls","scope":"Explicit Entry mutex acquisitions and reclaim wait returns during this range plus deferred checkpoint acquisitions merged since the preceding reporting boundary","overlap":"not applicable"},)obs"
         R"obs("entry_lock_wait_seconds":{"unit":"seconds","scope":"steady_clock wait summed over those Entry lock acquisitions","overlap":"may overlap other ranges and range wall time"},)obs"
-        R"obs("entry_lock_hold_seconds":{"unit":"seconds","scope":"steady_clock hold summed over those Entry lock acquisitions","overlap":"contains nested writer, data flush, record update and manifest flush intervals; concurrent ranges overlap"},)obs"
-        R"obs("writer_call_count":{"unit":"calls","scope":"BufferedFileWriter::write attempts for this range","overlap":"not applicable"},)obs"
-        R"obs("writer_call_seconds":{"unit":"seconds","scope":"BufferedFileWriter::write elapsed time summed for this range","overlap":"contains file_write_at_all_seconds when a write occurs"},)obs"
+        R"obs("entry_lock_hold_seconds":{"unit":"seconds","scope":"steady_clock hold summed over those Entry lock acquisitions; excludes unlocked direct writes and reclaim condition waits","overlap":"serialized mode contains writer; direct parallel mode excludes unlocked storage; includes data flush, record update and manifest flush"},)obs"
+        R"obs("writer_call_count":{"unit":"calls","scope":"Range writer attempts for this range; POSIX direct independent mode uses stateless writeAtAll","overlap":"not applicable"},)obs"
+        R"obs("writer_call_seconds":{"unit":"seconds","scope":"range writeRange storage elapsed time summed for this range; direct parallel storage interval is outside Entry","overlap":"contains file_write_at_all_seconds when a write occurs"},)obs"
         R"obs("file_write_at_all_calls":{"unit":"calls","scope":"lower-level storage writeAtAll attempts reached by this range","overlap":"not applicable"},)obs"
         R"obs("file_write_at_all_bytes":{"unit":"requested bytes","scope":"length requested by each writeAtAll attempt, including failed attempts; when BufferedFileWriter coalesces data, bytes may originate from earlier range calls","overlap":"not applicable"},)obs"
         R"obs("file_write_at_all_failures":{"unit":"calls","scope":"writeAtAll attempts that returned failure","overlap":"not applicable"},)obs"
