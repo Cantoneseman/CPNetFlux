@@ -35,6 +35,8 @@ using cpnetflux::core::io::UniqueFd;
 
 std::atomic<std::size_t> observedAllocationSize{0};
 std::atomic<std::size_t> observedAllocations{0};
+std::atomic<std::size_t> receiverFrameAllocations{0};
+thread_local bool observeReceiverFrames = false;
 
 struct DataWrite {
     cpnetflux::core::protocol::FrameHeader header;
@@ -100,6 +102,8 @@ extern "C" void* __real__Znwm(std::size_t size);
 extern "C" void* __wrap__Znwm(std::size_t size) {
     if (size == observedAllocationSize.load(std::memory_order_relaxed))
         observedAllocations.fetch_add(1, std::memory_order_relaxed);
+    if (observeReceiverFrames && size == 65536)
+        receiverFrameAllocations.fetch_add(1, std::memory_order_relaxed);
     return __real__Znwm(size);
 }
 #endif
@@ -221,8 +225,11 @@ TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFra
     FramedDataSocket sender{UniqueFd(sockets[0])}, receiver{UniqueFd(sockets[1])};
     PersistentTreeStats received, sent;
     Status receiveStatus;
+    receiverFrameAllocations.store(0, std::memory_order_relaxed);
     std::jthread reader([&] {
+        observeReceiverFrames = true;
         receiveStatus = receivePersistentTree(&receiver, destination.path.string(), false, "", &received);
+        observeReceiverFrames = false;
     });
     observedAllocations.store(0, std::memory_order_relaxed);
     observedAllocationSize.store(bufferBytes, std::memory_order_relaxed);
@@ -235,6 +242,11 @@ TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFra
     ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
     EXPECT_GT(allocations, 0U) << "the observer must detect a real initial payload allocation";
     EXPECT_LE(allocations, 4U) << "depth two plus one producer and one consumer buffer";
+    const auto receiverAllocations = receiverFrameAllocations.load(std::memory_order_relaxed);
+    EXPECT_GE(receiverAllocations, 64U) << "observe the 64 full wire frames independently of profiling";
+    const auto verifiedChunks = (content.size() + id.chunkSize - 1) / id.chunkSize;
+    EXPECT_LE(receiverAllocations, 64U + verifiedChunks)
+        << "one allocation per full frame and one readback buffer per verified chunk";
     std::ifstream output(destination.path / "buffers.bin", std::ios::binary);
     const std::vector<std::uint8_t> actual((std::istreambuf_iterator<char>(output)), {});
     EXPECT_EQ(actual, content);
@@ -363,10 +375,9 @@ TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalW
                 EXPECT_NE(timing.str().find("\"receiver_payload_observation\":null"), std::string::npos);
             } else {
                 EXPECT_NE(timing.str().find("\"schema\":\"cpnetflux_receiver_payload_observation_v1\""), std::string::npos);
-                std::uint64_t wireBytes = 0, shiftedBytes = 0, decodedFrames = 0;
+                std::uint64_t wireBytes = 0, decodedFrames = 0;
                 for (const auto& write : script.dataWrites) {
                     wireBytes += write.body.size();
-                    if (algorithm == ChecksumAlgorithm::Crc32c) shiftedBytes += write.body.size() - 4;
                     if (write.header.flags & kDataCompressed) ++decodedFrames;
                 }
                 const auto count = [&](const char* key, std::uint64_t expected) {
@@ -377,10 +388,10 @@ TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalW
                 count("data_frame_count", frames);
                 count("frame_payload_allocations", frames);
                 count("frame_payload_bytes", wireBytes);
-                count("logical_buffer_allocations", frames);
-                count("logical_copy_bytes", wireBytes);
-                count("prefix_shift_calls", algorithm == ChecksumAlgorithm::Crc32c ? frames : 0);
-                count("prefix_shift_bytes", shiftedBytes);
+                count("logical_buffer_allocations", 0);
+                count("logical_copy_bytes", 0);
+                count("prefix_shift_calls", 0);
+                count("prefix_shift_bytes", 0);
                 count("decompression_calls", decodedFrames);
                 count("frame_crc_bytes", algorithm == ChecksumAlgorithm::Crc32c ? content.size() : 0);
                 count("whole_file_write_at_all_calls", frames);

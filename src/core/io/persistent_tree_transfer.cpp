@@ -4,6 +4,7 @@
 #include <ctime>
 #include <charconv>
 #include <string_view>
+#include <span>
 #include "cpnetflux/core/io/work_executor.h"
 #include "cpnetflux/core/io/detail/persistent_transfer_lifetime.h"
 
@@ -418,7 +419,7 @@ class FileTransaction {
         Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
         return resume ? common::Status::ok() : std::visit([](auto& s) { return s.save(); }, session_);
     }
-    Status write(std::uint64_t offset, const std::vector<std::uint8_t>& bytes,
+    Status write(std::uint64_t offset, std::span<const std::uint8_t> bytes,
                  checksum::ChecksumValue verifiedChecksum) {
         ScopedManifestObservation observing(session_, nullptr, wholeObservation());
         if (skipped_) return Status::ok();
@@ -599,7 +600,7 @@ class FileTransaction {
         }
         return true;
     }
-    Status writeRange(std::uint64_t offset, const std::vector<std::uint8_t>& bytes, RangeObservation* observation) {
+    Status writeRange(std::uint64_t offset, std::span<const std::uint8_t> bytes, RangeObservation* observation) {
         if (skipped_) return Status::ok();
         if (!active_ || offset > identity_.totalSize || bytes.size() > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range write exceeds file boundary");
@@ -862,7 +863,7 @@ class RangeFileCoordinator {
         return entry;
     }
     static Status write(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
-                        std::uint64_t offset, const std::vector<std::uint8_t>& bytes,
+                        std::uint64_t offset, std::span<const std::uint8_t> bytes,
                         checksum::ChecksumValue verifiedChecksum, RangeObservation* observation) {
         ObservedEntryLock lock(entry->mutex, observation);
         if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
@@ -1911,17 +1912,15 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             timing.payloadIoSeconds += secondsSince(payloadStarted);
             if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
             const auto checksumStarted = Clock::now();
-            const auto copyStarted = payloadObservation ? Clock::now() : Clock::time_point{};
-            std::vector<std::uint8_t> logical = data.value().payload;
+            // Validation and writes consume this view before the frame is released.
+            std::span<const std::uint8_t> logical(data.value().payload);
+            std::vector<std::uint8_t> decodedPayload;
             if (payloadObservation) {
                 auto& p = *payloadObservation;
                 ++p.dataFrameCount;
                 p.framePayloadAllocations += data.value().payload.capacity() != 0;
                 p.framePayloadBytes += data.value().payload.size();
                 p.framePayloadCapacityBytes += data.value().payload.capacity();
-                p.logicalBufferAllocations += logical.capacity() != 0;
-                p.logicalCopyBytes += logical.size();
-                p.logicalCopySeconds += secondsSince(copyStarted);
             }
             std::optional<std::uint32_t> expectedDigest;
             if (data.value().header.flags & protocol::kDataChecksum) {
@@ -1930,13 +1929,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 expectedDigest=(static_cast<std::uint32_t>(logical[0])<<24)|
                     (static_cast<std::uint32_t>(logical[1])<<16)|
                     (static_cast<std::uint32_t>(logical[2])<<8)|logical[3];
-                const auto shifting = payloadObservation ? Clock::now() : Clock::time_point{};
-                logical.erase(logical.begin(),logical.begin()+4);
-                if (payloadObservation) {
-                    ++payloadObservation->prefixShiftCalls;
-                    payloadObservation->prefixShiftBytes += logical.size();
-                    payloadObservation->prefixShiftSeconds += secondsSince(shifting);
-                }
+                logical = logical.subspan(4);
             }
             if (data.value().header.flags & protocol::kDataCompressed) {
                 const auto decoding = payloadObservation ? Clock::now() : Clock::time_point{};
@@ -1946,7 +1939,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     size.value(),PersistentDataSession::kMaxPayload);
                 if (!decoded.isOk()) { ++stats->runtime.decompressionFailures; return decoded.status(); }
                 ++timing.compressedFrames;
-                logical = std::move(decoded.value());
+                decodedPayload = std::move(decoded.value());
+                logical = decodedPayload;
                 if (payloadObservation) {
                     ++payloadObservation->decompressionCalls;
                     payloadObservation->decompressionSeconds += secondsSince(decoding);

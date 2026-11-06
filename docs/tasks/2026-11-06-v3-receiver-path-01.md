@@ -66,3 +66,19 @@ excluded from performance samples; use fresh labels for successful runs.
 
 Tools checked: shell and dedicated chat messaging exposed; chat messaging unused.
 No codex CLI found on R770-1. No delegation requested or performed.
+
+## Progress
+
+- a9ecbe9179c3d8154a91e17fe23b4c9d445f5a74: download-only file write
+  configuration, failing parse regression then 55/55 related tests on each peer.
+  Pushed and GitHub SHA read back before peer synchronization/transfer.
+- Nine rotated coalescing samples passed all payload/protocol/memory gates.
+  Direct / 256 KiB / 1 MiB file-phase medians: 17.56 / 17.35 / 16.78 Gbps.
+  Actual writes: 17408 / 5120 / 1024. No measured net benefit; default stays direct.
+- Span regression observed 133 receiver allocations of 65536 bytes before the
+  change and 69 after (64 wire frames + 5 chunk readback buffers). Initial test
+  allowed only two readback buffers and failed the candidate; corrected after
+  checking readChecksumForRecord allocates once per chunk, without removing full
+  verification. Byte oracle/profile on-off raw/compressed CRC/none test passes.
+  Framed 14/14 and R770-1 full 543/543 passed (257.70 s). Peer regression and
+  fixed-commit native candidate measurements pending.
