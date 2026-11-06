@@ -59,6 +59,18 @@ struct ObserveSends {
     explicit ObserveSends(SendScript& script) : previous(currentScript) { currentScript = &script; }
     ~ObserveSends() { currentScript = previous; }
 };
+struct PipelineDepthSetting {
+    std::optional<std::string> previous;
+    explicit PipelineDepthSetting(unsigned depth) {
+        const auto* value = std::getenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
+        if (value) previous = value;
+        ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH", std::to_string(depth).c_str(), 1);
+    }
+    ~PipelineDepthSetting() {
+        if (previous) ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH", previous->c_str(), 1);
+        else ::unsetenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
+    }
+};
 struct SocketPair {
     FramedDataSocket sender;
     UniqueFd receiver;
@@ -188,6 +200,9 @@ TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFra
 #else
     using namespace cpnetflux::core::io;
     using cpnetflux::checksum::ChecksumAlgorithm;
+    for (const unsigned depth : {2U, 8U}) {
+    SCOPED_TRACE(depth);
+    PipelineDepthSetting depthSetting(depth);
     struct Directory {
         std::filesystem::path path;
         Directory() {
@@ -198,18 +213,6 @@ TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFra
         }
         ~Directory() { std::error_code error; std::filesystem::remove_all(path, error); }
     } source, destination;
-    struct Depth {
-        std::optional<std::string> previous;
-        Depth() {
-            const auto* value = std::getenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
-            if (value) previous = value;
-            ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH", "2", 1);
-        }
-        ~Depth() {
-            if (previous) ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH", previous->c_str(), 1);
-            else ::unsetenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
-        }
-    } depth;
     constexpr std::size_t bufferBytes = 65532;
     const auto content = testBytes(4 * 1024 * 1024 + 37);
     {
@@ -224,6 +227,7 @@ TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFra
     ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sockets), 0);
     FramedDataSocket sender{UniqueFd(sockets[0])}, receiver{UniqueFd(sockets[1])};
     PersistentTreeStats received, sent;
+    received.phaseTiming = true;
     Status receiveStatus;
     receiverFrameAllocations.store(0, std::memory_order_relaxed);
     std::jthread reader([&] {
@@ -241,19 +245,28 @@ TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFra
     ASSERT_TRUE(sendStatus.isOk()) << sendStatus.message();
     ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
     EXPECT_GT(allocations, 0U) << "the observer must detect a real initial payload allocation";
-    EXPECT_LE(allocations, 4U) << "depth two plus one producer and one consumer buffer";
+    EXPECT_LE(allocations, depth + 2U) << "queue depth plus producer and consumer buffers";
     const auto receiverAllocations = receiverFrameAllocations.load(std::memory_order_relaxed);
     EXPECT_GT(receiverAllocations, 0U) << "observe real receiver allocations independently of profiling";
     const auto verifiedChunks = (content.size() + id.chunkSize - 1) / id.chunkSize;
-    EXPECT_LE(receiverAllocations, 1U + verifiedChunks)
-        << "one reusable full frame and one readback buffer per verified chunk";
+    EXPECT_LE(receiverAllocations, depth + 2U + verifiedChunks)
+        << "bounded queue plus producer/consumer frames and one readback buffer per verified chunk";
+    ASSERT_EQ(received.fileTimings.size(), 1U);
+    const auto& receiverTiming = received.fileTimings.front();
+    EXPECT_EQ(receiverTiming.payloadPipelineDepth, depth);
+    EXPECT_EQ(receiverTiming.pipelineBudgetBytes, depth * 65536U);
+    EXPECT_GT(receiverTiming.pipelineHighWatermarkBytes, 0U);
+    EXPECT_LE(receiverTiming.pipelineHighWatermarkBytes, receiverTiming.pipelineBudgetBytes);
     std::ifstream output(destination.path / "buffers.bin", std::ios::binary);
     const std::vector<std::uint8_t> actual((std::istreambuf_iterator<char>(output)), {});
     EXPECT_EQ(actual, content);
+    }
 #endif
 }
 
 TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalWireContent) {
+    constexpr unsigned pipelineDepth = 2;
+    PipelineDepthSetting depthSetting(pipelineDepth);
     using namespace cpnetflux::core::io;
     using namespace cpnetflux::core::protocol;
     using cpnetflux::checksum::ChecksumAlgorithm;
@@ -386,8 +399,16 @@ TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalW
                 };
                 const auto frames = script.dataWrites.size();
                 count("data_frame_count", frames);
-                count("frame_payload_allocations", 1);
-                count("frame_payload_reuses", frames - 1);
+                ASSERT_EQ(received.fileTimings.size(), 1U);
+                const auto& observed = received.fileTimings.front().receiverPayloadObservation;
+                EXPECT_GT(observed.framePayloadAllocations, 0U);
+                EXPECT_LE(observed.framePayloadAllocations,
+                    std::min<std::uint64_t>(frames, pipelineDepth + 3U));
+                EXPECT_EQ(observed.framePayloadAllocations + observed.framePayloadReuses, frames);
+                EXPECT_LE(observed.framePayloadAllocatedCapacityBytes, (pipelineDepth + 3U) * 65536U);
+                EXPECT_LE(observed.framePayloadPeakCapacityBytes, 65536U);
+                count("frame_payload_allocations", observed.framePayloadAllocations);
+                count("frame_payload_reuses", frames - observed.framePayloadAllocations);
                 count("frame_payload_bytes", wireBytes);
                 count("logical_buffer_allocations", 0);
                 count("logical_copy_bytes", 0);
