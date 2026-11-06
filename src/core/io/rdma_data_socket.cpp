@@ -330,12 +330,15 @@ struct RdmaDataSocket::Impl {
             statistics.connectionId = connectionId;
             statistics.queuePairNumber = queuePairNumber;
         }
+        trace("qp_resources_created", elapsedNanoseconds(initializeStarted));
         auto started = std::chrono::steady_clock::now();
         sendBufferPool.resize(sendSlots.size() * kMessageBufferSize);
         statistics.bufferAllocateNanoseconds += elapsedNanoseconds(started);
+        trace("send_pool_allocated", elapsedNanoseconds(started));
         started = std::chrono::steady_clock::now();
         sendMemoryRegion = ::ibv_reg_mr(pd, sendBufferPool.data(), sendBufferPool.size(), 0);
         statistics.memoryRegisterNanoseconds += elapsedNanoseconds(started);
+        trace("send_pool_registered", elapsedNanoseconds(started));
         if (sendMemoryRegion == nullptr) return rdmaStatus("ibv_reg_mr send buffer pool");
         for (std::size_t index = 0; index < sendSlots.size(); ++index) {
             sendSlots[index].buffer = sendBufferPool.data() + index * kMessageBufferSize;
@@ -343,10 +346,12 @@ struct RdmaDataSocket::Impl {
         started = std::chrono::steady_clock::now();
         receiveBufferPool.resize(receiveSlots.size() * kMessageBufferSize);
         statistics.bufferAllocateNanoseconds += elapsedNanoseconds(started);
+        trace("receive_pool_allocated", elapsedNanoseconds(started));
         started = std::chrono::steady_clock::now();
         receiveMemoryRegion = ::ibv_reg_mr(pd, receiveBufferPool.data(),
                                            receiveBufferPool.size(), IBV_ACCESS_LOCAL_WRITE);
         statistics.memoryRegisterNanoseconds += elapsedNanoseconds(started);
+        trace("receive_pool_registered", elapsedNanoseconds(started));
         if (receiveMemoryRegion == nullptr) return rdmaStatus("ibv_reg_mr receive buffer pool");
         for (std::size_t index = 0; index < receiveSlots.size(); ++index) {
             auto& slot = receiveSlots[index];
@@ -367,6 +372,7 @@ struct RdmaDataSocket::Impl {
             statistics.receiveFreeQueueLowWatermark = freeReceiveSlotCount;
         }
         statistics.receivePrepostNanoseconds = elapsedNanoseconds(started);
+        trace("receive_preposted", statistics.receivePrepostNanoseconds);
         statistics.queuePairInitializeNanoseconds = elapsedNanoseconds(initializeStarted);
         trace("queue_pair_initialized", statistics.queuePairInitializeNanoseconds);
         return common::Status::ok();
@@ -972,7 +978,9 @@ common::Result<RdmaDataSocket> RdmaDataSocket::connect(const char* host, std::ui
     parameters.retry_count = 7;
     parameters.rnr_retry_count = 7;
     if (::rdma_connect(id, &parameters) != 0) return rdmaStatus("rdma_connect");
+    const auto establishStarted = std::chrono::steady_clock::now();
     status = waitEvent(channel, RDMA_CM_EVENT_ESTABLISHED, deadline, &event);
+    impl->trace("cm_established_wait", Impl::elapsedNanoseconds(establishStarted));
     if (!status.isOk()) return status;
     (void)::rdma_ack_cm_event(event);
     status = impl->configureReceiveRetryTimer();
@@ -1157,7 +1165,9 @@ common::Result<RdmaDataSocket> RdmaListener::accept(SocketDeadline deadline) {
     parameters.retry_count = 7;
     parameters.rnr_retry_count = 7;
     if (::rdma_accept(id, &parameters) != 0) return rdmaStatus("rdma_accept");
+    const auto establishStarted = std::chrono::steady_clock::now();
     status = waitEvent(connectionChannel, RDMA_CM_EVENT_ESTABLISHED, deadline, &event);
+    connection->trace("cm_established_wait", RdmaDataSocket::Impl::elapsedNanoseconds(establishStarted));
     if (!status.isOk()) return status;
     (void)::rdma_ack_cm_event(event);
     status = connection->configureReceiveRetryTimer();
