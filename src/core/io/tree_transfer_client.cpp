@@ -1680,6 +1680,8 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
                << "    \"manifest_flush_interval_chunks\": " << options.manifestFlushIntervalChunks << ",\n"
                << "    \"commit_sync_policy\": \""
                << core::session::commitSyncPolicyName(options.commitSyncPolicy) << "\",\n"
+               << "    \"preallocate_mode\": \""
+               << storage::preallocateModeName(options.preallocateMode) << "\",\n"
                << "    \"range_checkpoint_batch_chunks_override\": ";
         if (options.rangeCheckpointBatchChunks) output << options.rangeCheckpointBatchChunks;
         else output << "null";
@@ -1694,6 +1696,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
                << "    \"manifest_flush_policy\": null,\n"
                << "    \"manifest_flush_interval_chunks\": null,\n"
                << "    \"commit_sync_policy\": null,\n"
+               << "    \"preallocate_mode\": null,\n"
                << "    \"range_checkpoint_batch_chunks_override\": null,\n"
                << "    \"range_checkpoint_batch_chunks_effective\": null\n";
     }
@@ -2553,6 +2556,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     receiverPolicy.options.manifestFlushIntervalChunks = options.manifestFlushIntervalChunks;
     receiverPolicy.options.finalVerifyPolicy = options.finalVerifyPolicy;
     receiverPolicy.options.commitSyncPolicy = options.commitSyncPolicy;
+    receiverPolicy.options.preallocateMode = options.preallocateMode;
     receiverPolicy.options.fileIo = options.fileIo;
     receiverPolicy.rangeCheckpointBatchChunks = options.rangeCheckpointBatchChunks;
     receiverPolicy.limits.taskDeadline = options.transferDeadline;

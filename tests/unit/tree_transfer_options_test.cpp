@@ -90,6 +90,30 @@ TEST(TreeTransferOptionsTest, ReceiverPolicyUsageAndRangeOverridesAreRoleScoped)
     EXPECT_EQ(upload.find("--final-verify-policy"), std::string::npos);
 }
 
+TEST(TreeTransferOptionsTest, DownloadPreallocationIsExplicitAndUploadReceiverScoped) {
+    using cpnetflux::config::TreeTransferRole;
+    for (const char* mode : {"off", "full"}) {
+        const char* argv[]{"client", "--auth-probe", "--preallocate", mode};
+        auto download = cpnetflux::config::parseTreeTransferOptions(std::size(argv), argv, TreeTransferRole::Download);
+        ASSERT_TRUE(download.isOk()) << download.status().message();
+        EXPECT_EQ(download.value().preallocateMode, std::string(mode) == "full"
+            ? cpnetflux::storage::PreallocateMode::Full : cpnetflux::storage::PreallocateMode::Off);
+        auto upload = cpnetflux::config::parseTreeTransferOptions(std::size(argv), argv, TreeTransferRole::Upload);
+        EXPECT_FALSE(upload.isOk());
+        EXPECT_NE(upload.status().message().find("download-only"), std::string::npos);
+    }
+    for (const char* mode : {"auto", "1", "", "FULL"}) {
+        const char* argv[]{"client", "--auth-probe", "--preallocate", mode};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(argv), argv, TreeTransferRole::Download).isOk());
+    }
+    const char* argv[]{"client", "--auth-probe"};
+    auto defaults = cpnetflux::config::parseTreeTransferOptions(std::size(argv), argv, TreeTransferRole::Download);
+    ASSERT_TRUE(defaults.isOk());
+    EXPECT_EQ(defaults.value().preallocateMode, cpnetflux::core::io::PersistentTransferPolicy{}.options.preallocateMode);
+    EXPECT_NE(cpnetflux::config::treeTransferUsage("client", TreeTransferRole::Download).find("--preallocate"), std::string::npos);
+    EXPECT_EQ(cpnetflux::config::treeTransferUsage("client", TreeTransferRole::Upload).find("--preallocate"), std::string::npos);
+}
+
 TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
     const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe",
                           "--host", "127.0.0.1", "--port", "2121",

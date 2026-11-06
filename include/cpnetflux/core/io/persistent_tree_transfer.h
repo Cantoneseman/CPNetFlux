@@ -106,6 +106,9 @@ struct PersistentFileTiming {
     std::uint64_t pipelineProducerWaits = 0, pipelineConsumerWaits = 0;
     double pipelineProducerWaitSeconds = 0, pipelineConsumerWaitSeconds = 0;
     double producerThreadCpuSeconds = 0, laneThreadCpuSeconds = 0, receiverWriterThreadCpuSeconds = 0;
+    // Whole-file receiver begin only; included in file wall and lane CPU totals.
+    std::uint64_t preallocateCalls = 0, preallocateRequestedBytes = 0;
+    double preallocateSeconds = 0, preallocateCpuSeconds = 0;
     double framePrepareSeconds = 0, socketWriteSeconds = 0;
     std::uint64_t socketWriteCalls = 0;
     std::optional<double> queueWaitSeconds, firstPayloadSeconds;

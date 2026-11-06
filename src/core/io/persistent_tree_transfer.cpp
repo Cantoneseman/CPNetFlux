@@ -418,7 +418,15 @@ class FileTransaction {
         auto resized = file_.resize(id.totalSize);
         if (!resized.isOk()) return resized;
         if (policy_.options.preallocateMode == storage::PreallocateMode::Full) {
+            const auto started = Clock::now();
+            const auto cpu = threadCpuSeconds(timing_ != nullptr);
             auto allocated = file_.preallocate(id.totalSize);
+            if (timing_) {
+                ++timing_->preallocateCalls;
+                timing_->preallocateRequestedBytes += id.totalSize;
+                timing_->preallocateCpuSeconds += threadCpuSeconds(true) - cpu;
+                timing_->preallocateSeconds += secondsSince(started);
+            }
             if (!allocated.isOk()) return allocated;
         }
         writer_ = std::make_unique<storage::BufferedFileWriter>(file_,ioContext_,ioStats_);
@@ -2259,6 +2267,19 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"manifest_seconds\":" << t.manifestSeconds << ",\"checksum_seconds\":"
             << t.checksumSeconds << ",\"finalize_seconds\":";
         if (!t.sender) out << t.finalizeSeconds; else out << "null";
+        const bool allocationObserved = !t.sender && t.file.rangeId == 0;
+        out << ",\"preallocate_observation_scope\":";
+        if (allocationObserved)
+            out << "\"whole_file_begin_included_in_file_wall_and_lane_cpu; calls_are_wrapper_attempts\"";
+        else out << "null";
+        out << ",\"preallocate_calls\":";
+        if (allocationObserved) out << t.preallocateCalls; else out << "null";
+        out << ",\"preallocate_requested_bytes\":";
+        if (allocationObserved) out << t.preallocateRequestedBytes; else out << "null";
+        out << ",\"preallocate_seconds\":";
+        if (allocationObserved) out << t.preallocateSeconds; else out << "null";
+        out << ",\"preallocate_cpu_seconds\":";
+        if (allocationObserved) out << t.preallocateCpuSeconds; else out << "null";
         out << ",\"range_observation_enabled\":" << (t.rangeObservationEnabled ? "true" : "false")
             << ",\"range_observation_scope\":\"local_range_begin_write_complete_subintervals_overlap_not_wall\""
             << ",\"lane_thread_cpu_seconds\":" << t.laneThreadCpuSeconds

@@ -225,7 +225,8 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
 
         const bool receiverOption = option == "--manifest-flush-policy" ||
             option == "--manifest-flush-interval-chunks" || option == "--final-verify-policy" ||
-            option == "--commit-sync-policy" || option == "--range-checkpoint-batch-chunks" ||
+            option == "--commit-sync-policy" || option == "--preallocate" ||
+            option == "--range-checkpoint-batch-chunks" ||
             option == "--file-io-buffer-size" || option == "--posix-write-strategy";
         if (receiverOption && role != TreeTransferRole::Download) {
             return common::Status::invalidArgument(std::string(option) +
@@ -381,6 +382,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             auto parsed = core::session::parseCommitSyncPolicy(value);
             if (!parsed.isOk()) return parsed.status();
             options.commitSyncPolicy = parsed.value();
+        } else if (option == "--preallocate") {
+            auto parsed = storage::parsePreallocateMode(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.preallocateMode = parsed.value();
         } else if (option == "--file-io-buffer-size") {
             auto parsed = parseUnsigned(value, option);
             if (!parsed.isOk() || parsed.value() > 67108864)
@@ -684,7 +689,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
         ? " [--final-verify-policy full|verified_chunks] "
           "[--manifest-flush-policy every_n_chunks|final_only] "
           "[--manifest-flush-interval-chunks 1..65536] "
-          "[--commit-sync-policy none|fsync_file|fsync_file_and_dir] "
+          "[--commit-sync-policy none|fsync_file|fsync_file_and_dir] [--preallocate off|full] "
           "[--range-checkpoint-batch-chunks auto|1|4|16] "
           "[--file-io-buffer-size 0..67108864] [--posix-write-strategy auto|direct|coalesced]"
         : "";

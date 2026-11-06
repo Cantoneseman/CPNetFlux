@@ -85,6 +85,18 @@ def main():
                 if not upload:
                     assert policy['location'] == 'local_client', policy
                     assert policy['source'] == 'local_configuration', policy
+                if name == 'preallocated':
+                    timings = result['file_timings']
+                    assert len(timings) == 2, timings
+                    assert sum(t['preallocate_requested_bytes'] for t in timings) == expected[2], timings
+                    for timing in timings:
+                        assert timing['preallocate_calls'] == 1, timing
+                        assert timing['preallocate_requested_bytes'] == timing['size'], timing
+                        assert timing['preallocate_seconds'] >= 0, timing
+                        assert timing['preallocate_cpu_seconds'] >= 0, timing
+                        assert timing['wall_seconds'] >= timing['preallocate_seconds'], timing
+                        assert timing['lane_thread_cpu_seconds'] >= timing['preallocate_cpu_seconds'], timing
+                        assert timing['preallocate_observation_scope'].startswith('whole_file_begin'), timing
                 return policy
 
             policy = run('verified', ['--final-verify-policy', 'verified_chunks',
@@ -107,6 +119,11 @@ def main():
             assert policy['manifest_flush_interval_chunks'] == 16, policy
             assert policy['commit_sync_policy'] == 'none', policy
             assert policy['range_checkpoint_batch_chunks_override'] is None, policy
+
+            assert policy['preallocate_mode'] == 'off', policy
+            policy = run('preallocated', ['--preallocate', 'full', '--phase-timing', 'on',
+                                           '--final-verify-policy', 'verified_chunks'])
+            assert policy['preallocate_mode'] == 'full', policy
 
             unverified_server, unverified_port, unverified_log = start('none')
             try:
@@ -140,7 +157,7 @@ def main():
                          lanes=2, batch_env='4')
             assert policy['range_checkpoint_batch_chunks_override'] is None, policy
             assert policy['range_checkpoint_batch_chunks_effective'] == 4, policy
-            print(json.dumps({'result': 'pass', 'cases': 7, 'range_policy_without_phase_timing': True}))
+            print(json.dumps({'result': 'pass', 'cases': 8, 'range_policy_without_phase_timing': True}))
         finally:
             stop_server(server, log)
 

@@ -9,6 +9,7 @@
 
 #include "cpnetflux/checksum/checksum.h"
 #include "cpnetflux/storage/file_io.h"
+#include "cpnetflux/storage/preallocate_mode.h"
 #include "cpnetflux/common/status.h"
 #include "cpnetflux/core/io/hot_path_compression.h"
 #include "cpnetflux/core/io/tls_socket.h"
@@ -67,6 +68,7 @@ struct TreeTransferOptions {
     std::uint64_t manifestFlushIntervalChunks = 16;
     core::session::FinalVerifyPolicy finalVerifyPolicy = core::session::FinalVerifyPolicy::Full;
     core::session::CommitSyncPolicy commitSyncPolicy = core::session::CommitSyncPolicy::None;
+    storage::PreallocateMode preallocateMode = storage::PreallocateMode::Off;
     storage::FileIoConfig fileIo;
     std::uint32_t rangeCheckpointBatchChunks = 0; // 0 preserves runtime environment/default.
     bool resume = false;
