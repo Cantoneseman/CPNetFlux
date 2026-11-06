@@ -17,3 +17,10 @@
 下一轮先拆分队列交接、线程调度、write/flush/checkpoint/commit 的 CPU 与锁等待，再选一个因素做固定版本对照。已有同步路径的写合并无净收益结果仍有效，不能重复增加复制/缓冲而不测总成本。阶段性能门同时看文件阶段、完整 task、接收线程及双端进程 CPU、峰值 RSS 与恢复完整性；准备时间仍在 task 内。
 
 证据与原始提交边界见 `docs/tasks/2026-11-06-v3-pipeline-01-result.md`。
+
+
+## 第二轮归因与负结果（2026-11-07）
+
+详见[流水线 02 结果](../tasks/2026-11-07-v3-pipeline-02-result.md)。c572b39 的四对唤醒对照证实减少 waits/switch 不等于降 CPU，故 c876d642 恢复 AvailableCapacity 默认。独立 pwrite 探针显示 writer 主要 CPU 在实际 kernel 写路径。545b929 接通 V3 下载已有 off/full 预分配，准备 wall/CPU 保留在总计时内；三对对照无净收益，默认 off。实现、局部 write_seconds 下降与性能验收分别判断。
+
+下一步仅评估现有 ownership 预算内无额外复制 gathering write；先测连续 offset、部分写/错误及恢复记账契约，再做 direct pwrite 固定对照。旧带复制 coalescing 结果不能当该方案成绩，syscall 数下降不能代替性能验收。独立三阶段全局 worker 池未实现，RDMA 优化仍暂停，CQ/peer-mapping、100G 稳定性门仍开放。
