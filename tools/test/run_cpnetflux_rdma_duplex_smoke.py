@@ -36,7 +36,9 @@ def diagnostics(output, expected_role, summary_row):
               if line.startswith("CPNETFLUX_RDMA_TRACE ")]
     assert traces, output
     events = [row["event"] for row in traces]
-    required = ["queue_pair_initialized", "close_begin", "disconnect_end",
+    setup = ["qp_resources_created", "send_pool_allocated", "send_pool_registered",
+             "receive_pool_allocated", "receive_pool_registered", "receive_preposted"]
+    required = [*setup, "queue_pair_initialized", "cm_established_wait", "close_begin", "disconnect_end",
                 "qp_destroyed", "close_end"]
     for event in required:
         assert events.count(event) == 1, (event, events)
@@ -48,6 +50,21 @@ def diagnostics(output, expected_role, summary_row):
     assert len(connection_ids) == 1 and 0 not in connection_ids, traces
     assert len(qp_numbers) == 1 and 0 not in qp_numbers, traces
     initialized = traces[events.index("queue_pair_initialized")]
+    components = [traces[events.index(event)]["duration_ns"] for event in setup]
+    assert all(value > 0 for value in components), components
+    assert sum(components) <= initialized["duration_ns"], (components, initialized)
+    pools = [json.loads(line.split(" ", 1)[1]) for line in output.splitlines()
+             if line.startswith("CPNETFLUX_RDMA_POOL ")]
+    assert [row["event"] for row in pools] == ["send", "receive"], pools
+    for pool, count in zip(pools, [summary_row["configured_send_queue_depth"],
+            summary_row["configured_receive_queue_depth"] + 32]):
+        assert pool["address"] % (2 << 20) == 0, pool
+        assert pool["bytes"] == count * summary_row["slot_bytes"], pool
+        assert pool["bytes"] <= pool["mapping_bytes"] <= pool["bytes"] + (2 << 20) + 4096, pool
+        assert pool["connection_id"] == summary_row["connection_id"], pool
+        assert pool["qp_num"] == summary_row["qp_num"] and pool["role"] == expected_role, pool
+        assert isinstance(pool["hugepage_hint_accepted"], bool), pool
+        assert pool["hugepage_hint_accepted"] or pool["hugepage_hint_errno"] != 0, pool
     closed = traces[events.index("close_begin")]
     assert initialized["observed_posted_receive_depth"] == (
         summary_row["configured_receive_queue_depth"]), initialized

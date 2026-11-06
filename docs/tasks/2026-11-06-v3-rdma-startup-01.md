@@ -54,3 +54,17 @@ Evidence: /home/Su/experiments/CPNetFlux/2026-11-06-v3-rdma-startup-01.
 Payload: /dev/shm/cpnetflux-v3-rdma-startup-20261106.
 Tools checked: shell and dedicated messaging exposed, messaging unused;
 remote codex CLI not found. No delegation.
+
+## Measured refinement before implementation
+
+Baseline three transfers pass. First setup: receive allocation/zero 0.973 s
+active /1.008 s passive, MR registration 46/26 ms, prepost ~34 us. Both large
+receive mappings have no AnonHugePages and are not 2 MiB aligned. Independent
+native close-barrier mapping probe fails the alignment assertion on old code;
+raw failure and smaps are in acceptance/pool-baseline-red.log.
+Implement a dedicated mmap owner with aligned payload, best-effort process-local
+MADV_HUGEPAGE before the existing zeroing step. Keep ordinary-page support and
+all queue/slot bytes unchanged. Never use MAP_HUGETLB or change sysfs. The small
+virtual alignment reservation is separately recorded; actual backing must be
+measured with smaps, not inferred from madvise success. New owner tests cover
+zeroing, bounds/overflow, disabled hint, unique ownership and unmapping.

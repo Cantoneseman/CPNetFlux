@@ -1,5 +1,6 @@
 #include "cpnetflux/core/io/rdma_data_socket.h"
 #include "cpnetflux/core/io/detail/rdma_completion_wait.h"
+#include "cpnetflux/core/io/detail/rdma_buffer_pool.h"
 
 #include <algorithm>
 #include <array>
@@ -16,7 +17,6 @@
 #include <string>
 #include <thread>
 #include <utility>
-#include <vector>
 
 #if CPNETFLUX_HAS_RDMA
 #include <rdma/rdma_cma.h>
@@ -179,8 +179,8 @@ struct RdmaDataSocket::Impl {
     ibv_comp_channel* receiveCompletionChannel = nullptr;
     ibv_cq* sendCq = nullptr;
     ibv_cq* recvCq = nullptr;
-    std::vector<std::uint8_t> sendBufferPool;
-    std::vector<std::uint8_t> receiveBufferPool;
+    detail::RdmaBufferPool sendBufferPool;
+    detail::RdmaBufferPool receiveBufferPool;
     ibv_mr* sendMemoryRegion = nullptr;
     ibv_mr* receiveMemoryRegion = nullptr;
     std::array<SendSlot, kSendQueueDepth> sendSlots;
@@ -300,6 +300,18 @@ struct RdmaDataSocket::Impl {
         trace("close_end", elapsedNanoseconds(closeStarted));
     }
 
+    void tracePool(const char* event, const detail::RdmaBufferPool& pool) const noexcept {
+        if (!diagnostics) return;
+        std::fprintf(stderr, "CPNETFLUX_RDMA_POOL {\"event\":\"%s\","
+            "\"connection_id\":%llu,\"qp_num\":%u,\"role\":\"%s\","
+            "\"address\":%llu,\"bytes\":%zu,\"mapping_bytes\":%zu,"
+            "\"hugepage_hint_accepted\":%s,\"hugepage_hint_errno\":%d}\n",
+            event, static_cast<unsigned long long>(connectionId), queuePairNumber, role,
+            static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(pool.data())),
+            pool.size(), pool.mappingBytes(), pool.hugePageHintAccepted() ? "true" : "false",
+            pool.hugePageHintError());
+    }
+
     common::Status initializeQueuePair() {
         const auto initializeStarted = std::chrono::steady_clock::now();
         if (id == nullptr || id->verbs == nullptr) return common::Status::runtimeError(
@@ -332,9 +344,11 @@ struct RdmaDataSocket::Impl {
         }
         trace("qp_resources_created", elapsedNanoseconds(initializeStarted));
         auto started = std::chrono::steady_clock::now();
-        sendBufferPool.resize(sendSlots.size() * kMessageBufferSize);
+        auto allocation = sendBufferPool.allocate(sendSlots.size() * kMessageBufferSize);
+        if (!allocation.isOk()) return allocation;
         statistics.bufferAllocateNanoseconds += elapsedNanoseconds(started);
         trace("send_pool_allocated", elapsedNanoseconds(started));
+        tracePool("send", sendBufferPool);
         started = std::chrono::steady_clock::now();
         sendMemoryRegion = ::ibv_reg_mr(pd, sendBufferPool.data(), sendBufferPool.size(), 0);
         statistics.memoryRegisterNanoseconds += elapsedNanoseconds(started);
@@ -344,9 +358,11 @@ struct RdmaDataSocket::Impl {
             sendSlots[index].buffer = sendBufferPool.data() + index * kMessageBufferSize;
         }
         started = std::chrono::steady_clock::now();
-        receiveBufferPool.resize(receiveSlots.size() * kMessageBufferSize);
+        allocation = receiveBufferPool.allocate(receiveSlots.size() * kMessageBufferSize);
+        if (!allocation.isOk()) return allocation;
         statistics.bufferAllocateNanoseconds += elapsedNanoseconds(started);
         trace("receive_pool_allocated", elapsedNanoseconds(started));
+        tracePool("receive", receiveBufferPool);
         started = std::chrono::steady_clock::now();
         receiveMemoryRegion = ::ibv_reg_mr(pd, receiveBufferPool.data(),
                                            receiveBufferPool.size(), IBV_ACCESS_LOCAL_WRITE);

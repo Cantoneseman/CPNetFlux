@@ -390,6 +390,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/control_command_test.cpp
         tests/unit/control_options_test.cpp
         tests/unit/data_transport_test.cpp
+        tests/unit/rdma_buffer_pool_test.cpp
         tests/unit/control_session_test.cpp
         tests/unit/compressed_data_test.cpp
         tests/unit/download_manifest_test.cpp
