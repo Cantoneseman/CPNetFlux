@@ -1,6 +1,6 @@
 # V3 RDMA Startup 01
 
-Status: in progress, 2026-11-06.
+Status: completed, 2026-11-06; see 2026-11-06-v3-rdma-startup-01-result.md.
 Input: fd59059ab722d48f2c0036d90fe778fede878f15.
 Single SSH writer on R770-1; R770-2 fixed-commit build and acceptance only.
 
@@ -68,3 +68,11 @@ all queue/slot bytes unchanged. Never use MAP_HUGETLB or change sysfs. The small
 virtual alignment reservation is separately recorded; actual backing must be
 measured with smaps, not inferred from madvise success. New owner tests cover
 zeroing, bounds/overflow, disabled hint, unique ownership and unmapping.
+
+## Completion
+
+Candidate aa5efcc072b6a39d3e27caa9b9636b76ab7c5737; R770-1 full 551/551,
+R770-2 related 191/191. Seven transfers pass, source/outputs cleaned. Complete
+task 3.104 to 5.315 Gbps; file phase 19.925 to 19.170 Gbps. Higher unexplained
+CQ response/flush counts in some candidates remain an explicit stability gap.
+Final backup/readback and next handoff are outside Git in the evidence root.
