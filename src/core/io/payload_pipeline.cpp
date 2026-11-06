@@ -109,6 +109,7 @@ common::Result<std::optional<PreparedPayload>> BoundedPayloadPipeline::pop(
     const auto capacity = reusableBuffer.capacity();
     if (!state->closed && !state->cancelled && capacity != 0 &&
         state->recycledBuffers.size() < state->maxRecycledChunks &&
+        state->recycledCapacityBytes <= state->maxRecycledBytes &&
         capacity <= state->maxRecycledBytes - state->recycledCapacityBytes) {
         state->recycledBuffers.push_back(std::move(reusableBuffer));
         state->recycledCapacityBytes += capacity;
@@ -140,12 +141,21 @@ common::Result<std::size_t> BoundedPayloadPipeline::popBatch(std::span<PreparedP
         return Status::invalidArgument("payload batch slots must be one or two");
     auto state = state_;
     std::unique_lock<std::mutex> lock(state->mutex);
+    // A two-owner consumer can leave depth+2 idle owners plus one producer.
+    // Retain those existing owners; do not expand queue or allocate payload here.
+    const auto extraChunks = slots.size() - 1;
+    const auto maxChunks = state->maxRecycledChunks + std::min(extraChunks,
+        std::numeric_limits<std::size_t>::max() - state->maxRecycledChunks);
+    const auto extraBytes = extraChunks && state->maxChunks ? state->maxBytes / state->maxChunks : 0;
+    const auto maxBytes = state->maxRecycledBytes + std::min(extraBytes,
+        std::numeric_limits<std::size_t>::max() - state->maxRecycledBytes);
     // Hand back every finished owner before freeing queue capacity for the producer.
     for (auto& slot : slots) {
         const auto capacity = slot.bytes.capacity();
         if (!state->closed && !state->cancelled && capacity &&
-            state->recycledBuffers.size() < state->maxRecycledChunks &&
-            capacity <= state->maxRecycledBytes - state->recycledCapacityBytes) {
+            state->recycledBuffers.size() < maxChunks &&
+            state->recycledCapacityBytes <= maxBytes &&
+            capacity <= maxBytes - state->recycledCapacityBytes) {
             state->recycledBuffers.push_back(std::move(slot.bytes));
             state->recycledCapacityBytes += capacity;
         }

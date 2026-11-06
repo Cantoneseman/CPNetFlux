@@ -2399,3 +2399,26 @@ TEST(BoundedPayloadPipelineTest, BatchReusesConcurrentVariablePayloadsWithinOwne
     EXPECT_LE(allocations,5U);EXPECT_LE(pipeline.highWatermarkBytes(),32U);
     EXPECT_EQ(pipeline.recycledCapacityBytes(),0U);
 }
+
+TEST(BoundedPayloadPipelineTest, BatchRetainsFourIdleOwnersWithinDepthPlusThreeBudget) {
+    BoundedPayloadPipeline pipeline(32, 2);
+    std::array<PreparedPayload, 2> slots;
+    for (auto& slot : slots) slot.bytes.resize(16);
+    for (int i = 0; i < 2; ++i) {
+        PreparedPayload item; item.bytes.resize(16);
+        ASSERT_TRUE(pipeline.push(std::move(item)).isOk());
+    }
+    auto first = pipeline.popBatch(slots);
+    ASSERT_TRUE(first.isOk()); ASSERT_EQ(first.value(), 2U);
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 32U);
+    auto waiting = std::async(std::launch::async, [&] { return pipeline.popBatch(slots); });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (pipeline.consumerWaitCount() == 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::yield();
+    EXPECT_EQ(pipeline.consumerWaitCount(), 1U);
+    // Two returned owners plus two already idle owners. The fifth is the producer.
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 64U);
+    pipeline.close();
+    auto end = waiting.get();
+    ASSERT_TRUE(end.isOk()); EXPECT_EQ(end.value(), 0U);
+}

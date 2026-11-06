@@ -249,8 +249,9 @@ TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFra
     const auto receiverAllocations = receiverFrameAllocations.load(std::memory_order_relaxed);
     EXPECT_GT(receiverAllocations, 0U) << "observe real receiver allocations independently of profiling";
     const auto verifiedChunks = (content.size() + id.chunkSize - 1) / id.chunkSize;
-    EXPECT_LE(receiverAllocations, depth + 2U + verifiedChunks)
-        << "bounded queue plus producer/consumer frames and one readback buffer per verified chunk";
+    ASSERT_EQ(received.fileTimings.size(), 1U);
+    EXPECT_LE(receiverAllocations, depth + 1U + received.fileTimings.front().receiverWriteBatchLimit + verifiedChunks)
+        << "bounded queue plus producer/batch owners and one readback buffer per verified chunk";
     ASSERT_EQ(received.fileTimings.size(), 1U);
     const auto& receiverTiming = received.fileTimings.front();
     EXPECT_EQ(receiverTiming.payloadPipelineDepth, depth);
@@ -416,10 +417,12 @@ TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalW
                 count("prefix_shift_bytes", 0);
                 count("decompression_calls", decodedFrames);
                 count("frame_crc_bytes", algorithm == ChecksumAlgorithm::Crc32c ? content.size() : 0);
-                count("whole_file_write_at_all_calls", frames);
+                const auto gathered = received.fileTimings.front().gatheredWriteCalls;
+                EXPECT_LE(gathered * 2, frames);
+                count("whole_file_write_at_all_calls", frames - gathered);
                 count("whole_file_write_at_all_bytes", content.size());
                 EXPECT_EQ(received.fileIoStats.writeBytes(), content.size());
-                EXPECT_EQ(received.fileIoStats.posixWriteSyscallCount(), frames);
+                EXPECT_EQ(received.fileIoStats.posixWriteSyscallCount(), frames - gathered);
             }
         }
     }
