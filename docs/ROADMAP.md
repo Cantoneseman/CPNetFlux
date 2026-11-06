@@ -1,9 +1,10 @@
 # CPNetFlux 性能路线图
 
-更新日期：2026-11-06
+更新日期：2026-11-07
 最近原生文件实测源码：`791c2eee785d0c197f8ff86d902f6ce8688112c8`（清单序列化优化），同组观测基线为 `d0d98c74b15b728cf2853ec168c26a7a3cc27c70`；最新源供数工具源码为 `5b8be5af0c034451c117f372e346c049228299cc`，其六个传输相关二进制与前者相同。接收策略对照源码为 `d323f1fa442071bee64650c44c96d8a11ba42b1f`。原 48 样本和 result 生命周期复测仍按各自输入提交解释。
 最新小规模 tmpfs 原生文件优化源码：`c4c1b4a134662a740e438da2f34b8aceea7d24fe`（接收 logical span），对照/写合并配置为 `a9ecbe9179c3d8154a91e17fe23b4c9d445f5a74`。此前接收端剖析为 `bdc82c13`、payload 复用为 `7aab4e68`、基线 `6025f54e`，CRC 拼接优化为 `46be03da`。上行所述 `791c2eee` 仍是最近 64 GiB 盘上负载源码，两类负载分别解释。
 当前开发分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
+最新三阶段流水线实测源码：`50efc0eaf0ac3d2c4bc470d69e93de4926c9fbde`；结果为接收端有界 writer 解耦，深度 2/8 的完整 task rate 未形成可重复收益。
 
 ## 当前目标
 
@@ -49,7 +50,9 @@
 
 11/6 的 [Frame Reuse 01](tasks/2026-11-06-v3-frame-reuse-01-result.md)完成连接内有界 readNext 帧复用，DATA 分配从每 GiB 17408 次降为 1 次、复用17407次，保留容量64 KiB；短帧、控制帧、截断、取消和现有压缩/恢复回归通过。R770-1 全量547/547、R770-2 相关192/192，独立 allocation 回归先在旧代码失败再连续20轮通过。七个原生 tmpfs 样本完整性/协议/内存门通过并清理；三次候选/对照文件阶段中位数 19.818295/19.206028 Gbps，接收 CPU -3.08%，task 3.102815/3.103481 Gbps。小组顺序实验不代表普适加速，冷建连与 CQ 生命周期仍待独立处理。
 
-当前下一步：按[内存实验决策](DECISIONS/2026-11-06-v3-small-cache-experiments.md)，后续常规软件实验均用内存源/目标，单 lane、1 GiB、一个输出，启动 MemAvailable >=12 GiB，采样低于 6 GiB 或实验进程合计 RSS >4 GiB 时只终止本轮进程。写合并、logical span 和有界 readNext 帧复用已完成；下一串行阶段独立拆分并处理每端约 2.04 GiB 接收池的分配、注册、预投递和连接复用成本。准备/预触页必须计入完整 task，不能移到计时外制造提速。按总 CPU、文件阶段和资源预算验收，不能只看局部计时。CQ/RNR 生命周期继续单独归因。磁盘调查延后，历史结果保留为独立负载；tmpfs 和 commit_sync=none 不代表持久化存储吞吐。现有 io_uring 每次 readAtAll 创建/退出 ring，不等于持久预读；发送 pipeline 深度 2、预算 131064 字节保留，不直接扩容或缩小 RQ。checkpoint 频率和共享锁仍是候选。
+11/7 的 [V3 三阶段流水线 01 结果](tasks/2026-11-06-v3-pipeline-01-result.md)已完成：接收端引入有界 network/checksum→write 队列和独立 writer，保留 checksum 前缀逻辑视图与断连排空语义。R770-1/R770-2 固定提交 `50efc0e`、八个二进制摘要一致；1 GiB tmpfs verified_chunks 深度 2/8 各三次均通过 CRC、独立 SHA、原生 QP、RSS/交换分区和清理门。深度 2/8 的完整 task rate 中位数为 5.484997/5.484676 Gbps，文件阶段为 21.777862/21.922598 Gbps；消费者等待 12/1 次，完整任务无可重复收益。写入与建连仍是主路径候选，不能把本轮结果说成 100 Gbps 或 RDMA 优化。
+
+当前下一步：按[内存实验决策](DECISIONS/2026-11-06-v3-small-cache-experiments.md)，后续常规软件实验继续使用内存源/目标、单 lane、1 GiB、一个输出和 MemAvailable/RSS/交换分区守护。三阶段流水线第一轮已完成：接收端网络/校验生产者与有界 writer 消费者解耦，深度 2→8 只降低队列等待，完整 task rate 没有可重复变化；写入约 0.345 秒/GiB、data connect 约 1.05 秒，是下一轮拆解重点。下一步先在 writer 内部区分 write、flush、checkpoint、commit 的锁等待和 CPU，再比较有限批量写或单 writer 调度；固定提交、恢复语义、原子发布和清理门保持不变。RDMA CQ/RQ/SQ/QP、peer-mapping 和磁盘路径暂不并入该轮优化，继续独立调查。
 
 稳定性调查保持独立门：旧组第 1 次出现 out_of_buffer/发送端 RNR 7851 次，候选第 2 次为 12762 次，其余 verified_chunks 样本为零。CQ error/flush 的端点增量仍有 65/64 或 1/0，不能凭成功结束就认定无害。先分段记录传输、FILE_RESULT/DirectoryEnd、QP close/destroy 和在途接收所有权，再按证据推进 RQ/CQ 资源与三阶段流水线；生产稳定性门未通过。range checkpoint override 16 的 whole-file 实际值仍为 null，默认校验、checkpoint 和 commit-sync 均未改变。
 
