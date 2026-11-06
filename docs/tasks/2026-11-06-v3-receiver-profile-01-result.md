@@ -82,6 +82,10 @@ R770-2 有两次主机级 swap-in 增量为 1 和 12 页，其余为零；对应
 
 ## 下一串行阶段
 
+11/6 后续核验纠正：下述写参数当时只有单文件 CLI 暴露，V3 目录下载 CLI 尚缺入口。
+已在 `a9ecbe9` 补齐并验证真实写调用数；写合并和 span 的后续结果见
+[Receiver Path 01](2026-11-06-v3-receiver-path-01-result.md)，不能从参数名称推断已经生效。
+
 1. 先利用已有 `--file-io-buffer-size` 与 `--posix-write-strategy coalesced`，以 direct 为对照，测试 256 KiB / 1 MiB 有界 whole-file 写合并；每 lane 最多增加 1 MiB，仍固定 CRC、1 MiB chunk、checkpoint、commit-sync 和新建目标条件。验证实际写调用数、复制代价、CPU 与完整任务，而不是仅降低调用数。先查真实 chunk flush 边界，不提前承诺收益。
 2. 独立改为原始 DATA 的只读 logical span，解析 CRC 前缀而不移动 payload；压缩保留有界自有解码缓冲。CRC 验证先于写入、调用返回前不得回收所有权；用独立 wire/损坏/恢复回归验收。
 3. 再独立复用读帧缓冲，限制为每 lane 至多一个最大帧容量，避免逐帧分配/清零；覆盖短帧、控制帧、压缩和取消。RDMA 借用注册槽属于另一个所有权设计，不能混入此步。

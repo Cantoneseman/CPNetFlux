@@ -1,6 +1,6 @@
 # V3 Receiver Path 01
 
-Status: in progress, 2026-11-06.
+Status: completed, 2026-11-06; see 2026-11-06-v3-receiver-path-01-result.md.
 Input: 975da5b31f36770706f5e24053a2ba3369a07655.
 Single R770-1 SSH writer; R770-2 fixed-commit receiver/build peer only.
 
@@ -80,5 +80,12 @@ No codex CLI found on R770-1. No delegation requested or performed.
   allowed only two readback buffers and failed the candidate; corrected after
   checking readChecksumForRecord allocates once per chunk, without removing full
   verification. Byte oracle/profile on-off raw/compressed CRC/none test passes.
-  Framed 14/14 and R770-1 full 543/543 passed (257.70 s). Peer regression and
-  fixed-commit native candidate measurements pending.
+  Framed 14/14 and R770-1 full 543/543 passed (257.70 s); R770-2 related 187/187
+  passed (49.91 s). c4c1b4a134662a740e438da2f34b8aceea7d24fe pushed/read back,
+  synced, same eight binaries/config/version verified before native transfers.
+- Three span-direct and one span-full passed, 13 total official samples. Span
+  file-phase median 19.378353 Gbps vs 17.558515 (+10.36%), receiver CPU -9.35%;
+  cold CLI task still ~3.048 Gbps. No significant task/total CPU claim.
+- Both payload roots removed; final source SHA/inode rechecked. Production PIDs,
+  GSI QPs and old untracked docs preserved. CQ errors remain an open stability
+  gate. Next independent step: bounded readNext frame reuse, then pool startup.

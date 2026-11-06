@@ -2,7 +2,7 @@
 
 更新日期：2026-11-06
 最近原生文件实测源码：`791c2eee785d0c197f8ff86d902f6ce8688112c8`（清单序列化优化），同组观测基线为 `d0d98c74b15b728cf2853ec168c26a7a3cc27c70`；最新源供数工具源码为 `5b8be5af0c034451c117f372e346c049228299cc`，其六个传输相关二进制与前者相同。接收策略对照源码为 `d323f1fa442071bee64650c44c96d8a11ba42b1f`。原 48 样本和 result 生命周期复测仍按各自输入提交解释。
-最新小规模 tmpfs 原生文件诊断源码：`bdc82c13b10806d0a4c0b86c74153bab67639ca0`（接收端剖析，算法未改），同提交观测 on/off 各三次。此前 payload 复用为 `7aab4e68`、基线 `6025f54e`，CRC 拼接优化为 `46be03da`。上行所述 `791c2eee` 仍是最近 64 GiB 盘上负载源码，两类负载分别解释。
+最新小规模 tmpfs 原生文件优化源码：`c4c1b4a134662a740e438da2f34b8aceea7d24fe`（接收 logical span），对照/写合并配置为 `a9ecbe9179c3d8154a91e17fe23b4c9d445f5a74`。此前接收端剖析为 `bdc82c13`、payload 复用为 `7aab4e68`、基线 `6025f54e`，CRC 拼接优化为 `46be03da`。上行所述 `791c2eee` 仍是最近 64 GiB 盘上负载源码，两类负载分别解释。
 当前开发分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
 
 ## 当前目标
@@ -45,7 +45,9 @@
 
 每端 RSS 峰值约 2.068 GiB，另有约 1 GiB tmpfs，最低 MemAvailable 为 25.466/25.072 GiB；无守护 violation、进程 VmSwap 或主机 swap-out。两次后台全局 swap-in 为 1/12 页，未归属于 payload。独立三对 tmpfs 写探针以相同帧大小测得首次写新页/覆盖驻留页 0.225910/0.153263 秒，物理读写为零；它支持调查新页写成本，不是传输吞吐。源/输出/探针均已清理。RNR/out_of_buffer 为零，但 CQ error/flush 仍有 1/0、65/64、193/192，稳定性门不关闭。
 
-当前下一步（11/6 用户调整）：按[内存实验决策](DECISIONS/2026-11-06-v3-small-cache-experiments.md)，后续常规软件实验均用内存源/目标，单 lane、1 GiB、一个输出，启动 MemAvailable >=12 GiB，采样低于 6 GiB 或实验进程合计 RSS >4 GiB 时只终止本轮进程。接收端剖析已完成，下一串行阶段先对照已有 direct 与 256 KiB/1 MiB 有界写合并，再分别做 logical span 去副本和读帧缓冲复用；随后独立处理每端约 2.04 GiB 接收池的分配、注册、预投递和连接复用成本。准备/预触页必须计入完整 task，不能移到计时外制造提速。按总 CPU、文件阶段和资源预算验收，不能只看局部计时。CQ/RNR 生命周期继续单独归因。原先“先做 io_uring 磁盘队列、再做 64 GiB 原生重复”的顺序失效，磁盘调查延后，历史结果保留为独立负载。tmpfs 和 commit_sync=none 不代表持久化存储吞吐。现有 io_uring 每次 readAtAll 创建/退出 ring，不等于持久预读；发送 pipeline 深度 2、预算 131064 字节保留，不直接扩容或缩小 RQ。checkpoint 频率和共享锁仍是候选。
+11/6 的 [Receiver Path 01](tasks/2026-11-06-v3-receiver-path-01-result.md)已完成：补齐 V3 目录下载文件写配置入口，direct/256 KiB/1 MiB 各三次轮换对照，合并写调用降为 5120/1024，但无净收益，默认保留直接写。独立 span 改动将每 GiB 的 17408 个 logical 副本和前缀移动归零，三次候选文件阶段中位数 19.378353 Gbps，对照 17.558515，约提高 10.36%，接收 lane CPU 下降 9.35%。含冷建连 task 仍约 3.048 Gbps，双端进程 CPU 估计 3.20/3.18 秒，不能声称明显整任务或总 CPU 收益。R770-1 全量 543/543、R770-2 相关 187/187 通过；13 个正式 tmpfs 样本全部完整性/终态/内存门通过，另保留一次传输前 CLI 启动失败。双端 payload 已清理，CQ error/flush 仍未归因。
+
+当前下一步：按[内存实验决策](DECISIONS/2026-11-06-v3-small-cache-experiments.md)，后续常规软件实验均用内存源/目标，单 lane、1 GiB、一个输出，启动 MemAvailable >=12 GiB，采样低于 6 GiB 或实验进程合计 RSS >4 GiB 时只终止本轮进程。写合并对照和 logical span 已完成，下一串行阶段独立实现有界 readNext 帧缓冲复用，保留 span 消费结束前的所有权并覆盖短帧、控制帧、压缩、取消和恢复；随后独立处理每端约 2.04 GiB 接收池的分配、注册、预投递和连接复用成本。准备/预触页必须计入完整 task，不能移到计时外制造提速。按总 CPU、文件阶段和资源预算验收，不能只看局部计时。CQ/RNR 生命周期继续单独归因。磁盘调查延后，历史结果保留为独立负载；tmpfs 和 commit_sync=none 不代表持久化存储吞吐。现有 io_uring 每次 readAtAll 创建/退出 ring，不等于持久预读；发送 pipeline 深度 2、预算 131064 字节保留，不直接扩容或缩小 RQ。checkpoint 频率和共享锁仍是候选。
 
 稳定性调查保持独立门：旧组第 1 次出现 out_of_buffer/发送端 RNR 7851 次，候选第 2 次为 12762 次，其余 verified_chunks 样本为零。CQ error/flush 的端点增量仍有 65/64 或 1/0，不能凭成功结束就认定无害。先分段记录传输、FILE_RESULT/DirectoryEnd、QP close/destroy 和在途接收所有权，再按证据推进 RQ/CQ 资源与三阶段流水线；生产稳定性门未通过。range checkpoint override 16 的 whole-file 实际值仍为 null，默认校验、checkpoint 和 commit-sync 均未改变。
 
@@ -67,6 +69,7 @@
 | 小规模 tmpfs 文件，源码 `46be03da` | 1 GiB 单 lane，基线/候选各三次 verified_chunks 与一次 full 控制，全部校验通过；接收文件阶段约 17.8 / 17.7 Gbps，冷建连 task 约 3.05 / 3.10 Gbps；CRC 拼接复制取消但未证实净吞吐收益 | 64 GiB 盘上吞吐、持久化带宽、线速 steady rate、100G 软件能力或 CQ 稳定性通过 |
 | 有界 payload 复用，源码 `7aab4e68` | 同源 1 GiB 各三次及一次 full 控制；候选分配 4 次、复用 17404 次，producer+lane CPU 中位数降 22.54%；文件阶段 17.83 / 17.77 Gbps，task 3.10 / 3.05 Gbps，未证实吞吐收益 | 全进程或双端总 CPU 降同样比例、文件提速、零拷贝、持久化带宽、100G 或 CQ 稳定性通过 |
 | 接收端剖析，源码 `bdc82c13` | 同提交 on/off 交替各三次与 full 控制；每 GiB 两组各 17408 次 vector 分配，副本/移动约 38.164 ms，实际写约 233.351 ms；每端约 2.068 GiB RSS+1 GiB tmpfs，内存门通过 | 已优化接收端、覆盖驻留页探针等于传输吞吐、零测量开销、持久化/100G 或 CQ 稳定性通过 |
+| 接收 span，源码 `c4c1b4a` | 1 GiB tmpfs 单 lane；三次候选/对照文件阶段中位数 19.38/17.56 Gbps，接收 CPU -9.35%；task 均约 3.05 Gbps；合并写独立对照无净收益；13 个正式样本通过并清理 | 整任务提速 10%、双端总 CPU 明显降低、零拷贝、full 策略重复收益、持久化/100G 或 CQ 稳定性通过 |
 | 硬件拓扑 | 每台 R770 一张 100GbE/RoCE 端口 | 10×100Gbps 多链路或 1Tbps 扩展 |
 
 稳态 payload rate、含建连/提交的 task rate、每 lane 吞吐分别记录，不合并计时口径。测试需固定提交、双端同配置构建，逐文件校验并保存 route、端口计数、CPU/RSS 和原始日志。
