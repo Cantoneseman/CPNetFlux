@@ -184,8 +184,10 @@ common::Result<std::size_t> diagnosticPipelineDepth() {
 }
 common::Result<ProducerWakePolicy> diagnosticReceiverWakePolicy() {
     const auto* setting = std::getenv("CPNETFLUX_RECEIVER_PIPELINE_WAKE");
-    if (!setting || std::string_view(setting) == "empty") return ProducerWakePolicy::EmptyQueue;
-    if (std::string_view(setting) == "available") return ProducerWakePolicy::AvailableCapacity;
+    // Empty-queue wake batching is diagnostic only: the fixed-source crossover
+    // reduced switches but regressed writer CPU and throughput.
+    if (!setting || std::string_view(setting) == "available") return ProducerWakePolicy::AvailableCapacity;
+    if (std::string_view(setting) == "empty") return ProducerWakePolicy::EmptyQueue;
     return Status::invalidArgument("CPNETFLUX_RECEIVER_PIPELINE_WAKE must be available or empty");
 }
 common::Result<std::uint32_t> rangeCheckpointBatch(const PersistentTransferPolicy& policy) {
