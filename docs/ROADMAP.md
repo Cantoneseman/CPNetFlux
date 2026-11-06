@@ -32,7 +32,7 @@
 
 上一轮真实文件的发送端 readAtAll/消费者等待中位数为 127.136050/114.453123 秒，task rate 3.856495 Gbps，约为本轮 64 KiB 源读取服务率的 95.28%。这是不同日期与缓存历史的诊断对照，支持优先调查供数，不是原生传输 A/B，也不是硬件或软件上限证明。两端约 30 GiB 内存，源文件 64 GiB，当前 /dev/sda2 ext4 上的结果不能当作全缓存网络能力。本轮保留工具和输入保护改动，未改传输读块、pipeline、checksum、checkpoint 或默认策略，也没有新的文件提速成绩。独立缓存热 CRC 原语约 868 Gbps 只处理重复 64 KiB 缓冲的逻辑字节，不能当作文件或网络性能。
 
-当前下一步：先对现有 io_uring 做固定大请求下 1/4/16 队列的只读对照，计入 ring 初始化、completion、物理 I/O 和恢复边界；当前实现每次 readAtAll 都创建/退出 ring，不等于持久预读。再建立物理读量可核验的全缓存或较快存储原生文件对照，保留原 64 GiB 盘上负载并明确文件规模、manifest 工作量和落盘语义差异。供数余量成立后再选择有界预读/流水线候选；现有发送 pipeline 深度 2、预算 131064 字节，不据此直接扩容。checkpoint 频率和共享锁仍是后续候选，CQ/RNR 稳定性按独立门继续调查。
+当前下一步（11/6 用户调整）：按[小规模缓存实验决策](DECISIONS/2026-11-06-v3-small-cache-experiments.md)，优先用 1 GiB tmpfs 源/目标建立原生 V3 软件路径对照，记录页驻留、源物理读取、任务/文件阶段、CRC/SHA 与终态；按测量选择单项软件优化，实验后清理本轮数据。原先“先做 io_uring 磁盘队列、再做 64 GiB 原生重复”的执行顺序失效，磁盘队列调查延后，历史 64 GiB 结果保留为独立负载。本轮 tmpfs 和 commit_sync=none 不代表持久化存储吞吐。现有 io_uring 每次 readAtAll 创建/退出 ring，不等于持久预读；现有发送 pipeline 深度 2、预算 131064 字节，不据此直接扩容。checkpoint 频率和共享锁仍是候选，CQ/RNR 稳定性按独立门继续调查。任务见 [Cache Path 01](tasks/2026-11-06-v3-cache-path-01.md)。
 
 稳定性调查保持独立门：旧组第 1 次出现 out_of_buffer/发送端 RNR 7851 次，候选第 2 次为 12762 次，其余 verified_chunks 样本为零。CQ error/flush 的端点增量仍有 65/64 或 1/0，不能凭成功结束就认定无害。先分段记录传输、FILE_RESULT/DirectoryEnd、QP close/destroy 和在途接收所有权，再按证据推进 RQ/CQ 资源与三阶段流水线；生产稳定性门未通过。range checkpoint override 16 的 whole-file 实际值仍为 null，默认校验、checkpoint 和 commit-sync 均未改变。
 
