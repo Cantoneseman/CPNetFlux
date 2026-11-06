@@ -1974,12 +1974,6 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             timing.receiverWriterThreadCpuSeconds +=
                 threadCpuSeconds(timing.rangeObservationEnabled) - writerCpuStarted;
         });
-        auto stopReceiverWriter = [&] {
-            if (receiverWriter.joinable()) {
-                receiverPipeline.cancel(Status::runtimeError("receiver writer interrupted"));
-                receiverWriter.join();
-            }
-        };
         auto drainReceiverWriter = [&] {
             if (receiverWriter.joinable()) {
                 receiverPipeline.close();
