@@ -875,6 +875,11 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/test_alpha_soak_smoke.py
     )
     add_test(
+        NAME cpnetflux_storage_read_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_storage_read_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_storage_read_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(
         NAME cpnetflux_storage_bench_wrapper_behavior
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/benchmark/test_run_storage_bench.py --script ${PROJECT_SOURCE_DIR}/tools/benchmark/run_storage_bench.py
     )
