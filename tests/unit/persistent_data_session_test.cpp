@@ -549,6 +549,20 @@ TEST(PersistentSessionTest, StableFileIdsMapToExactlyOneBoundedChannel) {
     EXPECT_FALSE(persistentFileAssignedToChannel(1, 0, 0));
 }
 
+TEST(PersistentSessionTest, ReceiverRejectsInvalidWakePolicyBeforeCreatingCheckpoint) {
+    ScopedEnvironment setting("CPNETFLUX_RECEIVER_PIPELINE_WAKE", "invalid");
+    SocketPair pair;
+    TempRoot root;
+    PersistentTreeStats stats;
+    const PersistentFileIdentity id{1, 1, 1, "invalid-wake.bin", "invalid-wake"};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    const auto status = receivePersistentTree(&pair.receiver, root.path.string(), false, "", &stats);
+    EXPECT_FALSE(status.isOk());
+    EXPECT_NE(status.message().find("CPNETFLUX_RECEIVER_PIPELINE_WAKE"), std::string::npos);
+    EXPECT_TRUE(std::filesystem::is_empty(root.path));
+    EXPECT_EQ(stats.payloadBytes, 0U);
+}
+
 TEST(PersistentSessionTest, ReceiverRejectsFileAssignedToAnotherChannel) {
     SocketPair pair;
     TempRoot root;
@@ -1747,6 +1761,80 @@ TEST(BoundedPayloadPipelineTest, BlocksAtByteBudgetAndWakesWhenConsumerPops) {
     EXPECT_GT(pipeline.producerWaitCount(), 0U);
 }
 
+TEST(BoundedPayloadPipelineTest, EmptyQueuePolicyWakesBlockedProducerOnlyAfterDrain) {
+    BoundedPayloadPipeline pipeline(8, 2, true, ProducerWakePolicy::EmptyQueue);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1,2,3,4}}).isOk());
+    ASSERT_TRUE(pipeline.push(PreparedPayload{4, {5,6,7,8}}).isOk());
+    auto producer = std::async(std::launch::async, [&] {
+        return pipeline.push(PreparedPayload{8, {9,10,11,12}});
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!pipeline.producerWaitCount() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::yield();
+    EXPECT_EQ(pipeline.producerWaitCount(), 1U);
+    auto first = pipeline.pop();
+    EXPECT_TRUE(first.isOk() && first.value() && first.value()->offset == 0);
+    EXPECT_EQ(producer.wait_for(std::chrono::milliseconds(30)), std::future_status::timeout);
+    auto second = pipeline.pop();
+    EXPECT_TRUE(second.isOk() && second.value() && second.value()->offset == 4);
+    EXPECT_EQ(producer.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    pipeline.close(); // releases the future even if a regression left it waiting
+    EXPECT_TRUE(producer.get().isOk());
+    auto third = pipeline.pop();
+    EXPECT_TRUE(third.isOk() && third.value() && third.value()->offset == 8);
+    EXPECT_LE(pipeline.highWatermarkBytes(), 8U);
+    EXPECT_TRUE(pipeline.pop().isOk());
+}
+
+TEST(BoundedPayloadPipelineTest, EmptyQueuePolicyDoesNotWaitToFillOrReorderVariablePayloads) {
+    BoundedPayloadPipeline pipeline(8, 3, false, ProducerWakePolicy::EmptyQueue);
+    EXPECT_TRUE(pipeline.push(PreparedPayload{0, {1}}).isOk());
+    auto first = pipeline.pop();
+    ASSERT_TRUE(first.isOk() && first.value());
+    EXPECT_EQ(first.value()->offset, 0U);
+    EXPECT_TRUE(pipeline.push(PreparedPayload{1, {2,3,4}}).isOk());
+    EXPECT_TRUE(pipeline.push(PreparedPayload{4, {5,6,7,8,9}}).isOk());
+    pipeline.close();
+    for (auto offset : {1U, 4U}) {
+        auto next = pipeline.pop();
+        ASSERT_TRUE(next.isOk() && next.value());
+        EXPECT_EQ(next.value()->offset, offset);
+    }
+    auto end = pipeline.pop();
+    EXPECT_TRUE(end.isOk() && !end.value());
+    EXPECT_EQ(pipeline.producerWaitCount(), 0U);
+    EXPECT_EQ(pipeline.highWatermarkBytes(), 8U);
+}
+
+TEST(BoundedPayloadPipelineTest, EmptyQueuePolicyCloseAndCancelWakePartialDrain) {
+    for (const bool cancel : {false, true}) {
+        BoundedPayloadPipeline pipeline(8, 2, true, ProducerWakePolicy::EmptyQueue);
+        ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1,2,3,4}}).isOk());
+        ASSERT_TRUE(pipeline.push(PreparedPayload{4, {5,6,7,8}}).isOk());
+        auto producer = std::async(std::launch::async, [&] {
+            return pipeline.push(PreparedPayload{8, {9,10,11,12}});
+        });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!pipeline.producerWaitCount() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
+        EXPECT_EQ(pipeline.producerWaitCount(), 1U);
+        EXPECT_TRUE(pipeline.pop().isOk());
+        if (cancel) pipeline.cancel(cpnetflux::common::Status::transportError("handoff cancelled"));
+        else pipeline.close();
+        EXPECT_EQ(producer.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+        EXPECT_FALSE(producer.get().isOk());
+        auto remaining = pipeline.pop();
+        if (cancel) {
+            EXPECT_FALSE(remaining.isOk());
+            EXPECT_EQ(pipeline.queuedBytes(), 0U);
+        } else {
+            EXPECT_TRUE(remaining.isOk() && remaining.value() && remaining.value()->offset == 4);
+            auto end = pipeline.pop();
+            EXPECT_TRUE(end.isOk() && !end.value());
+        }
+    }
+}
+
 TEST(BoundedPayloadPipelineTest, CancellationWakesProducerAndConsumerWithoutLeakingBytes) {
     using cpnetflux::core::io::BoundedPayloadPipeline;
     using cpnetflux::core::io::PreparedPayload;
@@ -1862,7 +1950,9 @@ TEST(BoundedPayloadPipelineTest, CancelDropsCacheAndWakesRecyclingProducerAndCon
 }
 
 TEST(BoundedPayloadPipelineTest, ReusesBoundedBuffersAcrossConcurrentVariableLengthFrames) {
-    BoundedPayloadPipeline pipeline(32, 2);
+    for (const auto wake : {ProducerWakePolicy::AvailableCapacity, ProducerWakePolicy::EmptyQueue}) {
+    SCOPED_TRACE(wake == ProducerWakePolicy::EmptyQueue ? "empty" : "available");
+    BoundedPayloadPipeline pipeline(32, 2, false, wake);
     std::size_t allocations = 0;
     cpnetflux::common::Status produced;
     std::jthread producer([&] {
@@ -1893,6 +1983,7 @@ TEST(BoundedPayloadPipelineTest, ReusesBoundedBuffersAcrossConcurrentVariableLen
     EXPECT_LE(allocations, 4U);
     EXPECT_LE(pipeline.highWatermarkBytes(), 32U);
     EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+    }
 }
 
 TEST(PersistentTreeResourceTest, ReleasesCommittedFileDescriptorsUnderDefaultLimit) {

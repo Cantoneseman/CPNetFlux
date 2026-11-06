@@ -99,6 +99,7 @@ struct PersistentFileTiming {
     RdmaTransportStats rdmaTransportStats;
     RangeObservation rangeObservation;
     std::uint32_t payloadPipelineDepth = 0;
+    bool receiverEmptyQueueWake = false;
     std::uint64_t pipelineBudgetBytes = 0, pipelineHighWatermarkBytes = 0;
     std::uint64_t payloadBufferAllocations = 0, payloadBufferReuses = 0;
     std::uint64_t payloadBufferAllocatedCapacityBytes = 0, payloadBufferOwnershipBudgetBytes = 0;

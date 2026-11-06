@@ -21,9 +21,14 @@ struct PreparedPayload {
     bool checksumPresent = false;
 };
 
+// EmptyQueue batches only wakeups after backpressure; it never waits to fill a queue.
+// It is intended for a continuously draining SPSC consumer.
+enum class ProducerWakePolicy { AvailableCapacity, EmptyQueue };
+
 class BoundedPayloadPipeline {
    public:
-    BoundedPayloadPipeline(std::size_t maxBytes, std::size_t maxChunks, bool observeWaits = false);
+    BoundedPayloadPipeline(std::size_t maxBytes, std::size_t maxChunks, bool observeWaits = false,
+                           ProducerWakePolicy wakePolicy = ProducerWakePolicy::AvailableCapacity);
 
     // Optional SPSC handback; the consumer must finish using every byte first.
     [[nodiscard]] common::Status push(PreparedPayload payload,

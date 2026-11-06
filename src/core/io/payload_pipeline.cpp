@@ -13,13 +13,13 @@ namespace {
 using common::Status;
 
 struct PipelineState {
-    explicit PipelineState(std::size_t byteBudget, std::size_t chunkBudget, bool observe)
+    explicit PipelineState(std::size_t byteBudget, std::size_t chunkBudget, bool observe, ProducerWakePolicy wake)
         : maxBytes(byteBudget), maxChunks(chunkBudget),
           maxRecycledChunks(chunkBudget == std::numeric_limits<std::size_t>::max()
               ? chunkBudget : chunkBudget + 1),
           maxRecycledBytes(byteBudget + std::min(
               chunkBudget ? byteBudget / chunkBudget : 0,
-              std::numeric_limits<std::size_t>::max() - byteBudget)), observeWaits(observe) {
+              std::numeric_limits<std::size_t>::max() - byteBudget)), observeWaits(observe), wakePolicy(wake) {
         if (byteBudget == 0 || chunkBudget == 0) {
             terminal = Status::invalidArgument("payload pipeline budgets must be positive");
             cancelled = true;
@@ -42,6 +42,7 @@ struct PipelineState {
     std::uint64_t producerWaitCount = 0;
     std::uint64_t consumerWaitCount = 0;
     const bool observeWaits;
+    const ProducerWakePolicy wakePolicy;
     double producerWaitSeconds = 0, consumerWaitSeconds = 0;
     bool closed = false;
     bool cancelled = false;
@@ -54,8 +55,9 @@ struct BoundedPayloadPipeline::State : PipelineState {
     using PipelineState::PipelineState;
 };
 
-BoundedPayloadPipeline::BoundedPayloadPipeline(std::size_t maxBytes, std::size_t maxChunks, bool observeWaits)
-    : state_(std::make_shared<State>(maxBytes, maxChunks, observeWaits)) {}
+BoundedPayloadPipeline::BoundedPayloadPipeline(std::size_t maxBytes, std::size_t maxChunks, bool observeWaits,
+                                               ProducerWakePolicy wakePolicy)
+    : state_(std::make_shared<State>(maxBytes, maxChunks, observeWaits, wakePolicy)) {}
 
 common::Status BoundedPayloadPipeline::push(PreparedPayload payload,
                                            std::vector<std::uint8_t>* reusableBuffer) {
@@ -73,7 +75,12 @@ common::Status BoundedPayloadPipeline::push(PreparedPayload payload,
     if (!canPush()) {
         ++state->producerWaitCount;
         const auto started = state->observeWaits ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-        state->canPush.wait(lock, canPush);
+        // A blocked SPSC producer can refill the same bounded slots together.
+        // Close/cancel must bypass this hysteresis, including a partial drain.
+        state->canPush.wait(lock, [&] {
+            return state->cancelled || state->closed || (canPush() &&
+                (state->wakePolicy == ProducerWakePolicy::AvailableCapacity || state->queue.empty()));
+        });
         if (state->observeWaits) state->producerWaitSeconds +=
             std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
     }
@@ -121,8 +128,10 @@ common::Result<std::optional<PreparedPayload>> BoundedPayloadPipeline::pop(
     PreparedPayload payload = std::move(state->queue.front());
     state->queue.pop_front();
     state->queuedBytes -= payload.bytes.size();
+    const bool wakeProducer = state->wakePolicy == ProducerWakePolicy::AvailableCapacity ||
+        state->queue.empty();
     lock.unlock();
-    state->canPush.notify_one();
+    if (wakeProducer) state->canPush.notify_one();
     return std::optional<PreparedPayload>(std::move(payload));
 }
 

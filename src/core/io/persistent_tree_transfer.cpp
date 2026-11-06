@@ -182,6 +182,12 @@ common::Result<std::size_t> diagnosticPipelineDepth() {
     if (text == "16") return std::size_t{16};
     return Status::invalidArgument("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH must be 2, 4, 8 or 16");
 }
+common::Result<ProducerWakePolicy> diagnosticReceiverWakePolicy() {
+    const auto* setting = std::getenv("CPNETFLUX_RECEIVER_PIPELINE_WAKE");
+    if (!setting || std::string_view(setting) == "empty") return ProducerWakePolicy::EmptyQueue;
+    if (std::string_view(setting) == "available") return ProducerWakePolicy::AvailableCapacity;
+    return Status::invalidArgument("CPNETFLUX_RECEIVER_PIPELINE_WAKE must be available or empty");
+}
 common::Result<std::uint32_t> rangeCheckpointBatch(const PersistentTransferPolicy& policy) {
     if (policy.rangeCheckpointBatchChunks) {
         const auto n = policy.rangeCheckpointBatchChunks;
@@ -1712,6 +1718,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     if (channelCount == 0 || channelCount > kUnifiedFileMaxChannels ||
         channelIndex >= channelCount)
         return Status::invalidArgument("persistent channel index/count is invalid");
+    const auto receiverWake = diagnosticReceiverWakePolicy();
+    if (!receiverWake.isOk()) return receiverWake.status();
     stats->pendingWindow = pendingWindow; // Receiver stays serial; report negotiated sender credit.
     const std::uint64_t filesAtConnectionStart = stats->files;
     auto status = PersistentDataSession::setTimeout(socket, 30);
@@ -1889,9 +1897,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         }
         auto receiverDepth = diagnosticPipelineDepth();
         if (!receiverDepth.isOk()) return finishTransport(receiverDepth.status());
+        timing.receiverEmptyQueueWake = receiverWake.value() == ProducerWakePolicy::EmptyQueue;
         const std::size_t receiverPipelineChunkBytes = PersistentDataSession::kMaxPayload;
         BoundedPayloadPipeline receiverPipeline(receiverPipelineChunkBytes * receiverDepth.value(),
-            receiverDepth.value(), timing.rangeObservationEnabled);
+            receiverDepth.value(), timing.rangeObservationEnabled, receiverWake.value());
         Status writerTerminal = Status::ok();
         std::thread receiverWriter;
         struct ReceiverWriterGuard {
@@ -2020,7 +2029,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             timing.payloadIoSeconds += secondsSince(payloadStarted);
             if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
             const auto checksumStarted = Clock::now();
-            // Validation and writes consume this view before the frame is released.
+            // Validation consumes the view here; ownership then moves to the writer queue.
             std::span<const std::uint8_t> logical(data.payload);
             std::vector<std::uint8_t> decodedPayload;
             if (payloadObservation) {
@@ -2261,6 +2270,8 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"pipeline_wait_scope\":\"condition_wait_through_mutex_reacquire_subintervals_not_wall\""
             << ",\"payload_pipeline_stage\":\"" << (t.sender ? "source_read_checksum_to_network" : "network_checksum_to_write") << "\""
             << ",\"write_seconds_scope\":\"" << (t.file.rangeId ? "range_coordinator_includes_entry_wait_crc_checkpoint" : "writer_write_only") << "\""
+            << ",\"payload_pipeline_producer_wake_policy\":\""
+            << (t.receiverEmptyQueueWake ? "empty_queue_when_blocked" : "available_capacity") << "\""
             << ",\"payload_pipeline_depth\":" << t.payloadPipelineDepth
             << ",\"payload_buffer_allocations\":" << t.payloadBufferAllocations
             << ",\"payload_buffer_reuses\":" << t.payloadBufferReuses
