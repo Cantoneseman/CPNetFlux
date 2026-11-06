@@ -445,6 +445,10 @@ if(CPNETFLUX_BUILD_TESTS)
         target_link_libraries(cpnetflux_framed_socket_tests PRIVATE CPNetFlux::core GTest::gtest_main)
         target_link_options(cpnetflux_framed_socket_tests PRIVATE
             "-Wl,--wrap=sendmsg" "-Wl,--wrap=send")
+        if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+            target_compile_definitions(cpnetflux_framed_socket_tests PRIVATE CPNETFLUX_TEST_WRAP_NEW=1)
+            target_link_options(cpnetflux_framed_socket_tests PRIVATE "-Wl,--wrap=_Znwm")
+        endif()
         gtest_discover_tests(cpnetflux_framed_socket_tests)
     endif()
 

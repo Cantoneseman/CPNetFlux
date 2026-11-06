@@ -1352,6 +1352,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         std::uint64_t producedBytes = 0;
         double producerReadSeconds = 0;
         double producerChecksumSeconds = 0;
+        std::uint64_t bufferAllocations = 0, bufferReuses = 0, allocatedCapacityBytes = 0;
         Status producerStatus = Status::ok();
         std::thread producer([&]() {
             const auto cpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
@@ -1369,6 +1370,13 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                         producerStatus = Status::runtimeError("transfer interrupted by max-chunks");
                         pipeline.cancel(producerStatus);
                         return;
+                    }
+                    if (producerBuffer.capacity() < pipelineChunkBytes) {
+                        producerBuffer.reserve(pipelineChunkBytes);
+                        ++bufferAllocations;
+                        allocatedCapacityBytes += producerBuffer.capacity();
+                    } else {
+                        ++bufferReuses;
                     }
                     producerBuffer.resize(length);
                     const auto reading = Clock::now();
@@ -1399,7 +1407,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     prepared.chunkIndex = chunkIndex;
                     prepared.frameChecksum = frameDigest;
                     prepared.bytes = std::move(producerBuffer);
-                    producerStatus = pipeline.push(std::move(prepared));
+                    producerStatus = pipeline.push(std::move(prepared), &producerBuffer);
                     if (!producerStatus.isOk()) return;
                     producedBytes += length;
                     offset += length;
@@ -1408,8 +1416,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             }
             pipeline.close();
         });
+        std::vector<std::uint8_t> reusablePayloadBuffer;
         for (;;) {
-            auto next = pipeline.pop();
+            auto next = pipeline.pop(std::move(reusablePayloadBuffer));
             if (!next.isOk()) {
                 status = next.status();
                 writeFailed = true;
@@ -1519,10 +1528,15 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             payloadSent += length;
             stats->payloadBytes += length;
             addWire(protocol::kFrameHeaderSize + checksumPrefixSize + wireLength);
+            reusablePayloadBuffer = std::move(prepared.bytes);
         }
         if (writeFailed)
             pipeline.cancel(status.isOk() ? Status::runtimeError("persistent data write failed") : status);
         producer.join();
+        timing.payloadBufferAllocations = bufferAllocations;
+        timing.payloadBufferReuses = bufferReuses;
+        timing.payloadBufferAllocatedCapacityBytes = allocatedCapacityBytes;
+        timing.payloadBufferOwnershipBudgetBytes = pipelineChunkBytes * (kPipelineChunks + 2);
         timing.laneThreadCpuSeconds = threadCpuSeconds(timing.rangeObservationEnabled)-laneCpuStarted;
         timing.pipelineBudgetBytes = pipelineBudget;
         timing.pipelineHighWatermarkBytes = pipeline.highWatermarkBytes();
@@ -2111,6 +2125,10 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"pipeline_wait_scope\":\"condition_wait_through_mutex_reacquire_subintervals_not_wall\""
             << ",\"write_seconds_scope\":\"" << (t.file.rangeId ? "range_coordinator_includes_entry_wait_crc_checkpoint" : "writer_write_only") << "\""
             << ",\"payload_pipeline_depth\":" << t.payloadPipelineDepth
+            << ",\"payload_buffer_allocations\":" << t.payloadBufferAllocations
+            << ",\"payload_buffer_reuses\":" << t.payloadBufferReuses
+            << ",\"payload_buffer_allocated_capacity_bytes\":" << t.payloadBufferAllocatedCapacityBytes
+            << ",\"payload_buffer_ownership_budget_bytes\":" << t.payloadBufferOwnershipBudgetBytes
             << ",\"pipeline_budget_bytes\":" << t.pipelineBudgetBytes
             << ",\"pipeline_high_watermark_bytes\":" << t.pipelineHighWatermarkBytes
             << ",\"pipeline_producer_waits\":" << t.pipelineProducerWaits

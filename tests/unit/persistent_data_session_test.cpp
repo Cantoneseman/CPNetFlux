@@ -1650,6 +1650,121 @@ TEST(BoundedPayloadPipelineTest, CloseDrainsQueuedChunksAndThenReturnsEndOfStrea
     ASSERT_TRUE(end.isOk());
     EXPECT_FALSE(end.value());
 }
+
+TEST(BoundedPayloadPipelineTest, RecyclesOnlyAfterExplicitConsumerHandback) {
+    BoundedPayloadPipeline pipeline(16, 2);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1, 2, 3, 4}}).isOk());
+    auto first = pipeline.pop();
+    ASSERT_TRUE(first.isOk() && first.value());
+    const auto* original = first.value()->bytes.data();
+    std::vector<std::uint8_t> reusable;
+    ASSERT_TRUE(pipeline.push(PreparedPayload{4, {5, 6, 7, 8}}, &reusable).isOk());
+    EXPECT_TRUE(reusable.empty());
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+    auto second = pipeline.pop(std::move(first.value()->bytes));
+    ASSERT_TRUE(second.isOk() && second.value());
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 4U);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{8, {9}}, &reusable).isOk());
+    EXPECT_EQ(reusable.data(), original);
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+    std::fill(reusable.begin(), reusable.end(), 0xffU);
+    EXPECT_EQ(second.value()->bytes, (std::vector<std::uint8_t>{5, 6, 7, 8}));
+}
+
+TEST(BoundedPayloadPipelineTest, CacheLimitsAllocatedCapacityAndBufferCount) {
+    BoundedPayloadPipeline bytes(8, 4);
+    for (unsigned i = 0; i < 4; ++i) {
+        ASSERT_TRUE(bytes.push(PreparedPayload{i, {1}}).isOk());
+        ASSERT_TRUE(bytes.pop(std::vector<std::uint8_t>(4)).isOk());
+        EXPECT_EQ(bytes.recycledCapacityBytes(), std::min<std::size_t>((i + 1) * 4, 8));
+    }
+    BoundedPayloadPipeline count(16, 2);
+    for (unsigned i = 0; i < 4; ++i) {
+        ASSERT_TRUE(count.push(PreparedPayload{i, {1}}).isOk());
+        ASSERT_TRUE(count.pop(std::vector<std::uint8_t>(1)).isOk());
+        EXPECT_EQ(count.recycledCapacityBytes(), std::min<std::size_t>(i + 1, 3));
+    }
+    BoundedPayloadPipeline oversized(8, 2);
+    ASSERT_TRUE(oversized.push(PreparedPayload{0, {1}}).isOk());
+    std::vector<std::uint8_t> large(1);
+    large.reserve(32);
+    ASSERT_TRUE(oversized.pop(std::move(large)).isOk());
+    EXPECT_EQ(oversized.recycledCapacityBytes(), 0U);
+}
+
+TEST(BoundedPayloadPipelineTest, CloseDiscardsCacheButDrainsPayloadWithoutRetainingReturns) {
+    BoundedPayloadPipeline pipeline(8, 2);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1}}).isOk());
+    ASSERT_TRUE(pipeline.pop(std::vector<std::uint8_t>(4)).isOk());
+    ASSERT_TRUE(pipeline.push(PreparedPayload{1, {2, 3}}).isOk());
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 4U);
+    pipeline.close();
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+    auto last = pipeline.pop(std::vector<std::uint8_t>(8));
+    ASSERT_TRUE(last.isOk() && last.value());
+    EXPECT_EQ(last.value()->bytes, (std::vector<std::uint8_t>{2, 3}));
+    auto end = pipeline.pop(std::move(last.value()->bytes));
+    ASSERT_TRUE(end.isOk());
+    EXPECT_FALSE(end.value());
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+}
+
+TEST(BoundedPayloadPipelineTest, CancelDropsCacheAndWakesRecyclingProducerAndConsumer) {
+    BoundedPayloadPipeline full(8, 1);
+    ASSERT_TRUE(full.push(PreparedPayload{0, {1}}).isOk());
+    ASSERT_TRUE(full.pop(std::vector<std::uint8_t>(4)).isOk());
+    ASSERT_TRUE(full.push(PreparedPayload{1, std::vector<std::uint8_t>(8)}).isOk());
+    auto producer = std::async(std::launch::async, [&] {
+        std::vector<std::uint8_t> reusable;
+        return full.push(PreparedPayload{9, {2}}, &reusable);
+    });
+    EXPECT_EQ(producer.wait_for(std::chrono::milliseconds(30)), std::future_status::timeout);
+    full.cancel(cpnetflux::common::Status::transportError("cancel recycling producer"));
+    EXPECT_FALSE(producer.get().isOk());
+    EXPECT_EQ(full.queuedBytes(), 0U);
+    EXPECT_EQ(full.recycledCapacityBytes(), 0U);
+    BoundedPayloadPipeline empty(8, 1);
+    auto consumer = std::async(std::launch::async, [&] { return empty.pop(std::vector<std::uint8_t>(8)); });
+    EXPECT_EQ(consumer.wait_for(std::chrono::milliseconds(30)), std::future_status::timeout);
+    empty.cancel(cpnetflux::common::Status::transportError("cancel recycling consumer"));
+    EXPECT_FALSE(consumer.get().isOk());
+    EXPECT_EQ(empty.recycledCapacityBytes(), 0U);
+}
+
+TEST(BoundedPayloadPipelineTest, ReusesBoundedBuffersAcrossConcurrentVariableLengthFrames) {
+    BoundedPayloadPipeline pipeline(32, 2);
+    std::size_t allocations = 0;
+    cpnetflux::common::Status produced;
+    std::jthread producer([&] {
+        std::vector<std::uint8_t> buffer;
+        for (unsigned frame = 0; frame < 1000; ++frame) {
+            if (buffer.capacity() < 16) { buffer.reserve(16); ++allocations; }
+            buffer.resize(frame % 16 + 1);
+            std::fill(buffer.begin(), buffer.end(), static_cast<std::uint8_t>(frame));
+            produced = pipeline.push(PreparedPayload{frame, std::move(buffer)}, &buffer);
+            if (!produced.isOk()) return;
+        }
+        pipeline.close();
+    });
+    std::vector<std::uint8_t> reusable;
+    unsigned frames = 0;
+    for (;;) {
+        auto next = pipeline.pop(std::move(reusable));
+        if (!next.isOk() || !next.value()) break;
+        EXPECT_EQ(next.value()->offset, frames);
+        EXPECT_EQ(next.value()->bytes.size(), frames % 16 + 1);
+        for (const auto byte : next.value()->bytes) EXPECT_EQ(byte, static_cast<std::uint8_t>(frames));
+        reusable = std::move(next.value()->bytes);
+        ++frames;
+    }
+    producer.join();
+    EXPECT_TRUE(produced.isOk());
+    EXPECT_EQ(frames, 1000U);
+    EXPECT_LE(allocations, 4U);
+    EXPECT_LE(pipeline.highWatermarkBytes(), 32U);
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+}
+
 TEST(PersistentTreeResourceTest, ReleasesCommittedFileDescriptorsUnderDefaultLimit) {
     constexpr std::size_t fileCount = 2048;
     constexpr std::size_t fileSize = 64 * 1024;

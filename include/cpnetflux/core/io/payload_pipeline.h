@@ -21,8 +21,11 @@ class BoundedPayloadPipeline {
    public:
     BoundedPayloadPipeline(std::size_t maxBytes, std::size_t maxChunks, bool observeWaits = false);
 
-    [[nodiscard]] common::Status push(PreparedPayload payload);
-    [[nodiscard]] common::Result<std::optional<PreparedPayload>> pop();
+    // Optional SPSC handback; the consumer must finish using every byte first.
+    [[nodiscard]] common::Status push(PreparedPayload payload,
+                                      std::vector<std::uint8_t>* reusableBuffer = nullptr);
+    [[nodiscard]] common::Result<std::optional<PreparedPayload>> pop(
+        std::vector<std::uint8_t> reusableBuffer = {});
 
     [[nodiscard]] double producerWaitSeconds() const;
     [[nodiscard]] double consumerWaitSeconds() const;
@@ -31,6 +34,7 @@ class BoundedPayloadPipeline {
 
     [[nodiscard]] std::size_t queuedBytes() const;
     [[nodiscard]] std::size_t highWatermarkBytes() const;
+    [[nodiscard]] std::size_t recycledCapacityBytes() const;
     [[nodiscard]] std::uint64_t producerWaitCount() const;
     [[nodiscard]] std::uint64_t consumerWaitCount() const;
     [[nodiscard]] common::Status status() const;

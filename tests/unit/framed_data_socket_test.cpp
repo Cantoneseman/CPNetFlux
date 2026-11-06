@@ -12,9 +12,11 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <future>
 #include <filesystem>
 #include <fstream>
@@ -29,6 +31,9 @@ using cpnetflux::common::Status;
 using cpnetflux::common::StatusCode;
 using cpnetflux::core::io::FramedDataSocket;
 using cpnetflux::core::io::UniqueFd;
+
+std::atomic<std::size_t> observedAllocationSize{0};
+std::atomic<std::size_t> observedAllocations{0};
 
 struct DataWrite {
     cpnetflux::core::protocol::FrameHeader header;
@@ -88,6 +93,15 @@ std::vector<std::uint8_t> testBytes(std::size_t length) {
 
 extern "C" ssize_t __real_send(int fd, const void* bytes, std::size_t length, int flags);
 extern "C" ssize_t __real_sendmsg(int fd, const msghdr* message, int flags);
+
+#if CPNETFLUX_TEST_WRAP_NEW
+extern "C" void* __real__Znwm(std::size_t size);
+extern "C" void* __wrap__Znwm(std::size_t size) {
+    if (size == observedAllocationSize.load(std::memory_order_relaxed))
+        observedAllocations.fetch_add(1, std::memory_order_relaxed);
+    return __real__Znwm(size);
+}
+#endif
 
 extern "C" ssize_t __wrap_send(int fd, const void* bytes, std::size_t length, int flags) {
     if (currentScript) ++currentScript->sendCalls;
@@ -161,6 +175,69 @@ TEST(FramedDataSocketTest, BufferedFrameWritePreservesTcpByteStreamBytes) {
     expected.insert(expected.end(), prefix.begin(), prefix.end());
     expected.insert(expected.end(), payload.begin(), payload.end());
     EXPECT_EQ(readBytes(pair.receiver.get(), expected.size()), expected);
+}
+
+TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFrames) {
+#if !CPNETFLUX_TEST_WRAP_NEW
+    GTEST_SKIP() << "requires the Linux 64-bit allocation wrapper";
+#else
+    using namespace cpnetflux::core::io;
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    struct Directory {
+        std::filesystem::path path;
+        Directory() {
+            char pattern[] = "/tmp/cpnetflux-buffer-unit-XXXXXX";
+            const auto* name = ::mkdtemp(pattern);
+            if (!name) throw std::runtime_error("mkdtemp");
+            path = name;
+        }
+        ~Directory() { std::error_code error; std::filesystem::remove_all(path, error); }
+    } source, destination;
+    struct Depth {
+        std::optional<std::string> previous;
+        Depth() {
+            const auto* value = std::getenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
+            if (value) previous = value;
+            ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH", "2", 1);
+        }
+        ~Depth() {
+            if (previous) ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH", previous->c_str(), 1);
+            else ::unsetenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
+        }
+    } depth;
+    constexpr std::size_t bufferBytes = 65532;
+    const auto content = testBytes(4 * 1024 * 1024 + 37);
+    {
+        std::ofstream output(source.path / "buffers.bin", std::ios::binary);
+        output.write(reinterpret_cast<const char*>(content.data()), content.size());
+    }
+    struct stat metadata{};
+    ASSERT_EQ(::stat((source.path / "buffers.bin").c_str(), &metadata), 0);
+    PersistentFileIdentity id{1, 7, content.size(), "buffers.bin", "buffer-budget",
+        1048576, metadata.st_mtim.tv_sec, ChecksumAlgorithm::Crc32c};
+    int sockets[2];
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sockets), 0);
+    FramedDataSocket sender{UniqueFd(sockets[0])}, receiver{UniqueFd(sockets[1])};
+    PersistentTreeStats received, sent;
+    Status receiveStatus;
+    std::jthread reader([&] {
+        receiveStatus = receivePersistentTree(&receiver, destination.path.string(), false, "", &received);
+    });
+    observedAllocations.store(0, std::memory_order_relaxed);
+    observedAllocationSize.store(bufferBytes, std::memory_order_relaxed);
+    const auto sendStatus = sendPersistentTree(&sender, source.path.string(), {id}, &sent);
+    observedAllocationSize.store(0, std::memory_order_relaxed);
+    const auto allocations = observedAllocations.load(std::memory_order_relaxed);
+    if (!sendStatus.isOk()) receiver.shutdown();
+    reader.join();
+    ASSERT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_GT(allocations, 0U) << "the observer must detect a real initial payload allocation";
+    EXPECT_LE(allocations, 4U) << "depth two plus one producer and one consumer buffer";
+    std::ifstream output(destination.path / "buffers.bin", std::ios::binary);
+    const std::vector<std::uint8_t> actual((std::istreambuf_iterator<char>(output)), {});
+    EXPECT_EQ(actual, content);
+#endif
 }
 
 TEST(FramedDataSocketTest, PersistentSenderSeparatesCrcFromPayloadWithIdenticalWireContent) {
