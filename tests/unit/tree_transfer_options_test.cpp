@@ -120,6 +120,7 @@ TEST(TreeTransferOptionsTest, TreeManifestEventThresholdDefaultsAndValidates) {
         std::size(defaultsArgv), defaultsArgv, cpnetflux::config::TreeTransferRole::Upload);
     ASSERT_TRUE(defaults.isOk()) << defaults.status().message();
     EXPECT_EQ(defaults.value().treeManifestEventThreshold, 32U);
+    EXPECT_EQ(defaults.value().treeManifestMaxDelayMs, 100U);
 
     const char* candidateArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
         "--tree-manifest-event-threshold", "256"};
@@ -127,6 +128,23 @@ TEST(TreeTransferOptionsTest, TreeManifestEventThresholdDefaultsAndValidates) {
         std::size(candidateArgv), candidateArgv, cpnetflux::config::TreeTransferRole::Upload);
     ASSERT_TRUE(candidate.isOk()) << candidate.status().message();
     EXPECT_EQ(candidate.value().treeManifestEventThreshold, 256U);
+
+    const char* delayArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
+        "--tree-manifest-max-delay-ms", "500"};
+    auto delay = cpnetflux::config::parseTreeTransferOptions(
+        std::size(delayArgv), delayArgv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(delay.isOk()) << delay.status().message();
+    EXPECT_EQ(delay.value().treeManifestMaxDelayMs, 500U);
+
+    for (const char* value : {"0", "501", "-1", "500x"}) {
+        const char* invalidArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
+            "--tree-manifest-max-delay-ms", value};
+        auto invalid = cpnetflux::config::parseTreeTransferOptions(
+            std::size(invalidArgv), invalidArgv, cpnetflux::config::TreeTransferRole::Upload);
+        ASSERT_FALSE(invalid.isOk()) << value;
+        EXPECT_NE(invalid.status().message().find("tree-manifest-max-delay-ms"),
+                  std::string::npos);
+    }
 
     for (const char* value : {"0", "65537", "-1", "256x"}) {
         const char* invalidArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
@@ -141,6 +159,7 @@ TEST(TreeTransferOptionsTest, TreeManifestEventThresholdDefaultsAndValidates) {
     const auto usage = cpnetflux::config::treeTransferUsage(
         "client", cpnetflux::config::TreeTransferRole::Upload);
     EXPECT_NE(usage.find("--tree-manifest-event-threshold"), std::string::npos);
+    EXPECT_NE(usage.find("--tree-manifest-max-delay-ms"), std::string::npos);
 }
 
 TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {

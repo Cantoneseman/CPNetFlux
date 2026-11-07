@@ -1465,6 +1465,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"file_count\": " << manifest.files.size() << ",\n";
     output << "  \"tree_manifest_state_events\": " << stats.treeManifestWrites.generation << ",\n";
     output << "  \"tree_manifest_event_threshold\": " << options.treeManifestEventThreshold << ",\n";
+    output << "  \"tree_manifest_max_delay_ms\": " << options.treeManifestMaxDelayMs << ",\n";
     output << "  \"tree_manifest_generation\": " << stats.treeManifestWrites.generation << ",\n";
     output << "  \"tree_manifest_persisted_generation\": " << stats.treeManifestWrites.persistedGeneration << ",\n";
     output << "  \"tree_manifest_snapshots\": " << stats.treeManifestWrites.snapshots << ",\n";
@@ -2408,7 +2409,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     core::tree::TreeManifestWriter manifestWriter(*manifest, manifestMutex,
         [&](const auto& snapshot, std::uint64_t* bytes) {
             return core::tree::saveTreeManifestAtomic(manifestPath, snapshot, bytes);
-        }, options.treeManifestEventThreshold);
+        }, options.treeManifestEventThreshold,
+        std::chrono::milliseconds(options.treeManifestMaxDelayMs));
     std::unordered_map<std::uint32_t, std::size_t> downloadRecords;
     struct ActiveIdentity {
         PersistentFileIdentity base;

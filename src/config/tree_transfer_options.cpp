@@ -466,6 +466,13 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                     "--tree-manifest-event-threshold must be in range 1..65536");
             }
             options.treeManifestEventThreshold = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--tree-manifest-max-delay-ms") {
+            auto parsed = parseUnsigned(value, "--tree-manifest-max-delay-ms");
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 500) {
+                return common::Status::invalidArgument(
+                    "--tree-manifest-max-delay-ms must be in range 1..500");
+            }
+            options.treeManifestMaxDelayMs = static_cast<std::uint32_t>(parsed.value());
         } else if (option == "--scheduler") {
             auto parsed = parseTreeSchedulerMode(value);
             if (!parsed.isOk()) {
@@ -711,7 +718,8 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
            "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] "
-           "[--tree-manifest-event-threshold 1..65536] [--scheduler off|global] "
+           "[--tree-manifest-event-threshold 1..65536] "
+           "[--tree-manifest-max-delay-ms 1..500] [--scheduler off|global] "
            "[--scheduler-policy fixed|adaptive] [--scheduler-metrics-dir <dir>] "
            "[--scheduler-link-id <id>] [--scheduler-capacity-gbps <float>] "
            "[--scheduler-workitem-min-bytes <N>] [--scheduler-workitem-max-bytes <N>] "
