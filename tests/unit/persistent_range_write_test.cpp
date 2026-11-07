@@ -29,6 +29,7 @@ struct WriteGate {
     std::condition_variable changed;
     bool first = false, second = false, released = false;
     bool partialFailure = false, shortWritten = false, errorReturned = false;
+    bool holdSecond = false, third = false;
     explicit WriteGate(std::string root) : directory(std::move(root)) {}
     bool wait(bool WriteGate::*member) {
         std::unique_lock lock(mutex);
@@ -115,7 +116,11 @@ extern "C" ssize_t __wrap_pwrite(int fd, const void* data, size_t length, off_t 
     if (count <= 0 || !std::string_view(path.data(), count).starts_with(gate->directory + "/"))
         return __real_pwrite(fd, data, length, offset);
     std::unique_lock lock(gate->mutex);
-    if (offset == 4) { gate->second = true; gate->changed.notify_all(); }
+    if (offset == 4) {
+        gate->second = true; gate->changed.notify_all();
+        if (gate->holdSecond) gate->changed.wait(lock, [&] { return gate->released; });
+    }
+    if (offset == 8) { gate->third = true; gate->changed.notify_all(); }
     if (offset == 0 && !gate->first) {
         gate->first = true; gate->changed.notify_all();
         gate->changed.wait(lock, [&] { return gate->released; });
@@ -435,6 +440,94 @@ TEST_P(PersistentRangeWriteTest, FileSerialDrainsFailedWriteBeforeRetry) {
     const bool independent = gate.wait(&WriteGate::second);
     const bool secondFinished = right.wait_for(2s) == std::future_status::ready;
     EXPECT_TRUE(blocked); EXPECT_FALSE(independent); EXPECT_FALSE(secondFinished);
+    if (secondFinished) {
+        const auto verified = records(destination, download);
+        EXPECT_EQ(verified.size(), 1U);
+        if (!verified.empty()) EXPECT_EQ(verified.front().offset, 4U);
+    }
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "payload.bin"));
+    gate.release();
+    auto l = left.get(); auto r = right.get(); auto fixed = recovered.get();
+    a.rx.join(); b.rx.join(); c.rx.join();
+    EXPECT_FALSE(l.isOk()); EXPECT_FALSE(a.receiveStatus.isOk());
+    EXPECT_TRUE(r.isOk()) << r.message(); EXPECT_TRUE(fixed.isOk()) << fixed.message();
+    EXPECT_TRUE(b.receiveStatus.isOk()) << b.receiveStatus.message();
+    EXPECT_TRUE(c.receiveStatus.isOk()) << c.receiveStatus.message();
+    EXPECT_TRUE(gate.shortWritten); EXPECT_TRUE(gate.errorReturned);
+    EXPECT_EQ(c.sent.payloadBytes, 4U); EXPECT_EQ(c.sent.skippedBytes, 0U);
+    ASSERT_EQ(c.received.fileTimings.size(), 1U);
+    EXPECT_EQ(c.received.fileTimings.front().rangeObservation.reclaimWaitCalls, 1U);
+    EXPECT_GT(c.received.fileTimings.front().rangeObservation.reclaimWaitSeconds, 0.05);
+    const auto verified = records(destination, download);
+    EXPECT_EQ(verified.size(), 2U);
+    for (const auto& record : verified) EXPECT_EQ(record.length, 4U);
+    checkOutput(destination);
+}
+TEST_P(PersistentRangeWriteTest, FileDualLimitsPhysicalWritesPerFileToTwo) {
+    ASSERT_EQ(::setenv("CPNETFLUX_RANGE_DIRECT_WRITE", "file_dual", 1), 0);
+    TempRoot source, destination, independentDestination;
+    auto first = identity(source);
+    std::ofstream(source.path / "payload.bin", std::ios::binary | std::ios::app) << "IJKL";
+    struct stat st{}; ASSERT_EQ(::stat((source.path / "payload.bin").c_str(), &st), 0);
+    first.totalSize = 12; first.rangeCount = 3; first.mtimeUnixSeconds = st.st_mtim.tv_sec;
+    auto second = first; second.rangeId = 2; second.rangeOffset = 4;
+    auto third = first; third.rangeId = 3; third.rangeOffset = 8;
+    auto other = first; other.fileId = 2; other.generation = 8;
+    other.rangeCount = 1; other.rangeLength = 12;
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    policy.rangeCheckpointBatchChunks = 1;
+    auto context = makePersistentTransferContext(policy);
+    WriteGate gate(destination.path.string()); gate.holdSecond = true; InstallGate installed(gate);
+    Lane a(destination, GetParam(), context, 0), b(destination, GetParam(), context, 1),
+         c(destination, GetParam(), context, 0), d(independentDestination, GetParam(), context, 1);
+    auto left = a.send(source, first, 0); const bool firstBlocked = gate.wait(&WriteGate::first);
+    auto right = b.send(source, second, 1); const bool secondBlocked = gate.wait(&WriteGate::second);
+    auto pending = c.send(source, third, 0); const bool exceeded = gate.wait(&WriteGate::third);
+    auto independent = d.send(source, other, 1);
+    const bool independentFinished = independent.wait_for(2s) == std::future_status::ready;
+    EXPECT_TRUE(firstBlocked); EXPECT_TRUE(secondBlocked); EXPECT_FALSE(exceeded);
+    EXPECT_TRUE(independentFinished) << "two occupied permits must not block a different file";
+    gate.release();
+    auto l=left.get(), r=right.get(), t=pending.get(), o=independent.get();
+    a.rx.join(); b.rx.join(); c.rx.join(); d.rx.join();
+    EXPECT_TRUE(l.isOk()) << l.message(); EXPECT_TRUE(r.isOk()) << r.message();
+    EXPECT_TRUE(t.isOk()) << t.message(); EXPECT_TRUE(o.isOk()) << o.message();
+    EXPECT_TRUE(a.receiveStatus.isOk()); EXPECT_TRUE(b.receiveStatus.isOk());
+    EXPECT_TRUE(c.receiveStatus.isOk()); EXPECT_TRUE(d.receiveStatus.isOk());
+    for (const auto* lane : {&a, &b, &c}) {
+        ASSERT_EQ(lane->received.fileTimings.size(), 1U);
+        const auto& observed = lane->received.fileTimings[0].rangeObservation;
+        EXPECT_EQ(observed.directWriteConcurrency, 2U);
+        EXPECT_EQ(observed.boundedDirectWriteCalls, 1U);
+    }
+    for (const auto* root : {&destination, &independentDestination}) {
+        std::ifstream input(root->path / "payload.bin", std::ios::binary);
+        EXPECT_EQ(std::string((std::istreambuf_iterator<char>(input)), {}), "ABCDEFGHIJKL");
+    }
+}
+TEST_P(PersistentRangeWriteTest, FileDualDrainsPartialFailedWriteBeforeRetry) {
+    ASSERT_EQ(::setenv("CPNETFLUX_RANGE_DIRECT_WRITE", "file_dual", 1), 0);
+    const bool download = GetParam();
+    TempRoot source, destination;
+    auto first = identity(source); auto retry = first; ++retry.attempt;
+    auto second = first; second.rangeId = 2; second.rangeOffset = 4;
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    policy.rangeCheckpointBatchChunks = 1;
+    auto context = makePersistentTransferContext(policy);
+    WriteGate gate(destination.path.string()); gate.partialFailure = true; InstallGate installed(gate);
+    Lane a(destination, download, context, 0), b(destination, download, context, 1), c(destination, download, context, 0);
+    auto left = a.send(source, first, 0);
+    const bool blocked = gate.wait(&WriteGate::first);
+    auto recovered = c.send(source, retry, 0);
+    // The higher attempt may not receive its resume mask while an old syscall can still write.
+    pollfd descriptor{c.sender.fd(), POLLIN, 0};
+    EXPECT_EQ(::poll(&descriptor, 1, 100), 0);
+    auto right = b.send(source, second, 1);
+    const bool independent = gate.wait(&WriteGate::second);
+    const bool secondFinished = right.wait_for(2s) == std::future_status::ready;
+    EXPECT_TRUE(blocked); EXPECT_TRUE(independent); EXPECT_TRUE(secondFinished);
     if (secondFinished) {
         const auto verified = records(destination, download);
         EXPECT_EQ(verified.size(), 1U);

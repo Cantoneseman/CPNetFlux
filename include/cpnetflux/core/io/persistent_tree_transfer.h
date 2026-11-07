@@ -60,7 +60,8 @@ struct RangeObservation {
     std::uint64_t rangeWriteBatchBytes = 0;
     std::uint64_t entryLockCalls = 0, offsetWriteCalls = 0, chunkFlushCalls = 0;
     std::uint64_t parallelDirectWriteCalls = 0, reclaimWaitCalls = 0;
-    std::uint64_t serializedDirectWriteCalls = 0;
+    std::uint64_t serializedDirectWriteCalls = 0, boundedDirectWriteCalls = 0;
+    std::uint32_t directWriteConcurrency = 0;
     double directWriteWaitSeconds = 0, reclaimWaitSeconds = 0;
     std::uint64_t writerCallCount = 0, dataFlushCalls = 0;
     std::uint64_t recordUpdateCalls = 0, checkpointManifestFlushCalls = 0;

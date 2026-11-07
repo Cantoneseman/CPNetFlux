@@ -39,3 +39,9 @@
 精确文件：src/core/io/persistent_tree_transfer.cpp、include/cpnetflux/core/io/persistent_tree_transfer.h、tests/unit/persistent_range_write_test.cpp、本任务/result、docs/V3_TRANSFER_STAGES.md、docs/ROADMAP.md、docs/DECISIONS/2026-11-07-v3-pipeline-priority.md。先新增上传/下载回归并确认缺少新模式而失败，再实现；验证同文件串行、Entry 元数据可响应、不同文件继续运行、部分写失败后的 higher-attempt 排空恢复。完整 CTest 后固定提交，同版本交叉比较 parallel/file_serial；吞吐与 CPU 分开判定。
 
 候选 1 代码验收：新模式回归 8/8 RED（未支持模式）→GREEN，range 行为20/20。R1 全量615项首轮610通过、2项缺临时token失败、3项缺本地RDMA bind跳过；补齐仅测试环境后5/5通过，合并覆盖615/615。保留首轮记录。默认 parallel 未变，吞吐晋级待交叉实验。
+
+## 候选 2（最后一轮）：同文件最多两个物理写入
+
+候选1的完整交叉结果是CPU下降但吞吐倒退，不晋级。第二个假设：完全串行在64KiB粒度增加线程交接，四路完全并发则发生内核争抢；仅限制同文件物理 writeRange 为2路，保留网络4 lanes、Entry外IO和不同文件独立。显式 CPNETFLUX_RANGE_DIRECT_WRITE=file_dual，默认仍parallel。使用每Entry固定2许可的C++20 counting_semaphore，RAII归还，等待时保留旧slot pin但不持Entry。没有新增worker/payload/队列。只修改候选1同一组源/头/测试/指南和任务文件，新增实际双许可边界与higher-attempt部分写失败回归；相关门通过、固定提交后同版本7对c4以及7个c1控制和full控制。吞吐/CV/CPU分开；本轮为第二也是最后候选，失败或不稳即收口，不再扩大架构。
+
+候选2代码验收：新增双许可/独立文件/部分写重试4/4 RED→GREEN；相关range24/24，R1全量619/619一次通过，显式file_dual故障/恢复/观测10/10通过。候选1配对结果：c2 17.222741→13.812569Gbps，c4 14.374597→10.334968Gbps；c4双端CPU4.11→2.68秒/GiB，串行候选CV7.78%，不晋级。候选2性能待同版本交叉。

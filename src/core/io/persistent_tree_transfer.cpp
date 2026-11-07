@@ -25,6 +25,7 @@
 #include <condition_variable>
 #include <deque>
 #include <mutex>
+#include <semaphore>
 #include <thread>
 #include <ostream>
 #include <iomanip>
@@ -834,6 +835,8 @@ class RangeFileCoordinator {
         // retains its slot pin, but must not prevent metadata/checkpoint access.
         std::mutex directWriteMutex;
         bool serializedDirectWrites = false;
+        std::counting_semaphore<2> directWritePermits{2};
+        bool boundedDirectWrites = false;
         std::unique_ptr<FileTransaction> transaction;
         PersistentFileIdentity base;
         std::unordered_map<std::uint64_t, Slot> slots;
@@ -868,8 +871,9 @@ class RangeFileCoordinator {
         const auto* directSetting = std::getenv("CPNETFLUX_RANGE_DIRECT_WRITE");
         if (directSetting && std::string_view(directSetting) != "serial" &&
             std::string_view(directSetting) != "parallel" &&
-            std::string_view(directSetting) != "file_serial")
-            return Status::invalidArgument("CPNETFLUX_RANGE_DIRECT_WRITE must be serial, parallel or file_serial");
+            std::string_view(directSetting) != "file_serial" &&
+            std::string_view(directSetting) != "file_dual")
+            return Status::invalidArgument("CPNETFLUX_RANGE_DIRECT_WRITE must be serial, parallel, file_serial or file_dual");
         const auto key = (fs::path(root) / id.relativePath).lexically_normal().string();
         std::shared_ptr<Entry> entry;
         {
@@ -907,6 +911,8 @@ class RangeFileCoordinator {
                     (!directSetting || std::string_view(directSetting) != "serial");
                 entry->serializedDirectWrites = entry->parallelDirectWrites && directSetting &&
                     std::string_view(directSetting) == "file_serial";
+                entry->boundedDirectWrites = entry->parallelDirectWrites && directSetting &&
+                    std::string_view(directSetting) == "file_dual";
                 entry->loadedVerifiedChunks = entry->transaction->loadedVerifiedChunks();
                 entry->removedCorruptChunks = entry->transaction->removedCorruptChunks();
                 context.files.emplace(key,entry);
@@ -921,7 +927,11 @@ class RangeFileCoordinator {
             }
         }
         ObservedEntryLock lock(entry->mutex, observation);
-        if (observation) observation->rangeWriteBatchBytes = entry->rangeWriteBatchBytes;
+        if (observation) {
+            observation->rangeWriteBatchBytes = entry->rangeWriteBatchBytes;
+            observation->directWriteConcurrency = entry->serializedDirectWrites ? 1 :
+                entry->boundedDirectWrites ? 2 : 0;
+        }
         if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
         auto base = id;
         base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
@@ -1004,7 +1014,18 @@ class RangeFileCoordinator {
             if (observation) ++observation->parallelDirectWriteCalls;
             lock.unlock();
             try {
-                if (entry->serializedDirectWrites) {
+                if (entry->boundedDirectWrites) {
+                    checkpoint::OptionalManifestTimer waiting(
+                        observation ? &observation->directWriteWaitSeconds : nullptr);
+                    entry->directWritePermits.acquire();
+                    struct PermitGuard {
+                        std::counting_semaphore<2>& permits;
+                        ~PermitGuard() { permits.release(); }
+                    } permit{entry->directWritePermits};
+                    waiting.stop();
+                    if (observation) ++observation->boundedDirectWriteCalls;
+                    status = entry->transaction->writeRange(offset, bytes, observation, true);
+                } else if (entry->serializedDirectWrites) {
                     std::unique_lock ioLock(entry->directWriteMutex, std::defer_lock);
                     checkpoint::OptionalManifestTimer waiting(
                         observation ? &observation->directWriteWaitSeconds : nullptr);
@@ -1015,7 +1036,7 @@ class RangeFileCoordinator {
                 } else {
                     status = entry->transaction->writeRange(offset, bytes, observation, true);
                 }
-                // ioLock has been released before Entry is reacquired below.
+                // The physical IO gate is released before Entry is reacquired below.
             } catch (...) {
                 lock.lock(); lease.writing = false; entry->writersDrained.notify_all();
                 throw;
@@ -1073,6 +1094,7 @@ class RangeFileCoordinator {
         a.entryLockCalls += b.entryLockCalls;
         a.parallelDirectWriteCalls += b.parallelDirectWriteCalls;
         a.serializedDirectWriteCalls += b.serializedDirectWriteCalls;
+        a.boundedDirectWriteCalls += b.boundedDirectWriteCalls;
         a.directWriteWaitSeconds += b.directWriteWaitSeconds;
         a.reclaimWaitCalls += b.reclaimWaitCalls;
         a.reclaimWaitSeconds += b.reclaimWaitSeconds;
@@ -2608,6 +2630,8 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"range_write_batch_bytes\":" << r.rangeWriteBatchBytes
             << ",\"parallel_direct_write_calls\":" << r.parallelDirectWriteCalls
             << ",\"serialized_direct_write_calls\":" << r.serializedDirectWriteCalls
+            << ",\"bounded_direct_write_calls\":" << r.boundedDirectWriteCalls
+            << ",\"direct_write_concurrency\":" << r.directWriteConcurrency
             << ",\"direct_write_wait_seconds\":" << r.directWriteWaitSeconds
             << ",\"reclaim_wait_calls\":" << r.reclaimWaitCalls
             << ",\"reclaim_wait_seconds\":" << r.reclaimWaitSeconds
@@ -2648,9 +2672,11 @@ void appendRangeObservationContract(std::ostream& out) {
         R"obs("metrics":{"data_frame_count":{"unit":"frames","scope":"successfully validated DATA frames accepted by this range writer","overlap":"not applicable"},)obs"
         R"obs("effective_data_bytes":{"unit":"logical bytes","scope":"decompressed payload after checksum prefix removal, accepted by this range writer","overlap":"not applicable"},)obs"
         R"obs("range_write_batch_bytes":{"unit":"bytes","scope":"effective BufferedFileWriter contiguous buffer configured for this range; zero means batching is disabled or direct writes are selected","overlap":"configuration value, not elapsed time"},)obs"
-        R"obs("parallel_direct_write_calls":{"unit":"calls","scope":"POSIX direct writeRange attempts executed outside Entry, including file_serial; not certified progress; zero for serialized backends or serial diagnostic override","overlap":"storage interval is outside entry_lock_hold_seconds"},)obs"
+        R"obs("parallel_direct_write_calls":{"unit":"calls","scope":"POSIX direct writeRange attempts executed outside Entry, including file_serial/file_dual; not certified progress; zero for serialized backends or serial diagnostic override","overlap":"storage interval is outside entry_lock_hold_seconds"},)obs"
         R"obs("serialized_direct_write_calls":{"unit":"calls","scope":"subset of parallel_direct_write_calls admitted through the per-file physical IO gate in explicit file_serial mode","overlap":"storage interval is outside Entry"},)obs"
-        R"obs("direct_write_wait_seconds":{"unit":"seconds","scope":"per-file physical IO gate acquisition wall time, summed over file_serial attempts","overlap":"excluded from Entry wait/hold and writer_call_seconds; concurrent waits overlap one another"},)obs"
+        R"obs("bounded_direct_write_calls":{"unit":"calls","scope":"subset of parallel_direct_write_calls admitted through the per-file two-permit physical IO gate in file_dual mode","overlap":"storage interval is outside Entry"},)obs"
+        R"obs("direct_write_concurrency":{"unit":"operations","scope":"per-file physical IO cap; 1=file_serial, 2=file_dual, 0=no extra cap or ineligible backend","overlap":"configuration value, not observed concurrency"},)obs"
+        R"obs("direct_write_wait_seconds":{"unit":"seconds","scope":"per-file physical IO gate acquisition wall time, summed over file_serial/file_dual attempts","overlap":"excluded from Entry wait/hold and writer_call_seconds; concurrent waits overlap one another"},)obs"
         R"obs("reclaim_wait_calls":{"unit":"calls","scope":"higher-attempt begin calls that waited for the preceding slot write to drain","overlap":"not applicable"},)obs"
         R"obs("reclaim_wait_seconds":{"unit":"seconds","scope":"condition wait and mutex reacquisition during those reclaim waits","overlap":"excluded from entry_lock_wait_seconds and entry_lock_hold_seconds"},)obs"
         R"obs("entry_lock_calls":{"unit":"calls","scope":"Explicit Entry mutex acquisitions and reclaim wait returns during this range plus deferred checkpoint acquisitions merged since the preceding reporting boundary","overlap":"not applicable"},)obs"

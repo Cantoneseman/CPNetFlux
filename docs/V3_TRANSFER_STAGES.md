@@ -40,3 +40,5 @@ DynamicFileQueue 共享源端控制器，PersistentTransferContext 共享接收�
 CPNETFLUX_RANGE_DIRECT_WRITE 默认 parallel；serial 是原 Entry 锁覆盖 IO 的诊断。显式 file_serial 保留 POSIX direct 在 Entry 外的租约 pin/写入路径，但同文件的物理 writeRange 使用独立 mutex。等待不持有 Entry，允许 resume 元数据访问；不同文件不共享此门。IO 门在重获 Entry 前释放，失败/异常仍需清除 pin、唤醒重试。非 POSIX direct 后端继续原串行路径。该模式没有改变缓冲深度、worker 数或 payload 副本，也不等于全局写线程池。当前是实验候选，尚未通过吞吐晋级。
 
 range_observation 新增 serialized_direct_write_calls（parallel_direct_write_calls 的子集）与 direct_write_wait_seconds；后者是物理 IO 门获取等待，不包含在 Entry 锁或 writer_call_seconds 内，跨线程等待相互重叠，不能相加推算 task wall。CPNETFLUX_RANGE_TIMING=off 会关闭这些详细统计。
+
+第二个也是本审计最后候选 file_dual：在相同 Entry 外物理写入路径使用每文件两个许可的 counting_semaphore。不同文件独立，等待/执行期间租约仍被 pin，RAII 释放许可后才重获 Entry；不跨 payload/网络等待持有许可。新增 bounded_direct_write_calls 是该模式的实际准入调用数；direct_write_concurrency 是配置值（0无额外门或不适用、1=file_serial、2=file_dual），不是实测峰值。direct_write_wait_seconds 同时覆盖两种显式候选。默认不变，晋级仍需 task/CV/CPU/恢复联合验收。
