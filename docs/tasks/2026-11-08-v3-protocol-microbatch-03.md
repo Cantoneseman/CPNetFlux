@@ -74,3 +74,14 @@ R770-1 先构建并运行单元测试、tree 相关 CTest 和 pending-window smo
 同步到 R770-2 后重复构建、测试并核对三项二进制 SHA-256。下一步进入稳定的 raw
 TCP/V3 帧服务率归因，评估 `auto` 在真实目录分布中的收益；不继续扩大三阶段队列、
 writer 或 RDMA 路线。
+## 交接记录（提交 12895f27）
+
+- R770-1 构建：`cmake --build build -j 8`。
+- 两端完整单测：`./build/cpnetflux_unit_tests --gtest_color=no`，540 tests，539 passed，1 skipped（显式本地 RDMA bind）。
+- 两端相关 CTest：`ctest --test-dir build --output-on-failure -R 'cpnetflux_tree_download_smoke|cpnetflux_tree_resume_smoke|cpnetflux_tree_parallel_smoke|cpnetflux_tree_pending_window_smoke|cpnetflux_tree_manifest_coalesce_smoke'`，5/5 passed。
+- 运行时策略门：10,000×4 KiB 临时树使用 `--data-pending-window auto`，摘要实际窗口 8、策略 auto、completed_files=10000。
+- 三项二进制 SHA-256（两端相同）：upload `d8748fc0291ef298b86d45a3eb3b5f5e980dc751eac702c038e5408d3a8513c7`；download `18030e05ef5f593083f118996636d8537a867a8723cfb49e36242fd84e5d0d7c`；server `88bda6927abfd727d3e0a9f52989b35b886b84f113be02a7a28240807dd46f29`。
+- GitHub 远端：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01` 已回读为 `12895f27bfa931f32d15a5262c24824dcb627441`。
+- 实验输出：`/home/Su/experiments/CPNetFlux/2026-11-08-v3-small-file-microbatch-03` 仅保留约 156 KiB compact 证据；临时树已删除。
+
+下一轮交接从 raw TCP/V3 帧服务率归因开始，保持 `auto` 显式 opt-in，不修改大文件默认窗口、三阶段队列或 RDMA。
