@@ -1,6 +1,6 @@
 # V3 三阶段执行与缓冲预算
 
-更新时间：2026-11-07。实现与结果见 [本轮结果](tasks/2026-11-07-v3-stage-decoupling-01-result.md)。
+更新时间：2026-11-07。实现见[工程收口结果](tasks/2026-11-07-v3-stage-decoupling-01-result.md)，最新性能处置见[lane扩展复核结果](tasks/2026-11-07-v3-tcp-scaling-audit-01-result.md)。工程门已过，吞吐门未过。
 
 ## 执行和所有权
 
@@ -35,10 +35,12 @@ DynamicFileQueue 共享源端控制器，PersistentTransferContext 共享接收�
 
 配置收益必须在相同提交、配置、版本和二进制摘要下比较，分别报告 task rate、文件阶段、双端进程 CPU、内存与恢复。原严格 FIFO/广播和过小写并发导致的负结果保留在结果记录；不得因某个 syscall/wait 指标下降而推广配置。小规模 tmpfs、commit_sync=none 的数字不代表持久化或100Gbps能力。
 
-## 同文件物理写入候选（2026-11-07）
+## 同文件物理写入诊断（2026-11-07，两候选均no-go）
 
-CPNETFLUX_RANGE_DIRECT_WRITE 默认 parallel；serial 是原 Entry 锁覆盖 IO 的诊断。显式 file_serial 保留 POSIX direct 在 Entry 外的租约 pin/写入路径，但同文件的物理 writeRange 使用独立 mutex。等待不持有 Entry，允许 resume 元数据访问；不同文件不共享此门。IO 门在重获 Entry 前释放，失败/异常仍需清除 pin、唤醒重试。非 POSIX direct 后端继续原串行路径。该模式没有改变缓冲深度、worker 数或 payload 副本，也不等于全局写线程池。当前是实验候选，尚未通过吞吐晋级。
+CPNETFLUX_RANGE_DIRECT_WRITE 默认 parallel；serial 是原 Entry 锁覆盖 IO 的诊断。显式 file_serial 保留 POSIX direct 在 Entry 外的租约 pin/写入路径，但同文件的物理 writeRange 使用独立 mutex。等待不持有 Entry，允许 resume 元数据访问；不同文件不共享此门。IO 门在重获 Entry 前释放，失败/异常仍需清除 pin、唤醒重试。非 POSIX direct 后端继续原串行路径。该模式没有改变缓冲深度、worker 数或 payload 副本，也不等于全局写线程池。同版本7对c4实测14.375→10.335Gbps（−28.10%），CPU4.11→2.68秒/GiB；吞吐晋级失败，仅保留显式诊断。
 
 range_observation 新增 serialized_direct_write_calls（parallel_direct_write_calls 的子集）与 direct_write_wait_seconds；后者是物理 IO 门获取等待，不包含在 Entry 锁或 writer_call_seconds 内，跨线程等待相互重叠，不能相加推算 task wall。CPNETFLUX_RANGE_TIMING=off 会关闭这些详细统计。
 
-第二个也是本审计最后候选 file_dual：在相同 Entry 外物理写入路径使用每文件两个许可的 counting_semaphore。不同文件独立，等待/执行期间租约仍被 pin，RAII 释放许可后才重获 Entry；不跨 payload/网络等待持有许可。新增 bounded_direct_write_calls 是该模式的实际准入调用数；direct_write_concurrency 是配置值（0无额外门或不适用、1=file_serial、2=file_dual），不是实测峰值。direct_write_wait_seconds 同时覆盖两种显式候选。默认不变，晋级仍需 task/CV/CPU/恢复联合验收。
+第二个也是本审计最后候选 file_dual：在相同 Entry 外物理写入路径使用每文件两个许可的 counting_semaphore。不同文件独立，等待/执行期间租约仍被 pin，RAII 释放许可后才重获 Entry；不跨 payload/网络等待持有许可。新增 bounded_direct_write_calls 是该模式的实际准入调用数；direct_write_concurrency 是配置值（0无额外门或不适用、1=file_serial、2=file_dual），不是实测峰值。direct_write_wait_seconds 同时覆盖两种显式候选。同版本7对c4实测14.064→13.066Gbps（−7.10%），CPU4.11→3.43秒/GiB；候选CV8.10%，6/7对负收益，晋级失败。默认parallel不变，两种模式均不推荐用于性能部署。
+
+本轮已完成用户批准的一次复核和最多两轮候选，不再增加第三种准入门或扩大三阶段架构。CPU周期证据指出同inode的tmpfs写锁争用，但消除争用没有提高task吞吐，仍需区分文件系统与软件路径。下一阶段的有界内存诊断接收和稳定窗口仅为计划，不能作为真实文件或100G成绩。

@@ -1,10 +1,13 @@
 # CPNetFlux 性能路线图
 
 更新日期：2026-11-07
+
+最新非RDMA核心代码：`201a43a047102dfe52b1f05ec4497181dd64f6bb`；[TCP lane扩展复核与两候选结果](tasks/2026-11-07-v3-tcp-scaling-audit-01-result.md)。107正式与5独立perf样本通过完整性/资源/清理门。默认1/2/4 lane task中位数19.254/18.494/14.038Gbps；c1 CV9.04%，不是稳定上限。定位到同inode tmpfs pwrite内核写锁CPU成本；file_serial的c4 14.375→10.335Gbps，file_dual 14.064→13.066Gbps，均负收益且候选CV超门。R1全量619/619、显式dual恢复10/10、R2相关236/236。**两候选均no-go，默认parallel不变；本阶段停止扩大架构，吞吐门未过。** 下一阶段先建立稳定有界窗口，并区分raw TCP、V3内存诊断路径与真实tmpfs输出；尚未执行。RDMA优化继续暂停，小文件微批不能替代大文件吞吐。
+
 最近原生文件实测源码：`791c2eee785d0c197f8ff86d902f6ce8688112c8`（清单序列化优化），同组观测基线为 `d0d98c74b15b728cf2853ec168c26a7a3cc27c70`；最新源供数工具源码为 `5b8be5af0c034451c117f372e346c049228299cc`，其六个传输相关二进制与前者相同。接收策略对照源码为 `d323f1fa442071bee64650c44c96d8a11ba42b1f`。原 48 样本和 result 生命周期复测仍按各自输入提交解释。
 此前接收 span 的小规模 tmpfs 原生文件优化源码：`c4c1b4a134662a740e438da2f34b8aceea7d24fe`（接收 logical span），对照/写合并配置为 `a9ecbe9179c3d8154a91e17fe23b4c9d445f5a74`。此前接收端剖析为 `bdc82c13`、payload 复用为 `7aab4e68`、基线 `6025f54e`，CRC 拼接优化为 `46be03da`。上行所述 `791c2eee` 仍是最近 64 GiB 盘上负载源码，两类负载分别解释。
 当前开发分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
-最新非 RDMA 验收提交：`ccca9b66bab457ecb6e6c3780d7c6fe1d1e33179`，性能矩阵源码`8d44802a33cd8d3bfc17ad9e5bc5a8da8c23ee2f`（八二进制相同）；[三阶段收口结果](tasks/2026-11-07-v3-stage-decoupling-01-result.md)、[执行指南](V3_TRANSFER_STAGES.md)。独立读/网络/写并发、接收共享就绪writer池、payload预算工程门已过；R1 607/607、R2 270/270、pool故障9/9，118正式1GiB内存任务校验/清理。c4在相同read4/write1下，admission→共享就绪池的task中位数8.404→14.226Gbps（+69.29%），双端CPU2.950→2.800秒/GiB。相对每lane默认，池的task中位数变化+0.75%，双端CPU变化-32.04%。这是三次小样本中位数，需结合CV；不能宣称长期吞吐提升或所有负载收益。 默认read0/write0、batch1/depth2/AvailableCapacity/preallocate off不变，吞吐门仍开。此前[range独立写](tasks/2026-11-07-v3-tcp-scaling-01-result.md)、[gathering负结果](tasks/2026-11-07-v3-gathered-write-01-result.md)保持各自提交边界；非持久化TCP不是100G验收。
+上一阶段非 RDMA 工程验收提交：`ccca9b66bab457ecb6e6c3780d7c6fe1d1e33179`，性能矩阵源码`8d44802a33cd8d3bfc17ad9e5bc5a8da8c23ee2f`（八二进制相同）；[三阶段收口结果](tasks/2026-11-07-v3-stage-decoupling-01-result.md)、[执行指南](V3_TRANSFER_STAGES.md)。独立读/网络/写并发、接收共享就绪writer池、payload预算工程门已过；R1 607/607、R2 270/270、pool故障9/9，118正式1GiB内存任务校验/清理。c4在相同read4/write1下，admission→共享就绪池的task中位数8.404→14.226Gbps（+69.29%），双端CPU2.950→2.800秒/GiB。相对每lane默认，池的task中位数变化+0.75%，双端CPU变化-32.04%。这是三次小样本中位数，需结合CV；不能宣称长期吞吐提升或所有负载收益。 默认read0/write0、batch1/depth2/AvailableCapacity/preallocate off不变，吞吐门仍开。此前[range独立写](tasks/2026-11-07-v3-tcp-scaling-01-result.md)、[gathering负结果](tasks/2026-11-07-v3-gathered-write-01-result.md)保持各自提交边界；非持久化TCP不是100G验收。
 
 ## 当前目标
 
@@ -80,6 +83,7 @@
 | 流水线交接/预分配，源码 c572b39 / 545b929 | 同源 1 GiB 四对唤醒、三对预分配共 14 正式样本通过；独立 pwrite CPU 归因；两种候选均降低吞吐；R1 557/557、R2 152/152 | 新提速、完整三阶段 worker 池、持久化/100G 或 CQ 稳定性通过 |
 | 无额外复制 gathering，源码 `57502f30` | TCP 同源1GiB四对、task20.099/17.045 Gbps，候选CPU增加且拒绝默认推广；R1 568/568、R2 219/219，部分写后恢复/SHA通过 | 默认提速、持久化/100G、RDMA对照收益、完整独立三阶段worker池 |
 | TCP range独立写入，源码 `60873ba0` | 同提交2/4 lane各四对task12.394/8.640→17.603/13.666 Gbps，双端CPU+4.39%/+46.22%；单lane控制20.022仍最快；29正式样本校验清理，R1 579/579、R2 241/241 | 单lane提速、CPU效率提升、持久化/100G、全局worker池完成或RDMA/CQ稳定性通过 |
+| TCP lane复核与有界优化，源码590358f9/1d4b1cf8/201a43a0 | 107正式+5独立perf；c4两种写准入吞吐−28.10%/−7.10%，CPU下降；两候选no-go，R1 619/619、R2 236/236 | 已解决lane扩展、稳定单lane上限、持久化/100G、tmpfs争用是唯一瓶颈或生产readiness |
 | 硬件拓扑 | 每台 R770 一张 100GbE/RoCE 端口 | 10×100Gbps 多链路或 1Tbps 扩展 |
 
 稳态 payload rate、含建连/提交的 task rate、每 lane 吞吐分别记录，不合并计时口径。测试需固定提交、双端同配置构建，逐文件校验并保存 route、端口计数、CPU/RSS 和原始日志。
@@ -93,7 +97,7 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 | 0. E2E 基线 | 对照原生带宽、CPNetFlux direct bench、V3 真实文件；1/4 连接、4/64 GiB、至少 3 次重复；核实同一大文件是否真正并行 range | 完整性通过，稳定与 task rate 分开，失败可解释；完成后再定优化项 |
 | 1. 瓶颈归因 | 分解建连、注册/清零、RQ/CQ、帧复制、checksum、调度、写入/writeback、manifest/final verify | 主要耗时可被重复样本定位，不凭单一计数器推因果 |
 | 2. RDMA 资源与完成队列（暂停） | 测接收池预算、RQ/SQ 深度、补投递、CQ 批处理及完成等待；维持槽位所有权和有界反压 | 找到低内存且长传输稳定的窗口；若收益不成立，保留现状 |
-| 3. 三阶段流水线 | 工程门已完成：独立读准入、网络lane、共享就绪writer池和payload预算 | 正确性/恢复/内存门过，吞吐性能门仍开，不推广负收益默认 |
+| 3. 三阶段流水线（停止扩大架构，转测量归因） | 工程门已完成；lane复核与两轮物理写准入均已收口，下一步区分文件系统/软件路径 | 吞吐门未过；两候选no-go，保留parallel默认，不追加第三候选 |
 | 4. 小文件自适应微批 | 对比优化后的逐文件基线、固定微批、自适应微批；测 4–256 KiB 与 1K–100K 文件规模 | 改善完整 T_ready 和 p95，成员 checksum、原子提交、独立恢复通过 |
 | 5. 条件式服务率调度 | 只有观察到 worker 异质性、队列偏斜或拖尾时，比较 SR-Dispatch/BAP | 多次重复收益成立且无公平性、饥饿和恢复回归；否则不实现 |
 | 6. 单链路稳定验收 | 冻结代码/配置/数据；双向 large/dense/mixed 重复测与超接收池长传输 | SHA 全过、CV ≤5%、无静默降级和未解释链路错误 |

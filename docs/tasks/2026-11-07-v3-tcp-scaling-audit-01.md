@@ -1,6 +1,6 @@
 # V3 TCP lane 扩展复核与有界优化 01
 
-日期：2026-11-07；状态：执行中；单人串行 R770-1，R770-2 只同步验收。
+日期：2026-11-07；状态：复核及两候选完成，吞吐门未通过；单人串行 R770-1，R770-2 只同步验收。
 
 ## 范围、输入与非目标
 
@@ -38,10 +38,16 @@
 
 精确文件：src/core/io/persistent_tree_transfer.cpp、include/cpnetflux/core/io/persistent_tree_transfer.h、tests/unit/persistent_range_write_test.cpp、本任务/result、docs/V3_TRANSFER_STAGES.md、docs/ROADMAP.md、docs/DECISIONS/2026-11-07-v3-pipeline-priority.md。先新增上传/下载回归并确认缺少新模式而失败，再实现；验证同文件串行、Entry 元数据可响应、不同文件继续运行、部分写失败后的 higher-attempt 排空恢复。完整 CTest 后固定提交，同版本交叉比较 parallel/file_serial；吞吐与 CPU 分开判定。
 
-候选 1 代码验收：新模式回归 8/8 RED（未支持模式）→GREEN，range 行为20/20。R1 全量615项首轮610通过、2项缺临时token失败、3项缺本地RDMA bind跳过；补齐仅测试环境后5/5通过，合并覆盖615/615。保留首轮记录。默认 parallel 未变，吞吐晋级待交叉实验。
+候选 1 代码验收：新模式回归 8/8 RED（未支持模式）→GREEN，range 行为20/20。R1 全量615项首轮610通过、2项缺临时token失败、3项缺本地RDMA bind跳过；补齐仅测试环境后5/5通过，合并覆盖615/615。保留首轮记录。默认 parallel 未变，交叉结果已归档下文。
 
 ## 候选 2（最后一轮）：同文件最多两个物理写入
 
 候选1的完整交叉结果是CPU下降但吞吐倒退，不晋级。第二个假设：完全串行在64KiB粒度增加线程交接，四路完全并发则发生内核争抢；仅限制同文件物理 writeRange 为2路，保留网络4 lanes、Entry外IO和不同文件独立。显式 CPNETFLUX_RANGE_DIRECT_WRITE=file_dual，默认仍parallel。使用每Entry固定2许可的C++20 counting_semaphore，RAII归还，等待时保留旧slot pin但不持Entry。没有新增worker/payload/队列。只修改候选1同一组源/头/测试/指南和任务文件，新增实际双许可边界与higher-attempt部分写失败回归；相关门通过、固定提交后同版本7对c4以及7个c1控制和full控制。吞吐/CV/CPU分开；本轮为第二也是最后候选，失败或不稳即收口，不再扩大架构。
 
-候选2代码验收：新增双许可/独立文件/部分写重试4/4 RED→GREEN；相关range24/24，R1全量619/619一次通过，显式file_dual故障/恢复/观测10/10通过。候选1配对结果：c2 17.222741→13.812569Gbps，c4 14.374597→10.334968Gbps；c4双端CPU4.11→2.68秒/GiB，串行候选CV7.78%，不晋级。候选2性能待同版本交叉。
+候选2代码验收：新增双许可/独立文件/部分写重试4/4 RED→GREEN；相关range24/24，R1全量619/619一次通过，显式file_dual故障/恢复/观测10/10通过。候选1配对结果：c2 17.222741→13.812569Gbps，c4 14.374597→10.334968Gbps；c4双端CPU4.11→2.68秒/GiB，串行候选CV7.78%，不晋级。候选2同版本7对c4：14.064167→13.066144Gbps（−7.10%），CPU4.11→3.43秒/GiB，候选CV8.10%；6/7对负收益，不晋级。R2相关236/236通过。
+
+## 最终收口与交接
+
+[详细结果](2026-11-07-v3-tcp-scaling-audit-01-result.md)：107正式+5独立perf通过样本，2排除记录保留；两候选均no-go，不追加第三候选、不扩大三阶段架构。parallel默认不变，file_serial/file_dual仅显式诊断。最终代码201a43a047102dfe52b1f05ec4497181dd64f6bb，R1全量619/619、显式dual恢复10/10、R2相关236/236。两端临时内存根已精确清理，本轮无活进程，原服务PID保留。
+
+下一阶段先设计稳定的有界内存测量窗口，再区分raw TCP、V3内存诊断接收和真实tmpfs文件输出；尚未实现或启动。30–50/70–85/100G与持久化/生产门继续开放。最终文档备份、远端SHA和双端构建摘要见证据根acceptance/final-backup.json及matching-builds-final-handoff.json。
