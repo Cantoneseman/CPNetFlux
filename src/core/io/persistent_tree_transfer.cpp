@@ -1412,6 +1412,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (transferOptions && transferOptions->reconnectAttempt != UINT32_MAX)
             id.attempt = transferOptions->reconnectAttempt;
         timing.file = id; timing.channel = channelIndex; timing.sender = true;
+        timing.stageWritePool=bool(stages->writerPool);
         timing.stageReadConcurrency=stages->readConcurrency;
         timing.stageWriteConcurrency=stages->writeConcurrency;
         timing.stageNetworkLanes=stages->networkLanes;
@@ -1875,7 +1876,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     {
         std::lock_guard lock(context->mutex);
         if (!context->stages) {
-            auto created=TransferStages::create(channelCount,stageDepth.value());
+            auto created=TransferStages::create(channelCount,stageDepth.value(),true);
             if (!created.isOk()) return created.status();
             context->stages=created.value();
         }
@@ -1976,6 +1977,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (!status.isOk()) return finishTransport(status);
         PersistentFileTiming timing;
         timing.file = id; timing.channel = channelIndex;
+        timing.stageWritePool=bool(stages->writerPool);
         timing.stageReadConcurrency=stages->readConcurrency;
         timing.stageWriteConcurrency=stages->writeConcurrency;
         timing.stageNetworkLanes=stages->networkLanes;
@@ -2122,10 +2124,13 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                         }
                     }
                     if (!stop && fileStatus.isOk()) {
-                        auto writePermit=stages->writes.acquire(&timing.stageWriteWaitSeconds,context->policy.limits.taskDeadline);
-                        if (!writePermit.isOk()) { writerTerminal=writePermit.status(); stop=true; }
-                        // Balance startIo below even if stage admission expired.
-                        if (!stop) {
+                        auto performWrite = [&]() -> Status {
+                            const bool measurePool=timing.stageWritePool && timing.rangeObservationEnabled;
+                            const auto started=threadCpuSeconds(measurePool);
+                            struct PoolCpu {
+                                PersistentFileTiming& timing; bool measure; double started;
+                                ~PoolCpu() { if (measure) timing.stageWritePoolCpuSeconds += threadCpuSeconds(true)-started; }
+                            } poolCpu{timing,measurePool,started};
                             ++timing.stageWriteCalls;
                             Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
                             const auto& item = slots[first];
@@ -2152,8 +2157,17 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                                     stop = true;
                                 }
                             }
+                            return Status::ok();
+                        };
+                        if (stages->writerPool) {
+                            auto executed=stages->writerPool->run(performWrite,&timing.stageWriteWaitSeconds,context->policy.limits.taskDeadline);
+                            if (!executed.isOk()) { writerTerminal=executed; stop=true; }
+                        } else {
+                            auto permit=stages->writes.acquire(&timing.stageWriteWaitSeconds,context->policy.limits.taskDeadline);
+                            if (!permit.isOk()) { writerTerminal=permit.status(); stop=true; }
+                            if (!stop) (void)performWrite();
                         }
-                    } // admitted storage scope; permit released before the next queue pop
+                    } // ready IO complete; no payload is borrowed across the next queue pop
                     // Balance every successful issue, including an issue or write failure.
                     for (std::size_t n = 0; n < issued; ++n) {
                         auto status = executor->finishIo(*lease, logical[first + n].size());
@@ -2479,7 +2493,9 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"payload_budget_bytes\":" << t.stageBufferBudgetBytes << ",\"payload_ownership_bound_bytes\":" << t.stageOwnershipBoundBytes
             << ",\"read_admission_required\":" << (t.stageReadConcurrency && t.stageReadConcurrency < t.stageNetworkLanes ? "true" : "false")
             << ",\"write_admission_required\":" << (t.stageWriteConcurrency && t.stageWriteConcurrency < t.stageNetworkLanes ? "true" : "false")
-            << ",\"admission_policy\":\"oldest_waiter_with_bounded_ready_bypass\",\"max_ready_bypasses\":" << StageGate::kReadyBypassLimit
+            << ",\"admission_policy\":\"" << (t.stageWritePool ? "FIFO_ready_jobs" : "oldest_waiter_with_bounded_ready_bypass") << "\",\"max_ready_bypasses\":" << (t.stageWritePool ? 0 : StageGate::kReadyBypassLimit)
+            << ",\"write_executor\":\"" << (t.sender ? "not_receiver" : t.stageWritePool ? "shared_ready_pool" : (t.stageWriteConcurrency && t.stageWriteConcurrency < t.stageNetworkLanes ? "shared_admission" : "per_lane")) << "\",\"write_pool_cpu_seconds\":" << t.stageWritePoolCpuSeconds
+            << ",\"write_pool_workers\":" << (t.stageWritePool ? t.stageWriteConcurrency : 0)
             << ",\"read_calls\":" << t.stageReadCalls << ",\"write_calls\":" << t.stageWriteCalls
             << ",\"read_wait_seconds\":" << t.stageReadWaitSeconds << ",\"write_wait_seconds\":" << t.stageWriteWaitSeconds
             << ",\"scope\":\"batch_shared_ready_IO_admission_not_thread_counts;0=per_lane;payload_bound_excludes_transport_metadata_tmpfs\"}"

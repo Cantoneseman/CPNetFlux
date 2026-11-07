@@ -107,3 +107,50 @@ TEST(TransferStagesTest, TimedOutFrontDoesNotStrandAlreadyWaitingSuccessor) {
  EXPECT_FALSE(front.get().isOk());held=StageGate::Permit{};
  EXPECT_TRUE(next.get().isOk());
 }
+
+TEST(ReadyIoExecutorTest, BoundsConcurrencyAndWaitsForBorrowToEnd) {
+ ReadyIoExecutor pool(1,2);std::promise<void> entered,release;auto unlock=release.get_future().share();
+ std::atomic<int> completed{0};double waited=0;
+ auto first=std::async(std::launch::async,[&]{return pool.run([&]{entered.set_value();unlock.wait();++completed;return cpnetflux::common::Status::ok();});});
+ entered.get_future().wait();
+ auto next=std::async(std::launch::async,[&]{return pool.run([&]{++completed;return cpnetflux::common::Status::ok();},&waited);});
+ EXPECT_EQ(next.wait_for(30ms),std::future_status::timeout);EXPECT_EQ(completed.load(),0);
+ release.set_value();EXPECT_TRUE(first.get().isOk());EXPECT_TRUE(next.get().isOk());
+ EXPECT_EQ(completed.load(),2);EXPECT_GT(waited,0.01);
+}
+TEST(ReadyIoExecutorTest, RejectsOutstandingOverflowAndReleasesBeforeCompletion) {
+ ReadyIoExecutor pool(1,1);std::promise<void> entered,release;auto unlock=release.get_future().share();
+ auto pending=std::async(std::launch::async,[&]{return pool.run([&]{entered.set_value();unlock.wait();return cpnetflux::common::Status::ok();});});entered.get_future().wait();
+ EXPECT_FALSE(pool.run([]{return cpnetflux::common::Status::ok();}).isOk());
+ release.set_value();ASSERT_TRUE(pending.get().isOk());
+ for(int i=0;i<100;++i)EXPECT_TRUE(pool.run([]{return cpnetflux::common::Status::ok();}).isOk());
+}
+TEST(ReadyIoExecutorTest, ExpiredQueuedJobDoesNotAccessBorrowAndSuccessorRuns) {
+ ReadyIoExecutor pool(1,2);std::promise<void> entered,release;auto unlock=release.get_future().share();std::atomic<bool> touched{false};
+ auto first=std::async(std::launch::async,[&]{return pool.run([&]{entered.set_value();unlock.wait();return cpnetflux::common::Status::ok();});});entered.get_future().wait();
+ auto queued=std::async(std::launch::async,[&]{return pool.run([&]{touched=true;return cpnetflux::common::Status::ok();},nullptr,std::chrono::steady_clock::now()+20ms);});
+ std::this_thread::sleep_for(40ms);release.set_value();EXPECT_TRUE(first.get().isOk());EXPECT_FALSE(queued.get().isOk());EXPECT_FALSE(touched.load());
+ EXPECT_TRUE(pool.run([]{return cpnetflux::common::Status::ok();}).isOk());
+}
+TEST(ReadyIoExecutorTest, ExceptionCompletesPromiseAndNextOperationRuns) {
+ ReadyIoExecutor pool(1,2);
+ EXPECT_FALSE(pool.run([]()->cpnetflux::common::Status{throw 1;}).isOk());
+ EXPECT_TRUE(pool.run([]{return cpnetflux::common::Status::ok();}).isOk());
+}
+TEST(ReadyIoExecutorTest, BorrowedCaptureIsDestroyedBeforeRunReturns) {
+ ReadyIoExecutor pool(1,2);auto owner=std::make_shared<int>(1);std::weak_ptr<int> weak=owner;
+ std::function<cpnetflux::common::Status()> callback=[owner=std::move(owner)]{return cpnetflux::common::Status::ok();};
+ EXPECT_TRUE(pool.run(std::move(callback)).isOk());EXPECT_TRUE(weak.expired());
+}
+TEST(ReadyIoExecutorTest, InvalidWorkerOrCapacityBoundsAreRejected) {
+ EXPECT_THROW(ReadyIoExecutor(0,1),std::invalid_argument);
+ EXPECT_THROW(ReadyIoExecutor(2,1),std::invalid_argument);
+ EXPECT_THROW(ReadyIoExecutor(1,65),std::invalid_argument);
+}
+TEST(ReadyIoExecutorTest, SelectionElidesPoolAtNaturalLaneBound) {
+ setenv("CPNETFLUX_STAGE_WRITE_CONCURRENCY","1",1);setenv("CPNETFLUX_STAGE_WRITE_EXECUTOR","pool",1);
+ auto source=TransferStages::create(4,2);auto shared=TransferStages::create(4,2,true);auto natural=TransferStages::create(1,2,true);
+ ASSERT_TRUE(source.isOk());EXPECT_FALSE(source.value()->writerPool);ASSERT_TRUE(shared.isOk());ASSERT_TRUE(natural.isOk());EXPECT_TRUE(shared.value()->writerPool);EXPECT_FALSE(natural.value()->writerPool);
+ setenv("CPNETFLUX_STAGE_WRITE_EXECUTOR","admission",1);auto admission=TransferStages::create(4,2,true);ASSERT_TRUE(admission.isOk());EXPECT_FALSE(admission.value()->writerPool);
+ unsetenv("CPNETFLUX_STAGE_WRITE_EXECUTOR");unsetenv("CPNETFLUX_STAGE_WRITE_CONCURRENCY");
+}

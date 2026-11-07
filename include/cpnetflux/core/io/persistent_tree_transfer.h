@@ -104,6 +104,8 @@ struct PersistentFileTiming {
     std::uint64_t stageBufferBudgetBytes = 0, stageOwnershipBoundBytes = 0;
     std::uint64_t stageReadCalls = 0, stageWriteCalls = 0;
     double stageReadWaitSeconds = 0, stageWriteWaitSeconds = 0;
+    bool stageWritePool = false;
+    double stageWritePoolCpuSeconds = 0;
     std::uint32_t payloadPipelineDepth = 0;
     bool receiverEmptyQueueWake = false;
     std::uint32_t receiverWriteBatchLimit = 1;
