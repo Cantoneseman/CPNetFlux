@@ -72,6 +72,6 @@ sha256sum build/cpnetflux-tree-upload-client build/cpnetflux-tree-download-clien
 
 资源与门状态：最大客户端 RSS 约 580 MiB，最低 MemAvailable 约 19.44 GiB，客户端 owned VmSwap 始终为 0；但 R770-1 的三次 16 KiB × 100,000 样本观察到主机 pswpout 增量 242、13、4859 页，属于环境级内存门未完全通过，不能把本组写成“零 swap-out”验收。没有发现临时目录残留或成员完整性失败。该异常不改变固定开销结论，但在候选 A/B 前必须先复核主机 swap 活动，或将受影响样本标为环境无效。
 
-驱动首轮的两个启动失败（服务端根目录不存在、static scheduling 与 control pipeline depth=1 不兼容）没有计入样本；修正为预创建根目录和 control-pipeline-depth=0 后才开始 50 个正式样本。构建/测试门为两端同提交、目标构建成功、相关 CTest 15/15 通过，三项二进制 SHA-256 一致。
+驱动首轮的两个启动失败（服务端根目录不存在、static scheduling 与 control pipeline depth=1 不兼容）没有计入样本；修正为预创建根目录和 control-pipeline-depth=0 后才开始 50 个正式样本。构建/测试门为两端同提交、目标构建成功、相关 CTest 15/15 通过，三项二进制 SHA-256 一致。R770-2 首次整组 CTest 的 manifest_coalesce 恢复子场景出现一次 committed download identity mismatch，单独重跑通过，未复现且未修改源码；该失败按环境/时序异常保留，不计入性能样本。
 
 本 scope 的结论是：per-file 基线已完成，固定开销占密集小文件任务的主要部分，满足创建下一份实现 scope 的条件；没有实现或宣称 fixed/adaptive microbundle，也没有改变 V3 wire format、恢复、原子发布或默认并发。
