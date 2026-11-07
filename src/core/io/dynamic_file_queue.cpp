@@ -1070,3 +1070,13 @@ common::Result<std::vector<WorkItem>> bindScheduledPlans(
     return work;
 }
 }  // namespace cpnetflux::core::io
+
+namespace cpnetflux::core::io {
+common::Result<std::shared_ptr<TransferStages>> DynamicFileQueue::transferStages(std::uint32_t lanes,std::uint32_t depth) {
+    std::lock_guard lock(mutex_);
+    if (!stages_) { auto created=TransferStages::create(lanes,depth); if (!created.isOk()) return created.status(); stages_=created.value(); }
+    if (stages_->networkLanes!=lanes || stages_->depth!=depth)
+        return common::Status::invalidArgument("V3 batch stage configuration changed");
+    return stages_;
+}
+}

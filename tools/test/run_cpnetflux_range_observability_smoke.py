@@ -16,6 +16,8 @@ def main():
     parser.add_argument("--observation", choices=("on","off"), default="on")
     parser.add_argument("--checkpoint-batch", choices=("1","4","16"), default="1")
     parser.add_argument("--direct-write", choices=("serial","parallel"), default="parallel")
+    parser.add_argument("--stage-read", choices=[str(i) for i in range(65)], default="4")
+    parser.add_argument("--stage-write", choices=[str(i) for i in range(65)], default="1")
     args = parser.parse_args()
     build = args.build_dir.absolute()
     with tempfile.TemporaryDirectory(prefix="cpnetflux-range-observation-") as tmp:
@@ -29,7 +31,9 @@ def main():
         port, data = free_port(), clamp_passive_data_port_base(free_port())
         env = dict(os.environ, CPNETFLUX_PAYLOAD_PIPELINE_DEPTH="8", CPNETFLUX_RANGE_TIMING=args.observation,
                    CPNETFLUX_RANGE_CHECKPOINT_BATCH=args.checkpoint_batch,
-                   CPNETFLUX_RANGE_DIRECT_WRITE=args.direct_write)
+                   CPNETFLUX_RANGE_DIRECT_WRITE=args.direct_write,
+                   CPNETFLUX_STAGE_READ_CONCURRENCY=args.stage_read,
+                   CPNETFLUX_STAGE_WRITE_CONCURRENCY=args.stage_write)
         log = root/"server.log"
         with log.open("w") as output:
             server = subprocess.Popen([str(build/"cpnetflux-gridftp-server"),
@@ -117,6 +121,16 @@ def main():
                     server_contract=record.get("range_observation_contract")
                     remote.extend(record["files"])
             assert remote
+            for f in senders+receivers+remote:
+                stage=f["stage_execution"]
+                assert stage["schema_version"]==1
+                assert stage["network_lanes"]==4
+                assert stage["read_concurrency"]==int(args.stage_read)
+                assert stage["write_concurrency"]==int(args.stage_write)
+                assert stage["payload_ownership_bound_bytes"]==4*(8+6)*65536
+                assert stage["payload_ownership_bound_bytes"]<=stage["payload_budget_bytes"]
+                assert stage["read_wait_seconds"]>=0 and stage["write_wait_seconds"]>=0
+                assert stage["read_calls"]>0 if f["measurement_scope"]=="local_sender" else stage["write_calls"]>0
             assert server_contract and server_contract["schema"]=="cpnetflux_range_observation_v2"
             server_receivers=[f for f in remote if f.get("measurement_scope")=="local_receiver"]
             assert server_receivers

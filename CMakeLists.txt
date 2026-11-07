@@ -149,6 +149,7 @@ add_library(cpnetflux_core STATIC
     src/core/io/persistent_data_session.cpp
     src/core/io/persistent_tree_transfer.cpp
     src/core/io/payload_pipeline.cpp
+    src/core/io/transfer_stages.cpp
     src/core/io/dynamic_file_queue.cpp
     src/core/io/work_executor.cpp
     src/core/io/persistent_directory_batch.cpp
@@ -422,6 +423,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/transfer_manifest_test.cpp
         tests/unit/transfer_session_test.cpp
         tests/unit/session_record_lookup_test.cpp
+        tests/unit/transfer_stages_test.cpp
         tests/unit/transfer_progress_test.cpp
         tests/unit/tree_manifest_test.cpp
         tests/unit/tree_manifest_writer_test.cpp
@@ -782,6 +784,9 @@ if(CPNETFLUX_BUILD_TESTS)
     add_test(NAME cpnetflux_whole_file_observability_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_whole_file_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_whole_file_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_stage_decoupling_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --stage-read 1 --stage-write 2)
+    set_tests_properties(cpnetflux_stage_decoupling_smoke PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
     add_test(NAME cpnetflux_range_observability_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_range_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)

@@ -88,6 +88,7 @@ struct PersistentTransferContext {
     std::vector<std::function<common::Status()>> integrityChecks;
     std::vector<PersistentTreeFileMetadata> publishedFiles;
     PersistentTransferPolicy policy;
+    std::shared_ptr<TransferStages> stages;
     std::shared_ptr<RangeCheckpointQueue> checkpoints; // destroyed/joined before files
 };
 std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(const PersistentTransferPolicy& policy) {
@@ -1249,6 +1250,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         return Status::invalidArgument("persistent channel index/count is invalid");
     const auto pipelineDepth = diagnosticPipelineDepth();
     if (!pipelineDepth.isOk()) return pipelineDepth.status();
+    auto stageResult = ready ? ready->transferStages(channelCount,pipelineDepth.value())
+                             : TransferStages::create(channelCount,pipelineDepth.value());
+    if (!stageResult.isOk()) return stageResult.status();
+    auto stages = stageResult.value();
     stats->pendingWindow = pendingWindow;
     const std::uint64_t filesAtConnectionStart = stats->files;
     auto status = PersistentDataSession::setTimeout(socket, 30);
@@ -1407,6 +1412,12 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (transferOptions && transferOptions->reconnectAttempt != UINT32_MAX)
             id.attempt = transferOptions->reconnectAttempt;
         timing.file = id; timing.channel = channelIndex; timing.sender = true;
+        timing.stageReadConcurrency=stages->readConcurrency;
+        timing.stageWriteConcurrency=stages->writeConcurrency;
+        timing.stageNetworkLanes=stages->networkLanes;
+        timing.stageBufferBudgetBytes=stages->bufferBudgetBytes;
+        timing.stageOwnershipBoundBytes=stages->ownershipBoundBytes;
+
         const auto fileStarted = Clock::now();
         status = tree::validateTreeRelativePath(id.relativePath);
         if (!status.isOk()) { failWriter(status); break; }
@@ -1517,6 +1528,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                         ++bufferReuses;
                     }
                     producerBuffer.resize(length);
+                    auto readPermit = stages->reads.acquire(&timing.stageReadWaitSeconds, limits.taskDeadline);
+                    if (!readPermit.isOk()) { producerStatus=readPermit.status(); pipeline.cancel(producerStatus); return; }
+                    ++timing.stageReadCalls;
                     const auto reading = Clock::now();
                     producerStatus = storage::readAtAll(file, offset, producerBuffer.data(), length,
                         ioContext, &stats->fileIoStats);
@@ -1540,6 +1554,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     const auto chunkIndex = offset / id.chunkSize;
                     if (options.hasCorruptChunk && chunkIndex == options.corruptChunk)
                         producerBuffer[0] ^= 0xffU;
+                    readPermit = StageGate::Permit{}; // never hold an IO permit across queue backpressure
                     PreparedPayload prepared;
                     prepared.offset = offset;
                     prepared.chunkIndex = chunkIndex;
@@ -1854,6 +1869,21 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
     if (!context) context = makePersistentTransferContext();
+    auto stageDepth = diagnosticPipelineDepth();
+    if (!stageDepth.isOk()) return stageDepth.status();
+    std::shared_ptr<TransferStages> stages;
+    {
+        std::lock_guard lock(context->mutex);
+        if (!context->stages) {
+            auto created=TransferStages::create(channelCount,stageDepth.value());
+            if (!created.isOk()) return created.status();
+            context->stages=created.value();
+        }
+        stages=context->stages;
+        if (stages->networkLanes!=channelCount || stages->depth!=stageDepth.value())
+            return Status::invalidArgument("V3 receiver stage configuration changed");
+    }
+
     detail::PersistentTransferLifetime lifetime(socket, context->policy.limits);
     if (auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
     PersistentDataSession state(dynamic);
@@ -1946,6 +1976,11 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (!status.isOk()) return finishTransport(status);
         PersistentFileTiming timing;
         timing.file = id; timing.channel = channelIndex;
+        timing.stageReadConcurrency=stages->readConcurrency;
+        timing.stageWriteConcurrency=stages->writeConcurrency;
+        timing.stageNetworkLanes=stages->networkLanes;
+        timing.stageBufferBudgetBytes=stages->bufferBudgetBytes;
+        timing.stageOwnershipBoundBytes=stages->ownershipBoundBytes;
         timing.wholeFileObservationEnabled = stats->phaseTiming && id.rangeId == 0;
         timing.rangeObservationEnabled = observeRanges(*stats);
         const auto* receiverProfile = std::getenv("CPNETFLUX_RECEIVER_PROFILE");
@@ -2087,32 +2122,38 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                         }
                     }
                     if (!stop && fileStatus.isOk()) {
-                        Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
-                        const auto& item = slots[first];
-                        const checksum::ChecksumValue verifiedChecksum{id.checksumAlgorithm, item.frameChecksum};
-                        fileStatus = group == 2 ? transaction->writeGathered({slots.data(), group}) : rangeEntry
-                            ? RangeFileCoordinator::write(rangeEntry, id, item.offset, logical[first], verifiedChecksum, observation)
-                            : transaction->write(item.offset, logical[first], verifiedChecksum);
-                        if (fileStatus.isOk()) {
-                            for (std::size_t n = 0; n < group; ++n) {
-                                const auto i = first + n;
-                                stats->payloadBytes += logical[i].size();
-                                if (observation && id.rangeId != 0) {
-                                    ++observation->dataFrameCount;
-                                    observation->effectiveDataBytes += logical[i].size();
+                        auto writePermit=stages->writes.acquire(&timing.stageWriteWaitSeconds,context->policy.limits.taskDeadline);
+                        if (!writePermit.isOk()) { writerTerminal=writePermit.status(); stop=true; }
+                        // Balance startIo below even if stage admission expired.
+                        if (!stop) {
+                            ++timing.stageWriteCalls;
+                            Timer writing{rangeEntry ? &timing.writeSeconds : nullptr};
+                            const auto& item = slots[first];
+                            const checksum::ChecksumValue verifiedChecksum{id.checksumAlgorithm, item.frameChecksum};
+                            fileStatus = group == 2 ? transaction->writeGathered({slots.data(), group}) : rangeEntry
+                                ? RangeFileCoordinator::write(rangeEntry, id, item.offset, logical[first], verifiedChecksum, observation)
+                                : transaction->write(item.offset, logical[first], verifiedChecksum);
+                            if (fileStatus.isOk()) {
+                                for (std::size_t n = 0; n < group; ++n) {
+                                    const auto i = first + n;
+                                    stats->payloadBytes += logical[i].size();
+                                    if (observation && id.rangeId != 0) {
+                                        ++observation->dataFrameCount;
+                                        observation->effectiveDataBytes += logical[i].size();
+                                    }
+                                    if (slots[i].checksumPresent && id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c)
+                                        stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
+                                            id.relativePath, id.totalSize, slots[i].offset,
+                                            static_cast<std::uint64_t>(logical[i].size()), slots[i].frameChecksum});
                                 }
-                                if (slots[i].checksumPresent && id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c)
-                                    stats->verifiedChunkCrcs.push_back(PersistentTreeChunkCrc{
-                                        id.relativePath, id.totalSize, slots[i].offset,
-                                        static_cast<std::uint64_t>(logical[i].size()), slots[i].frameChecksum});
-                            }
-                            if (context->policy.options.maxChunks &&
-                                stats->payloadBytes >= context->policy.options.maxChunks * id.chunkSize) {
-                                writerTerminal = Status::runtimeError("transfer interrupted by max-chunks");
-                                stop = true;
+                                if (context->policy.options.maxChunks &&
+                                    stats->payloadBytes >= context->policy.options.maxChunks * id.chunkSize) {
+                                    writerTerminal = Status::runtimeError("transfer interrupted by max-chunks");
+                                    stop = true;
+                                }
                             }
                         }
-                    }
+                    } // admitted storage scope; permit released before the next queue pop
                     // Balance every successful issue, including an issue or write failure.
                     for (std::size_t n = 0; n < issued; ++n) {
                         auto status = executor->finishIo(*lease, logical[first + n].size());
@@ -2433,6 +2474,12 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"write_seconds_scope\":\"" << (t.file.rangeId ? "range_coordinator_includes_entry_wait_crc_checkpoint" : "writer_write_only") << "\""
             << ",\"payload_pipeline_producer_wake_policy\":\""
             << (t.receiverEmptyQueueWake ? "empty_queue_when_blocked" : "available_capacity") << "\""
+            << ",\"stage_execution\":{\"schema_version\":1,\"read_concurrency\":" << t.stageReadConcurrency
+            << ",\"write_concurrency\":" << t.stageWriteConcurrency << ",\"network_lanes\":" << t.stageNetworkLanes
+            << ",\"payload_budget_bytes\":" << t.stageBufferBudgetBytes << ",\"payload_ownership_bound_bytes\":" << t.stageOwnershipBoundBytes
+            << ",\"read_calls\":" << t.stageReadCalls << ",\"write_calls\":" << t.stageWriteCalls
+            << ",\"read_wait_seconds\":" << t.stageReadWaitSeconds << ",\"write_wait_seconds\":" << t.stageWriteWaitSeconds
+            << ",\"scope\":\"batch_shared_ready_IO_admission_not_thread_counts;0=per_lane;payload_bound_excludes_transport_metadata_tmpfs\"}"
             << ",\"payload_pipeline_depth\":" << t.payloadPipelineDepth
             << ",\"payload_buffer_allocations\":" << t.payloadBufferAllocations
             << ",\"payload_buffer_reuses\":" << t.payloadBufferReuses

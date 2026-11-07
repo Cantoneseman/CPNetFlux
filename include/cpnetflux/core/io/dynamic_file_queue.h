@@ -1,6 +1,8 @@
 #pragma once
 
 #include <deque>
+#include <memory>
+#include "cpnetflux/core/io/transfer_stages.h"
 #include <condition_variable>
 #include <mutex>
 #include <optional>
@@ -28,6 +30,7 @@ class DynamicFileQueue {
                      bool staticChannelAffinity = false,
                      std::vector<std::string> workerLinkIds = {},
                      bool rangeAffinity = false);
+    [[nodiscard]] common::Result<std::shared_ptr<TransferStages>> transferStages(std::uint32_t lanes, std::uint32_t depth);
     [[nodiscard]] common::Status attachScheduler(scheduler::GlobalScheduler* scheduler);
     [[nodiscard]] common::Status setConnectionEpoch(ConnectionEpoch epoch);
     // Prevent future claims while existing leases remain valid for teardown/finalization.
@@ -89,6 +92,7 @@ class DynamicFileQueue {
     void fill();
     [[nodiscard]] common::Status schedulerEvent(const WorkLease&, const char* event);
     [[nodiscard]] common::Status schedulerFeedback();
+    std::shared_ptr<TransferStages> stages_;
     mutable std::mutex mutex_;
     std::condition_variable changed_;
     scheduler::GlobalScheduler* scheduler_ = nullptr;

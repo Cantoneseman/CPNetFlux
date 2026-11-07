@@ -134,12 +134,17 @@ extern "C" ssize_t __wrap_pwrite(int fd, const void* data, size_t length, off_t 
 class PersistentRangeWriteTest : public ::testing::TestWithParam<bool> {
     std::string previous_;
     bool hadPrevious_ = false;
+    std::string previousStageWrite_; bool hadPreviousStageWrite_ = false;
  protected:
     void SetUp() override {
         if (const auto* value = std::getenv("CPNETFLUX_RANGE_DIRECT_WRITE")) { previous_ = value; hadPrevious_ = true; }
         ASSERT_EQ(::setenv("CPNETFLUX_RANGE_DIRECT_WRITE", "parallel", 1), 0);
+        if (const auto* value=std::getenv("CPNETFLUX_STAGE_WRITE_CONCURRENCY")) {previousStageWrite_=value;hadPreviousStageWrite_=true;}
+        ASSERT_EQ(::setenv("CPNETFLUX_STAGE_WRITE_CONCURRENCY", "0", 1), 0);
     }
     void TearDown() override {
+        if (hadPreviousStageWrite_) (void)::setenv("CPNETFLUX_STAGE_WRITE_CONCURRENCY",previousStageWrite_.c_str(),1);
+        else (void)::unsetenv("CPNETFLUX_STAGE_WRITE_CONCURRENCY");
         if (hadPrevious_) (void)::setenv("CPNETFLUX_RANGE_DIRECT_WRITE", previous_.c_str(), 1);
         else (void)::unsetenv("CPNETFLUX_RANGE_DIRECT_WRITE");
     }
@@ -225,6 +230,35 @@ TEST_P(PersistentRangeWriteTest, SerialDiagnosticRetainsDirectWriteSerialization
     EXPECT_TRUE(b.receiveStatus.isOk()) << b.receiveStatus.message();
     checkOutput(destination);
 }
+TEST_P(PersistentRangeWriteTest, SharedWriterAdmissionBoundsBothRanges) {
+    ASSERT_EQ(::setenv("CPNETFLUX_STAGE_WRITE_CONCURRENCY", "1", 1), 0);
+    TempRoot source, destination;
+    auto first = identity(source); auto second = first; second.rangeId = 2; second.rangeOffset = 4;
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    policy.rangeCheckpointBatchChunks = 1;
+    auto context = makePersistentTransferContext(policy);
+    WriteGate gate(destination.path.string()); InstallGate installed(gate);
+    Lane a(destination, GetParam(), context, 0), b(destination, GetParam(), context, 1);
+    auto left = a.send(source, first, 0);
+    const bool blocked = gate.wait(&WriteGate::first);
+    auto right = b.send(source, second, 1);
+    const bool independent = gate.wait(&WriteGate::second);
+    EXPECT_TRUE(blocked); EXPECT_FALSE(independent);
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "payload.bin"));
+    gate.release();
+    auto l = left.get(); auto r = right.get(); a.rx.join(); b.rx.join();
+    EXPECT_TRUE(l.isOk()) << l.message(); EXPECT_TRUE(r.isOk()) << r.message();
+    EXPECT_TRUE(a.receiveStatus.isOk()) << a.receiveStatus.message();
+    EXPECT_TRUE(b.receiveStatus.isOk()) << b.receiveStatus.message();
+    checkOutput(destination);
+    ASSERT_EQ(a.received.fileTimings.size(),1U); ASSERT_EQ(b.received.fileTimings.size(),1U);
+    EXPECT_EQ(a.received.fileTimings[0].stageWriteConcurrency,1U);
+    EXPECT_EQ(b.received.fileTimings[0].stageWriteConcurrency,1U);
+    EXPECT_EQ(a.received.fileTimings[0].stageWriteCalls,1U);
+    EXPECT_GT(b.received.fileTimings[0].stageWriteWaitSeconds,0.01);
+    EXPECT_EQ(b.received.fileTimings[0].rangeObservation.parallelDirectWriteCalls,1U);
+}
 TEST_P(PersistentRangeWriteTest, HigherAttemptDrainsPartialFailedWriteBeforeReusingSlot) {
     const bool download = GetParam();
     TempRoot source, destination;
@@ -301,3 +335,18 @@ TEST_P(PersistentRangeWriteTest, HigherAttemptCannotChangeItsPartition) {
     checkOutput(destination);
 }
 INSTANTIATE_TEST_SUITE_P(UploadDownload, PersistentRangeWriteTest, ::testing::Bool());
+
+TEST(PersistentRangeStageTest, BudgetRejectsBeforeFramesOrOutputCreation) {
+ TempRoot destination;int fds[2];ASSERT_EQ(::socketpair(AF_UNIX,SOCK_STREAM,0,fds),0);
+ FramedDataSocket first{UniqueFd(fds[0])},second{UniqueFd(fds[1])};PersistentTreeStats sent,received;
+ const char* old=std::getenv("CPNETFLUX_STAGE_BUFFER_BYTES");std::string previous=old?old:"";
+ setenv("CPNETFLUX_STAGE_BUFFER_BYTES","65536",1);
+ auto send=sendPersistentTree(&first,destination.path.string(),{},&sent);
+ auto receive=receivePersistentTree(&second,destination.path.string(),true,"remote",&received);
+ if(old)setenv("CPNETFLUX_STAGE_BUFFER_BYTES",previous.c_str(),1);else unsetenv("CPNETFLUX_STAGE_BUFFER_BYTES");
+ EXPECT_FALSE(send.isOk());EXPECT_FALSE(receive.isOk());
+ EXPECT_NE(send.message().find("buffer budget"),std::string::npos);
+ EXPECT_NE(receive.message().find("buffer budget"),std::string::npos);
+ pollfd a{first.fd(),POLLIN,0},b{second.fd(),POLLIN,0};EXPECT_EQ(::poll(&a,1,0),0);EXPECT_EQ(::poll(&b,1,0),0);
+ EXPECT_TRUE(std::filesystem::is_empty(destination.path));
+}

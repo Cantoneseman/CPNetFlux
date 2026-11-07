@@ -40,3 +40,8 @@
 同提交、分离stdout/stderr取证的2/4 lane四对TCP tmpfs对照，task12.394→17.603 Gbps（+42.03%）、8.640→13.666（+58.17%），八对均更快；Entry wait下降约98%。双端CPU却增加4.39%/46.22%，4 lane接收CPU增加68.75%。保留eligible parallel默认与CPNETFLUX_RANGE_DIRECT_WRITE=serial诊断，不提高默认lane，不称CPU效率改善。单lane控制20.022仍最快，2 lane串行CV11.45%及小样本边界明确保留；不构成长期性能门。
 
 当前下一步：先归因raw pwrite系统CPU/同inode争用、每lane交接与源端服务率；再依据证据选择按文件固定writer/有界队列或其他一个因素，继续独立控制网络lane与writer并发。总字节预算、恢复和版本/哈希/清理门不变。29正式样本与full控制校验通过、两端fixture已清理；全局worker池、小文件微批、100G与CQ/peer-mapping未关闭。
+
+
+## 第五轮阶段收口实现决定（进行中）
+
+本轮目标是完成独立阶段并发、总字节预算和验收，不再只交付一个局部剖析。局部同inode写入探针显示单writer准入比多writer省CPU，逐帧固定线程派单在单lane会明显回退，因此选择共享FIFO阶段准入与现有异步队列组合；读/CRC和写入并发跨lane独立控制，网络仍由lane数控制。此前“待实现独立全局worker池”的实现形式由此决定替代，并不声称已实现线程池。控制器不在持有许可时等待网络/队列；总预算先按全部lane最坏payload所有权验证，配置不足就拒绝，避免跨端整条stream预算等待死锁。实现与性能验收尚未完成，测试和同版本对照后再做默认处置。详见2026-11-07-v3-stage-decoupling-01任务。
