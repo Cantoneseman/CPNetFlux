@@ -144,4 +144,4 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 
 [Small-File Microbatch 01](tasks/2026-11-08-v3-small-file-microbatch-01.md) 的 50 个 V3 TCP 内存/受控 tmpfs 样本已完成。4/16/64/256 KiB 与 1K/10K 文件矩阵（256 KiB×10K 按门限改为 8K），并追加 4/16 KiB×100K；每格五次。全部样本成员计数、逻辑字节、树 SHA-256、V3 返回码和临时目录清理通过。密集 100K 文件的 T_ready 中位数为 33.608 秒（4 KiB）和 35.436 秒（16 KiB），对应吞吐 0.098/0.370 Gbps；tree_manifest_write_seconds 中位数为 23.431/24.907 秒，逐文件 wall 累计为 32.221/34.579 秒，说明清单快照和每文件状态/结果处理是下一候选的主要对象。最大 RSS 约 580 MiB、最低 MemAvailable 约 19.44 GiB、owned VmSwap 为零，但三次 16 KiB×100K 的 R770-1 主机 pswpout 非零，环境内存门标为部分未通过，候选 A/B 前需复核。实验大 JSON 已压缩清理为 972 KiB，未提交实验 payload。
 
-下一步不是直接实现数据面 microbatch：先用 [Tree Manifest Coalescing 01](tasks/2026-11-08-v3-small-file-microbatch-02.md) 验证 32 到 256 个状态事件的固定快照批处理。该候选不改变 wire 或成员操作，不能表述为文件数据面微批。通过后再为 protocol-level microbatch 单独定范围，并保持成员 checksum、原子发布和恢复语义硬门。
+Tree Manifest Coalescing 01 的 32/256 事件阈值候选 no-go：4/16 KiB×100K 的 T_ready 没有达到 20% 降幅，快照数量仍由 100 ms 定时器主导；16 KiB 有一个主机 pswpout 无效样本。默认保持 threshold=32/max-delay=100 ms。最后一个候选固定 threshold=32，只比较 max-delay 100/500 ms；若未通过既定 T_ready、尾延迟、重复收益、恢复和内存门，则停止扩大 manifest/coalescing 工作，转入其他实测路径或独立协议级小文件微批研究。
