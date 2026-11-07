@@ -18,7 +18,7 @@ threaded memory sink 候选因高方差 no-go 后，大文件三阶段和 sink �
 ## 第一阶段：当前 per-file 基线
 
 - 使用 R770-1/R770-2 的 V3 目录传输入口，先固定单方向和一组显式 local bind；记录代码提交、二进制 SHA-256、配置和 route。
-- 文件大小：4 KiB、16 KiB、64 KiB、256 KiB；文件数：1,000、10,000。若前两组 MemAvailable 和 inode 余量均安全，再追加 100,000×4 KiB 与 100,000×16 KiB；每个样本总逻辑字节不超过 2 GiB。
+- 文件大小：4 KiB、16 KiB、64 KiB、256 KiB；基本文件数为 1,000、10,000。为满足每个样本总逻辑字节不超过 2 GiB，256 KiB×10,000 调整为 8,000 文件；若前两组 MemAvailable 和 inode 余量均安全，再追加 100,000×4 KiB 与 100,000×16 KiB。
 - 每格 5 次交错重复，首轮只测当前默认 per-file。源和目标在受控 tmpfs/实验根目录内，样本结束立即删除该样本的精确目录。
 - 记录 `T_ready`、p50/p95、setup/data/commit 分段、文件成功数、树 manifest/SHA-256、双端 CPU/RSS、MemAvailable、进程 VmSwap、pswpout、路由和接口计数；不能把每文件线程累计时间相加成任务吞吐。
 - 每次传输前后检查内存门：两端 MemAvailable ≥12 GiB；实验进程 owned swap=0；pswpout 增量=0；发现 inode、空间或内存不足立即停止并清理。
