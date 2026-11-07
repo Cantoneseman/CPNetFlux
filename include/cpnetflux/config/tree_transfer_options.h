@@ -81,6 +81,8 @@ struct TreeTransferOptions {
     bool requestedReuseDataSession = true;
     std::string modeFallbackReason;
     bool dynamicFileScheduling = true;
+    // 0 selects the bounded small-file policy (currently 8 for >=10K files
+    // averaging <=64 KiB, otherwise the safe default of 2).
     std::uint32_t dataPendingWindow = 2;
     std::uint32_t linkSetLinks = 1;
     std::uint64_t linkSetCapabilityBits = 0;

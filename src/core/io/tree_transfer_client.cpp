@@ -1632,10 +1632,14 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "  \"queue_wait_seconds\": " << stats.queueWaitSeconds << ",\n";
         output << "  \"queue_wait_scope\": \"" << (std::string(direction) == "upload" ? "sum_local_sender_ring_admission_to_claim" : "sum_remote_sender_ring_admission_to_claim") << "\",\n";
         output << "  \"queue_high_watermark\": " << stats.queueHighWatermark << ",\n";
-        const auto dispatchWindow = options.controlPipelineDepth != 0
-            ? options.controlPipelineDepth : options.dataPendingWindow;
+        const auto dispatchWindow = stats.pendingWindow != 0
+            ? stats.pendingWindow
+            : (options.controlPipelineDepth != 0
+                ? options.controlPipelineDepth : options.dataPendingWindow);
         output << "  \"queue_capacity\": " << (stats.dynamicScheduling ? options.fileParallelism*dispatchWindow*2 : 0) << ",\n";
         output << "  \"dispatch_window\": " << (stats.persistentData ? stats.pendingWindow : 0) << ",\n";
+        output << "  \"data_pending_window_policy\": \""
+               << (options.dataPendingWindow == 0 ? "auto" : "fixed") << "\",\n";
         output << "  \"scan_seconds\": ";
         if (stats.scanSeconds) output << *stats.scanSeconds; else output << "null";
         output << ",\n";
@@ -2031,6 +2035,18 @@ bool persistentEligible(const config::TreeTransferOptions& options) {
          options.controlPipelineDepth == 2 || options.controlPipelineDepth == 4);
 }
 
+std::uint32_t selectPersistentDispatchWindow(
+    const config::TreeTransferOptions& options, const core::tree::TreeManifest& manifest) {
+    if (options.dataPendingWindow != 0) return options.dataPendingWindow;
+    constexpr std::uint64_t kSmallFileBytes = 64ULL * 1024ULL;
+    constexpr std::size_t kSmallFileCount = 10'000;
+    if (manifest.files.size() >= kSmallFileCount &&
+        totalBytes(manifest) <= static_cast<std::uint64_t>(manifest.files.size()) * kSmallFileBytes) {
+        return 8;
+    }
+    return 2;
+}
+
 common::Status tryPersistentDirectory(const config::TreeTransferOptions& options,
     core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
     bool upload, bool* used, ControlClient* connected = nullptr, std::string* attemptedBatch = nullptr,
@@ -2074,7 +2090,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     // no second pipeline state machine is allowed to prepare work independently.
     persistentOptions.connections = 1;
     const std::uint32_t dispatchWindow = options.controlPipelineDepth != 0
-        ? options.controlPipelineDepth : options.dataPendingWindow;
+        ? options.controlPipelineDepth : selectPersistentDispatchWindow(options, *manifest);
     persistentOptions.dataPendingWindow = dispatchWindow;
     const std::string batchId = options.dynamicFileScheduling ? generateTransferId() : "";
     if (attemptedBatch) *attemptedBatch = batchId;

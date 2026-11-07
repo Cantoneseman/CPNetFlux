@@ -857,6 +857,20 @@ TEST(TreeTransferOptionsTest, DefaultsPersistentDataPendingWindowToTwo) {
     std::filesystem::remove_all(root);
 }
 
+TEST(TreeTransferOptionsTest, AcceptsAutomaticSmallFilePendingWindow) {
+    const char* args[] = {"cpnetflux-tree-upload-client", "--source-dir", "/tmp",
+                          "--dest-dir", "remote", "--data-pending-window", "auto"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(args)), args,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().dataPendingWindow, 0U);
+    EXPECT_NE(cpnetflux::config::treeTransferUsage(
+                  "client", cpnetflux::config::TreeTransferRole::Upload)
+                  .find("--data-pending-window auto|1..16"),
+              std::string::npos);
+}
+
 TEST(TreeTransferOptionsTest, AcceptsDynamicFileSchedulingForPersistentTree) {
     const char* argv[] = {"client", "--source-dir", "remote", "--dest-dir", "/tmp/cpnetflux-dynamic-option",
         "--data-session-reuse", "tree", "--checksum", "none", "--file-scheduling", "dynamic"};

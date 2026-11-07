@@ -38,7 +38,7 @@ def tree_hash(root: Path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, required=True)
-    parser.add_argument("--windows", default="1,2,4")
+    parser.add_argument("--windows", default="1,2,4,8")
     args = parser.parse_args()
     windows = [int(value) for value in args.windows.split(",")]
 

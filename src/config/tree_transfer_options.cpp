@@ -303,10 +303,14 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return common::Status::invalidArgument("--file-scheduling must be static or dynamic");
             options.dynamicFileScheduling = value == "dynamic";
         } else if (option == "--data-pending-window") {
-            auto parsed = parseUnsigned(value, "--data-pending-window");
-            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 16)
-                return common::Status::invalidArgument("--data-pending-window must be in range 1..16");
-            options.dataPendingWindow = static_cast<std::uint32_t>(parsed.value());
+            if (value == "auto") {
+                options.dataPendingWindow = 0;
+            } else {
+                auto parsed = parseUnsigned(value, "--data-pending-window");
+                if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 16)
+                    return common::Status::invalidArgument("--data-pending-window must be in range 1..16");
+                options.dataPendingWindow = static_cast<std::uint32_t>(parsed.value());
+            }
         } else if (option == "--link-set-links") {
             auto parsed = parseUnsigned(value, "--link-set-links");
             if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 10)
@@ -714,7 +718,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
            "[--checksum-backend <auto|software|hardware>] [--reconnect-attempts 0..10] [--transfer-timeout-ms N] [--resume] "
            "[--auth-probe] [--local-bind-address <numeric-ip>] [--local-bind-addresses <ip,ip,...>] [--peer-addresses <ip,ip,...>] "
-           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window 1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] [--planner-preset <name>] "
+           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window auto|1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
            "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] "

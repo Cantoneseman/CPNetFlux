@@ -145,3 +145,14 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 [Small-File Microbatch 01](tasks/2026-11-08-v3-small-file-microbatch-01.md) 的 50 个 V3 TCP 内存/受控 tmpfs 样本已完成。4/16/64/256 KiB 与 1K/10K 文件矩阵（256 KiB×10K 按门限改为 8K），并追加 4/16 KiB×100K；每格五次。全部样本成员计数、逻辑字节、树 SHA-256、V3 返回码和临时目录清理通过。密集 100K 文件的 T_ready 中位数为 33.608 秒（4 KiB）和 35.436 秒（16 KiB），对应吞吐 0.098/0.370 Gbps；tree_manifest_write_seconds 中位数为 23.431/24.907 秒，逐文件 wall 累计为 32.221/34.579 秒，说明清单快照和每文件状态/结果处理是下一候选的主要对象。最大 RSS 约 580 MiB、最低 MemAvailable 约 19.44 GiB、owned VmSwap 为零，但三次 16 KiB×100K 的 R770-1 主机 pswpout 非零，环境内存门标为部分未通过，候选 A/B 前需复核。实验大 JSON 已压缩清理为 972 KiB，未提交实验 payload。
 
 Tree Manifest Coalescing 01 的两个候选均 no-go：32/256 事件阈值和 threshold=32 下的 max-delay 100/500 ms 都没有使 4/16 KiB×100K 的 T_ready 中位数达到 20% 降幅；快照数量约 300-350，说明全量清单序列化/原子写入是主瓶颈。两轮均保留了恢复、写失败和完整性语义，默认固定为 threshold=32/max-delay=100 ms。该 manifest/coalescing 线已关闭，后续只能转入其他有测量依据的路径或独立协议级小文件微批研究。
+
+## 2026-11-08 V3 protocol fixed microbatch
+
+[Protocol Microbatch 03](tasks/2026-11-08-v3-protocol-microbatch-03.md) 完成了现有
+V3 per-file 协议 pending window 的受控评估。4/16 KiB × 100K 文件中，window=8
+相对 window=1 的 T_ready 中位数分别下降 39.3% 和 41.1%，p95 同向下降，5/5
+配对改善；成员计数、字节数、树 SHA-256、VmSwap 和清理门全部通过。新增显式
+`--data-pending-window auto`：至少 10K 个且平均不超过 64 KiB 的 manifest 选择
+窗口 8，其余选择 2；默认值仍为 2。该优化只针对密集小文件 V3 TCP 路径，不代表
+大文件吞吐或 100 Gbps readiness。后续回到 raw TCP/V3 帧服务率归因和大文件路径，
+不再扩大三阶段 writer/队列。
