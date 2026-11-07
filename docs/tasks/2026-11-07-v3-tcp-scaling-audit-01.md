@@ -29,3 +29,13 @@
 
 证据根：/home/Su/experiments/CPNetFlux/2026-11-07-v3-tcp-scaling-audit-01。
 本轮工具已发现 shell 与聊天工具；只调用 shell，无派单。perf stat 权限探针失败（perf_event_paranoid=4），不修改系统配置，使用既有计时和受控探针。
+
+## 候选 1：同文件物理写入独立串行门
+
+复核完成：28 个完整观测与 21 个低观测样本；另有三个独立 perf 诊断样本。非特权 perf 探针失败后发现既有 sudo -n perf 可用，仅附着本轮新建客户端，不修改 perf_event_paranoid。4 lanes 周期采样的 osq_lock/rwsem_spin_on_owner 合计约 59%，调用链落在 shmem_file_write_iter/pwrite64。仅解释当前 tmpfs 场景，不外推磁盘。
+
+实现范围：CPNETFLUX_RANGE_DIRECT_WRITE=file_serial 显式候选；每个文件 Entry 新增独立 IO mutex。原 parallel 的租约写入 pin 与 Entry 外 IO 保留，IO mutex 仅包住物理 writeRange，在重新进入 Entry 前释放。默认 parallel 不变；不加 payload 拷贝、队列、线程池或后台任务。记录串行调用数/等待时间并明确计时重叠。
+
+精确文件：src/core/io/persistent_tree_transfer.cpp、include/cpnetflux/core/io/persistent_tree_transfer.h、tests/unit/persistent_range_write_test.cpp、本任务/result、docs/V3_TRANSFER_STAGES.md、docs/ROADMAP.md、docs/DECISIONS/2026-11-07-v3-pipeline-priority.md。先新增上传/下载回归并确认缺少新模式而失败，再实现；验证同文件串行、Entry 元数据可响应、不同文件继续运行、部分写失败后的 higher-attempt 排空恢复。完整 CTest 后固定提交，同版本交叉比较 parallel/file_serial；吞吐与 CPU 分开判定。
+
+候选 1 代码验收：新模式回归 8/8 RED（未支持模式）→GREEN，range 行为20/20。R1 全量615项首轮610通过、2项缺临时token失败、3项缺本地RDMA bind跳过；补齐仅测试环境后5/5通过，合并覆盖615/615。保留首轮记录。默认 parallel 未变，吞吐晋级待交叉实验。

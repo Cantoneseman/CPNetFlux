@@ -34,3 +34,9 @@ DynamicFileQueue 共享源端控制器，PersistentTransferContext 共享接收�
 每份 file timing 的 stage_execution 包含读/写请求并发、network_lanes、是否实际需要准入、budget/bound、read/write_calls、等待秒数和本端write_executor/write_pool_workers/write_pool_cpu_seconds。pool按就绪job FIFO执行，admission允许最多32次就绪插队。等待lane/writer线程CPU不含池内执行CPU，必须另加pool CPU；双端进程CPU自动包含这些线程，作为主要比较指标。累计等待时间跨线程重叠，不能从 task wall 中直接相减。默认完整性、durability、checkpoint、FILE_END/FILE_RESULT/DirectoryEnd、V3 attempt/epoch/lease 语义不变；TCP 经数据网卡不等于原生 verbs。
 
 配置收益必须在相同提交、配置、版本和二进制摘要下比较，分别报告 task rate、文件阶段、双端进程 CPU、内存与恢复。原严格 FIFO/广播和过小写并发导致的负结果保留在结果记录；不得因某个 syscall/wait 指标下降而推广配置。小规模 tmpfs、commit_sync=none 的数字不代表持久化或100Gbps能力。
+
+## 同文件物理写入候选（2026-11-07）
+
+CPNETFLUX_RANGE_DIRECT_WRITE 默认 parallel；serial 是原 Entry 锁覆盖 IO 的诊断。显式 file_serial 保留 POSIX direct 在 Entry 外的租约 pin/写入路径，但同文件的物理 writeRange 使用独立 mutex。等待不持有 Entry，允许 resume 元数据访问；不同文件不共享此门。IO 门在重获 Entry 前释放，失败/异常仍需清除 pin、唤醒重试。非 POSIX direct 后端继续原串行路径。该模式没有改变缓冲深度、worker 数或 payload 副本，也不等于全局写线程池。当前是实验候选，尚未通过吞吐晋级。
+
+range_observation 新增 serialized_direct_write_calls（parallel_direct_write_calls 的子集）与 direct_write_wait_seconds；后者是物理 IO 门获取等待，不包含在 Entry 锁或 writer_call_seconds 内，跨线程等待相互重叠，不能相加推算 task wall。CPNETFLUX_RANGE_TIMING=off 会关闭这些详细统计。
