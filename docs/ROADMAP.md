@@ -123,3 +123,10 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 开题中的三阶段流水线、SR-Dispatch/BAP、adaptive microbundle 是候选方案。批处理、文件聚合和流水线已有相关研究与工程实现；先完成 profiling 和 tuned-native/fixed 对照，再评估研究增量。小文件 T_ready 优先于只看 Gbps。CPSS(DCC) 独立管理，压缩不进入当前首轮传输热路径对照。
 
 早期 S0-S8、Phase 和迁移路线已清理出当前工作树；相关实验结果若仍在 `docs/experiments`，按其输入提交和测量环境解释，不能自动继承为当前代码的 readiness 证据。
+
+
+## 2026-11-08 V3 path isolation 收口
+
+结果记录 tasks/2026-11-07-v3-path-isolation-01-result.md 完成了最后两轮共享 ready-writer pool 有界交叉实验。固定提交 aa4dc3e536a5cd259d423cf1e569517cb19b14bd、R770-1/R770-2 二进制和配置一致，使用 8 GiB 驻留 tmpfs 源、TCP 192.168.100.1↔.2、4 connections。候选 read=0/write=1 的中位吞吐 14.530 Gbps，相对基线 15.502 Gbps 为 -6.50%；候选 read=0/write=2 的中位吞吐 14.997 Gbps，相对基线 15.618 Gbps 为 -4.73%。两轮 CV 均低于 5%，正确性、独立 SHA、内存、swap 和清理门全部通过，但均未达到候选中位至少 +10% 的推广门。pool=1/2 虽把双端 CPU 分别降至约 23.71/26.75 CPU 秒/GiB，也缩短了累计范围写计时，端到端任务仍下降；因此两候选均 no-go，默认 read=0/write=0 保留。
+
+**阶段 3 决策：停止继续扩大三阶段流水线、writer 并发和共享队列。** raw TCP 四流中位 89.469 Gbps 与 V3 四连接完整任务约 15 Gbps 的差距，继续支持瓶颈位于 V3 应用/接收提交路径。下一步必须新建独立 scope，选择内存 sink/稳态 payload 路径或小文件微批研究之一；不能把 CPU 降低单独当成吞吐通过，也不能据 tmpfs TCP 结果宣称 100 Gbps 或生产 readiness。RDMA verbs 路线继续暂停。

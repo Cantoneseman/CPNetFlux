@@ -1,7 +1,7 @@
 # V3 TCP Path Isolation 01: Task Scope
 
 Date: 2026-11-08
-Status: candidate 1 is complete and no-go. One final candidate (shared ready-writer pool, write concurrency 2) is authorized for bounded 8 GiB crossover measurement. No source changes are authorized by this scope.
+Status: diagnostic complete; candidates 1 and 2 are no-go. Three-stage/write-concurrency expansion is paused; no source changes were made by this scope.
 
 ## Objective
 
@@ -21,13 +21,13 @@ Find the cause of the repeatable observation that one V3 TCP lane can outperform
 2. V3 real file transfer over explicit `--data-transport tcp`, using one resident 8 GiB source on R770-2 and a single fresh tmpfs output on R770-1 per sample. Compare 1/2/4 connections, 7 repetitions per setting in balanced order. Preserve V3 protocol terminal evidence, CRC32C, independent SHA-256, process CPU/I/O, route/counters, and memory guard data.
 3. Completed: standalone CPNetFlux storage benchmark on tmpfs with a bounded 1 GiB working file and repeated write/read/rewrite operations. Keep this as filesystem diagnostic evidence, not as a network or V3 throughput result.
 4. Analyze complete task rate, per-task CV, aggregate window service rate, CPU/GiB, and memory separately. State whether the measured path accounts for the lane scaling regression.
-5. Candidate 1 (write concurrency 1) is complete and no-go. Perform only the final evidence-selected shared-writer-pool candidate below. If its gate fails, stop expanding the three-stage/write-concurrency architecture; no third candidate follows.
+5. Candidate 1 (write concurrency 1) and candidate 2 (write concurrency 2) are complete and no-go. Stop expanding the three-stage/write-concurrency architecture; no third candidate follows.
 
 ## Candidate 1 result (closed, no-go)
 
 Seven fresh c4 crossover pairs compared read=0/write=0 with read=0/write=1 on the fixed build. Both groups were stable (population CV 1.849% and 2.469%), but the candidate median was 14.530 Gbps versus 15.502 Gbps baseline; paired median change was -6.50%, failing the +10% promotion gate. CPU fell from 32.91 to 23.71 client+server CPU seconds/GiB, while task throughput regressed. The candidate is no-go and is not promoted. One earlier pool-r4w1 sample is retained as a failed experiment-driver assertion and excluded; its V3 transfer completed, but independent SHA validation was not run.
 
-## Candidate 2 (final bounded check)
+## Candidate 2 result (closed, no-go)
 
 The 21-sample 8 GiB baseline reproduced the lane regression with CV below 5%. Raw TCP four streams reached about 89.5 Gbps; V3 c4 had high receiver system CPU, and prior perf evidence located important CPU in same-inode tmpfs pwrite locking. Candidate 1 showed that write concurrency 1 greatly reduces CPU and aggregate range-write time but serializes too much of the receiver path. This scope authorizes exactly one final measurement of the already implemented shared ready-writer pool at write concurrency 2; it does not authorize a new executor, queue, or source-code change.
 
@@ -35,7 +35,7 @@ Hypothesis: keeping four network lanes and allowing two ready writers will prese
 
 Compare seven newly measured c4 baseline samples (read=0/write=0) with seven c4 candidate samples (read=0/write=2, executor pool) in alternating order on the same commit/build. Report every sample's task Gbps, median, mean, population CV, paired delta, and client+server CPU seconds/GiB. Every sample retains V3 terminal/CRC/SHA, route/counter, memory, swap, and cleanup checks.
 
-Promotion gate: both groups CV <= 5%, candidate median task throughput at least 10% above its paired baseline group, and no correctness/resource-gate failure. CPU reduction alone does not pass the throughput gate. If this fails or is unstable, mark candidate no-go, stop expanding the three-stage/write-concurrency architecture, retain the verified default, and update the roadmap with the performance gate still open. No third candidate is authorized by this scope.
+Seven fresh c4 crossover pairs compared read=0/write=0 with read=0/write=2 on the fixed build. Both groups were stable (population CV 1.845% and 3.045%), but the candidate median was 14.997 Gbps versus 15.618 Gbps baseline; paired median change was -4.73%, failing the +10% promotion gate. CPU fell from 32.29 to 26.75 client+server CPU seconds/GiB, while task throughput regressed. Candidate 2 is no-go and is not promoted. The default read=0/write=0 configuration remains the verified implementation. No third candidate is authorized by this scope.
 
 ## Non-goals
 
@@ -55,7 +55,7 @@ Promotion gate: both groups CV <= 5%, candidate median task throughput at least 
 
 ## Acceptance
 
-- Seven raw TCP samples per stream count and seven V3 baseline samples per lane count; report median, mean, population CV, and every sample. Candidate 1 has been closed no-go. Candidate 2 uses seven new c4 baseline/candidate crossover pairs and the explicit promotion gate above. Raw TCP measured windows are 20 seconds each. V3 file samples use 8 GiB; report per-task wall and aggregate time across each 7-sample group.
+- Seven raw TCP samples per stream count and seven V3 baseline samples per lane count; report median, mean, population CV, and every sample. Candidate 1 has been closed no-go. Candidate 1 and candidate 2 are closed no-go; the three-stage/write-concurrency performance gate remains open. Raw TCP measured windows are 20 seconds each. V3 file samples use 8 GiB; report per-task wall and aggregate time across each 7-sample group.
 - Every V3 sample completes with `data_transport=tcp`, expected connection count, successful V3 terminal state, exact logical byte count, CRC32C, matching external SHA-256, no retries, and successful cleanup.
 - All memory/resource gates pass. Evidence records the actual interface route and byte-counter deltas.
 - State the narrow finding and select the next single step from evidence. The instability gate is CV <= 5%; failing it means the corresponding comparison is inconclusive and needs a measurement correction, not a performance claim.
