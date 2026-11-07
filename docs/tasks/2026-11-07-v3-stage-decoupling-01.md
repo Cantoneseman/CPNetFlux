@@ -19,3 +19,7 @@ Ready writer pool trial: admission controls are functionally correct but through
 ### 池化完整回归观测断言修正
 
 19d6eb2e 的 R1 607 项/R2 270 项回归各有五项观测脚本失败，其余通过。失败原因是脚本用“是否属于本地 receivers 列表”判断远端 timing 的接收端身份；远端记录不在此列表。按记录自身 measurement_scope 判断收发角色，保留实际字段与完整性断言，重跑两端门禁后才进行池化互传。生产实现无修改。
+
+### 上传内存验收补口
+
+范围新增tools/perf/cpnetflux_memory_guard.py和tools/test/test_cpnetflux_memory_guard.py：上传控制第一次CLI参数在DATA前被拒，第二次协议/SHA成功但guard遗漏upload客户端，均排除完整验收/性能样本，保留失败与清理证据。为upload二进制增加精确项目/owned路径识别，先行为RED，再两端脚本门及同构建摘要，重跑上传。传输C++/默认/配置不变，不操作生产PID。

@@ -13,7 +13,7 @@ GIB = 1024 ** 3
 
 def owned_arguments(arguments, project, payload):
     binaries = {str(project / 'build' / name) for name in
-                ['cpnetflux-tree-download-client', 'cpnetflux-gridftp-server']}
+                ['cpnetflux-tree-download-client', 'cpnetflux-tree-upload-client', 'cpnetflux-gridftp-server']}
     return bool(arguments and arguments[0] in binaries and any(
         argument == str(payload) or argument.startswith(str(payload) + '/')
         for argument in arguments[1:]))

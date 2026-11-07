@@ -24,6 +24,13 @@ class MemoryGuardTest(unittest.TestCase):
         self.assertFalse(guard.owned_arguments(['python3', str(payload)], project, payload))
         self.assertFalse(guard.owned_arguments([], project, payload))
 
+    def test_upload_sender_requires_exact_project_and_owned_source(self):
+        project, payload = Path('/home/Su/projects/CPNetFlux'), Path('/dev/shm/cpnetflux-test')
+        binary = str(project / 'build/cpnetflux-tree-upload-client')
+        self.assertTrue(guard.owned_arguments([binary, '--source-dir', str(payload / 'input')], project, payload))
+        self.assertFalse(guard.owned_arguments([binary, '--source-dir', str(payload) + '-neighbor/input'], project, payload))
+        self.assertFalse(guard.owned_arguments(['/other/cpnetflux-tree-upload-client', str(payload)], project, payload))
+
     def test_available_boundary_and_combined_rss_budget(self):
         self.assertIsNone(guard.violation(6, [{'rss_bytes': 2}, {'rss_bytes': 2}], 6, 4))
         self.assertEqual(guard.violation(5, [], 6, 4), 'host_available_below_minimum')
