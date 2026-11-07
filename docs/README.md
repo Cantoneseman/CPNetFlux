@@ -8,8 +8,8 @@
 2. [性能路线图](ROADMAP.md)：唯一当前性能主线。
 3. [详细开发计划](tasks/2026-11-04-performance-roadmap.md)：阶段、指标、门槛和目标。
 4. [R770 环境](coordination/ENVIRONMENT.md)：SSH alias、主机角色、管理/数据地址、工具链和实验边界。
-5. [当前 RDMA 基线任务](tasks/2026-11-04-r770-rdma-e2e-baseline-01.md)：首个实验验收门。
-6. [RDMA 技术路线](roadmaps/rdma.md)：queue、completion、buffer ownership 和后续候选工作。
+5. [三阶段收口结果](tasks/2026-11-07-v3-stage-decoupling-01-result.md)与[执行指南](V3_TRANSFER_STAGES.md)：最新实现、配置、性能处置和剩余门。
+6. [流水线优先决定](DECISIONS/2026-11-07-v3-pipeline-priority.md)：RDMA优化暂停；[RDMA路线](roadmaps/rdma.md)与[原基线](tasks/2026-11-04-r770-rdma-e2e-baseline-01.md)保留历史及后续参考。
 7. [研究基线](RESEARCH_BASELINE.md)：论文与历史证据边界。
 
 ## 按用途查找
@@ -17,7 +17,7 @@
 | 用途 | 入口 |
 |---|---|
 | 当前架构决策 | [性能路线决策](DECISIONS/2026-11-04-performance-route.md)、[R770 主开发环境决策](DECISIONS/2026-10-30-r770-primary.md) |
-| 当前状态和历史结论 | [项目状态记录](PROJECT_STATE.md)、[实验目录](experiments/)、[任务记录](tasks/) |
+| 当前状态和历史结论 | [最新验收状态](tasks/2026-11-07-v3-stage-decoupling-01-result.md)、[实验目录](experiments/)、[任务记录](tasks/) |
 | 性能脚本使用参考 | `tools/perf/` 脚本与当前基线任务 |
 | 协议、架构和工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md) |
 | 目录传输、恢复与安全 | [目录传输](DIRECTORY_TRANSFER.md)、[安全边界](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md) |

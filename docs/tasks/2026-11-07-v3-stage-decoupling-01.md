@@ -23,3 +23,7 @@ Ready writer pool trial: admission controls are functionally correct but through
 ### 上传内存验收补口
 
 范围新增tools/perf/cpnetflux_memory_guard.py和tools/test/test_cpnetflux_memory_guard.py：上传控制第一次CLI参数在DATA前被拒，第二次协议/SHA成功但guard遗漏upload客户端，均排除完整验收/性能样本，保留失败与清理证据。为upload二进制增加精确项目/owned路径识别，先行为RED，再两端脚本门及同构建摘要，重跑上传。传输C++/默认/配置不变，不操作生产PID。
+
+## 最终状态
+
+工程解耦/有界性完成，吞吐门仍开；read0/write0不变。矩阵8d44802a33cd8d3bfc17ad9e5bc5a8da8c23ee2f、guard/上传ccca9b66bab457ecb6e6c3780d7c6fe1d1e33179，R1 607/607、R2 270/270、显式pool故障9/9；118项完整性/内存/清理通过。详见[结果](2026-11-07-v3-stage-decoupling-01-result.md)及[指南](../V3_TRANSFER_STAGES.md)。早期Selected design/FIFO/初始默认为迭代历史，由最终处置覆盖；下一步尚未执行。

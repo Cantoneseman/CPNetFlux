@@ -4,7 +4,7 @@
 最近原生文件实测源码：`791c2eee785d0c197f8ff86d902f6ce8688112c8`（清单序列化优化），同组观测基线为 `d0d98c74b15b728cf2853ec168c26a7a3cc27c70`；最新源供数工具源码为 `5b8be5af0c034451c117f372e346c049228299cc`，其六个传输相关二进制与前者相同。接收策略对照源码为 `d323f1fa442071bee64650c44c96d8a11ba42b1f`。原 48 样本和 result 生命周期复测仍按各自输入提交解释。
 此前接收 span 的小规模 tmpfs 原生文件优化源码：`c4c1b4a134662a740e438da2f34b8aceea7d24fe`（接收 logical span），对照/写合并配置为 `a9ecbe9179c3d8154a91e17fe23b4c9d445f5a74`。此前接收端剖析为 `bdc82c13`、payload 复用为 `7aab4e68`、基线 `6025f54e`，CRC 拼接优化为 `46be03da`。上行所述 `791c2eee` 仍是最近 64 GiB 盘上负载源码，两类负载分别解释。
 当前开发分支：`codex/V3-GRIDFTP-OPTIMIZED-RERUN-01`
-最新非 RDMA 软件路径实测源码：`60873ba0dc21ca7d79236071c7250eac45029104`；[TCP伸缩与range独立写入](tasks/2026-11-07-v3-tcp-scaling-01-result.md)已完成。同提交四对对照，2 lane task中位数12.394→17.603 Gbps（+42.03%），4 lane8.640→13.666（+58.17%）；双端CPU分别增加4.39%/46.22%，单lane控制20.022仍最快。保留eligible POSIX direct并行写及serial诊断开关，不提高默认lane。此前[gathering负结果](tasks/2026-11-07-v3-gathered-write-01-result.md)保留，batch1/depth2/容量可用唤醒/preallocate off不变；小规模非持久化TCP成绩不是100G验收。
+最新非 RDMA 验收提交：`ccca9b66bab457ecb6e6c3780d7c6fe1d1e33179`，性能矩阵源码`8d44802a33cd8d3bfc17ad9e5bc5a8da8c23ee2f`（八二进制相同）；[三阶段收口结果](tasks/2026-11-07-v3-stage-decoupling-01-result.md)、[执行指南](V3_TRANSFER_STAGES.md)。独立读/网络/写并发、接收共享就绪writer池、payload预算工程门已过；R1 607/607、R2 270/270、pool故障9/9，118正式1GiB内存任务校验/清理。c4在相同read4/write1下，admission→共享就绪池的task中位数8.404→14.226Gbps（+69.29%），双端CPU2.950→2.800秒/GiB。相对每lane默认，池的task中位数变化+0.75%，双端CPU变化-32.04%。这是三次小样本中位数，需结合CV；不能宣称长期吞吐提升或所有负载收益。 默认read0/write0、batch1/depth2/AvailableCapacity/preallocate off不变，吞吐门仍开。此前[range独立写](tasks/2026-11-07-v3-tcp-scaling-01-result.md)、[gathering负结果](tasks/2026-11-07-v3-gathered-write-01-result.md)保持各自提交边界；非持久化TCP不是100G验收。
 
 ## 当前目标
 
@@ -93,7 +93,7 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 | 0. E2E 基线 | 对照原生带宽、CPNetFlux direct bench、V3 真实文件；1/4 连接、4/64 GiB、至少 3 次重复；核实同一大文件是否真正并行 range | 完整性通过，稳定与 task rate 分开，失败可解释；完成后再定优化项 |
 | 1. 瓶颈归因 | 分解建连、注册/清零、RQ/CQ、帧复制、checksum、调度、写入/writeback、manifest/final verify | 主要耗时可被重复样本定位，不凭单一计数器推因果 |
 | 2. RDMA 资源与完成队列（暂停） | 测接收池预算、RQ/SQ 深度、补投递、CQ 批处理及完成等待；维持槽位所有权和有界反压 | 找到低内存且长传输稳定的窗口；若收益不成立，保留现状 |
-| 3. 三阶段流水线（当前） | 按 profile 解耦读/checksum、网络收发、接收校验/写入/提交；比较有界暂存和现有 bounded pipeline | 端到端收益、RSS 预算、恢复与尾包语义均通过 |
+| 3. 三阶段流水线 | 工程门已完成：独立读准入、网络lane、共享就绪writer池和payload预算 | 正确性/恢复/内存门过，吞吐性能门仍开，不推广负收益默认 |
 | 4. 小文件自适应微批 | 对比优化后的逐文件基线、固定微批、自适应微批；测 4–256 KiB 与 1K–100K 文件规模 | 改善完整 T_ready 和 p95，成员 checksum、原子提交、独立恢复通过 |
 | 5. 条件式服务率调度 | 只有观察到 worker 异质性、队列偏斜或拖尾时，比较 SR-Dispatch/BAP | 多次重复收益成立且无公平性、饥饿和恢复回归；否则不实现 |
 | 6. 单链路稳定验收 | 冻结代码/配置/数据；双向 large/dense/mixed 重复测与超接收池长传输 | SHA 全过、CV ≤5%、无静默降级和未解释链路错误 |

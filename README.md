@@ -4,7 +4,9 @@ CPNetFlux 面向超算中心节点间科学数据传输，提供可靠的分块�
 
 ## 当前性能状态
 
-本轮目标是 R770 单端口 100GbE/RoCE 上的真实文件有效吞吐与小文件任务完成时间。已有原生 `ib_send_bw` 约 92.59 Gbps；CPNetFlux direct bench 单连接长传输约 30.35 Gbps，四连接组端到端约 82.97 Gbps。它们都不等于真实文件性能。post-RNR-fix 真实文件矩阵尚待复测；历史约 3.29 Gbps 仅作比较点。当前没有 1Tbps 多链路验证。
+当前按用户要求优先优化非RDMA三阶段流水线，RDMA队列/注册池优化暂停。[三阶段最新结果](docs/tasks/2026-11-07-v3-stage-decoupling-01-result.md)完成独立读/网络/写并发、接收共享就绪writer池与有界payload预算；R1全量607/607、对端相关270/270、pool故障9/9，118项1GiB内存任务完成校验清理。池化改善相对准入方案的交接开销，默认仍read0/write0；精确同版本吞吐/CV/双端CPU见结果，三阶段吞吐门仍开，不能把工程完成称为100G。
+
+当前盘上源读取约4Gbps，软件实验采用小规模驻留内存并保留空间/交换门。历史ib_send_bw约92.59Gbps、direct bench四连接约82.97Gbps均不是真实文件成绩；没有100G文件或1Tbps多链路验收。
 
 ## 当前服务器与开发环境
 
@@ -19,12 +21,12 @@ CPNetFlux 面向超算中心节点间科学数据传输，提供可靠的分块�
 
 ## 当前路线
 
-1. 先完成 [RDMA 端到端基线任务](docs/tasks/2026-11-04-r770-rdma-e2e-baseline-01.md)，在同提交/同配置下量 native、direct bench 和真实文件。
-2. 依据拆开的阶段计时决定是否优化 RDMA 队列、建连、三阶段有界流水线或小文件自适应微批。
-3. 计划目标：真实文件第一里程碑 10–20 Gbps；大文件并行 range 中期目标 30–50 Gbps；单端口 70–85 Gbps 是冲刺目标。它们是阶段门，不是性能承诺。
-4. 本轮传输源码输入基线为提交 `a4ae9963db17bc061aadcfa8d95d13de6c86849f`；本轮文档整理不修改传输源码。
+1. [路线图](docs/ROADMAP.md)为当前主线；[流水线优先决定](docs/DECISIONS/2026-11-07-v3-pipeline-priority.md)覆盖旧先做RDMA顺序。
+2. 三阶段工程门交付、吞吐门保持开放。read0/write0、depth2、batch1为默认；显式配置与预算见[指南](docs/V3_TRANSFER_STAGES.md)。下一优化依据profile选择交接或kernel写路径一个因素。
+3. 小文件微批、RDMA/CQ/peer-mapping、长期稳定性尚未关闭；30–50Gbps和70–85Gbps为计划门，不是成绩或保证。
+4. 最新实测提交`ccca9b66bab457ecb6e6c3780d7c6fe1d1e33179`（主要性能矩阵`8d44802a`，八二进制相同）。R1单人直接开发、R2同提交构建验收；GitHub备份、八摘要与实验边界见最新结果和外部证据目录。
 
-阅读 [详细性能计划](docs/tasks/2026-11-04-performance-roadmap.md)、[当前决策](docs/DECISIONS/2026-11-04-performance-route.md) 和 [文档索引](docs/README.md)。下面旧 README 摘要为历史内容，遇到冲突以以上入口及 R770 当前规则为准。
+阅读[文档索引](docs/README.md)、[详细计划](docs/tasks/2026-11-04-performance-roadmap.md)和[研究边界](docs/RESEARCH_BASELINE.md)。下面旧摘要为历史，冲突以当前入口和R770规则为准。
 
 ---
 
