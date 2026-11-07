@@ -95,6 +95,8 @@ struct TreeTransferOptions {
     std::string eventLogPath;
     bool phaseTiming = false;
     std::uint32_t controlPipelineDepth = 0;
+    // Tree manifest snapshot event threshold; default preserves existing behavior.
+    std::uint32_t treeManifestEventThreshold = 32;
     TreeSchedulerMode schedulerMode = TreeSchedulerMode::Off;
     core::scheduler::SchedulerPolicy schedulerPolicy =
         core::scheduler::SchedulerPolicy::Fixed;

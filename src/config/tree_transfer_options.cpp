@@ -459,6 +459,13 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                     "--control-pipeline-depth must be one of 0, 1, 2, or 4");
             }
             options.controlPipelineDepth = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--tree-manifest-event-threshold") {
+            auto parsed = parseUnsigned(value, "--tree-manifest-event-threshold");
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 65536) {
+                return common::Status::invalidArgument(
+                    "--tree-manifest-event-threshold must be in range 1..65536");
+            }
+            options.treeManifestEventThreshold = static_cast<std::uint32_t>(parsed.value());
         } else if (option == "--scheduler") {
             auto parsed = parseTreeSchedulerMode(value);
             if (!parsed.isOk()) {
@@ -703,7 +710,8 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window 1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
-           "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] [--scheduler off|global] "
+           "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] "
+           "[--tree-manifest-event-threshold 1..65536] [--scheduler off|global] "
            "[--scheduler-policy fixed|adaptive] [--scheduler-metrics-dir <dir>] "
            "[--scheduler-link-id <id>] [--scheduler-capacity-gbps <float>] "
            "[--scheduler-workitem-min-bytes <N>] [--scheduler-workitem-max-bytes <N>] "

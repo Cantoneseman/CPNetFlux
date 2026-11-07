@@ -114,6 +114,35 @@ TEST(TreeTransferOptionsTest, DownloadPreallocationIsExplicitAndUploadReceiverSc
     EXPECT_EQ(cpnetflux::config::treeTransferUsage("client", TreeTransferRole::Upload).find("--preallocate"), std::string::npos);
 }
 
+TEST(TreeTransferOptionsTest, TreeManifestEventThresholdDefaultsAndValidates) {
+    const char* defaultsArgv[]{"cpnetflux-tree-upload-client", "--auth-probe"};
+    auto defaults = cpnetflux::config::parseTreeTransferOptions(
+        std::size(defaultsArgv), defaultsArgv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(defaults.isOk()) << defaults.status().message();
+    EXPECT_EQ(defaults.value().treeManifestEventThreshold, 32U);
+
+    const char* candidateArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
+        "--tree-manifest-event-threshold", "256"};
+    auto candidate = cpnetflux::config::parseTreeTransferOptions(
+        std::size(candidateArgv), candidateArgv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(candidate.isOk()) << candidate.status().message();
+    EXPECT_EQ(candidate.value().treeManifestEventThreshold, 256U);
+
+    for (const char* value : {"0", "65537", "-1", "256x"}) {
+        const char* invalidArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
+            "--tree-manifest-event-threshold", value};
+        auto invalid = cpnetflux::config::parseTreeTransferOptions(
+            std::size(invalidArgv), invalidArgv, cpnetflux::config::TreeTransferRole::Upload);
+        ASSERT_FALSE(invalid.isOk()) << value;
+        EXPECT_NE(invalid.status().message().find("tree-manifest-event-threshold"),
+                  std::string::npos);
+    }
+
+    const auto usage = cpnetflux::config::treeTransferUsage(
+        "client", cpnetflux::config::TreeTransferRole::Upload);
+    EXPECT_NE(usage.find("--tree-manifest-event-threshold"), std::string::npos);
+}
+
 TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
     const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe",
                           "--host", "127.0.0.1", "--port", "2121",
