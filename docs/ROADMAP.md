@@ -98,7 +98,7 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 | 1. 瓶颈归因 | 分解建连、注册/清零、RQ/CQ、帧复制、checksum、调度、写入/writeback、manifest/final verify | 主要耗时可被重复样本定位，不凭单一计数器推因果 |
 | 2. RDMA 资源与完成队列（暂停） | 测接收池预算、RQ/SQ 深度、补投递、CQ 批处理及完成等待；维持槽位所有权和有界反压 | 找到低内存且长传输稳定的窗口；若收益不成立，保留现状 |
 | 3. 三阶段流水线（停止扩大架构，转测量归因） | 工程门已完成；lane复核与两轮物理写准入均已收口，下一步区分文件系统/软件路径 | 吞吐门未过；两候选no-go，保留parallel默认，不追加第三候选 |
-| 4. 小文件自适应微批 | 对比优化后的逐文件基线、固定微批、自适应微批；测 4–256 KiB 与 1K–100K 文件规模 | 改善完整 T_ready 和 p95，成员 checksum、原子提交、独立恢复通过 |
+| 4. 小文件自适应微批 | per-file 基线已完成；下一步先做 fixed microbundle，再在同矩阵比较 adaptive；测 4–256 KiB 与 1K–100K 文件规模 | fixed 先满足 T_ready 中位至少下降 20%、p95/恢复不恶化，再决定 adaptive |
 | 5. 条件式服务率调度 | 只有观察到 worker 异质性、队列偏斜或拖尾时，比较 SR-Dispatch/BAP | 多次重复收益成立且无公平性、饥饿和恢复回归；否则不实现 |
 | 6. 单链路稳定验收 | 冻结代码/配置/数据；双向 large/dense/mixed 重复测与超接收池长传输 | SHA 全过、CV ≤5%、无静默降级和未解释链路错误 |
 
@@ -138,3 +138,10 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 [Memory Sink Threaded 01](tasks/2026-11-08-memory-sink-threaded-01.md) 只增加显式 `--io-mode threaded`，epoll 默认和 V3 文件路径保持不变。相同 8 GiB、1 MiB、4 connections、7 对交错样本中，epoll 中位 42.1100 Gbps、CV 2.94%；threaded 中位 72.5311 Gbps、配对中位提升 72.242%，但 CV 23.23%，范围 42.98–85.10 Gbps，双端 CPU 2.78→3.94 秒/GiB。字节、返回码、内存、swap、route 和接口计数门均通过；候选因稳定性门和 CPU 代价 no-go。最高样本不能改写成稳定 100Gbps 或生产 readiness。
 
 **阶段 3 和 memory sink 候选到达边界：停止继续扩大三阶段 writer、worker、队列、缓冲和 threaded 并发。** epoll 保持默认，threaded 仅保留为诊断代码；下一步按路线转入独立的小文件自适应微批 scope，或在有新假设和 CPU/调度证据后重新设计可控的服务率实验。RDMA、V3 默认文件路径和生产服务继续不改。
+
+
+## 2026-11-08 V3 small-file per-file baseline
+
+[Small-File Microbatch 01](tasks/2026-11-08-v3-small-file-microbatch-01.md) 的 50 个 V3 TCP 内存/受控 tmpfs 样本已完成。4/16/64/256 KiB 与 1K/10K 文件矩阵（256 KiB×10K 按门限改为 8K），并追加 4/16 KiB×100K；每格五次。全部样本成员计数、逻辑字节、树 SHA-256、V3 返回码和临时目录清理通过。密集 100K 文件的 T_ready 中位数为 33.608 秒（4 KiB）和 35.436 秒（16 KiB），对应吞吐 0.098/0.370 Gbps；tree_manifest_write_seconds 中位数为 23.431/24.907 秒，逐文件 wall 累计为 32.221/34.579 秒，说明清单快照和每文件状态/结果处理是下一候选的主要对象。最大 RSS 约 580 MiB、最低 MemAvailable 约 19.44 GiB、owned VmSwap 为零，但三次 16 KiB×100K 的 R770-1 主机 pswpout 非零，环境内存门标为部分未通过，候选 A/B 前需复核。实验大 JSON 已压缩清理为 972 KiB，未提交实验 payload。
+
+阶段 4 已从“直接实现 adaptive”改为“先实现默认关闭的 fixed microbundle/event batching，再按同矩阵决定 adaptive”。实现范围见 [Small-File Microbatch 02](tasks/2026-11-08-v3-small-file-microbatch-02.md)。固定提交、wire 兼容、成员索引、checksum、原子发布和恢复语义继续作为硬门。
