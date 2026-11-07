@@ -24,10 +24,10 @@ StageGate::Permit& StageGate::Permit::operator=(Permit&& other) noexcept {
 }
 common::Result<StageGate::Permit> StageGate::acquire(double* waited,
     std::optional<std::chrono::steady_clock::time_point> deadline) {
-    auto state=state_;
     if (deadline && std::chrono::steady_clock::now() >= *deadline)
         return common::Status::runtimeError("IO stage admission deadline exceeded");
-    if (state->limit == 0) return Permit{};
+    if (state_->limit == 0) return Permit{};
+    auto state=state_;
     std::unique_lock lock(state->mutex);
     if (state->active < state->limit && state->waiting.empty()) {
         ++state->active; return Permit{state};
@@ -62,15 +62,15 @@ common::Result<std::uint64_t> setting(const char* key, std::uint64_t fallback, s
 common::Result<std::shared_ptr<TransferStages>> TransferStages::create(std::uint32_t lanes,std::uint32_t depth) {
     if (!lanes || lanes>64 || !depth || depth>64)
         return common::Status::invalidArgument("stage lanes and depth must be 1..64");
-    auto read=setting("CPNETFLUX_STAGE_READ_CONCURRENCY",4,64);
-    auto write=setting("CPNETFLUX_STAGE_WRITE_CONCURRENCY",1,64);
+    auto read=setting("CPNETFLUX_STAGE_READ_CONCURRENCY",0,64);
+    auto write=setting("CPNETFLUX_STAGE_WRITE_CONCURRENCY",0,64);
     auto budget=setting("CPNETFLUX_STAGE_BUFFER_BYTES",64ULL*1024*1024,256ULL*1024*1024);
     if (!read.isOk()) return read.status(); if (!write.isOk()) return write.status(); if (!budget.isOk()) return budget.status();
     // Queue + producer/consumer + recycled/decoded/compressed owners. Excludes
     // transport pools, metadata/statistics and tmpfs, which are measured separately.
     const std::uint64_t bound=std::uint64_t(lanes)*(depth+6)*65536;
     if (budget.value()<bound) return common::Status::invalidArgument("stage payload ownership exceeds total buffer budget");
-    auto stages=std::make_shared<TransferStages>(read.value(),write.value());
+    auto stages=std::make_shared<TransferStages>(read.value(),write.value(),lanes);
     stages->networkLanes=lanes; stages->depth=depth; stages->bufferBudgetBytes=budget.value(); stages->ownershipBoundBytes=bound;
     return stages;
 }

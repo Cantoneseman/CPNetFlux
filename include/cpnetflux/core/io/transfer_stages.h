@@ -34,7 +34,13 @@ struct TransferStages {
     std::uint32_t readConcurrency = 0, writeConcurrency = 0, networkLanes = 0, depth = 0;
     std::uint64_t bufferBudgetBytes = 0, ownershipBoundBytes = 0;
     StageGate reads, writes;
-    TransferStages(std::uint32_t read, std::uint32_t write) : readConcurrency(read), writeConcurrency(write), reads(read), writes(write) {}
+    // A lane owns at most one producer and writer. Caps at or above the lane
+    // count need no admission lock; the requested policy is still reported.
+    TransferStages(std::uint32_t read, std::uint32_t write, std::uint32_t lanes)
+        : readConcurrency(read), writeConcurrency(write), networkLanes(lanes),
+          reads(read && read < lanes ? read : 0), writes(write && write < lanes ? write : 0) {}
+    bool readAdmissionRequired() const { return readConcurrency && readConcurrency < networkLanes; }
+    bool writeAdmissionRequired() const { return writeConcurrency && writeConcurrency < networkLanes; }
     static common::Result<std::shared_ptr<TransferStages>> create(std::uint32_t lanes, std::uint32_t depth);
 };
 }

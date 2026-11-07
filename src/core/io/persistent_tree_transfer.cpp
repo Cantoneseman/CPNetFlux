@@ -2477,6 +2477,8 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"stage_execution\":{\"schema_version\":1,\"read_concurrency\":" << t.stageReadConcurrency
             << ",\"write_concurrency\":" << t.stageWriteConcurrency << ",\"network_lanes\":" << t.stageNetworkLanes
             << ",\"payload_budget_bytes\":" << t.stageBufferBudgetBytes << ",\"payload_ownership_bound_bytes\":" << t.stageOwnershipBoundBytes
+            << ",\"read_admission_required\":" << (t.stageReadConcurrency && t.stageReadConcurrency < t.stageNetworkLanes ? "true" : "false")
+            << ",\"write_admission_required\":" << (t.stageWriteConcurrency && t.stageWriteConcurrency < t.stageNetworkLanes ? "true" : "false")
             << ",\"read_calls\":" << t.stageReadCalls << ",\"write_calls\":" << t.stageWriteCalls
             << ",\"read_wait_seconds\":" << t.stageReadWaitSeconds << ",\"write_wait_seconds\":" << t.stageWriteWaitSeconds
             << ",\"scope\":\"batch_shared_ready_IO_admission_not_thread_counts;0=per_lane;payload_bound_excludes_transport_metadata_tmpfs\"}"

@@ -18,7 +18,7 @@ TEST(TransferStagesTest, TimeoutDoesNotStrandTheFollowingWaiter) {
  first=StageGate::Permit{};EXPECT_TRUE(gate.acquire(nullptr,std::chrono::steady_clock::now()+1s).isOk());
 }
 TEST(TransferStagesTest, ReadAndWriteLimitsAreIndependent) {
- TransferStages stages(1,1);auto read=stages.reads.acquire();auto write=stages.writes.acquire(nullptr,std::chrono::steady_clock::now()+50ms);EXPECT_TRUE(read.isOk());EXPECT_TRUE(write.isOk());
+ TransferStages stages(1,1,2);auto read=stages.reads.acquire();auto write=stages.writes.acquire(nullptr,std::chrono::steady_clock::now()+50ms);EXPECT_TRUE(read.isOk());EXPECT_TRUE(write.isOk());
 }
 TEST(TransferStagesTest, ReleasingAfterExceptionAllowsProgress) {
  StageGate gate(1);try{auto permit=gate.acquire();ASSERT_TRUE(permit.isOk());throw 1;}catch(int){}
@@ -75,4 +75,11 @@ TEST(TransferStagesTest, ExplicitPerLaneModeDoesNotWait) {
  StageGate gate(0);auto first=gate.acquire();double wait=0;
  auto next=gate.acquire(&wait,std::chrono::steady_clock::now()+100ms);
  EXPECT_TRUE(first.isOk());EXPECT_TRUE(next.isOk());EXPECT_EQ(wait,0);
+}
+
+TEST(TransferStagesTest, NaturalLaneBoundElidesRedundantAdmission) {
+ TransferStages stages(4,1,1);
+ EXPECT_FALSE(stages.readAdmissionRequired());EXPECT_FALSE(stages.writeAdmissionRequired());
+ TransferStages constrained(1,2,4);
+ EXPECT_TRUE(constrained.readAdmissionRequired());EXPECT_TRUE(constrained.writeAdmissionRequired());
 }

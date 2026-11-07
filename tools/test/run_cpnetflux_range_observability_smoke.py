@@ -126,6 +126,8 @@ def main():
                 assert stage["schema_version"]==1
                 assert stage["network_lanes"]==4
                 assert stage["read_concurrency"]==int(args.stage_read)
+                assert stage["read_admission_required"] == (0 < int(args.stage_read) < 4)
+                assert stage["write_admission_required"] == (0 < int(args.stage_write) < 4)
                 assert stage["write_concurrency"]==int(args.stage_write)
                 assert stage["payload_ownership_bound_bytes"]==4*(8+6)*65536
                 assert stage["payload_ownership_bound_bytes"]<=stage["payload_budget_bytes"]

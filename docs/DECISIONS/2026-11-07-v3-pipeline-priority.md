@@ -45,3 +45,5 @@
 ## 第五轮阶段收口实现决定（进行中）
 
 本轮目标是完成独立阶段并发、总字节预算和验收，不再只交付一个局部剖析。局部同inode写入探针显示单writer准入比多writer省CPU，逐帧固定线程派单在单lane会明显回退，因此选择共享FIFO阶段准入与现有异步队列组合；读/CRC和写入并发跨lane独立控制，网络仍由lane数控制。此前“待实现独立全局worker池”的实现形式由此决定替代，并不声称已实现线程池。控制器不在持有许可时等待网络/队列；总预算先按全部lane最坏payload所有权验证，配置不足就拒绝，避免跨端整条stream预算等待死锁。实现与性能验收尚未完成，测试和同版本对照后再做默认处置。详见2026-11-07-v3-stage-decoupling-01任务。
+
+Pre-default disposition: f8eae6f same-build24 samples (four pairs/lane) all integrity/memory gates passed, but FIFO read4/write1 admission loses task throughput. Do not promote this preset. Remove redundant admission when requested cap >= actual lane count, bypass disabled-gate ownership atomics, and keep performance-first default read0/write0 (existing per-lane active IO) while retaining independently configurable strict bounded caps. Report admission-required flags. Final candidate must be rebuilt/synchronized/retested before transfers. README current route/config documentation is included in final handoff.
