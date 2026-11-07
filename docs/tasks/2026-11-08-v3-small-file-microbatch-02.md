@@ -39,7 +39,7 @@ Candidate 1 is no-go. Raising the event threshold did not reduce snapshots: both
 
 ## Candidate 2 result
 
-Commit d731899b8d080dd9bcfa4c7511d5728d1ea4f284 added the bounded delay option. R770-1 and R770-2 built it with identical upload/download/server SHA-256 values, and the relevant CTest set passed 15/15. A 64-file candidate smoke with max delay 500 ms passed upload/download, valid and corrupt resume checks, crash resume at two cut points, adaptive resume, and save-failure injection; the temporary evidence tree was removed.
+Commit d731899b8d080dd9bcfa4c7511d5728d1ea4f284 added the bounded delay option. R770-1 and R770-2 built it with identical upload/download/server SHA-256 values, the relevant CTest set passed 15/15, and the full R770-1 unit suite passed 538/539 with the same one capability-skipped native-RDMA idle-receive test. A 64-file candidate smoke with max delay 500 ms passed upload/download, valid and corrupt resume checks, crash resume at two cut points, adaptive resume, and save-failure injection; the temporary evidence tree was removed.
 
 The final interleaved 5-pair matrix completed all 20 transfers with return code zero, exact 100,000-file counts, equal source/target tree SHA-256, and client-owned VmSwap zero. One 16 KiB baseline sample had host pswpout delta 13,891 and is invalid under the memory gate; all other samples had zero host pswpout.
 
