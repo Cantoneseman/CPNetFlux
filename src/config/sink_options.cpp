@@ -107,6 +107,17 @@ common::Result<SinkOptions> parseSinkOptions(int argc, const char* const* argv, 
             continue;
         }
 
+        if (option == "--io-mode") {
+            if (value == "epoll") {
+                options.ioMode = SinkIoMode::Epoll;
+            } else if (value == "threaded") {
+                options.ioMode = SinkIoMode::Threaded;
+            } else {
+                return common::Status::invalidArgument("--io-mode must be epoll or threaded");
+            }
+            continue;
+        }
+
         return common::Status::invalidArgument("unknown option: " + std::string(option));
     }
 
@@ -120,7 +131,8 @@ common::Result<SinkOptions> parseSinkOptions(int argc, const char* const* argv, 
 std::string sinkUsage(const char* programName, SinkRole role) {
     const char* hostText = role == SinkRole::Server ? "<bind-ip>" : "<server-ip>";
     return std::string("Usage: ") + programName + " --host " + hostText +
-           " --port <port> --connections <N> --bytes <total-bytes> --buffer-size <bytes>";
+           " --port <port> --connections <N> --bytes <total-bytes> --buffer-size <bytes>"
+           " --io-mode <epoll|threaded>";
 }
 
 }  // namespace cpnetflux::config

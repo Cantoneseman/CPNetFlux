@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <cstring>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 #include "cpnetflux/common/throughput_counter.h"
@@ -23,14 +24,31 @@ struct ClientConnection {
     std::uint64_t targetBytes = 0;
 };
 
+struct ThreadTransferResult {
+    common::Status status = common::Status::ok();
+    std::uint64_t bytes = 0;
+    common::ThroughputCounter::TimePoint start{};
+    common::ThroughputCounter::TimePoint end{};
+    bool started = false;
+};
+
 common::Status systemStatus(const char* operation, int errorNumber) {
     return common::Status::systemError(std::string(operation) + ": " + std::strerror(errorNumber),
                                        errorNumber);
 }
 
-}  // namespace
+void printClientResult(std::uint64_t bytes, common::ThroughputCounter::TimePoint start,
+                       common::ThroughputCounter::TimePoint end) {
+    common::ThroughputCounter counter;
+    counter.start(start);
+    counter.addBytes(bytes);
+    counter.stop(end);
+    std::cout << "client sent_bytes=" << bytes
+              << " elapsed_seconds=" << counter.elapsedSeconds(end)
+              << " throughput_gbps=" << counter.gigabitsPerSecond(end) << '\n';
+}
 
-common::Status runTcpSinkClient(const config::SinkOptions& options) {
+common::Status runTcpSinkClientEpoll(const config::SinkOptions& options) {
     auto epollResult = createEpoll();
     if (!epollResult.isOk()) {
         return epollResult.status();
@@ -143,6 +161,99 @@ common::Status runTcpSinkClient(const config::SinkOptions& options) {
               << " throughput_gbps=" << counter.gigabitsPerSecond(end) << '\n';
 
     return common::Status::ok();
+}
+
+common::Status runTcpSinkClientThreaded(const config::SinkOptions& options) {
+    std::vector<UniqueFd> connections;
+    connections.reserve(options.connections);
+    for (std::uint32_t index = 0; index < options.connections; ++index) {
+        auto connectionResult = connectBlockingSocket(options.host.c_str(), options.port);
+        if (!connectionResult.isOk()) {
+            return connectionResult.status();
+        }
+        connections.emplace_back(std::move(connectionResult.value()));
+    }
+
+    const std::uint64_t baseBytes = options.bytes / options.connections;
+    const std::uint64_t remainder = options.bytes % options.connections;
+    std::vector<ThreadTransferResult> results(options.connections);
+    std::vector<std::thread> workers;
+    workers.reserve(options.connections);
+    for (std::uint32_t index = 0; index < options.connections; ++index) {
+        const std::uint64_t targetBytes = baseBytes + (index < remainder ? 1 : 0);
+        workers.emplace_back([&, index, targetBytes, fd = std::move(connections[index])] {
+            auto& result = results[index];
+            std::vector<char> buffer(options.bufferSize, 'g');
+            while (result.bytes < targetBytes) {
+                const auto remaining = targetBytes - result.bytes;
+                const std::size_t chunk =
+                    static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buffer.size()));
+                const ssize_t sent = ::send(fd.get(), buffer.data(), chunk, MSG_NOSIGNAL);
+                if (sent > 0) {
+                    if (!result.started) {
+                        result.start = common::ThroughputCounter::Clock::now();
+                        result.started = true;
+                    }
+                    result.bytes += static_cast<std::uint64_t>(sent);
+                    continue;
+                }
+                if (sent < 0 && errno == EINTR) {
+                    continue;
+                }
+                if (sent == 0) {
+                    result.status = common::Status::runtimeError("threaded send returned zero");
+                } else {
+                    result.status = systemStatus("threaded send", errno);
+                }
+                result.end = common::ThroughputCounter::Clock::now();
+                return;
+            }
+            result.end = common::ThroughputCounter::Clock::now();
+        });
+    }
+
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    std::uint64_t totalSent = 0;
+    bool hasPayload = false;
+    auto first = common::ThroughputCounter::Clock::now();
+    auto last = first;
+    for (const auto& result : results) {
+        if (!result.status.isOk()) {
+            return result.status;
+        }
+        totalSent += result.bytes;
+        if (result.bytes > 0) {
+            if (!hasPayload || result.start < first) {
+                first = result.start;
+            }
+            if (!hasPayload || result.end > last) {
+                last = result.end;
+            }
+            hasPayload = true;
+        }
+    }
+    if (totalSent != options.bytes) {
+        return common::Status::runtimeError("threaded sink sent " + std::to_string(totalSent) +
+                                            " bytes, expected " + std::to_string(options.bytes));
+    }
+    if (!hasPayload) {
+        return common::Status::runtimeError("threaded sink sent no payload");
+    }
+
+    printClientResult(totalSent, first, last);
+    return common::Status::ok();
+}
+
+}  // namespace
+
+common::Status runTcpSinkClient(const config::SinkOptions& options) {
+    if (options.ioMode == config::SinkIoMode::Threaded) {
+        return runTcpSinkClientThreaded(options);
+    }
+    return runTcpSinkClientEpoll(options);
 }
 
 }  // namespace cpnetflux::core::io
