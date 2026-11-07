@@ -128,6 +128,8 @@ def main():
                 assert stage["read_concurrency"]==int(args.stage_read)
                 assert stage["read_admission_required"] == (0 < int(args.stage_read) < 4)
                 assert stage["write_admission_required"] == (0 < int(args.stage_write) < 4)
+                assert stage["admission_policy"] == "oldest_waiter_with_bounded_ready_bypass"
+                assert stage["max_ready_bypasses"] == 32
                 assert stage["write_concurrency"]==int(args.stage_write)
                 assert stage["payload_ownership_bound_bytes"]==4*(8+6)*65536
                 assert stage["payload_ownership_bound_bytes"]<=stage["payload_budget_bytes"]

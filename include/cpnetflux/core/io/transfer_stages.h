@@ -11,6 +11,9 @@ namespace cpnetflux::core::io {
 class StageGate {
     struct State;
  public:
+    // Ready operations may reuse capacity before a sleeping waiter up to this
+    // bound. Then the oldest waiter must run; permits never span queue waits.
+    static constexpr std::uint32_t kReadyBypassLimit = 32;
     class Permit {
      public:
         Permit() = default;

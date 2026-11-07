@@ -3,6 +3,8 @@
 #include "cpnetflux/core/io/dynamic_file_queue.h"
 #include <future>
 #include <atomic>
+#include <thread>
+#include <vector>
 #include <cstdlib>
 using namespace cpnetflux::core::io;
 using namespace std::chrono_literals;
@@ -82,4 +84,26 @@ TEST(TransferStagesTest, NaturalLaneBoundElidesRedundantAdmission) {
  EXPECT_FALSE(stages.readAdmissionRequired());EXPECT_FALSE(stages.writeAdmissionRequired());
  TransferStages constrained(1,2,4);
  EXPECT_TRUE(constrained.readAdmissionRequired());EXPECT_TRUE(constrained.writeAdmissionRequired());
+}
+
+TEST(TransferStagesTest, ContendedReadyOperationsRespectCapacityAndAllMakeProgress) {
+ StageGate gate(2);std::atomic<int> active{0},peak{0},completed{0};
+ std::vector<std::future<bool>> workers;
+ const auto deadline=std::chrono::steady_clock::now()+2s;
+ for(int i=0;i<4;++i)workers.push_back(std::async(std::launch::async,[&]{
+  for(int j=0;j<100;++j){auto permit=gate.acquire(nullptr,deadline);if(!permit.isOk())return false;
+   auto n=++active;auto old=peak.load();while(old<n && !peak.compare_exchange_weak(old,n)){}
+   std::this_thread::sleep_for(10us);--active;++completed;
+  }return true;
+ }));
+ for(auto& worker:workers)EXPECT_TRUE(worker.get());
+ EXPECT_LE(peak.load(),2);EXPECT_EQ(completed.load(),400);
+}
+TEST(TransferStagesTest, TimedOutFrontDoesNotStrandAlreadyWaitingSuccessor) {
+ StageGate gate(1);auto held=gate.acquire();ASSERT_TRUE(held.isOk());
+ auto front=std::async(std::launch::async,[&]{return gate.acquire(nullptr,std::chrono::steady_clock::now()+50ms);});
+ std::this_thread::sleep_for(10ms);
+ auto next=std::async(std::launch::async,[&]{return gate.acquire(nullptr,std::chrono::steady_clock::now()+1s);});
+ EXPECT_FALSE(front.get().isOk());held=StageGate::Permit{};
+ EXPECT_TRUE(next.get().isOk());
 }

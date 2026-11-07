@@ -7,15 +7,21 @@ namespace cpnetflux::core::io {
 struct StageGate::State {
     explicit State(std::uint32_t n) : limit(n) {}
     std::mutex mutex;
-    std::condition_variable changed;
-    std::deque<const void*> waiting;
+    struct Waiter { std::condition_variable changed; };
+    std::deque<Waiter*> waiting;
+    std::uint32_t readyBypasses = 0;
     std::uint32_t limit, active = 0;
 };
 StageGate::StageGate(std::uint32_t n) : state_(std::make_shared<State>(n)) {}
 void StageGate::Permit::release() {
     if (!state_) return;
-    { std::lock_guard lock(state_->mutex); --state_->active; }
-    state_->changed.notify_all(); state_.reset();
+    {
+        std::lock_guard lock(state_->mutex);
+        --state_->active;
+        // Notify under the lock: the waiter owns this condition variable on its stack.
+        if (!state_->waiting.empty()) state_->waiting.front()->changed.notify_one();
+    }
+    state_.reset();
 }
 StageGate::Permit::~Permit() { release(); }
 StageGate::Permit& StageGate::Permit::operator=(Permit&& other) noexcept {
@@ -29,24 +35,29 @@ common::Result<StageGate::Permit> StageGate::acquire(double* waited,
     if (state_->limit == 0) return Permit{};
     auto state=state_;
     std::unique_lock lock(state->mutex);
-    if (state->active < state->limit && state->waiting.empty()) {
+    if (state->active < state->limit &&
+        (state->waiting.empty() || state->readyBypasses < kReadyBypassLimit)) {
+        if (!state->waiting.empty()) ++state->readyBypasses;
         ++state->active; return Permit{state};
     }
     // Only callers with ready IO wait here, never a worker waiting for network or payload.
     const auto started=std::chrono::steady_clock::now();
-    char ticket;
+    State::Waiter ticket;
+    if (state->waiting.empty()) state->readyBypasses = 0;
     state->waiting.push_back(&ticket);
     const auto ready=[&] { return state->active < state->limit && state->waiting.front()==&ticket; };
-    const bool admitted = deadline ? state->changed.wait_until(lock,*deadline,ready)
-                                  : (state->changed.wait(lock,ready),true);
+    const bool admitted = deadline ? ticket.changed.wait_until(lock,*deadline,ready)
+                                  : (ticket.changed.wait(lock,ready),true);
     if (waited) *waited += std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
     if (!admitted) {
         state->waiting.erase(std::find(state->waiting.begin(),state->waiting.end(),&ticket));
-        lock.unlock(); state->changed.notify_all();
+        if (state->active < state->limit && !state->waiting.empty())
+            state->waiting.front()->changed.notify_one();
         return common::Status::runtimeError("IO stage admission deadline exceeded");
     }
-    state->waiting.pop_front(); ++state->active;
-    lock.unlock(); state->changed.notify_all();
+    state->waiting.pop_front(); state->readyBypasses = 0; ++state->active;
+    if (state->active < state->limit && !state->waiting.empty())
+        state->waiting.front()->changed.notify_one();
     return Permit{state};
 }
 namespace {
