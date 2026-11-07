@@ -130,3 +130,11 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 结果记录 tasks/2026-11-07-v3-path-isolation-01-result.md 完成了最后两轮共享 ready-writer pool 有界交叉实验。固定提交 aa4dc3e536a5cd259d423cf1e569517cb19b14bd、R770-1/R770-2 二进制和配置一致，使用 8 GiB 驻留 tmpfs 源、TCP 192.168.100.1↔.2、4 connections。候选 read=0/write=1 的中位吞吐 14.530 Gbps，相对基线 15.502 Gbps 为 -6.50%；候选 read=0/write=2 的中位吞吐 14.997 Gbps，相对基线 15.618 Gbps 为 -4.73%。两轮 CV 均低于 5%，正确性、独立 SHA、内存、swap 和清理门全部通过，但均未达到候选中位至少 +10% 的推广门。pool=1/2 虽把双端 CPU 分别降至约 23.71/26.75 CPU 秒/GiB，也缩短了累计范围写计时，端到端任务仍下降；因此两候选均 no-go，默认 read=0/write=0 保留。
 
 **阶段 3 决策：停止继续扩大三阶段流水线、writer 并发和共享队列。** raw TCP 四流中位 89.469 Gbps 与 V3 四连接完整任务约 15 Gbps 的差距，继续支持瓶颈位于 V3 应用/接收提交路径。下一步必须新建独立 scope，选择内存 sink/稳态 payload 路径或小文件微批研究之一；不能把 CPU 降低单独当成吞吐通过，也不能据 tmpfs TCP 结果宣称 100 Gbps 或生产 readiness。RDMA verbs 路线继续暂停。
+
+## 2026-11-08 memory sink / threaded 候选收口
+
+[Memory Sink 01](tasks/2026-11-08-memory-sink-01.md) 已完成 21 个 8 GiB 内存 TCP sink 样本。1/4/8 connections 中位数为 27.4345/40.5639/40.2047 Gbps，CV 为 20.04%/2.95%/7.01%；只有 c4 通过稳定性门。4-connection sink 约为 raw TCP 四流 89.469 Gbps 的 45.34%，说明磁盘不是解释全部差距，增加 sink connections 也没有解决问题。
+
+[Memory Sink Threaded 01](tasks/2026-11-08-memory-sink-threaded-01.md) 只增加显式 `--io-mode threaded`，epoll 默认和 V3 文件路径保持不变。相同 8 GiB、1 MiB、4 connections、7 对交错样本中，epoll 中位 42.1100 Gbps、CV 2.94%；threaded 中位 72.5311 Gbps、配对中位提升 72.242%，但 CV 23.23%，范围 42.98–85.10 Gbps，双端 CPU 2.78→3.94 秒/GiB。字节、返回码、内存、swap、route 和接口计数门均通过；候选因稳定性门和 CPU 代价 no-go。最高样本不能改写成稳定 100Gbps 或生产 readiness。
+
+**阶段 3 和 memory sink 候选到达边界：停止继续扩大三阶段 writer、worker、队列、缓冲和 threaded 并发。** epoll 保持默认，threaded 仅保留为诊断代码；下一步按路线转入独立的小文件自适应微批 scope，或在有新假设和 CPU/调度证据后重新设计可控的服务率实验。RDMA、V3 默认文件路径和生产服务继续不改。
