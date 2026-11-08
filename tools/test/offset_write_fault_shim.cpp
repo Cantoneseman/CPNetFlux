@@ -28,7 +28,23 @@ extern "C" void* mmap(void* address, std::size_t size, int protection, int flags
     if (match && std::strcmp(mode, "fail") == 0) { errno = ENOMEM; return MAP_FAILED; }
     void* mapped = realMmap(address, size, protection, flags, fd, offset);
     // Truncating after mmap makes the first real write fault beyond EOF with SIGBUS.
-    if (mapped != MAP_FAILED && match && std::strcmp(mode, "truncate") == 0 && ::ftruncate(fd, 0))
+    if (mapped != MAP_FAILED && match &&
+        (std::strcmp(mode, "truncate") == 0 || std::strcmp(mode, "populate-truncate") == 0) && ::ftruncate(fd, 0))
         ::_exit(90);
     return mapped;
+}
+
+extern "C" int madvise(void* address, std::size_t size, int advice) {
+    using Function = int (*)(void*, std::size_t, int);
+    static const auto realMadvise = reinterpret_cast<Function>(::dlsym(RTLD_NEXT, "madvise"));
+    if (!realMadvise) { errno = ENOSYS; return -1; }
+    const char* mode = std::getenv("CPNETFLUX_OFFSET_WRITE_FAULT");
+    if (mode && std::strcmp(mode, "populate-partial") == 0 && advice == MADV_POPULATE_WRITE) {
+        // Populate real pages first, then exercise cleanup after partial success.
+        if (realMadvise(address, size / 2, advice) != 0) ::_exit(91);
+        std::fputs("CPNETFLUX_POPULATE_PARTIAL_INJECTED\n", stderr);
+        errno = ENOMEM;
+        return -1;
+    }
+    return realMadvise(address, size, advice);
 }

@@ -44,7 +44,7 @@ def cleanup(path, workers):
     path.rmdir()
 
 
-def measure(binary, path, layout, workers, size, mode, output, backend='pwrite'):
+def measure(binary, path, layout, workers, size, mode, output, backend='pwrite', populate='lazy'):
     if path.exists() or path.is_symlink():
         raise FileExistsError(path)
     if meminfo()['MemAvailable'] < 12 * GIB + size + 256 * 1024 ** 2:
@@ -54,7 +54,10 @@ def measure(binary, path, layout, workers, size, mode, output, backend='pwrite')
     before = swap()
     command = [str(binary), str(path), layout, str(workers), str(size), mode, '65532', '1048576',
                '--backend=' + backend]
+    if populate != 'lazy':
+        command.append('--populate=' + populate)
     receipt = {'command': command, 'layout': layout, 'workers': workers, 'write_mode': mode, 'backend': backend,
+               'population_policy': populate,
                'result': 'fail', 'minimum_available_bytes': meminfo()['MemAvailable'],
                'maximum_owned_rss_bytes': 0, 'maximum_owned_swap_bytes': 0,
                'samples': 0, 'owned_samples': 0, 'memory_sampling_seconds': 0.05, 'swap_before': before}
@@ -97,6 +100,16 @@ def measure(binary, path, layout, workers, size, mode, output, backend='pwrite')
         assert row['write_at_all_calls'] == (expected_calls if backend == 'pwrite' else 0)
         assert row['mapped_copy_calls'] == (expected_calls if backend == 'mmap' else 0)
         assert row['backend'] == backend
+        assert row['population_policy'] == populate and row['population_failures'] == 0
+        if populate == 'write':
+            assert backend == 'mmap' and row['population_calls'] == row['mapping_calls']
+            assert row['population_bytes'] == size and row['population_seconds'] > 0
+        else:
+            assert row['population_calls'] == row['population_bytes'] == row['population_seconds'] == 0
+            assert row['population_cpu_seconds'] == 0
+        for phase in ('mapping', 'population', 'unmapping'):
+            assert 0 <= row[phase + '_seconds'] <= row['elapsed_seconds'] * workers + 0.1
+            assert 0 <= row[phase + '_cpu_seconds'] <= row['write_thread_cpu_seconds'] + 0.1
         assert row['file_count'] == row['write_inode_count'] == (workers if layout == 'independent' else 1)
         assert row['write_fd_count'] == (1 if layout == 'shared' else workers)
         if backend == 'mmap':

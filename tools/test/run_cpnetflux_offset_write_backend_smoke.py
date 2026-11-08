@@ -14,12 +14,14 @@ from run_cpnetflux_offset_write_bench_smoke import expected
 MIB = 1024 ** 2
 
 
-def success(binary, root, layout, workers, size, backend, frame=65532, chunk=1048576, mode='sparse'):
+def success(binary, root, layout, workers, size, backend, frame=65532, chunk=1048576, mode='sparse', populate='lazy'):
     path = root / f'{layout}-{backend}-{workers}-{size}-{chunk}'
     command = [str(binary), str(path), layout, str(workers), str(size), mode,
                str(frame), str(chunk)]
     if backend == 'mmap':
         command.append('--backend=mmap')
+    if populate != 'lazy':
+        command.append('--populate=' + populate)
     command.append('--keep-files')
     completed = subprocess.run(command, capture_output=True, text=True, timeout=30)
     assert completed.returncode == 0, completed.stderr
@@ -58,6 +60,15 @@ def success(binary, root, layout, workers, size, backend, frame=65532, chunk=104
     assert row['write_at_all_calls'] == (total_calls if backend == 'pwrite' else 0)
     assert row['mapped_copy_calls'] == (total_calls if backend == 'mmap' else 0)
     if backend == 'mmap':
+        if populate == 'write':
+            assert row['population_policy'] == 'write'
+            assert row['population_calls'] == row['mapping_calls']
+            assert row['population_bytes'] >= size
+            assert row['population_failures'] == 0 and row['population_seconds'] > 0
+            assert row['population_cpu_seconds'] >= 0
+            for phase in ('mapping', 'population', 'unmapping'):
+                assert 0 <= row[phase + '_seconds'] <= row['elapsed_seconds'] * workers + 0.1
+                assert 0 <= row[phase + '_cpu_seconds'] <= row['write_thread_cpu_seconds'] + 0.1
         if size >= MIB:
             assert row['write_thread_minor_faults'] > 0
         assert row['mapping_calls'] == row['unmapping_calls'] > 0
@@ -83,13 +94,14 @@ def faults(binary, library, root):
     original = os.environ.copy()
     results = []
     try:
-        for mode in ('fail', 'truncate'):
+        for mode in ('fail', 'truncate', 'populate-partial', 'populate-truncate'):
             path = root / ('fault-' + mode)
             output = root / ('fault-' + mode + '.json')
             os.environ.update(LD_PRELOAD=str(library), CPNETFLUX_OFFSET_WRITE_FAULT=mode,
                               CPNETFLUX_OFFSET_WRITE_FAULT_FILE=str(path / 'shared.bin'))
             try:
-                runner.measure(binary, path, 'shared', 4, 1024 ** 3, 'sparse', output, backend='mmap')
+                runner.measure(binary, path, 'shared', 4, 1024 ** 3, 'sparse', output, backend='mmap',
+                               populate='write' if mode.startswith('populate-') else 'lazy')
             except RuntimeError:
                 pass
             else:
@@ -100,6 +112,10 @@ def faults(binary, library, root):
             assert not receipt['stdout'] and 'measurement' not in receipt
             if mode == 'fail':
                 assert 'mmap' in receipt['stderr']
+            elif mode.startswith('populate-'):
+                assert 'madvise' in receipt['stderr']
+                if mode == 'populate-partial':
+                    assert 'CPNETFLUX_POPULATE_PARTIAL_INJECTED' in receipt['stderr']
             results.append({'fault': mode, 'exit_code': receipt['exit_code'], 'payload_removed': True})
     finally:
         for name in ('LD_PRELOAD', 'CPNETFLUX_OFFSET_WRITE_FAULT', 'CPNETFLUX_OFFSET_WRITE_FAULT_FILE'):
@@ -114,7 +130,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--build-dir', type=Path, required=True)
     parser.add_argument('--fault-library', type=Path)
-    parser.add_argument('--case', choices=('shared-open', 'mmap', 'faults', 'all'), default='all')
+    parser.add_argument('--case', choices=('shared-open', 'mmap', 'populate', 'faults', 'all'), default='all')
     args = parser.parse_args()
     binary = args.build_dir.resolve() / 'cpnetflux-offset-write-bench'
     cases = 0
@@ -126,6 +142,19 @@ def main():
                 for size in (workers, 2 * MIB + 37):
                     success(binary, root, 'shared-open', workers, size, 'pwrite')
                     cases += 2
+        if args.case in ('populate', 'all'):
+            for workers in (1, 2, 4):
+                for size in (workers, 2 * MIB + 37):
+                    success(binary, root, 'shared', workers, size, 'mmap', populate='write')
+                    cases += 2
+            success(binary, root, 'shared', 1, 64 * MIB + 37, 'mmap', chunk=100003, populate='write')
+            cases += 2
+            for options in (['--populate=invalid'], ['--populate=write', '--populate=write'],
+                            ['--populate=write', '--backend=pwrite']):
+                target = root / 'invalid-populate'
+                rejected = subprocess.run([str(binary), str(target), 'shared', '1', '1', 'sparse',
+                    '65532', '1048576', *options], capture_output=True, text=True, timeout=5)
+                assert rejected.returncode != 0 and not rejected.stdout and not target.exists()
         if args.case in ('mmap', 'all'):
             for workers in (1, 2, 4):
                 for size in (workers, 2 * MIB + 37):
