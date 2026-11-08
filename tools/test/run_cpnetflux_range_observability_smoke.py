@@ -15,6 +15,8 @@ def main():
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--observation", choices=("on","off"), default="on")
     parser.add_argument("--sender-profile", choices=("0","1"), default="0")
+    parser.add_argument("--receiver-cpu-profile", choices=("0","1"), default="0")
+    parser.add_argument("--receiver-execution", choices=("queued","inline"), default="queued")
     parser.add_argument("--sender-execution", choices=("queued","inline","invalid"), default="queued")
     parser.add_argument("--checkpoint-batch", choices=("1","4","16"), default="1")
     parser.add_argument("--direct-write", choices=("serial","parallel"), default="parallel")
@@ -33,6 +35,8 @@ def main():
         port, data = free_port(), clamp_passive_data_port_base(free_port())
         env = dict(os.environ, CPNETFLUX_PAYLOAD_PIPELINE_DEPTH="8", CPNETFLUX_RANGE_TIMING=args.observation,
                    CPNETFLUX_SENDER_PROFILE=args.sender_profile,
+                   CPNETFLUX_RECEIVER_CPU_PROFILE=args.receiver_cpu_profile,
+                   CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION=args.receiver_execution,
                    CPNETFLUX_SENDER_PAYLOAD_EXECUTION=args.sender_execution,
                    CPNETFLUX_RANGE_CHECKPOINT_BATCH=args.checkpoint_batch,
                    CPNETFLUX_RANGE_DIRECT_WRITE=args.direct_write,
@@ -173,6 +177,38 @@ def main():
                 assert 0 < lane <= f['lane_thread_cpu_seconds']+0.01
                 assert all(cpu[k]>0 for k in ('read_cpu_seconds','checksum_cpu_seconds',
                     'prepare_cpu_seconds','lease_cpu_seconds','socket_cpu_seconds'))
+            for f in senders+receivers+remote:
+                assert 'receiver_cpu_observation' in f, 'missing receiver CPU observation contract'
+                cpu=f['receiver_cpu_observation']
+                enabled=(args.receiver_cpu_profile=='1' and args.observation=='on' and
+                         f['measurement_scope']=='local_receiver')
+                if not enabled:
+                    assert cpu is None
+                    continue
+                assert cpu['schema']=='cpnetflux_receiver_cpu_observation_v1'
+                assert cpu['clock']=='CLOCK_THREAD_CPUTIME_ID'
+                inline=f['receiver_payload_execution']=='inline'
+                frames=f['stage_execution']['write_calls']
+                assert frames>0
+                assert cpu['socket_read_calls']==frames+1
+                assert cpu['crc_calls']==cpu['state_calls']==frames
+                assert cpu['crc_bytes']==cpu['write_logical_bytes']==f['length']
+                assert cpu['write_calls']==cpu['range_calls']==cpu['physical_write_calls']==frames
+                assert cpu['physical_write_bytes']==f['length']
+                assert cpu['lease_start_calls']==cpu['lease_finish_calls']==(frames if cpu['local_work_executor'] else 0)
+                assert cpu['push_calls']==(0 if inline else frames)
+                assert cpu['pop_calls']==(0 if inline else frames+1)
+                assert cpu['write_cpu_owner']==('pool' if f['stage_execution']['write_pool_workers'] else 'lane' if inline else 'writer')
+                assert 0 < cpu['physical_write_cpu_seconds'] <= cpu['range_cpu_seconds'] <= cpu['write_cpu_seconds']
+                totals=sum(cpu[k] for k in ('socket_read_cpu_seconds','crc_cpu_seconds',
+                    'state_cpu_seconds','lease_cpu_seconds','write_cpu_seconds','push_cpu_seconds','pop_cpu_seconds'))
+                thread_total=f['lane_thread_cpu_seconds']+f['receiver_writer_thread_cpu_seconds']+f['stage_execution']['write_pool_cpu_seconds']
+                assert 0 < totals <= thread_total+0.02,(totals,thread_total,cpu)
+                assert all(cpu[k]>0 for k in ('socket_read_cpu_seconds','crc_cpu_seconds',
+                    'state_cpu_seconds','write_cpu_seconds'))
+                assert (cpu['lease_cpu_seconds']>0) == cpu['local_work_executor']
+                if inline:
+                    assert cpu['push_cpu_seconds']==cpu['pop_cpu_seconds']==0
             for f in senders+receivers+remote:
                 stage=f["stage_execution"]
                 is_receiver = f["measurement_scope"] == "local_receiver"

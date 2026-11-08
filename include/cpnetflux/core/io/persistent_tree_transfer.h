@@ -100,11 +100,23 @@ struct SenderCpuObservation {
     double readCpuSeconds = 0, checksumCpuSeconds = 0, pushCpuSeconds = 0, popCpuSeconds = 0;
     double prepareCpuSeconds = 0, leaseCpuSeconds = 0, socketCpuSeconds = 0;
 };
+struct ReceiverCpuObservation {
+    bool enabled = false;
+    bool localWorkExecutor = false;
+    std::uint64_t socketReadCalls = 0, crcCalls = 0, crcBytes = 0, stateCalls = 0;
+    std::uint64_t leaseStartCalls = 0, leaseFinishCalls = 0;
+    std::uint64_t writeCalls = 0, writeLogicalBytes = 0, rangeCalls = 0;
+    std::uint64_t physicalWriteCalls = 0, physicalWriteBytes = 0, pushCalls = 0, popCalls = 0;
+    double socketReadCpuSeconds = 0, crcCpuSeconds = 0, stateCpuSeconds = 0;
+    double leaseCpuSeconds = 0, writeCpuSeconds = 0, rangeCpuSeconds = 0;
+    double physicalWriteCpuSeconds = 0, pushCpuSeconds = 0, popCpuSeconds = 0;
+};
 struct PersistentFileTiming {
     PersistentFileIdentity file;
     std::uint32_t channel = 0;
     bool sender = false;
     SenderCpuObservation senderCpuObservation;
+    ReceiverCpuObservation receiverCpuObservation;
     bool rangeObservationEnabled = false;
     bool wholeFileObservationEnabled = false;
     WholeFileObservation wholeFileObservation;
