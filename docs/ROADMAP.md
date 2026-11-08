@@ -1,8 +1,10 @@
 # CPNetFlux 性能路线图
 
-更新日期：2026-11-07
+更新日期：2026-11-08
 
-最新非RDMA核心代码：`201a43a047102dfe52b1f05ec4497181dd64f6bb`；[TCP lane扩展复核与两候选结果](tasks/2026-11-07-v3-tcp-scaling-audit-01-result.md)。107正式与5独立perf样本通过完整性/资源/清理门。默认1/2/4 lane task中位数19.254/18.494/14.038Gbps；c1 CV9.04%，不是稳定上限。定位到同inode tmpfs pwrite内核写锁CPU成本；file_serial的c4 14.375→10.335Gbps，file_dual 14.064→13.066Gbps，均负收益且候选CV超门。R1全量619/619、显式dual恢复10/10、R2相关236/236。**两候选均no-go，默认parallel不变；本阶段停止扩大架构，吞吐门未过。** 下一阶段先建立稳定有界窗口，并区分raw TCP、V3内存诊断路径与真实tmpfs输出；尚未执行。RDMA优化继续暂停，小文件微批不能替代大文件吞吐。
+当前进度：[Lane / Storage 06](tasks/2026-11-08-v3-lane-storage-06.md) 已完成 30 个完整 V3 TCP 任务和两端共 180 个有界本地写入诊断。完整文件矩阵输入 `76f7572d`；写诊断输入 `e0b42f8` / `2081a90`，运行时二进制未改。1/2/4 lane 的 queued 中位数为 22.764/18.128/15.537 Gbps，inline 为 15.736/23.378/24.139 Gbps；两 lane 两种模式均未过 CV≤5% 门。4-lane inline 稳定提高 55.36%，但仅比 1-lane queued 高 6.04%；单 lane inline 退步，故默认 queued、显式 inline，不实现自动选择。**三阶段工程已收口，30–50 Gbps 完整文件吞吐门仍未过。** 下一步是独立文件写后端可行性验证，继续暂停三阶段线程/队列扩张和 RDMA。
+
+旧阶段记录：`201a43a047102dfe52b1f05ec4497181dd64f6bb` 的 [TCP lane复核与两候选结果](tasks/2026-11-07-v3-tcp-scaling-audit-01-result.md) 保留原结论。file_serial/file_dual 两候选均 no-go；其 perf 定位到同 inode tmpfs 写锁 CPU 成本。后续 raw TCP、V3 帧内存路径、完整文件交接和本轮写入服务率已分别完成测量，不能再把它们标为尚未执行，也不重开失败的串行准入候选。
 
 最近原生文件实测源码：`791c2eee785d0c197f8ff86d902f6ce8688112c8`（清单序列化优化），同组观测基线为 `d0d98c74b15b728cf2853ec168c26a7a3cc27c70`；最新源供数工具源码为 `5b8be5af0c034451c117f372e346c049228299cc`，其六个传输相关二进制与前者相同。接收策略对照源码为 `d323f1fa442071bee64650c44c96d8a11ba42b1f`。原 48 样本和 result 生命周期复测仍按各自输入提交解释。
 此前接收 span 的小规模 tmpfs 原生文件优化源码：`c4c1b4a134662a740e438da2f34b8aceea7d24fe`（接收 logical span），对照/写合并配置为 `a9ecbe9179c3d8154a91e17fe23b4c9d445f5a74`。此前接收端剖析为 `bdc82c13`、payload 复用为 `7aab4e68`、基线 `6025f54e`，CRC 拼接优化为 `46be03da`。上行所述 `791c2eee` 仍是最近 64 GiB 盘上负载源码，两类负载分别解释。
@@ -97,7 +99,7 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 | 0. E2E 基线 | 对照原生带宽、CPNetFlux direct bench、V3 真实文件；1/4 连接、4/64 GiB、至少 3 次重复；核实同一大文件是否真正并行 range | 完整性通过，稳定与 task rate 分开，失败可解释；完成后再定优化项 |
 | 1. 瓶颈归因 | 分解建连、注册/清零、RQ/CQ、帧复制、checksum、调度、写入/writeback、manifest/final verify | 主要耗时可被重复样本定位，不凭单一计数器推因果 |
 | 2. RDMA 资源与完成队列（暂停） | 测接收池预算、RQ/SQ 深度、补投递、CQ 批处理及完成等待；维持槽位所有权和有界反压 | 找到低内存且长传输稳定的窗口；若收益不成立，保留现状 |
-| 3. 三阶段流水线（停止扩大架构，转测量归因） | 工程门已完成；lane复核与两轮物理写准入均已收口，下一步区分文件系统/软件路径 | 吞吐门未过；两候选no-go，保留parallel默认，不追加第三候选 |
+| 3. 三阶段流水线（工程收口；文件写后端独立研究） | lane矩阵与稀疏文件共享/独立写归因已完成；下一步验证文件写后端可行性 | 真实文件约24 Gbps，30–50 Gbps门未过；默认queued，inline显式，不扩线程/队列 |
 | 4. 小文件自适应微批 | per-file 基线已完成；下一步先做 fixed microbundle，再在同矩阵比较 adaptive；测 4–256 KiB 与 1K–100K 文件规模 | fixed 先满足 T_ready 中位至少下降 20%、p95/恢复不恶化，再决定 adaptive |
 | 5. 条件式服务率调度 | 只有观察到 worker 异质性、队列偏斜或拖尾时，比较 SR-Dispatch/BAP | 多次重复收益成立且无公平性、饥饿和恢复回归；否则不实现 |
 | 6. 单链路稳定验收 | 冻结代码/配置/数据；双向 large/dense/mixed 重复测与超接收池长传输 | SHA 全过、CV ≤5%、无静默降级和未解释链路错误 |
@@ -197,3 +199,37 @@ payload 已清理，两端 /dev/shm 归零。实验是 commit_sync=none、TLS of
 的 offset 写入服务率，确定执行策略和存储路径边界。保持已验证四 lane 优化可显式
 使用；继续暂停三阶段并发扩张和 RDMA，不把单 lane 波动、局部优化或纯内存帧结果
 写成 100 Gbps 已解决。
+
+## 2026-11-08 V3 lane / storage 服务率复核
+
+[Lane / Storage 06](tasks/2026-11-08-v3-lane-storage-06.md) 先完成同提交 queued/inline
+1/2/4 lane 各五组配对，再新增 Linux-only `cpnetflux-offset-write-bench` 与有界 runner。
+工具复用 PosixFile::writeAtAll，以 shared/independent 文件、1/2/4 worker 和
+fresh/sparse/rewrite 三种初始状态隔离写入服务率。复核发现 V3 在写前 resize 到最终长度，
+因此补测 sparse 并逐次断言初始逻辑长度 8 GiB、已分配块为零。两端构建/摘要一致、
+各 7/7 相关 CTest 通过；smoke 包含 72 次成功调用、独立内容检查和短写失败/安全清理回归。
+
+与 V3 初始状态匹配的 sparse 五次中位数如下，均通过 CV≤5%：
+
+| 节点 | 共享文件 w1/w2/w4 Gbps | 独立文件 w1/w2/w4 Gbps |
+| --- | ---: | ---: |
+| R770-1 | 41.531 / 31.651 / 31.039 | 41.360 / 63.769 / 87.008 |
+| R770-2 | 41.198 / 31.013 / 30.877 | 41.176 / 63.653 / 87.393 |
+
+共享文件四线程相对单线程下降约 25%，独立文件可扩展至约 87 Gbps；这一损失无需 V3
+队列、CRC、manifest 或网络即可复现。当前比较同时改变 fd 与 inode，具体内核机制
+需结合独立控制或历史 perf 证据解释，不能只凭服务率表宣称已确认某一把锁。已填充页面
+的 rewrite 独立写约 100 Gbps 是排除预填充成本的本地计时，不能算完整传输收益。
+fresh/rewrite 边界组 23/24 格稳定，R1 fresh/shared/w4 CV 6.141% 保留失败；
+sparse 匹配组 12/12 格稳定。全部 180 个写样本的内容/内存/swap/清理门通过。
+
+最低 MemAvailable 20.026 GiB，诊断最大轮询 RSS 4.871 MiB（另计 8 GiB tmpfs），
+owned swap 和主机 pswpout 均为零。源和输出全部清理，两端 /dev/shm 归零，生产服务未重启。
+完整传输仍是 TLS off、verified_chunks、commit_sync=none 下约 24 Gbps；没有新增运行时
+吞吐成绩，没有通过持久化、TLS-on、反向/混合负载或长时间稳定性验收。
+
+下一独立任务先用“每 worker 独立打开同一 inode”补控制，再评估一个同文件写后端，
+初始方向为有界 mapped-write 诊断。先定义映射生命周期、缺页/解除映射计时、ENOSPC/SIGBUS、
+内存预算和清理，再做最多两候选；本轮尚未实现该后端。只有服务率中位至少 +10%、
+CV≤5%、完整性/资源无回退后，才考虑 V3 集成及 CRC、恢复、租约、取消和原子发布回归。
+最终仍须通过完整 8 GiB 任务 A/B，不能用诊断收益替代端到端门。
