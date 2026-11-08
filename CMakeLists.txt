@@ -830,6 +830,11 @@ if(CPNETFLUX_BUILD_TESTS)
     add_test(NAME cpnetflux_range_observability_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_range_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_sender_cpu_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --sender-profile 1)
+    add_test(NAME cpnetflux_sender_cpu_observability_disabled_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --sender-profile 1 --observation off)
+    set_tests_properties(cpnetflux_sender_cpu_observability_smoke cpnetflux_sender_cpu_observability_disabled_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME cpnetflux_range_serial_observability_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --direct-write serial)
     set_tests_properties(cpnetflux_range_serial_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)

@@ -92,10 +92,19 @@ struct ReceiverPayloadObservation {
     double decompressionSeconds = 0, frameCrcSeconds = 0;
     storage::FileWriteObservation wholeFileWrite;
 };
+struct SenderCpuObservation {
+    bool enabled = false;
+    std::uint64_t readCalls = 0, readBytes = 0, checksumCalls = 0, checksumBytes = 0;
+    std::uint64_t pushCalls = 0, pushBytes = 0, popCalls = 0;
+    std::uint64_t leaseStartCalls = 0, leaseFinishCalls = 0, socketCalls = 0, socketLogicalBytes = 0;
+    double readCpuSeconds = 0, checksumCpuSeconds = 0, pushCpuSeconds = 0, popCpuSeconds = 0;
+    double prepareCpuSeconds = 0, leaseCpuSeconds = 0, socketCpuSeconds = 0;
+};
 struct PersistentFileTiming {
     PersistentFileIdentity file;
     std::uint32_t channel = 0;
     bool sender = false;
+    SenderCpuObservation senderCpuObservation;
     bool rangeObservationEnabled = false;
     bool wholeFileObservationEnabled = false;
     WholeFileObservation wholeFileObservation;

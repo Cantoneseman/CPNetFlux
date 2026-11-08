@@ -14,6 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--observation", choices=("on","off"), default="on")
+    parser.add_argument("--sender-profile", choices=("0","1"), default="0")
     parser.add_argument("--checkpoint-batch", choices=("1","4","16"), default="1")
     parser.add_argument("--direct-write", choices=("serial","parallel"), default="parallel")
     parser.add_argument("--stage-read", choices=[str(i) for i in range(65)], default="4")
@@ -30,6 +31,7 @@ def main():
         expected = tree_hash(source)
         port, data = free_port(), clamp_passive_data_port_base(free_port())
         env = dict(os.environ, CPNETFLUX_PAYLOAD_PIPELINE_DEPTH="8", CPNETFLUX_RANGE_TIMING=args.observation,
+                   CPNETFLUX_SENDER_PROFILE=args.sender_profile,
                    CPNETFLUX_RANGE_CHECKPOINT_BATCH=args.checkpoint_batch,
                    CPNETFLUX_RANGE_DIRECT_WRITE=args.direct_write,
                    CPNETFLUX_STAGE_READ_CONCURRENCY=args.stage_read,
@@ -121,6 +123,28 @@ def main():
                     server_contract=record.get("range_observation_contract")
                     remote.extend(record["files"])
             assert remote
+            for f in senders+receivers+remote:
+                assert 'sender_cpu_observation' in f, 'missing sender CPU observation contract'
+                cpu=f['sender_cpu_observation']
+                enabled=(args.sender_profile=='1' and args.observation=='on' and
+                         f['measurement_scope']=='local_sender')
+                if not enabled:
+                    assert cpu is None
+                    continue
+                assert cpu['schema']=='cpnetflux_sender_cpu_observation_v1'
+                assert cpu['clock']=='CLOCK_THREAD_CPUTIME_ID'
+                assert cpu['read_calls']==cpu['checksum_calls']==cpu['push_calls']==f['stage_execution']['read_calls']
+                assert cpu['read_bytes']==cpu['checksum_bytes']==cpu['push_bytes']==f['length']
+                assert cpu['pop_calls']==cpu['socket_calls']+1
+                assert cpu['socket_calls']==f['socket_write_frame_calls']>0
+                assert cpu['socket_logical_bytes']==f['length']
+                assert cpu['lease_start_calls']==cpu['lease_finish_calls']==cpu['socket_calls']
+                producer=sum(cpu[k] for k in ('read_cpu_seconds','checksum_cpu_seconds','push_cpu_seconds'))
+                lane=sum(cpu[k] for k in ('pop_cpu_seconds','prepare_cpu_seconds','lease_cpu_seconds','socket_cpu_seconds'))
+                assert 0 < producer <= f['producer_thread_cpu_seconds']+0.01
+                assert 0 < lane <= f['lane_thread_cpu_seconds']+0.01
+                assert all(cpu[k]>0 for k in ('read_cpu_seconds','checksum_cpu_seconds','push_cpu_seconds',
+                    'pop_cpu_seconds','prepare_cpu_seconds','lease_cpu_seconds','socket_cpu_seconds'))
             for f in senders+receivers+remote:
                 stage=f["stage_execution"]
                 is_receiver = f["measurement_scope"] == "local_receiver"

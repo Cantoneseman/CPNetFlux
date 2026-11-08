@@ -240,6 +240,20 @@ double threadCpuSeconds(bool enabled) {
     if (::clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now) != 0) return 0;
     return static_cast<double>(now.tv_sec) + static_cast<double>(now.tv_nsec)*1e-9;
 }
+class OptionalThreadCpuTimer {
+ public:
+    explicit OptionalThreadCpuTimer(double* value)
+        : value_(value), started_(threadCpuSeconds(value != nullptr)) {}
+    ~OptionalThreadCpuTimer() { stop(); }
+    void stop() {
+        if (!value_) return;
+        *value_ += threadCpuSeconds(true) - started_;
+        value_ = nullptr;
+    }
+ private:
+    double* value_;
+    double started_;
+};
 class ObservedEntryLock {
  public:
     ObservedEntryLock(std::mutex& mutex, RangeObservation* observation)
@@ -1565,6 +1579,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             std::max<std::size_t>(options.bufferSize, 1), PersistentDataSession::kMaxPayload - 4);
         const auto kPipelineChunks = pipelineDepth.value();
         timing.rangeObservationEnabled = observeRanges(*stats);
+        auto& senderCpu = timing.senderCpuObservation;
+        const auto* senderProfile = std::getenv("CPNETFLUX_SENDER_PROFILE");
+        senderCpu.enabled = timing.rangeObservationEnabled && senderProfile && std::string_view(senderProfile) == "1";
         timing.payloadPipelineDepth = kPipelineChunks;
         const auto laneCpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
         const auto pipelineBudget = pipelineChunkBytes * kPipelineChunks;
@@ -1606,14 +1623,18 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     if (!readPermit.isOk()) { producerStatus=readPermit.status(); pipeline.cancel(producerStatus); return; }
                     ++timing.stageReadCalls;
                     const auto reading = Clock::now();
+                    OptionalThreadCpuTimer readCpu(senderCpu.enabled ? &senderCpu.readCpuSeconds : nullptr);
                     producerStatus = storage::readAtAll(file, offset, producerBuffer.data(), length,
                         ioContext, &stats->fileIoStats);
+                    readCpu.stop();
+                    if (senderCpu.enabled) { ++senderCpu.readCalls; senderCpu.readBytes += length; }
                     producerReadSeconds += secondsSince(reading);
                     if (!producerStatus.isOk()) {
                         pipeline.cancel(producerStatus);
                         return;
                     }
                     const auto checksumStarted = Clock::now();
+                    OptionalThreadCpuTimer checksumCpu(senderCpu.enabled ? &senderCpu.checksumCpuSeconds : nullptr);
                     checksum::ChecksumComputer frameChecksum(id.checksumAlgorithm,
                         options.checksumBackend);
                     frameChecksum.update(producerBuffer.data(), length);
@@ -1624,6 +1645,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                         return;
                     }
                     const auto frameDigest = verifiedChecksum.value;
+                    checksumCpu.stop();
+                    if (senderCpu.enabled) { ++senderCpu.checksumCalls; senderCpu.checksumBytes += length; }
                     producerChecksumSeconds += secondsSince(checksumStarted);
                     const auto chunkIndex = offset / id.chunkSize;
                     if (options.hasCorruptChunk && chunkIndex == options.corruptChunk)
@@ -1634,7 +1657,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                     prepared.chunkIndex = chunkIndex;
                     prepared.frameChecksum = frameDigest;
                     prepared.bytes = std::move(producerBuffer);
+                    OptionalThreadCpuTimer pushCpu(senderCpu.enabled ? &senderCpu.pushCpuSeconds : nullptr);
                     producerStatus = pipeline.push(std::move(prepared), &producerBuffer);
+                    pushCpu.stop();
+                    if (senderCpu.enabled) { ++senderCpu.pushCalls; senderCpu.pushBytes += length; }
                     if (!producerStatus.isOk()) return;
                     producedBytes += length;
                     offset += length;
@@ -1645,7 +1671,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         });
         std::vector<std::uint8_t> reusablePayloadBuffer;
         for (;;) {
+            OptionalThreadCpuTimer popCpu(senderCpu.enabled ? &senderCpu.popCpuSeconds : nullptr);
             auto next = pipeline.pop(std::move(reusablePayloadBuffer));
+            popCpu.stop();
+            if (senderCpu.enabled) ++senderCpu.popCalls;
             if (!next.isOk()) {
                 status = next.status();
                 writeFailed = true;
@@ -1658,6 +1687,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             const auto frameDigest = prepared.frameChecksum;
             const auto chunkIndex = prepared.chunkIndex;
             checkpoint::OptionalManifestTimer preparing(timing.rangeObservationEnabled ? &timing.framePrepareSeconds : nullptr);
+            OptionalThreadCpuTimer prepareCpu(senderCpu.enabled ? &senderCpu.prepareCpuSeconds : nullptr);
             std::vector<std::uint8_t> compressed;
             auto* bytes = prepared.bytes.data();
             std::size_t wireLength = length;
@@ -1716,21 +1746,31 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             header.payloadSize = wireLength + checksumPrefixSize;
             header.flags = flags;
             auto encoded = protocol::encodeFrameHeader(header);
+            prepareCpu.stop();
             preparing.stop();
             const auto payloadStarted = Clock::now();
             auto writePayload = [&](const std::uint8_t* payload, std::size_t size) {
                 const auto frameBytes = encoded.size() + checksumPrefixSize + size;
                 if (ready) {
+                    OptionalThreadCpuTimer leaseCpu(senderCpu.enabled ? &senderCpu.leaseCpuSeconds : nullptr);
+                    if (senderCpu.enabled) ++senderCpu.leaseStartCalls;
                     auto reserved = executor->startIo(*lease, frameBytes);
                     if (!reserved.isOk()) return reserved;
                 }
                 checkpoint::OptionalManifestTimer socketWriting(timing.rangeObservationEnabled ? &timing.socketWriteSeconds : nullptr);
                 if (timing.rangeObservationEnabled) ++timing.socketWriteCalls;
+                OptionalThreadCpuTimer socketCpu(senderCpu.enabled ? &senderCpu.socketCpuSeconds : nullptr);
+                if (senderCpu.enabled) { ++senderCpu.socketCalls; senderCpu.socketLogicalBytes += length; }
                 auto written = socket->writeFrameBuffered(
                     encoded.data(), encoded.size(), checksumPrefix.data(), checksumPrefixSize,
                     payload, size);
+                socketCpu.stop();
                 socketWriting.stop();
-                if (written.isOk() && ready) written = executor->finishIo(*lease, frameBytes);
+                if (written.isOk() && ready) {
+                    OptionalThreadCpuTimer leaseCpu(senderCpu.enabled ? &senderCpu.leaseCpuSeconds : nullptr);
+                    if (senderCpu.enabled) ++senderCpu.leaseFinishCalls;
+                    written = executor->finishIo(*lease, frameBytes);
+                }
                 return written;
             };
             status = writePayload(bytes, wireLength);
@@ -2654,6 +2694,23 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
         } else {
             out << ",\"rdma_receive_observation\":null";
         }
+        out << ",\"sender_cpu_observation\":";
+        if (t.sender && t.senderCpuObservation.enabled) {
+            const auto& p = t.senderCpuObservation;
+            out << "{\"schema\":\"cpnetflux_sender_cpu_observation_v1\","
+                << "\"clock\":\"CLOCK_THREAD_CPUTIME_ID\","
+                << "\"scope\":\"exact wrapper CPU includes timer cost; read/checksum/push on producer; pop/prepare/lease/socket on lane; nested in thread totals; waits exclude sleeping but include reacquire CPU; counts are attempts not certified progress\","
+                << "\"read_calls\":" << p.readCalls << ",\"read_bytes\":" << p.readBytes
+                << ",\"checksum_calls\":" << p.checksumCalls << ",\"checksum_bytes\":" << p.checksumBytes
+                << ",\"push_calls\":" << p.pushCalls << ",\"push_bytes\":" << p.pushBytes
+                << ",\"pop_calls\":" << p.popCalls << ",\"lease_start_calls\":" << p.leaseStartCalls
+                << ",\"lease_finish_calls\":" << p.leaseFinishCalls << ",\"socket_calls\":" << p.socketCalls
+                << ",\"socket_logical_bytes\":" << p.socketLogicalBytes
+                << ",\"read_cpu_seconds\":" << p.readCpuSeconds << ",\"checksum_cpu_seconds\":" << p.checksumCpuSeconds
+                << ",\"push_cpu_seconds\":" << p.pushCpuSeconds << ",\"pop_cpu_seconds\":" << p.popCpuSeconds
+                << ",\"prepare_cpu_seconds\":" << p.prepareCpuSeconds << ",\"lease_cpu_seconds\":" << p.leaseCpuSeconds
+                << ",\"socket_cpu_seconds\":" << p.socketCpuSeconds << '}';
+        } else out << "null";
         out << ",\"receiver_payload_observation\":";
         if (t.receiverPayloadObservationEnabled && !t.sender) {
             const auto& p = t.receiverPayloadObservation;
