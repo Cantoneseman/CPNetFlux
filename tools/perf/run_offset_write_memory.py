@@ -107,12 +107,18 @@ def measure(binary, path, layout, workers, size, mode, output, backend='pwrite')
             assert row['mapping_calls'] == row['unmapping_calls'] == row['maximum_worker_mapping_bytes'] == 0
         assert row['frame_bytes'] == 65532 and row['chunk_bytes'] == 1048576
         assert row['schema_version'] == 3
+        assert row['write_thread_minor_faults'] >= 0 and row['write_thread_major_faults'] >= 0
         assert row['initial_file_bytes'] == (0 if mode == 'fresh' else size)
         assert row['prefill_bytes'] == (size if mode == 'rewrite' else 0)
         if mode == 'rewrite':
             assert row['initial_allocated_bytes'] >= size
+            assert row['prefill_seconds'] > 0 and row['prefill_cpu_seconds'] >= 0
+            assert 0 <= row['prefill_system_cpu_seconds'] <= row['prefill_cpu_seconds'] + 1e-6
+            assert row['prefill_minor_faults'] >= 0 and row['prefill_major_faults'] >= 0
         else:
             assert row['initial_allocated_bytes'] == 0
+            assert all(row[key] == 0 for key in ('prefill_seconds', 'prefill_cpu_seconds',
+                'prefill_system_cpu_seconds', 'prefill_minor_faults', 'prefill_major_faults'))
         assert receipt['samples'] > 0 and receipt['owned_samples'] > 0 and not path.exists()
         after = swap()
         receipt['swap_after'] = after

@@ -14,9 +14,9 @@ from run_cpnetflux_offset_write_bench_smoke import expected
 MIB = 1024 ** 2
 
 
-def success(binary, root, layout, workers, size, backend, frame=65532, chunk=1048576):
+def success(binary, root, layout, workers, size, backend, frame=65532, chunk=1048576, mode='sparse'):
     path = root / f'{layout}-{backend}-{workers}-{size}-{chunk}'
-    command = [str(binary), str(path), layout, str(workers), str(size), 'sparse',
+    command = [str(binary), str(path), layout, str(workers), str(size), mode,
                str(frame), str(chunk)]
     if backend == 'mmap':
         command.append('--backend=mmap')
@@ -27,10 +27,25 @@ def success(binary, root, layout, workers, size, backend, frame=65532, chunk=104
     assert row['schema_version'] == 3 and row['backend'] == backend
     assert row['file_count'] == row['write_inode_count'] == 1
     assert row['write_fd_count'] == (workers if layout == 'shared-open' else 1)
-    assert row['initial_file_bytes'] == size and row['initial_allocated_bytes'] == 0
-    assert row['prefill_bytes'] == 0 and row['diagnostic_only'] and not row['network'] and not row['v3']
+    assert row['initial_file_bytes'] == size
+    assert row['prefill_bytes'] == (size if mode == 'rewrite' else 0)
+    if mode == 'rewrite':
+        assert row['initial_allocated_bytes'] >= size
+    else:
+        assert row['initial_allocated_bytes'] == 0
+    assert row['diagnostic_only'] and not row['network'] and not row['v3']
     assert not row['durability'] and row['written_bytes'] == row['verified_bytes'] == size
     assert row['elapsed_seconds'] > 0 and 0 <= row['task_system_cpu_seconds'] <= row['task_cpu_seconds'] + 1e-6
+    required = ('write_thread_minor_faults', 'write_thread_major_faults', 'prefill_seconds',
+                'prefill_cpu_seconds', 'prefill_system_cpu_seconds', 'prefill_minor_faults',
+                'prefill_major_faults')
+    assert all(key in row for key in required), 'missing write/prefill attribution'
+    assert all(row[key] >= 0 for key in required)
+    if mode == 'rewrite':
+        assert row['prefill_seconds'] > 0
+        assert row['prefill_system_cpu_seconds'] <= row['prefill_cpu_seconds'] + 1e-6
+    else:
+        assert all(row[key] == 0 for key in required if key.startswith('prefill_'))
     total_calls = 0
     with (path / 'shared.bin').open('rb') as stream:
         for lane in range(workers):
@@ -43,6 +58,8 @@ def success(binary, root, layout, workers, size, backend, frame=65532, chunk=104
     assert row['write_at_all_calls'] == (total_calls if backend == 'pwrite' else 0)
     assert row['mapped_copy_calls'] == (total_calls if backend == 'mmap' else 0)
     if backend == 'mmap':
+        if size >= MIB:
+            assert row['write_thread_minor_faults'] > 0
         assert row['mapping_calls'] == row['unmapping_calls'] > 0
         assert row['maximum_worker_mapping_bytes'] <= 64 * MIB
         assert row['mapping_window_bytes'] == 64 * MIB
@@ -118,6 +135,8 @@ def main():
                 success(binary, root, 'shared', workers, 64 * MIB + 37, 'mmap')
                 cases += 2
             success(binary, root, 'shared', 1, 64 * MIB + 37, 'mmap', chunk=100003)
+            cases += 2
+            success(binary, root, 'shared', 4, 2 * MIB + 37, 'mmap', mode='rewrite')
             cases += 2
             for layout, mode in (('independent', 'sparse'), ('shared-open', 'sparse'), ('shared', 'fresh')):
                 target = root / 'invalid-mmap'

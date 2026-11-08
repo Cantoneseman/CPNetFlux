@@ -86,6 +86,7 @@ struct OwnedFiles {
 struct alignas(64) Lane {
     std::uint64_t begin = 0, end = 0, written = 0, calls = 0;
     std::uint64_t mappingCalls = 0, unmappingCalls = 0, maximumMappingBytes = 0;
+    long minorFaults = 0, majorFaults = 0;
     double cpuSeconds = 0, systemCpuSeconds = 0;
     Clock::time_point started{}, finished{};
     std::string error;
@@ -201,10 +202,14 @@ int run(int argc, char** argv) {
         lanes[i].begin = total * i / workers;
         lanes[i].end = total * (i + 1) / workers;
     }
+    double prefillSeconds = 0, prefillCpuSeconds = 0, prefillSystemCpuSeconds = 0;
+    long prefillMinorFaults = 0, prefillMajorFaults = 0;
     if (mode == "sparse") {
         for (std::size_t i = 0; i < fileCount; ++i)
             require(files[i].resize(shared ? total : lanes[i].end - lanes[i].begin));
     } else if (mode == "rewrite") {
+        const auto prefillStarted = Clock::now();
+        const auto prefillBefore = usage(RUSAGE_THREAD);
         const std::vector<std::uint8_t> zeros(frame);
         for (std::size_t i = 0; i < fileCount; ++i) {
             const auto size = shared ? total : lanes[i].end - lanes[i].begin;
@@ -214,6 +219,12 @@ int run(int argc, char** argv) {
                 offset += length;
             }
         }
+        const auto prefillAfter = usage(RUSAGE_THREAD);
+        prefillSeconds = seconds(prefillStarted, Clock::now());
+        prefillCpuSeconds = cpu(prefillAfter) - cpu(prefillBefore);
+        prefillSystemCpuSeconds = systemCpu(prefillAfter) - systemCpu(prefillBefore);
+        prefillMinorFaults = prefillAfter.ru_minflt - prefillBefore.ru_minflt;
+        prefillMajorFaults = prefillAfter.ru_majflt - prefillBefore.ru_majflt;
     }
 
     std::uint64_t initialFileBytes = 0, initialAllocatedBytes = 0;
@@ -275,6 +286,8 @@ int run(int argc, char** argv) {
                 const auto after = usage(RUSAGE_THREAD);
                 lane.cpuSeconds = cpu(after) - cpu(before);
                 lane.systemCpuSeconds = systemCpu(after) - systemCpu(before);
+                lane.minorFaults = after.ru_minflt - before.ru_minflt;
+                lane.majorFaults = after.ru_majflt - before.ru_majflt;
                 lane.finished = Clock::now();
             } catch (const std::exception& error) {
                 lane.error = error.what();
@@ -300,12 +313,15 @@ int run(int argc, char** argv) {
     auto first = lanes.front().started, last = lanes.front().finished, latestStart = first;
     std::uint64_t written = 0, calls = 0, mappingCalls = 0, unmappingCalls = 0, maximumMappingBytes = 0;
     double workerCpu = 0, workerSystemCpu = 0;
+    long workerMinorFaults = 0, workerMajorFaults = 0;
     for (const auto& lane : lanes) {
         first = std::min(first, lane.started);
         last = std::max(last, lane.finished);
         latestStart = std::max(latestStart, lane.started);
         written += lane.written; calls += lane.calls; workerCpu += lane.cpuSeconds;
         workerSystemCpu += lane.systemCpuSeconds;
+        workerMinorFaults += lane.minorFaults;
+        workerMajorFaults += lane.majorFaults;
         mappingCalls += lane.mappingCalls; unmappingCalls += lane.unmappingCalls;
         maximumMappingBytes = std::max(maximumMappingBytes, lane.maximumMappingBytes);
     }
@@ -352,10 +368,18 @@ int run(int argc, char** argv) {
         << ",\"core_dump_disabled\":" << (backend == "mmap" ? "true" : "false")
         << ",\"mapping_lifecycle_in_write_interval\":" << (backend == "mmap" ? "true" : "false")
         << ",\"prefill_bytes\":" << (mode == "rewrite" ? total : 0)
+        << ",\"prefill_seconds\":" << prefillSeconds
+        << ",\"prefill_cpu_seconds\":" << prefillCpuSeconds
+        << ",\"prefill_system_cpu_seconds\":" << prefillSystemCpuSeconds
+        << ",\"prefill_minor_faults\":" << prefillMinorFaults
+        << ",\"prefill_major_faults\":" << prefillMajorFaults
         << ",\"initial_file_bytes\":" << initialFileBytes << ",\"initial_allocated_bytes\":" << initialAllocatedBytes
         << ",\"elapsed_seconds\":" << elapsed << ",\"write_gbps\":" << total * 8 / elapsed / 1e9
         << ",\"write_thread_cpu_seconds\":" << workerCpu
         << ",\"write_thread_system_cpu_seconds\":" << workerSystemCpu
+        << ",\"write_thread_minor_faults\":" << workerMinorFaults
+        << ",\"write_thread_major_faults\":" << workerMajorFaults
+        << ",\"fault_scope\":\"summed_worker_write_interval_includes_mapping_first_touch_unmap_excludes_prefill_verification\""
         << ",\"task_cpu_seconds\":" << cpu(processAfter) - cpu(processBefore)
         << ",\"task_system_cpu_seconds\":" << systemCpu(processAfter) - systemCpu(processBefore)
         << ",\"voluntary_context_switches\":" << processAfter.ru_nvcsw - processBefore.ru_nvcsw

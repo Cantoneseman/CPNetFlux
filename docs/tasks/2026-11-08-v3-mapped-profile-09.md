@@ -77,3 +77,28 @@ The initial matrix therefore uses existing detailed timing plus thread CPU.
 Its harness is a scoped copy of the accepted 8 GiB harness: only root/size and
 mapped-byte accounting differ; all original integrity/resource/terminal checks
 remain. Mapped bytes must equal file bytes while pwrite-observed bytes remain zero.
+
+## Evidence-led Diagnostic Extension
+
+The six observer-control tasks pass. Detailed receiver writer-call wall sums are
+4.714..4.805 seconds per 8 GiB, versus Entry wait 0.931..0.967, frame CRC about
+0.16 and checkpoint flush about 0.21 seconds. Intervals overlap and are not CPU
+fractions. Receiver process system CPU is about 6.4 seconds with about 2.11
+million minor faults. This supports isolating page population cost, not a claim
+that all mapped-writer cost is page faults or that a specific kernel lock is known.
+
+Before any performance candidate, extend the existing local offset-write diagnostic
+with worker-write-interval minor/major faults and separately timed/counted serial
+rewrite prefill. Exact additional files: tools/perf/offset_write_bench.cpp,
+tools/perf/run_offset_write_memory.py,
+tools/test/run_cpnetflux_offset_write_backend_smoke.py. Keep schema 3 compatible
+with additive fields; no V3 runtime or mapping-policy changes. Test missing fields
+against the old binary, then verify content/window/fault/cleanup contracts. Record
+prefill separately so rewrite write-only rates cannot be presented as task gains.
+
+Run three alternating sparse/rewrite pairs locally on R1, four workers, shared
+inode, mmap, 8 GiB, identical frame/chunk/window boundaries. Reuse the bounded
+runner's memory/swap/content/cleanup guards. R2's source is cleaned before local
+storage samples. Both hosts still receive the same fixed commit and build/hash
+check, including the changed diagnostic binary. This is attribution, not candidate
+acceptance; no extrapolated end-to-end gain and no prefaulting promotion.
