@@ -2,7 +2,9 @@
 
 更新日期：2026-11-08
 
-当前进度：[Mapped Download 08](tasks/2026-11-08-v3-mapped-download-08-result.md) 已在 `535d33db` 完成 V3 下载 CLI 显式映射写集成、错误/恢复与 range-attempt 生命周期验证，以及五组 8 GiB 完整任务 A/B。四路 inline 的 pwrite/mmap 中位数为 24.040/28.864 Gbps，CV 2.083%/1.875%，收益20.07%，五组配对全部改善；双端CPU/GiB下降9.18%。**通过受限实验入口保留门，默认仍为pwrite/queued，不自动选择。三阶段工程已收口，30–50 Gbps 完整文件吞吐门仍未过。下一步先剖析新后端下约29 Gbps路径的CPU/等待分布，再选择一个有证据的优化假设。** 继续暂停线程/队列扩张和 RDMA。
+当前进度：[Sender CPU 11](tasks/2026-11-08-v3-sender-cpu-11-result.md) 已在 `2bd8280e` 完成发送端 read/checksum/push/pop/prepare/lease/socket 的可选 CPU 归因及三组 8 GiB 交错观测对照，两端相关 CTest 各198/198通过。完整任务仍约28 Gbps，CPU观测有额外成本，尚未选择新的吞吐候选。下一步隔离驻留源读取、并发时缓存/线程调度和逐帧socket成本，解释局部校验诊断与真实任务的差距，再决定一个有证据的数据供给或发送路径候选。**三阶段工程已收口，30–50 Gbps 完整文件吞吐门仍未过；继续暂停线程/队列扩张和 RDMA。**
+
+最近通过吞吐保留门的变更仍为 [Mapped Download 08](tasks/2026-11-08-v3-mapped-download-08-result.md)：`535d33db` 完成 V3 下载 CLI 显式映射写集成、错误/恢复与 range-attempt 生命周期验证，以及五组 8 GiB 完整任务 A/B。四路 inline 的 pwrite/mmap 中位数为 24.040/28.864 Gbps，CV 2.083%/1.875%，收益20.07%，五组配对全部改善；双端CPU/GiB下降9.18%。默认仍为pwrite/queued，不自动选择。
 
 最新完整文件成绩为上述 scope 08 的 R770-2 -> R770-1、tmpfs驻留源、TCP/TLS off、verified_chunks、commit_sync=none；没有通过反向、TLS-on、持久化或长时间稳定性验收。此前 [Lane / Storage 06](tasks/2026-11-08-v3-lane-storage-06.md) 的 queued 1/2/4 lane 为22.764/18.128/15.537 Gbps，inline为15.736/23.378/24.139 Gbps，按 `76f7572d` 保留，不能替代本轮同提交单路复测。[Write Backend 07](tasks/2026-11-08-v3-write-backend-07.md) 的四线程54.896/55.348 Gbps仍只是本地可行性诊断；单线程映射写退步约49%，双线程收益不足10%，本轮不推广这些配置。
 
@@ -343,3 +345,27 @@ MiB，owned swap与pswpout增量零；全部payload已清理，两端/dev/shm归
 下一独立scope转向发送端read/CRC与socket CPU归因，分清condition等待、下游背压和逐帧
 lease/dispatch成本，先量化观测开销再选一个假设。不继续叠加页表候选、worker或队列。
 三阶段结构扩张和RDMA优化继续暂停，30 Gbps下限、70-85/100 Gbps及生产场景仍待验收。
+
+## 2026-11-08 发送端 CPU 归因完成
+
+[Sender CPU 11](tasks/2026-11-08-v3-sender-cpu-11-result.md) 在同提交`2bd8280e`、
+同配置/八二进制摘要一致后完成三组8 GiB交错完整任务。原range/payload观测两组都开，
+只切换新增发送端CPU时钟；base/CPU组task中位27.857/27.927 Gbps，CV1.169%/0.618%。
+wall差异-0.249%在样本波动内，发送端进程CPU中位9.95→10.34 s(+3.920%)，不能宣称
+零观测成本或新吞吐收益。默认关闭，观测关闭或接收端导出null。
+
+发送端每8 GiB各包装区间的CPU中位：read2.621 s、checksum+combine1.475 s、push0.545 s、
+pop0.392 s、prepare0.117 s、lease0.716 s、socket3.482 s。read+socket约占观测组发送端
+CPU59%，但未定位到具体内核函数或锁；producer/consumer等待wall不能当CPU占比。
+现有CRC矩阵已经缓存。实际库的单线程1 MiB热缓存诊断中，8 GiB逻辑帧的update/combine
+分别约0.102/0.184 s，both约0.293 s，与并发任务存在未解释差距，不能直接预测提速。
+
+6个任务的字节、V3终态、外部SHA、route/NIC、内存/swap与清理门全过；最低可用内存
+19.988 GiB，最大轮询RSS258.617 MiB，owned swap/pswpout增量0。源与目标已删除，两端
+/dev/shm归零、无测试传输残留，原生产PID/start保留。R1/R2相关CTest各198/198通过。
+观测源码已推送/回读GitHub；原始证据、诊断代码和摘要在R1 experiments/sender-cpu-11。
+
+本scope完成归因工具和观测开销复核，不冒称解决约28 Gbps上限。未启动五对吞吐候选门。
+下一独立scope先隔离驻留源read、实际user/sys与线程调度、逐帧socket服务成本；必要时
+在真实并发中继续拆分CRC update/combine。新候选仍需>=10%完整任务中位收益、CV<=5%
+和完整性/资源门。禁止据局部CPU下降继续扩队列、删CRC/lease或重开页表population。
