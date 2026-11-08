@@ -65,3 +65,15 @@ Consulted Linux madvise(2): population failure returns an error, may populate on
 part of the range, and may allocate file backing. No promise that this avoids OOM
 or later SIGBUS after external truncation. Reference:
 https://man7.org/linux/man-pages/man2/madvise.2.html
+
+## Measurement Correction
+
+Initial source 806a788d58058cad7e0432494dac0ed4db816932 passes both 4/4 CTest
+and twenty content/resource/cleanup samples. Both hosts show a 23..25% regression.
+However, getrusage's per-thread CPU accounting assigns tick-sized CPU to very
+short mapping intervals (CPU can exceed their measured wall). Before accepting
+phase CPU attribution, switch only observePhase CPU to CLOCK_THREAD_CPUTIME_ID.
+Keep initial receipts/logs, fix/commit/push/sync/build/test/hash again and repeat
+the twenty local samples in a new evidence subdirectory. This is a measurement
+correction, not another candidate. Overall getrusage write-interval counters and
+minor/major-fault observations retain their original definition.

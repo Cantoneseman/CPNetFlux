@@ -61,6 +61,7 @@ def success(binary, root, layout, workers, size, backend, frame=65532, chunk=104
     assert row['mapped_copy_calls'] == (total_calls if backend == 'mmap' else 0)
     if backend == 'mmap':
         if populate == 'write':
+            assert row['mapping_phase_cpu_clock'] == 'CLOCK_THREAD_CPUTIME_ID'
             assert row['population_policy'] == 'write'
             assert row['population_calls'] == row['mapping_calls']
             assert row['population_bytes'] >= size

@@ -1,6 +1,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <time.h>
 
 #include <algorithm>
 #include <atomic>
@@ -62,13 +63,19 @@ double systemCpu(const rusage& value) {
 
 template <typename Function>
 auto observePhase(double& wallSeconds, double& cpuSeconds, Function&& function) {
+    auto threadCpu = [] {
+        timespec value{};
+        if (::clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value))
+            throw std::system_error(errno, std::generic_category(), "clock_gettime thread CPU");
+        return value.tv_sec + value.tv_nsec / 1e9;
+    };
     const auto started = Clock::now();
-    const auto before = usage(RUSAGE_THREAD);
+    const auto before = threadCpu();
     const auto result = function();
     const auto savedErrno = errno;
-    const auto after = usage(RUSAGE_THREAD);
+    const auto after = threadCpu();
     wallSeconds += seconds(started, Clock::now());
-    cpuSeconds += cpu(after) - cpu(before);
+    cpuSeconds += after - before;
     errno = savedErrno;
     return result;
 }
@@ -412,6 +419,7 @@ int run(int argc, char** argv) {
         << ",\"population_seconds\":" << populationSeconds << ",\"population_cpu_seconds\":" << populationCpuSeconds
         << ",\"unmapping_seconds\":" << unmappingSeconds << ",\"unmapping_cpu_seconds\":" << unmappingCpuSeconds
         << ",\"mapping_phase_scope\":\"summed_worker_subintervals_nested_in_write_including_all_population_no_prefill\""
+        << ",\"mapping_phase_cpu_clock\":\"CLOCK_THREAD_CPUTIME_ID\""
         << ",\"write_inode_count\":" << writerInodes.size()
         << ",\"logical_bytes\":" << total << ",\"written_bytes\":" << written << ",\"verified_bytes\":" << verified
         << ",\"file_count\":" << fileCount << ",\"frame_bytes\":" << frame << ",\"chunk_bytes\":" << chunk
