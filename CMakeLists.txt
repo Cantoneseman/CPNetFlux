@@ -362,6 +362,9 @@ target_link_libraries(cpnetflux-rdma-socket-bench
 add_executable(cpnetflux-session-record-bench tools/perf/session_record_bench.cpp)
 target_link_libraries(cpnetflux-session-record-bench PRIVATE CPNetFlux::core)
 
+add_executable(cpnetflux-tcp-frame-bench tools/perf/tcp_frame_bench.cpp)
+target_link_libraries(cpnetflux-tcp-frame-bench PRIVATE CPNetFlux::core)
+
 add_executable(cpnetflux-gridftp-server
     src/apps/cpnetflux_gridftp_server.cpp
 )
@@ -457,6 +460,11 @@ if(CPNETFLUX_BUILD_TESTS)
         endif()
         gtest_discover_tests(cpnetflux_framed_socket_tests)
     endif()
+
+    add_test(NAME cpnetflux_tcp_frame_bench_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tcp_frame_bench_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_tcp_frame_bench_smoke PROPERTIES TIMEOUT 120)
 
     add_test(NAME cpnetflux_rdma_duplex_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_rdma_duplex_smoke.py
