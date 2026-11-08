@@ -83,3 +83,15 @@ Owned tmpfs: /dev/shm/cpnetflux-v3-direct-receive-20261109.
 Tools checked: shell/terminal/apply_patch/chat-send exposed, SSH/SCP/Codex CLI
 present. No chat dispatch, agents, worktrees or desktop use. Execution/debugging/
 TDD/verification/planning skills applied within the authorized serial plan.
+
+## Completion / handoff
+
+Source d4a110adec342e2d5afbaa758366022544814d42 committed,pushed and remote-SHA-readback.
+R1/R2 each245 unique related CTest passed;identical build/version/10 binary hashes.
+Five interleaved8GiB pairs pass integrity/resources/cleanup. Copy/direct median
+37.299649/38.346358Gbps,CV2.881999/1.733292%,median ratio gain2.806217%.
+Feasibility gate FAILED (<10%). Candidate CLOSED;do not integrate into V3 runtime.
+No complete-file throughput improvement claimed. See
+[Direct Receive15 result](2026-11-09-v3-direct-receive-15-result.md).
+Next task is a bounded full-V3 measurement/control audit,not another architecture
+extension. Production services and unrelated October14 docs preserved.
