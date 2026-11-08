@@ -2,6 +2,7 @@
 """Exercise real frame/session memory paths, boundaries and failure acknowledgements."""
 import argparse
 import json
+from pathlib import Path
 import select
 import socket
 import struct
@@ -52,7 +53,7 @@ def exact(sock, length):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--build-dir", required=True, type=__import__("pathlib").Path)
+    parser.add_argument("--build-dir", required=True, type=Path)
     args = parser.parse_args()
     binary = args.build_dir / "cpnetflux-tcp-frame-bench"
     rows = []
@@ -73,7 +74,8 @@ def main():
                                           for i in range(connections))
                     for row in (sent, received):
                         assert row["logical_bytes"] == size and row["receiver_acknowledged"]
-                        assert row["data_frames"] == expected_frames
+                        assert row["payload_chunks"] == expected_frames
+                        assert row["data_frames"] == (expected_frames if mode == "v3" else 0)
                         assert row["diagnostic_only"] and not row["file_io"]
                         assert row["elapsed_seconds"] > 0
                     rows.append({"mode": mode, "crc": crc, "connections": connections, "bytes": size})

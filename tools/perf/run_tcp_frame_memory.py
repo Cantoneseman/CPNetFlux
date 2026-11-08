@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import signal
@@ -102,6 +103,10 @@ def finish(process, before, output, command, args, peer):
 
 
 def one(args, sample, port):
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", sample):
+        raise ValueError("sample name must be a plain identifier")
+    if (ROOT / f"{sample}.json").exists():
+        raise FileExistsError(f"sample {sample} already exists; preserve prior evidence")
     process, before, output, command = launch("server", args, sample, port)
     remote = None
     try:
@@ -126,7 +131,9 @@ def one(args, sample, port):
         valid = all(item["rc"] == 0 and not item["guard_failure"] and item["owned_swap_kib"] == 0 and
                     item["pswpout_delta"] == 0 and item["minimum_available"] >= MIN_MEMORY and
                     item["benchmark"].get("logical_bytes") == args.bytes and
-                    item["benchmark"].get("receiver_acknowledged") for item in (server, client))
+                    item["benchmark"].get("receiver_acknowledged") and
+                    "eno17095np0" in item["before"]["route"] for item in (server, client))
+        valid = valid and server["net_delta"]["rx_bytes"] >= args.bytes and client["net_delta"]["tx_bytes"] >= args.bytes
         row = {"sample": sample, "mode": args.mode, "checksum": args.checksum,
                "connections": args.connections, "bytes": args.bytes, "trace": args.trace,
                "valid": valid, "server": server, "client": client}
@@ -179,9 +186,10 @@ def main():
         speeds = [row["client"]["benchmark"]["throughput_gbps"] for row in group]
         cpu = [sum(row[side]["benchmark"]["process_cpu_seconds"] for side in ("client", "server")) /
                (args.bytes / 1024**3) for row in group]
+        cv = 100 * statistics.pstdev(speeds) / statistics.mean(speeds) if len(speeds) > 1 else None
         summary.append({"mode": mode, "checksum": crc, "connections": args.connections,
                         "samples": len(speeds), "median_gbps": statistics.median(speeds),
-                        "cv_pct": 100 * statistics.pstdev(speeds) / statistics.mean(speeds),
+                        "cv_pct": cv, "stable": len(speeds) >= 5 and cv <= 5,
                         "minimum_gbps": min(speeds), "maximum_gbps": max(speeds),
                         "cpu_seconds_per_gib": statistics.median(cpu), "all_valid": all(row["valid"] for row in group)})
     (ROOT / f"summary-c{args.connections}.json").write_text(json.dumps(summary, indent=2) + "\n")

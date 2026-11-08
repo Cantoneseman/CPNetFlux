@@ -247,7 +247,8 @@ int main(int argc, const char* argv[]) {
             << "\"role\":\"" << role << "\",\"mode\":\"" << mode << "\",\"checksum\":\"" << crcText
             << "\",\"checksum_backend\":\"" << checksum::checksumBackendName(backend.value())
             << "\",\"connections\":" << connections << ",\"logical_bytes\":" << transferred
-            << ",\"data_frames\":" << frames << ",\"frame_bytes\":" << frameBytes
+            << ",\"data_frames\":" << (framed ? frames : 0) << ",\"payload_chunks\":" << frames
+            << ",\"frame_bytes\":" << frameBytes
             << ",\"receiver_acknowledged\":true,\"elapsed_seconds\":" << elapsed
             << ",\"setup_seconds\":" << setupSeconds
             << ",\"lane_start_spread_seconds\":" << std::chrono::duration<double>(latestStart - first).count()
