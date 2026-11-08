@@ -2,11 +2,15 @@
 
 更新日期：2026-11-09
 
-最新进度：[Observation Audit16 结果](tasks/2026-11-09-v3-observation-audit-16-result.md) 已在 `25ff8eed`（仅范围文档，传输二进制未改）完成五对真实8GiB完整V3任务。既有range/payload详情ON/OFF中位 **27.611519/27.858476Gbps**、sample CV **1.856872%/2.396810%**；中位数之比+0.894399%，逐对变化中位仅+0.243070%，两退步三改善，**没有稳定收益，不作为算法提速或修改默认策略**。detail-off不是全部观测关闭：基本phase/稀疏trace同开，当前Timer仍有构造时钟。两端各245/245相关测试、同配置/10二进制摘要、CRC/外部SHA/租约恢复门、8192条已认证chunk的committed manifest均通过；最低MemAvailable19.972GiB，owned swap/host swap-out为0，源与输出已清理、生产服务身份不变。
+最新进度：[Kernel Service17 结果](tasks/2026-11-09-v3-kernel-service-17-result.md) 已在 `025c38a9`（仅范围文档，运行时未改）完成三对真实8GiB完整V3任务及双端99Hz进程级内核采样。baseline/profile整任务中位 **27.291152/27.295766Gbps**，sample CV **1.970916%/0.038474%**；任务墙钟中位变化-0.016903%、接收/发送CPU变化+0.371287%/-0.099404%，通过<=5%低开销门，**不是新的吞吐收益**。六次内容/协议终态/manifest/资源门通过，双端fresh CTest各10/10，复用未变运行时的scope16各245/245证据。最低MemAvailable19.928761GiB，owned swap/host swap-out为0；源/输出/采样进程/FIFO已清理，生产服务身份不变。sample02接收接口 `rx_missed_errors` +94，网络计数门不称为清洁，全部样本保留。
 
-当前最新完整任务基线为上述scope16的detail-off **27.858476Gbps**：R770-2 -> R770-1，4路TCP、8GiB tmpfs驻留源、queued发送/inline实验mmap接收、CRC32C/verified_chunks/checkpoint16、TLS off/commit_sync=none。不是默认、磁盘、持久化或生产成绩；**三阶段工程收口，30–50Gbps完整任务性能门仍未过，100Gbps未达到**。不重开direct-receive/population/sender-inline，不继续扩线程或队列。
+当前最新同轮完整任务对照为上述scope17：R770-2 -> R770-1，4路TCP、8GiB tmpfs驻留源、queued发送/inline实验mmap接收、CRC32C/verified_chunks/checkpoint16、TLS off/commit_sync=none、detail off，两组同开100ms /proc，采样准备排除在任务墙钟之外。不是默认、磁盘、持久化或生产成绩。**三阶段工程收口，30–50Gbps完整任务性能门仍未过，100Gbps未达到。** 不跨轮把scope16的27.858476Gbps与本轮计算收益或回退。
 
-下一步从三阶段扩张转为独立的非RDMA内核/内存I/O服务率归因，先以低频perf和/proc区分首次写入/页分配、TCP复制、源pread/搬运等，并做采样开销控制；尚未执行。接收系统态约6.4CPU秒和约211万minor faults只是现象，不代表唯一根因。只有明确可消除机制和预算足够时才另立单个候选及>=10%完整任务门，否则暂停大文件候选、记录性能门未过，再决定独立方向；小文件微批不能替代大文件问题。RDMA继续暂停。
+内核服务归因已执行：接收kernel物理叶占80.54–82.01%，互斥fault调用链合计51.33–55.06%、TCP接收20.10–22.14%；发送pread24.80–26.99%、TCP发送39.08–42.47%。这些是on-CPU样本比例，不是墙钟或可兑现收益。映射写首次触页/页缓存建立与内核数据搬运是主要已见成本，不能只归为用户态memcpy、调度锁或RAM带宽。两端各在采集主机解码，lost均0，保留未知帧/FP截断限制；低futex样本不代表阻塞等待为零。
+
+按已有暂停边界，**暂停没有明确机制与>=10%完整任务收益预算的大文件候选**，不再扩大三阶段线程/队列，不重开direct-receive/population/sender-inline。下一步进入原路线阶段4的小文件固定开销基线：总数据<=1GiB，先native per-file拆分setup/open/checksum/manifest/commit/发布，再决定是否值得做固定微批，最后才比较adaptive。该下一步尚未运行或实现；小文件成绩不能替代大文件未达门，RDMA继续暂停，网络计数、持久化/TLS/反向和生产稳定性门仍独立开放。
+
+上一轮：[Observation Audit16 结果](tasks/2026-11-09-v3-observation-audit-16-result.md) 在 `25ff8eed` 完成五对8GiB完整任务，range/payload详情ON/OFF中位27.611519/27.858476Gbps、CV1.856872%/2.396810%；中位数之比+0.894399%，逐对中位+0.243070%，无稳定收益，未修改默认策略。detail-off不是全部观测关闭。两端各245/245相关测试、配置/10二进制、CRC/SHA/恢复/8192-chunk committed manifest通过，最低MemAvailable19.972GiB、swap0且payload清理；保留为各自计时合同下的历史对照。
 
 上一轮：[Direct Receive15 结果](tasks/2026-11-09-v3-direct-receive-15-result.md) 在 `d4a110ad` 完成真实TCP/V3帧→有界映射窗口诊断、双端各245项相关测试及五对8GiB对照。copy/direct中位37.299649/38.346358Gbps、CV2.881999%/1.733292%，中位数之比仅+2.806217%，未过>=10%可行性门，**当前候选关闭，不集成V3文件运行时**。发送端复用小热payload，没有真实源文件读、range checkpoint/恢复/发布；38.35Gbps不是完整文件成绩，不能与下文27.932Gbps跨口径计算收益。两端10二进制摘要一致，CRC/全量pread/资源门通过，单输出<=8GiB、映射<=256MiB；最低MemAvailable20.412GiB、owned swap及host swap-out均0；payload已释放、生产服务未动。
 

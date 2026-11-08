@@ -80,3 +80,10 @@ Runtime changes require a new explicit scope, not incidental edits here.
 Tools this turn: shell/terminal/apply_patch/chat-send exposed;SSH/SCP/Codex CLI
 found;chat-send/CLI resume not invoked. Serial current agent only. Execution,
 systematic-debugging and verification skills applied.
+
+## Closure
+
+Completed 2026-11-09; see [result](2026-11-09-v3-kernel-service-17-result.md).
+Low-overhead attribution passed; no runtime gain. sample02 RX missed+94 retained,
+network counter cleanliness not passed. Stop unbudgeted large-file candidates;
+next is stage4 native small-file fixed-cost baseline, not yet executed.
