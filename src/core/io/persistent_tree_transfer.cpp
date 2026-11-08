@@ -2286,7 +2286,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             timing.payloadIoSeconds += secondsSince(payloadStarted);
             if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
             const auto checksumStarted = Clock::now();
-            // Validation consumes the view here; ownership then moves to the writer queue.
+            // Validate before either writer path consumes or recycles this frame storage.
             std::span<const std::uint8_t> logical(data.payload);
             std::vector<std::uint8_t> decodedPayload;
             if (payloadObservation) {
