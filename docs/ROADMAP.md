@@ -2,13 +2,17 @@
 
 更新日期：2026-11-09
 
-最新进度：[Direct Receive15 结果](tasks/2026-11-09-v3-direct-receive-15-result.md) 在 `d4a110ad` 完成真实TCP/V3帧→有界映射窗口诊断、双端各245项相关测试及五对8GiB对照。copy/direct中位37.299649/38.346358Gbps、CV2.881999%/1.733292%，中位数之比仅+2.806217%，未过>=10%可行性门，**当前候选关闭，不集成V3文件运行时**。发送端复用小热payload，没有真实源文件读、range checkpoint/恢复/发布；38.35Gbps不是完整文件成绩，不能与下文27.932Gbps跨口径计算收益。两端10二进制摘要一致，CRC/全量pread/资源门通过，单输出<=8GiB、映射<=256MiB；最低MemAvailable20.412GiB、owned swap及host swap-out均0；payload已释放、生产服务未动。
+最新进度：[Observation Audit16 结果](tasks/2026-11-09-v3-observation-audit-16-result.md) 已在 `25ff8eed`（仅范围文档，传输二进制未改）完成五对真实8GiB完整V3任务。既有range/payload详情ON/OFF中位 **27.611519/27.858476Gbps**、sample CV **1.856872%/2.396810%**；中位数之比+0.894399%，逐对变化中位仅+0.243070%，两退步三改善，**没有稳定收益，不作为算法提速或修改默认策略**。detail-off不是全部观测关闭：基本phase/稀疏trace同开，当前Timer仍有构造时钟。两端各245/245相关测试、同配置/10二进制摘要、CRC/外部SHA/租约恢复门、8192条已认证chunk的committed manifest均通过；最低MemAvailable19.972GiB，owned swap/host swap-out为0，源与输出已清理、生产服务身份不变。
 
-下一步先对现有完整V3做有界测量复核：仅对照既有range/payload详情观测开关，新增CPU时钟保持关闭，CRC/租约/checkpoint/发布语义相同，保留整任务计时、外部SHA、恢复和内存门，确认lean完整任务基线。关闭诊断不包装成算法提速；此复核尚未执行。获得明确可消除热点后才立单个候选，否则按停止边界记录性能门未过，不再扩三阶段架构。直接接收、population和sender-inline候选均不重开；RDMA继续暂停。**三阶段工程收口，30–50Gbps完整任务性能门仍未通过，100Gbps仍未达到。**
+当前最新完整任务基线为上述scope16的detail-off **27.858476Gbps**：R770-2 -> R770-1，4路TCP、8GiB tmpfs驻留源、queued发送/inline实验mmap接收、CRC32C/verified_chunks/checkpoint16、TLS off/commit_sync=none。不是默认、磁盘、持久化或生产成绩；**三阶段工程收口，30–50Gbps完整任务性能门仍未过，100Gbps未达到**。不重开direct-receive/population/sender-inline，不继续扩线程或队列。
+
+下一步从三阶段扩张转为独立的非RDMA内核/内存I/O服务率归因，先以低频perf和/proc区分首次写入/页分配、TCP复制、源pread/搬运等，并做采样开销控制；尚未执行。接收系统态约6.4CPU秒和约211万minor faults只是现象，不代表唯一根因。只有明确可消除机制和预算足够时才另立单个候选及>=10%完整任务门，否则暂停大文件候选、记录性能门未过，再决定独立方向；小文件微批不能替代大文件问题。RDMA继续暂停。
+
+上一轮：[Direct Receive15 结果](tasks/2026-11-09-v3-direct-receive-15-result.md) 在 `d4a110ad` 完成真实TCP/V3帧→有界映射窗口诊断、双端各245项相关测试及五对8GiB对照。copy/direct中位37.299649/38.346358Gbps、CV2.881999%/1.733292%，中位数之比仅+2.806217%，未过>=10%可行性门，**当前候选关闭，不集成V3文件运行时**。发送端复用小热payload，没有真实源文件读、range checkpoint/恢复/发布；38.35Gbps不是完整文件成绩，不能与下文27.932Gbps跨口径计算收益。两端10二进制摘要一致，CRC/全量pread/资源门通过，单输出<=8GiB、映射<=256MiB；最低MemAvailable20.412GiB、owned swap及host swap-out均0；payload已释放、生产服务未动。
 
 上一轮：[Mapped Cost 14 结果](tasks/2026-11-09-v3-mapped-cost-14-result.md) 已在 `9d2189b4` 完成实际映射写类的默认关闭 map/unmap/copy CPU/缺页剖析、同一映射冷/热写诊断和三对8GiB完整任务。两端相关226/226测试，配置/版本/八个原二进制及新增诊断工具摘要一致。新剖析off/on完整任务中位27.932/27.648 Gbps、CV1.413%/1.276%，wall中位差+1.031%、接收CPU+1.735%。这不是新的运行时吞吐收益，也不把跨轮基线差异当作提速。
 
-最近一次完整任务证据为上述 `9d2189b4`、R770-2 -> R770-1、四路TCP、8GiB tmpfs驻留源、queued发送/inline实验mmap接收、CRC32C/verified_chunks、TLS off、commit_sync=none，既有detail观测仍开；27.932 Gbps不是lean默认或生产成绩。新增profile的map/unmap/copy累计CPU中位0.000710/0.147002/4.617723秒，copy区间约占三项96.90%，但包含首次触页成本，不是纯memcpy。同映射本地冷/热copy CPU为4.925/1.935秒、minor fault为2097152/0；两次写入与校验都计入整体，热写不是传输候选。当时提出的受租约保护的有界映射窗口直接接收假设，已由scope15完成真实TCP可行性对照并因收益不足关闭，不再列为待集成。不得预热真实输出、删校验/租约、重开population或盲调映射/队列。**三阶段工程已收口，30–50 Gbps完整文件门仍未过，继续暂停线程/队列扩张与RDMA。**
+历史scope14完整任务证据为 `9d2189b4`（最新完整任务基线见scope16）、R770-2 -> R770-1、四路TCP、8GiB tmpfs驻留源、queued发送/inline实验mmap接收、CRC32C/verified_chunks、TLS off、commit_sync=none，既有detail观测仍开；27.932 Gbps不是lean默认或生产成绩。新增profile的map/unmap/copy累计CPU中位0.000710/0.147002/4.617723秒，copy区间约占三项96.90%，但包含首次触页成本，不是纯memcpy。同映射本地冷/热copy CPU为4.925/1.935秒、minor fault为2097152/0；两次写入与校验都计入整体，热写不是传输候选。当时提出的受租约保护的有界映射窗口直接接收假设，已由scope15完成真实TCP可行性对照并因收益不足关闭，不再列为待集成。不得预热真实输出、删校验/租约、重开population或盲调映射/队列。**三阶段工程已收口，30–50 Gbps完整文件门仍未过，继续暂停线程/队列扩张与RDMA。**
 
 上一轮 [Receiver Critical 13](tasks/2026-11-09-v3-receiver-critical-13-result.md) 按[V3执行路径决定](DECISIONS/2026-11-09-v3-dynamic-download-local-executor.md)在 `127f4b66` 修复dynamic下载且scheduler=off时遗漏本地WorkExecutor的缺口。两端214/214测试及六次8GiB完整任务通过，CPU计时off/on为27.602/26.836Gbps。physical mapped write约占lane CPU57.6%、socket read22.6%、lease2.1%，这些包装区间不能与wall相加。旧8f42c851首对的内容/终态证据保留，cpu1合同失败不改写为通过；旧28–29Gbps不代表补齐路径后的验收。
 

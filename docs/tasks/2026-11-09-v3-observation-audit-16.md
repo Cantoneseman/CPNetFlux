@@ -66,11 +66,24 @@ Reproducible wrapper/analyzer and raw small evidence stay outside repository in
 /home/Su/experiments/CPNetFlux/2026-11-09-v3-observation-audit-16, with dependency
 and evidence hashes. Owned tmpfs root:
 /dev/shm/cpnetflux-v3-observation-audit-20261109.
-Harness will reuse pinned scope12 complete-task and scope14 source/guard helpers,
-not scope15 frame-only measurements. Acceptance commands/results and output
+Harness reuses pinned scope12 complete-task/baseline and guard helpers; the
+source generator is fixed inside this round wrapper with the scope14 source
+shape. Historical seed helpers and scope15 frame-only measurements are not used. Acceptance commands/results and output
 commit are recorded in result; no runtime code change unless separately scoped.
 
 Tools checked this turn: shell/terminal/apply_patch and chat-send are exposed;
 SSH/SCP/Codex CLI present. Chat dispatch/CLI resume not invoked. Single serial
 writer, no agents/worktrees/desktop. Execution, systematic-debugging and
 verification skills applied to the existing authorized plan.
+
+## Completion / handoff
+
+Scope/measurement commit25ff8eed56fd88facdfbd4df4341567a23f4019d pushed and
+remote-SHA-readback; no runtime code changed. Both hosts245/245 related CTest,
+matching configuration/version/10 binary hashes. Five interleaved8GiB pairs
+all pass actual V3/CRC/external SHA/committed8192-chunk manifest/resources.
+ON/OFF medians27.611519/27.858476Gbps, sample CV1.856872/2.396810%; ratio+0.894399%,
+paired median+0.243070%, no stable benefit. Full-task30Gbps gate remains unmet.
+Both payload roots absent, tmpfs used0, production PID/start ticks preserved.
+See [result](2026-11-09-v3-observation-audit-16-result.md) for evidence and the
+next independent kernel/memory service-rate diagnosis; no architecture expansion.
