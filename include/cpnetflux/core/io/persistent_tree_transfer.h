@@ -120,6 +120,7 @@ struct PersistentFileTiming {
     bool stageWritePool = false;
     double stageWritePoolCpuSeconds = 0;
     std::uint32_t payloadPipelineDepth = 0;
+    bool senderInlinePayload = false;
     bool receiverInlinePayload = false;
     bool receiverMappedPayload = false;
     storage::MappedWriteStats mappedWrite;

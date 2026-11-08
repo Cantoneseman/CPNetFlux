@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--observation", choices=("on","off"), default="on")
     parser.add_argument("--sender-profile", choices=("0","1"), default="0")
+    parser.add_argument("--sender-execution", choices=("queued","inline","invalid"), default="queued")
     parser.add_argument("--checkpoint-batch", choices=("1","4","16"), default="1")
     parser.add_argument("--direct-write", choices=("serial","parallel"), default="parallel")
     parser.add_argument("--stage-read", choices=[str(i) for i in range(65)], default="4")
@@ -32,6 +33,7 @@ def main():
         port, data = free_port(), clamp_passive_data_port_base(free_port())
         env = dict(os.environ, CPNETFLUX_PAYLOAD_PIPELINE_DEPTH="8", CPNETFLUX_RANGE_TIMING=args.observation,
                    CPNETFLUX_SENDER_PROFILE=args.sender_profile,
+                   CPNETFLUX_SENDER_PAYLOAD_EXECUTION=args.sender_execution,
                    CPNETFLUX_RANGE_CHECKPOINT_BATCH=args.checkpoint_batch,
                    CPNETFLUX_RANGE_DIRECT_WRITE=args.direct_write,
                    CPNETFLUX_STAGE_READ_CONCURRENCY=args.stage_read,
@@ -59,6 +61,12 @@ def main():
                     "--chunk-size","4194304","--phase-timing","on",
                     "--json-summary",str(summary)]
                 done=subprocess.run(cmd,capture_output=True,text=True,env=env,timeout=60)
+                if args.sender_execution=="invalid":
+                    assert direction=="upload" and done.returncode!=0, "invalid sender mode was accepted"
+                    assert "CPNETFLUX_SENDER_PAYLOAD_EXECUTION must be queued or inline" in done.stdout+done.stderr
+                    assert not (peer/"received/large.bin").exists(), "invalid sender mode published a file"
+                    print(json.dumps(dict(result="pass",invalid_sender_execution_rejected=True)))
+                    return
                 assert done.returncode==0,done.stdout+done.stderr
                 if observer:
                     observer.drain()
@@ -71,8 +79,9 @@ def main():
                 "missing versioned range observation contract"
             # Old code silently ignores diagnostic depth and lacks these observations.
             senders=rows["upload"]["file_timings"]
-            assert senders and all(f.get("payload_pipeline_depth")==8 for f in senders), \
-                "missing per-range pipeline depth observation (expected 8)"
+            assert senders and all(f.get("sender_payload_execution")==args.sender_execution for f in senders), \
+                "missing sender execution contract"
+            assert all(f.get("payload_pipeline_depth")== (0 if args.sender_execution=="inline" else 8) for f in senders)
             receivers=rows["download"]["file_timings"]
             assert all(f["range_id"] for f in receivers), "fixture must exercise striped ranges"
             if args.observation=="on":
@@ -113,7 +122,7 @@ def main():
                     assert m["manifest_save"]["failures"]==0
                 else:
                     assert f["pipeline_high_watermark_bytes"]<=f["pipeline_budget_bytes"]
-                    assert f["producer_thread_cpu_seconds"]>0
+                    assert (f["producer_thread_cpu_seconds"]==0 if args.sender_execution=="inline" else f["producer_thread_cpu_seconds"]>0)
                     assert f["socket_write_seconds"]>0
             remote=[]
             server_contract=None
@@ -124,6 +133,17 @@ def main():
                     remote.extend(record["files"])
             assert remote
             for f in senders+receivers+remote:
+                is_sender=f['measurement_scope']=='local_sender'
+                inline=is_sender and args.sender_execution=='inline'
+                assert f['sender_payload_execution']==(args.sender_execution if is_sender else 'not_sender')
+                if inline:
+                    assert f['producer_thread_cpu_seconds']==0
+                    assert f['payload_pipeline_depth']==f['pipeline_budget_bytes']==f['pipeline_high_watermark_bytes']==0
+                    assert f['pipeline_producer_waits']==f['pipeline_consumer_waits']==0
+                    assert f['pipeline_producer_wait_seconds']==f['pipeline_consumer_wait_seconds']==0
+                    assert f['payload_buffer_allocations']==1
+                    assert f['payload_buffer_ownership_budget_bytes']==65532
+                    assert f['payload_buffer_allocated_capacity_bytes']<=65532
                 assert 'sender_cpu_observation' in f, 'missing sender CPU observation contract'
                 cpu=f['sender_cpu_observation']
                 enabled=(args.sender_profile=='1' and args.observation=='on' and
@@ -133,18 +153,26 @@ def main():
                     continue
                 assert cpu['schema']=='cpnetflux_sender_cpu_observation_v1'
                 assert cpu['clock']=='CLOCK_THREAD_CPUTIME_ID'
-                assert cpu['read_calls']==cpu['checksum_calls']==cpu['push_calls']==f['stage_execution']['read_calls']
-                assert cpu['read_bytes']==cpu['checksum_bytes']==cpu['push_bytes']==f['length']
-                assert cpu['pop_calls']==cpu['socket_calls']+1
+                assert cpu['read_checksum_cpu_owner']==('lane' if inline else 'producer')
+                assert cpu['read_calls']==cpu['checksum_calls']==cpu['socket_calls']==f['stage_execution']['read_calls']
+                assert cpu['read_bytes']==cpu['checksum_bytes']==f['length']
+                assert cpu['push_calls']==(0 if inline else cpu['read_calls'])
+                assert cpu['push_bytes']==(0 if inline else f['length'])
+                assert cpu['pop_calls']==(0 if inline else cpu['socket_calls']+1)
                 assert cpu['socket_calls']==f['socket_write_frame_calls']>0
                 assert cpu['socket_logical_bytes']==f['length']
                 assert cpu['lease_start_calls']==cpu['lease_finish_calls']==cpu['socket_calls']
                 producer=sum(cpu[k] for k in ('read_cpu_seconds','checksum_cpu_seconds','push_cpu_seconds'))
                 lane=sum(cpu[k] for k in ('pop_cpu_seconds','prepare_cpu_seconds','lease_cpu_seconds','socket_cpu_seconds'))
-                assert 0 < producer <= f['producer_thread_cpu_seconds']+0.01
+                if inline:
+                    assert cpu['push_cpu_seconds']==cpu['pop_cpu_seconds']==0
+                    lane+=producer
+                else:
+                    assert 0 < producer <= f['producer_thread_cpu_seconds']+0.01
+                    assert cpu['push_cpu_seconds']>0 and cpu['pop_cpu_seconds']>0
                 assert 0 < lane <= f['lane_thread_cpu_seconds']+0.01
-                assert all(cpu[k]>0 for k in ('read_cpu_seconds','checksum_cpu_seconds','push_cpu_seconds',
-                    'pop_cpu_seconds','prepare_cpu_seconds','lease_cpu_seconds','socket_cpu_seconds'))
+                assert all(cpu[k]>0 for k in ('read_cpu_seconds','checksum_cpu_seconds',
+                    'prepare_cpu_seconds','lease_cpu_seconds','socket_cpu_seconds'))
             for f in senders+receivers+remote:
                 stage=f["stage_execution"]
                 is_receiver = f["measurement_scope"] == "local_receiver"

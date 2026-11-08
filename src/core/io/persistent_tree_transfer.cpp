@@ -205,6 +205,12 @@ common::Result<bool> diagnosticReceiverInlinePayload() {
     if (std::string_view(setting) == "inline") return true;
     return Status::invalidArgument("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION must be queued or inline");
 }
+common::Result<bool> diagnosticSenderInlinePayload() {
+    const auto* setting = std::getenv("CPNETFLUX_SENDER_PAYLOAD_EXECUTION");
+    if (!setting || std::string_view(setting) == "queued") return false;
+    if (std::string_view(setting) == "inline") return true;
+    return Status::invalidArgument("CPNETFLUX_SENDER_PAYLOAD_EXECUTION must be queued or inline");
+}
 common::Result<std::uint32_t> rangeCheckpointBatch(const PersistentTransferPolicy& policy) {
     if (policy.rangeCheckpointBatchChunks) {
         const auto n = policy.rangeCheckpointBatchChunks;
@@ -1337,6 +1343,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         return Status::invalidArgument("persistent channel index/count is invalid");
     const auto pipelineDepth = diagnosticPipelineDepth();
     if (!pipelineDepth.isOk()) return pipelineDepth.status();
+    const auto senderInline = diagnosticSenderInlinePayload();
+    if (!senderInline.isOk()) return senderInline.status();
     auto stageResult = ready ? ready->transferStages(channelCount,pipelineDepth.value())
                              : TransferStages::create(channelCount,pipelineDepth.value());
     if (!stageResult.isOk()) return stageResult.status();
@@ -1582,10 +1590,13 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         auto& senderCpu = timing.senderCpuObservation;
         const auto* senderProfile = std::getenv("CPNETFLUX_SENDER_PROFILE");
         senderCpu.enabled = timing.rangeObservationEnabled && senderProfile && std::string_view(senderProfile) == "1";
-        timing.payloadPipelineDepth = kPipelineChunks;
+        timing.senderInlinePayload = senderInline.value();
+        timing.payloadPipelineDepth = timing.senderInlinePayload ? 0 : kPipelineChunks;
         const auto laneCpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
-        const auto pipelineBudget = pipelineChunkBytes * kPipelineChunks;
-        BoundedPayloadPipeline pipeline(pipelineBudget, kPipelineChunks, timing.rangeObservationEnabled);
+        const auto pipelineBudget = timing.senderInlinePayload ? 0 : pipelineChunkBytes * kPipelineChunks;
+        std::optional<BoundedPayloadPipeline> pipeline;
+        if (!timing.senderInlinePayload)
+            pipeline.emplace(pipelineBudget, kPipelineChunks, timing.rangeObservationEnabled);
         stats->payloadPipelineBudgetBytes = std::max<std::uint64_t>(
             stats->payloadPipelineBudgetBytes, pipelineBudget);
         std::uint64_t payloadSent = 0;
@@ -1594,87 +1605,95 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         double producerChecksumSeconds = 0;
         std::uint64_t bufferAllocations = 0, bufferReuses = 0, allocatedCapacityBytes = 0;
         Status producerStatus = Status::ok();
-        std::thread producer([&]() {
+        std::size_t pieceIndex = 0;
+        std::uint64_t nextOffset = missing.empty() ? 0 : missing.front().begin;
+        auto preparePayload = [&](std::vector<std::uint8_t> producerBuffer)
+            -> common::Result<std::optional<PreparedPayload>> {
+            while (pieceIndex < missing.size() && nextOffset >= missing[pieceIndex].end) {
+                ++pieceIndex;
+                if (pieceIndex < missing.size()) nextOffset = missing[pieceIndex].begin;
+            }
+            if (pieceIndex == missing.size()) return std::optional<PreparedPayload>{};
+            const auto offset = nextOffset;
+            const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(
+                pipelineChunkBytes, std::min<std::uint64_t>(missing[pieceIndex].end - offset,
+                    id.chunkSize - offset % id.chunkSize)));
+            if (options.maxChunks && producedBytes >= options.maxChunks * id.chunkSize)
+                return Status::runtimeError("transfer interrupted by max-chunks");
+            if (producerBuffer.capacity() < pipelineChunkBytes) {
+                producerBuffer.reserve(pipelineChunkBytes);
+                ++bufferAllocations;
+                allocatedCapacityBytes += producerBuffer.capacity();
+            } else {
+                ++bufferReuses;
+            }
+            producerBuffer.resize(length);
+            auto readPermit = stages->reads.acquire(&timing.stageReadWaitSeconds, limits.taskDeadline);
+            if (!readPermit.isOk()) return readPermit.status();
+            ++timing.stageReadCalls;
+            const auto reading = Clock::now();
+            OptionalThreadCpuTimer readCpu(senderCpu.enabled ? &senderCpu.readCpuSeconds : nullptr);
+            auto read = storage::readAtAll(file, offset, producerBuffer.data(), length,
+                ioContext, &stats->fileIoStats);
+            readCpu.stop();
+            if (senderCpu.enabled) { ++senderCpu.readCalls; senderCpu.readBytes += length; }
+            producerReadSeconds += secondsSince(reading);
+            if (!read.isOk()) return read;
+            const auto checksumStarted = Clock::now();
+            OptionalThreadCpuTimer checksumCpu(senderCpu.enabled ? &senderCpu.checksumCpuSeconds : nullptr);
+            checksum::ChecksumComputer frameChecksum(id.checksumAlgorithm, options.checksumBackend);
+            frameChecksum.update(producerBuffer.data(), length);
+            const auto verifiedChecksum = frameChecksum.finalize();
+            if (!checksumComputer.combine(verifiedChecksum, length))
+                return Status::invalidArgument("persistent DATA checksum algorithm mismatch");
+            checksumCpu.stop();
+            if (senderCpu.enabled) { ++senderCpu.checksumCalls; senderCpu.checksumBytes += length; }
+            producerChecksumSeconds += secondsSince(checksumStarted);
+            const auto chunkIndex = offset / id.chunkSize;
+            if (options.hasCorruptChunk && chunkIndex == options.corruptChunk)
+                producerBuffer[0] ^= 0xffU;
+            readPermit = StageGate::Permit{};
+            PreparedPayload prepared;
+            prepared.offset = offset;
+            prepared.chunkIndex = chunkIndex;
+            prepared.frameChecksum = verifiedChecksum.value;
+            prepared.bytes = std::move(producerBuffer);
+            producedBytes += length;
+            nextOffset += length;
+            return std::optional<PreparedPayload>(std::move(prepared));
+        };
+        std::thread producer;
+        if (pipeline) producer = std::thread([&]() {
             const auto cpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
             struct CpuSample { PersistentFileTiming& timing; double started;
                 ~CpuSample() { timing.producerThreadCpuSeconds += threadCpuSeconds(timing.rangeObservationEnabled)-started; }
             } cpuSample{timing,cpuStarted};
             std::vector<std::uint8_t> producerBuffer;
-            for (const auto& piece : missing) {
-                for (std::uint64_t offset = piece.begin; offset < piece.end;) {
-                    const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(
-                        pipelineChunkBytes,
-                        std::min<std::uint64_t>(piece.end - offset,
-                            id.chunkSize - offset % id.chunkSize)));
-                    if (options.maxChunks && producedBytes >= options.maxChunks * id.chunkSize) {
-                        producerStatus = Status::runtimeError("transfer interrupted by max-chunks");
-                        pipeline.cancel(producerStatus);
-                        return;
-                    }
-                    if (producerBuffer.capacity() < pipelineChunkBytes) {
-                        producerBuffer.reserve(pipelineChunkBytes);
-                        ++bufferAllocations;
-                        allocatedCapacityBytes += producerBuffer.capacity();
-                    } else {
-                        ++bufferReuses;
-                    }
-                    producerBuffer.resize(length);
-                    auto readPermit = stages->reads.acquire(&timing.stageReadWaitSeconds, limits.taskDeadline);
-                    if (!readPermit.isOk()) { producerStatus=readPermit.status(); pipeline.cancel(producerStatus); return; }
-                    ++timing.stageReadCalls;
-                    const auto reading = Clock::now();
-                    OptionalThreadCpuTimer readCpu(senderCpu.enabled ? &senderCpu.readCpuSeconds : nullptr);
-                    producerStatus = storage::readAtAll(file, offset, producerBuffer.data(), length,
-                        ioContext, &stats->fileIoStats);
-                    readCpu.stop();
-                    if (senderCpu.enabled) { ++senderCpu.readCalls; senderCpu.readBytes += length; }
-                    producerReadSeconds += secondsSince(reading);
-                    if (!producerStatus.isOk()) {
-                        pipeline.cancel(producerStatus);
-                        return;
-                    }
-                    const auto checksumStarted = Clock::now();
-                    OptionalThreadCpuTimer checksumCpu(senderCpu.enabled ? &senderCpu.checksumCpuSeconds : nullptr);
-                    checksum::ChecksumComputer frameChecksum(id.checksumAlgorithm,
-                        options.checksumBackend);
-                    frameChecksum.update(producerBuffer.data(), length);
-                    const auto verifiedChecksum = frameChecksum.finalize();
-                    if (!checksumComputer.combine(verifiedChecksum, length)) {
-                        producerStatus = Status::invalidArgument("persistent DATA checksum algorithm mismatch");
-                        pipeline.cancel(producerStatus);
-                        return;
-                    }
-                    const auto frameDigest = verifiedChecksum.value;
-                    checksumCpu.stop();
-                    if (senderCpu.enabled) { ++senderCpu.checksumCalls; senderCpu.checksumBytes += length; }
-                    producerChecksumSeconds += secondsSince(checksumStarted);
-                    const auto chunkIndex = offset / id.chunkSize;
-                    if (options.hasCorruptChunk && chunkIndex == options.corruptChunk)
-                        producerBuffer[0] ^= 0xffU;
-                    readPermit = StageGate::Permit{}; // never hold an IO permit across queue backpressure
-                    PreparedPayload prepared;
-                    prepared.offset = offset;
-                    prepared.chunkIndex = chunkIndex;
-                    prepared.frameChecksum = frameDigest;
-                    prepared.bytes = std::move(producerBuffer);
-                    OptionalThreadCpuTimer pushCpu(senderCpu.enabled ? &senderCpu.pushCpuSeconds : nullptr);
-                    producerStatus = pipeline.push(std::move(prepared), &producerBuffer);
-                    pushCpu.stop();
-                    if (senderCpu.enabled) { ++senderCpu.pushCalls; senderCpu.pushBytes += length; }
-                    if (!producerStatus.isOk()) return;
-                    producedBytes += length;
-                    offset += length;
+            for (;;) {
+                auto next = preparePayload(std::move(producerBuffer));
+                if (!next.isOk()) {
+                    producerStatus = next.status();
+                    pipeline->cancel(producerStatus);
+                    return;
                 }
+                if (!next.value()) break;
+                auto prepared = std::move(*next.value());
+                const auto length = prepared.bytes.size();
+                OptionalThreadCpuTimer pushCpu(senderCpu.enabled ? &senderCpu.pushCpuSeconds : nullptr);
+                producerStatus = pipeline->push(std::move(prepared), &producerBuffer);
+                pushCpu.stop();
+                if (senderCpu.enabled) { ++senderCpu.pushCalls; senderCpu.pushBytes += length; }
                 if (!producerStatus.isOk()) return;
             }
-            pipeline.close();
+            pipeline->close();
         });
         std::vector<std::uint8_t> reusablePayloadBuffer;
         for (;;) {
-            OptionalThreadCpuTimer popCpu(senderCpu.enabled ? &senderCpu.popCpuSeconds : nullptr);
-            auto next = pipeline.pop(std::move(reusablePayloadBuffer));
+            OptionalThreadCpuTimer popCpu(senderCpu.enabled && pipeline ? &senderCpu.popCpuSeconds : nullptr);
+            auto next = pipeline ? pipeline->pop(std::move(reusablePayloadBuffer))
+                : preparePayload(std::move(reusablePayloadBuffer));
             popCpu.stop();
-            if (senderCpu.enabled) ++senderCpu.popCalls;
+            if (senderCpu.enabled && pipeline) ++senderCpu.popCalls;
             if (!next.isOk()) {
                 status = next.status();
                 writeFailed = true;
@@ -1797,26 +1816,26 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             addWire(protocol::kFrameHeaderSize + checksumPrefixSize + wireLength);
             reusablePayloadBuffer = std::move(prepared.bytes);
         }
-        if (writeFailed)
-            pipeline.cancel(status.isOk() ? Status::runtimeError("persistent data write failed") : status);
-        producer.join();
+        if (writeFailed && pipeline)
+            pipeline->cancel(status.isOk() ? Status::runtimeError("persistent data write failed") : status);
+        if (producer.joinable()) producer.join();
         timing.payloadBufferAllocations = bufferAllocations;
         timing.payloadBufferReuses = bufferReuses;
         timing.payloadBufferAllocatedCapacityBytes = allocatedCapacityBytes;
-        timing.payloadBufferOwnershipBudgetBytes = pipelineChunkBytes * (kPipelineChunks + 2);
+        timing.payloadBufferOwnershipBudgetBytes = pipelineChunkBytes * (timing.senderInlinePayload ? 1 : kPipelineChunks + 2);
         timing.laneThreadCpuSeconds = threadCpuSeconds(timing.rangeObservationEnabled)-laneCpuStarted;
         timing.pipelineBudgetBytes = pipelineBudget;
-        timing.pipelineHighWatermarkBytes = pipeline.highWatermarkBytes();
-        timing.pipelineProducerWaits = pipeline.producerWaitCount();
-        timing.pipelineConsumerWaits = pipeline.consumerWaitCount();
-        timing.pipelineProducerWaitSeconds = pipeline.producerWaitSeconds();
-        timing.pipelineConsumerWaitSeconds = pipeline.consumerWaitSeconds();
+        timing.pipelineHighWatermarkBytes = pipeline ? pipeline->highWatermarkBytes() : 0;
+        timing.pipelineProducerWaits = pipeline ? pipeline->producerWaitCount() : 0;
+        timing.pipelineConsumerWaits = pipeline ? pipeline->consumerWaitCount() : 0;
+        timing.pipelineProducerWaitSeconds = pipeline ? pipeline->producerWaitSeconds() : 0;
+        timing.pipelineConsumerWaitSeconds = pipeline ? pipeline->consumerWaitSeconds() : 0;
         timing.readSeconds += producerReadSeconds;
         timing.checksumSeconds += producerChecksumSeconds;
         stats->payloadPipelineHighWatermarkBytes = std::max<std::uint64_t>(
-            stats->payloadPipelineHighWatermarkBytes, pipeline.highWatermarkBytes());
-        stats->payloadPipelineProducerWaits += pipeline.producerWaitCount();
-        stats->payloadPipelineConsumerWaits += pipeline.consumerWaitCount();
+            stats->payloadPipelineHighWatermarkBytes, timing.pipelineHighWatermarkBytes);
+        stats->payloadPipelineProducerWaits += timing.pipelineProducerWaits;
+        stats->payloadPipelineConsumerWaits += timing.pipelineConsumerWaits;
         if (!writeFailed && !producerStatus.isOk()) {
             status = producerStatus;
             writeFailed = true;
@@ -2630,6 +2649,7 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"lane_thread_cpu_seconds\":" << t.laneThreadCpuSeconds
             << ",\"lane_thread_cpu_scope\":\"" << (t.sender ? "payload_prepare_send_and_join" : "file_begin_through_result") << "\""
             << ",\"receiver_payload_execution\":\"" << (t.sender ? "not_receiver" : t.receiverInlinePayload ? "inline" : "queued") << "\""
+            << ",\"sender_payload_execution\":\"" << (!t.sender ? "not_sender" : t.senderInlinePayload ? "inline" : "queued") << "\""
             << ",\"receiver_write_backend\":\"" << (t.sender ? "not_receiver" : t.receiverMappedPayload ? "mmap_experimental" : "configured_file_io") << "\""
             << ",\"mapped_write\":{\"window_bound_bytes\":" << (t.receiverMappedPayload ? storage::MappedFileWindow::kWindowBytes : 0)
             << ",\"concurrent_window_bound_bytes\":" << (t.receiverMappedPayload ? 4 * storage::MappedFileWindow::kWindowBytes : 0)
@@ -2699,7 +2719,8 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             const auto& p = t.senderCpuObservation;
             out << "{\"schema\":\"cpnetflux_sender_cpu_observation_v1\","
                 << "\"clock\":\"CLOCK_THREAD_CPUTIME_ID\","
-                << "\"scope\":\"exact wrapper CPU includes timer cost; read/checksum/push on producer; pop/prepare/lease/socket on lane; nested in thread totals; waits exclude sleeping but include reacquire CPU; counts are attempts not certified progress\","
+                << "\"scope\":\"exact wrapper CPU includes timer cost; queued read/checksum/push on producer; inline read/checksum on lane; pop/prepare/lease/socket on lane; inline queue counters zero; nested in thread totals; waits exclude sleeping but include reacquire CPU; counts are attempts not certified progress\","
+                << "\"read_checksum_cpu_owner\":\"" << (t.senderInlinePayload ? "lane" : "producer") << "\","
                 << "\"read_calls\":" << p.readCalls << ",\"read_bytes\":" << p.readBytes
                 << ",\"checksum_calls\":" << p.checksumCalls << ",\"checksum_bytes\":" << p.checksumBytes
                 << ",\"push_calls\":" << p.pushCalls << ",\"push_bytes\":" << p.pushBytes

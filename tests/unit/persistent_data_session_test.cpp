@@ -776,42 +776,63 @@ TEST(PersistentTreeRecoveryTest, DirectoryEndCountsFilesOnCurrentConnectionAfter
 }
 
 TEST(PersistentTreeRangeTest, LoopbackTransfersTwoRangesAndPublishesAfterFinalRange) {
-    SocketPair pair;
-    TempRoot source;
-    TempRoot destination;
-    const std::string content = "ABCDEFGH";
-    {
-        std::ofstream output(source.path / "large.bin", std::ios::binary);
-        output << content;
+    for (const auto* execution : {"queued", "inline"}) {
+        SCOPED_TRACE(execution);
+        ScopedEnvironment senderMode("CPNETFLUX_SENDER_PAYLOAD_EXECUTION", execution);
+        SocketPair pair;
+        TempRoot source;
+        TempRoot destination;
+        const std::string content = "ABCDEFGH";
+        {
+            std::ofstream output(source.path / "large.bin", std::ios::binary);
+            output << content;
+        }
+        struct stat sourceStat{};
+        ASSERT_EQ(::stat((source.path / "large.bin").c_str(), &sourceStat), 0);
+        std::vector<PersistentFileIdentity> ranges;
+        for (std::uint64_t index = 0; index < 2; ++index) {
+            ranges.push_back(PersistentFileIdentity{1, 7, content.size(), "large.bin", "range-loopback",
+                4, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
+                index + 1, index * 4, 4, 2, 1});
+        }
+        PersistentTreeStats receivedStats;
+        cpnetflux::common::Status receiveStatus;
+        std::jthread receiver([&] {
+            receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+                &receivedStats, {}, 2, 0, 1, 1, false, false);
+        });
+        PersistentTreeStats sentStats;
+        sentStats.phaseTiming = true;
+        const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), ranges, &sentStats,
+            {}, 2, 0, 1, nullptr);
+        receiver.join();
+        ASSERT_TRUE(sendStatus.isOk()) << "send=" << sendStatus.message() << " receive=" << receiveStatus.message();
+        ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+        EXPECT_EQ(sentStats.files, 1U);
+        EXPECT_EQ(receivedStats.files, 1U);
+        const bool inlinePayload = std::string_view(execution) == "inline";
+        if (inlinePayload) {
+            EXPECT_EQ(sentStats.payloadPipelineBudgetBytes, 0U);
+            EXPECT_EQ(sentStats.payloadPipelineHighWatermarkBytes, 0U);
+        } else {
+            EXPECT_GT(sentStats.payloadPipelineBudgetBytes, 0U);
+            EXPECT_GT(sentStats.payloadPipelineHighWatermarkBytes, 0U);
+        }
+        EXPECT_LE(sentStats.payloadPipelineHighWatermarkBytes, sentStats.payloadPipelineBudgetBytes);
+        ASSERT_EQ(sentStats.fileTimings.size(), 2U);
+        for (const auto& timing : sentStats.fileTimings) {
+            EXPECT_EQ(timing.senderInlinePayload, inlinePayload);
+            if (inlinePayload) {
+                EXPECT_EQ(timing.payloadPipelineDepth, 0U);
+                EXPECT_EQ(timing.producerThreadCpuSeconds, 0);
+                EXPECT_EQ(timing.payloadBufferAllocations, 1U);
+                EXPECT_EQ(timing.payloadBufferOwnershipBudgetBytes, 65532U);
+            }
+        }
+        std::ifstream input(destination.path / "large.bin", std::ios::binary);
+        std::string actual((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        EXPECT_EQ(actual, content);
     }
-    struct stat sourceStat{};
-    ASSERT_EQ(::stat((source.path / "large.bin").c_str(), &sourceStat), 0);
-    std::vector<PersistentFileIdentity> ranges;
-    for (std::uint64_t index = 0; index < 2; ++index) {
-        ranges.push_back(PersistentFileIdentity{1, 7, content.size(), "large.bin", "range-loopback",
-            4, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
-            index + 1, index * 4, 4, 2, 1});
-    }
-    PersistentTreeStats receivedStats;
-    cpnetflux::common::Status receiveStatus;
-    std::jthread receiver([&] {
-        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
-            &receivedStats, {}, 2, 0, 1, 1, false, false);
-    });
-    PersistentTreeStats sentStats;
-    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), ranges, &sentStats,
-        {}, 2, 0, 1, nullptr);
-    receiver.join();
-    ASSERT_TRUE(sendStatus.isOk()) << "send=" << sendStatus.message() << " receive=" << receiveStatus.message();
-    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
-    EXPECT_EQ(sentStats.files, 1U);
-    EXPECT_EQ(receivedStats.files, 1U);
-    EXPECT_GT(sentStats.payloadPipelineBudgetBytes, 0U);
-    EXPECT_GT(sentStats.payloadPipelineHighWatermarkBytes, 0U);
-    EXPECT_LE(sentStats.payloadPipelineHighWatermarkBytes, sentStats.payloadPipelineBudgetBytes);
-    std::ifstream input(destination.path / "large.bin", std::ios::binary);
-    std::string actual((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    EXPECT_EQ(actual, content);
 }
 
 
