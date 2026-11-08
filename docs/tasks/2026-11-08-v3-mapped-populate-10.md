@@ -77,3 +77,15 @@ Keep initial receipts/logs, fix/commit/push/sync/build/test/hash again and repea
 the twenty local samples in a new evidence subdirectory. This is a measurement
 correction, not another candidate. Overall getrusage write-interval counters and
 minor/major-fault observations retain their original definition.
+
+## Completion
+
+Corrected source e61a5868abd2b89f44263753ebe1fb04e8bf8c5f builds and related
+CTest4/4 pass on both hosts; ten binary/shim hashes/config/version match. Both
+sources committed/pushed and remote SHA-read back. Forty total diagnostic samples
+pass content/resource/cleanup. Primary corrected five-pair medians lazy/write:
+R1 55.078277/41.554848 Gbps, R2 54.876631/41.040652 Gbps; all CV<1%, all pairs
+regress. Candidate closed no-go, no V3 runtime integration or new task throughput.
+Owned payloads removed, both /dev/shm empty, production PIDs preserved. Full
+evidence/commands/limitations/next sender-attribution scope:
+[result](2026-11-08-v3-mapped-populate-10-result.md).

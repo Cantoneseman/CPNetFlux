@@ -314,3 +314,32 @@ A/B。失败则关闭该假设，转向发送read/socket CPU剖析，不叠加wo
 本轮12个样本最低MemAvailable约20.010 GiB，owned swap与pswpout增量均零；全部payload
 已清理，两端/dev/shm归零，生产PID/启动时间保留。源码已提交推送并回读，证据在R1独立
 experiments目录，未将payload或凭据提交Git。
+
+## 2026-11-08 有界窗口批量页表建立：No-go
+
+[Mapped Populate 10](tasks/2026-11-08-v3-mapped-populate-10-result.md) 完成上一节的单候选验证。
+仅在本地offset-write诊断增加显式`--populate=write`，每个64 MiB mmap窗口立即调用
+MADV_POPULATE_WRITE，全部准备/写入/退役均计时，默认lazy及V3运行时保持。错误不降级，
+新增真实部分population后ENOMEM与截断后错误返回测试；两端最终相关CTest各4/4通过。
+
+初版子区间getrusage CPU存在tick归因误差，改为CLOCK_THREAD_CPUTIME_ID后提交e61a5868，
+两端重新同步构建、核对八个原二进制及offset/shim摘要，重复全部20个样本；原20个证据保留。
+最终每端五组8 GiB、shared inode、四worker/sparse/mmap对照结果：
+
+| 节点 | lazy局部写入中位 | population局部写入中位 | 中位变化 | CV lazy/populate |
+| --- | ---: | ---: | ---: | ---: |
+| R770-1 | 55.078 Gbps | 41.555 Gbps | -24.553% | 0.294% / 0.647% |
+| R770-2 | 54.877 Gbps | 41.041 Gbps | -25.213% | 0.476% / 0.836% |
+
+所有配对都回退，写线程总CPU约4.97-4.99 s上升到6.36-6.40 s，minor fault仍均为2097152。
+只看较小的残余copy区间或系统态CPU会漏掉population本身和新增用户态成本。候选关闭为
+no-go，仅保留诊断负对照，不进入V3集成和完整任务A/B。完整文件性能仍约28-29 Gbps，
+本轮未新增吞吐成绩；局部55 Gbps不等同完整传输。
+
+40个样本内容/内存/swap/清理全部通过，最低MemAvailable20.040 GiB、最大轮询RSS260.441
+MiB，owned swap与pswpout增量零；全部payload已清理，两端/dev/shm归零，生产PID保留。
+源码已推送并回读GitHub，独立证据位于R1 experiments的mapped-populate-10目录。
+
+下一独立scope转向发送端read/CRC与socket CPU归因，分清condition等待、下游背压和逐帧
+lease/dispatch成本，先量化观测开销再选一个假设。不继续叠加页表候选、worker或队列。
+三阶段结构扩张和RDMA优化继续暂停，30 Gbps下限、70-85/100 Gbps及生产场景仍待验收。
