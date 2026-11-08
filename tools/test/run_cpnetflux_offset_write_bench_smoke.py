@@ -38,7 +38,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='cpnetflux-offset-smoke-') as temporary:
         root = Path(temporary)
         for layout in ('shared', 'independent'):
-            for mode in ('fresh', 'rewrite'):
+            for mode in ('fresh', 'sparse', 'rewrite'):
                 for workers in (1, 2, 4):
                     for size in (workers, 2 * 1024 ** 2 + 37):
                         path = root / f'{layout}-{mode}-{workers}-{size}'
@@ -52,6 +52,12 @@ def main():
                         assert row['kept_files'] and not row['owned_files_removed']
                         assert row['elapsed_seconds'] > 0 and row['write_gbps'] > 0
                         assert row['prefill_bytes'] == (size if mode == 'rewrite' else 0)
+                        assert row['schema_version'] == 2
+                        assert row['initial_file_bytes'] == (0 if mode == 'fresh' else size)
+                        if mode == 'rewrite':
+                            assert row['initial_allocated_bytes'] >= size
+                        else:
+                            assert row['initial_allocated_bytes'] == 0
                         assert row['file_count'] == (1 if layout == 'shared' else workers)
                         assert row['payload_buffer_bound_bytes'] == max(workers, 2) * 65532
                         call_count = 0

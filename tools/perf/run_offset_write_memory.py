@@ -92,6 +92,13 @@ def measure(binary, path, layout, workers, size, mode, output):
         assert row['layout'] == layout and row['workers'] == workers and row['write_mode'] == mode
         assert row['write_at_all_calls'] == 17408 * (size // GIB)
         assert row['frame_bytes'] == 65532 and row['chunk_bytes'] == 1048576
+        assert row['schema_version'] == 2
+        assert row['initial_file_bytes'] == (0 if mode == 'fresh' else size)
+        assert row['prefill_bytes'] == (size if mode == 'rewrite' else 0)
+        if mode == 'rewrite':
+            assert row['initial_allocated_bytes'] >= size
+        else:
+            assert row['initial_allocated_bytes'] == 0
         assert receipt['samples'] > 0 and receipt['owned_samples'] > 0 and not path.exists()
         after = swap()
         receipt['swap_after'] = after
@@ -127,9 +134,13 @@ def main():
     parser.add_argument('--run-id', required=True)
     parser.add_argument('--gib', type=int, default=8, choices=range(1, 9))
     parser.add_argument('--repetitions', type=int, default=5, choices=range(1, 6))
+    parser.add_argument('--modes', nargs='+', choices=('fresh', 'sparse', 'rewrite'),
+                        default=['fresh', 'sparse', 'rewrite'])
     args = parser.parse_args()
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', args.run_id):
         parser.error('invalid run id')
+    if len(set(args.modes)) != len(args.modes):
+        parser.error('duplicate modes')
     if subprocess.check_output(['git', '-C', str(PROJECT), 'rev-parse', 'HEAD'], text=True).strip() != args.commit:
         parser.error('HEAD does not match --commit')
     subprocess.run(['git', '-C', str(PROJECT), 'diff', '--quiet', 'HEAD'], check=True)
@@ -147,13 +158,14 @@ def main():
     state = {'commit': args.commit, 'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
              'configuration': [s for s in configuration if s.startswith('CPNETFLUX_') and ':BOOL=' in s],
              'task': 'offset_write_only_no_network_no_V3_no_durability',
-             'gib': args.gib, 'repetitions': args.repetitions, 'samples': [], 'result': 'fail'}
+             'gib': args.gib, 'repetitions': args.repetitions, 'modes': args.modes,
+             'samples': [], 'result': 'fail'}
     temporary.mkdir()
     try:
         orders = ((1, 2, 4), (4, 2, 1), (2, 4, 1), (1, 4, 2), (4, 1, 2))
         for repetition in range(1, args.repetitions + 1):
             for index, workers in enumerate(orders[repetition - 1]):
-                for mode in (('fresh', 'rewrite') if repetition % 2 else ('rewrite', 'fresh')):
+                for mode in (args.modes if repetition % 2 else reversed(args.modes)):
                     layouts = ('shared', 'independent') if (repetition + index) % 2 else ('independent', 'shared')
                     for layout in layouts:
                         name = f'{mode}-{layout}-w{workers}-r{repetition:02d}'

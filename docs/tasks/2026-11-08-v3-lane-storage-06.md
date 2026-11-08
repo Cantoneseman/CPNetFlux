@@ -118,4 +118,28 @@ kept-file shapes plus 24 cleanup shapes (1/2/4 workers, shared/independent,
 fresh/rewrite, tiny/uneven multi-chunk). Real RLIMIT_FSIZE short-write/EFBIG at
 1/4 workers fails and cleans safely; existing paths/symlinks and invalid arguments
 are preserved/rejected; runner cleanup refuses unrelated entries and symlink roots.
-Storage experiments are pending fixed-commit peer build/hash acceptance.
+The first fixed-commit storage cohort completed 60 samples/host on e0b42f8;
+final statistics and interpretation follow after initial-state matching below.
+
+## Initial File State Correction
+
+The first storage cohort uses committed e0b42f8 on both hosts: fresh (zero
+length) and rewrite (populated pages). During code review, FileTransaction::begin
+in src/core/io/persistent_tree_transfer.cpp was confirmed to resize every V3
+temporary file to totalSize before writing, even when preallocate=off. Therefore
+neither boundary exactly matches V3. Preserve this cohort as boundary evidence;
+do not infer a V3 ceiling or a benefit from untimed prefill.
+
+Extend only the diagnostic with sparse mode: resize to final length, no prefill.
+Record total initial logical size and allocated blocks before timing in every
+mode; tests must distinguish zero-length, sparse and populated states. Add an
+explicit runner mode filter and run five shared/independent pairs at 1/2/4
+workers on each host (30 samples/host), with the same 8 GiB and resource gates.
+Use a new fixed commit and evidence storage-sparse/; do not pool different
+commits as paired candidates. The runtime and production defaults stay unchanged.
+Affected files are the existing diagnostic, runner, smoke and this task.
+
+R1 sparse extension: build passed; focused CTest 7/7 passed. Smoke now covers
+72 success invocations including independent byte checks and initial fstat
+size/allocation assertions across all three modes, plus prior failure/cleanup
+regressions. Commit and peer acceptance precede the sparse-only experiment.

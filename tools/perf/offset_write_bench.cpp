@@ -1,4 +1,5 @@
 #include <sys/resource.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <atomic>
@@ -99,13 +100,14 @@ std::size_t piece(std::uint64_t offset, std::uint64_t end,
 int run(int argc, char** argv) {
     if (argc != 8 && argc != 9)
         throw std::runtime_error("usage: cpnetflux-offset-write-bench directory shared|independent "
-            "workers bytes fresh|rewrite frame-bytes chunk-bytes [--keep-files]");
+            "workers bytes fresh|sparse|rewrite frame-bytes chunk-bytes [--keep-files]");
     const bool keep = argc == 9;
     if (keep && std::string_view(argv[8]) != "--keep-files")
         throw std::runtime_error("invalid optional argument");
     const std::string_view layout(argv[2]), mode(argv[5]);
     if (layout != "shared" && layout != "independent") throw std::runtime_error("invalid layout");
-    if (mode != "fresh" && mode != "rewrite") throw std::runtime_error("invalid write mode");
+    if (mode != "fresh" && mode != "sparse" && mode != "rewrite")
+        throw std::runtime_error("invalid write mode");
     const auto workers = number(argv[3], 64);
     const auto total = number(argv[4], 8ULL << 30);
     const auto frame = number(argv[6], 65536);
@@ -131,7 +133,10 @@ int run(int argc, char** argv) {
         lanes[i].begin = total * i / workers;
         lanes[i].end = total * (i + 1) / workers;
     }
-    if (mode == "rewrite") {
+    if (mode == "sparse") {
+        for (std::size_t i = 0; i < fileCount; ++i)
+            require(files[i].resize(shared ? total : lanes[i].end - lanes[i].begin));
+    } else if (mode == "rewrite") {
         const std::vector<std::uint8_t> zeros(frame);
         for (std::size_t i = 0; i < fileCount; ++i) {
             const auto size = shared ? total : lanes[i].end - lanes[i].begin;
@@ -141,6 +146,14 @@ int run(int argc, char** argv) {
                 offset += length;
             }
         }
+    }
+
+    std::uint64_t initialFileBytes = 0, initialAllocatedBytes = 0;
+    for (const auto& file : files) {
+        struct stat value{};
+        if (::fstat(file.fd(), &value)) throw std::runtime_error("initial fstat failed");
+        initialFileBytes += value.st_size;
+        initialAllocatedBytes += static_cast<std::uint64_t>(value.st_blocks) * 512;
     }
 
     std::latch ready(workers), start(1);
@@ -229,11 +242,12 @@ int run(int argc, char** argv) {
     const auto elapsed = seconds(first, last);
     const auto maximum = usage(RUSAGE_SELF);
     std::cout << std::setprecision(12)
-        << "{\"schema_version\":1,\"result\":\"pass\",\"diagnostic_only\":true,\"v3\":false,\"network\":false,\"durability\":false"
+        << "{\"schema_version\":2,\"result\":\"pass\",\"diagnostic_only\":true,\"v3\":false,\"network\":false,\"durability\":false"
         << ",\"layout\":\"" << layout << "\",\"write_mode\":\"" << mode << "\",\"workers\":" << workers
         << ",\"logical_bytes\":" << total << ",\"written_bytes\":" << written << ",\"verified_bytes\":" << verified
         << ",\"file_count\":" << fileCount << ",\"frame_bytes\":" << frame << ",\"chunk_bytes\":" << chunk
         << ",\"write_at_all_calls\":" << calls << ",\"prefill_bytes\":" << (mode == "rewrite" ? total : 0)
+        << ",\"initial_file_bytes\":" << initialFileBytes << ",\"initial_allocated_bytes\":" << initialAllocatedBytes
         << ",\"elapsed_seconds\":" << elapsed << ",\"write_gbps\":" << total * 8 / elapsed / 1e9
         << ",\"write_thread_cpu_seconds\":" << workerCpu
         << ",\"task_cpu_seconds\":" << cpu(processAfter) - cpu(processBefore)
