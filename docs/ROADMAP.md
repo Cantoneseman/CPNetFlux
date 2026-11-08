@@ -171,3 +171,29 @@ V3 per-file 协议 pending window 的受控评估。4/16 KiB × 100K 文件中�
 关闭 CRC 或宣称稳定 100 Gbps。本轮没有推广生产候选。下一步用相同 8 GiB 驻留 tmpfs 源
 复核完整 V3 的 1/4 lane，定向分离队列交接、共享范围/checkpoint 和发布路径；继续暂停
 三阶段扩张和 RDMA。perf 当前权限受限，独立 strace 样本只作调用数量证据，不计入吞吐。
+
+## 2026-11-08 V3 完整文件路径简化
+
+[Full File Path 05](tasks/2026-11-08-v3-full-path-05.md) 完成同版本复核和一个内联接收
+候选。原路径 1 lane 五次中位数 21.154 Gbps，但 CV 11.271% 未通过稳定性门；4 lanes
+为 15.059 Gbps、CV 2.042%。剖析显示细粒度队列交接伴随大量主动切换，累计写入耗时
+显著高于 checkpoint；不能把全部队列背压解释成纯唤醒成本。
+
+提交 df3ac592 在不改变 CRC、工作租约、恢复、检查点和发布语义的前提下，提供显式
+`CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION=inline`，让接收线程同步消费 DATA 并复用帧
+缓冲。两端同提交、同构建配置和二进制哈希；4 lanes 五组交错 A/B 中，完整 8 GiB
+tmpfs 任务中位数从 15.302 升至 23.801 Gbps（+55.54%），CV 1.707%/1.312%；两端
+CPU sec/GiB 从 4.100 降至 2.421（-40.95%），客户端主动切换下降 74.60%，5/5 配对
+改善。该受控四 lane 候选通过性能门，但仍未达到 30-50 Gbps 中期目标。
+
+默认继续 queued：单 lane 内联筛选只有 15.537 Gbps、一次样本，提示潜在回退，不能
+全局替换流水线。显式双帧写批和共享写池保留原执行路径。相关 CTest 在 R1 queued、
+R1 inline、R2 inline 各 174/174 通过；23 个互传样本均通过 SHA、字节、TCP 路由/
+接口计数与内存门。最低 MemAvailable 20.03 GiB，owned swap/pswpout 均为零，源和输出
+payload 已清理，两端 /dev/shm 归零。实验是 commit_sync=none、TLS off 的 tmpfs 场景，
+不是磁盘、持久化或安全配置下的生产吞吐。
+
+下一步先补同提交 queued/inline 的 1/2/4 lane 五组配对，再隔离共享 inode 与独立文件
+的 offset 写入服务率，确定执行策略和存储路径边界。保持已验证四 lane 优化可显式
+使用；继续暂停三阶段并发扩张和 RDMA，不把单 lane 波动、局部优化或纯内存帧结果
+写成 100 Gbps 已解决。
