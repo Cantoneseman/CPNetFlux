@@ -102,3 +102,15 @@ runner's memory/swap/content/cleanup guards. R2's source is cleaned before local
 storage samples. Both hosts still receive the same fixed commit and build/hash
 check, including the changed diagnostic binary. This is attribution, not candidate
 acceptance; no extrapolated end-to-end gain and no prefaulting promotion.
+
+## Completion / Handoff
+
+Observer matrix source 4b2976e094cf936272da281faab57a48a1fe00d8: six full-task
+samples pass; lean/detail medians 28.222448/28.047271 Gbps, CV1.150489/2.088662%.
+Diagnostic source 5a9f06a7b14ad10ca1d343fc90b4be53082480cd: both builds and 4/4
+related CTest pass; eight existing binary hashes plus the offset benchmark match.
+Three sparse/rewrite local pairs pass. Serial prefill adds more time than it saves;
+no runtime candidate is promoted. Both source stages are pushed and SHA-read back.
+Owned payloads removed, both /dev/shm empty, production services preserved.
+Full commands, evidence, metric boundaries and next single-candidate gate are in
+[result](2026-11-08-v3-mapped-profile-09-result.md). Complete-task 30 Gbps remains open.

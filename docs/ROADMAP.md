@@ -285,3 +285,32 @@ pwrite中位24.039570 Gbps，mmap中位28.864204 Gbps，提升20.069554%；CV 2.
 只保留显式实验入口，不改变默认。下一独立scope先在新后端重新归因发送准备/CRC、接收帧/
 CRC、Entry锁、checkpoint和等待，再选一个假设；不扩大三阶段结构，不把小文件微批替代
 大文件吞吐门。单路同提交对照、反向、TLS-on、持久化、混合负载及长稳仍待验收。
+
+## 2026-11-08 映射路径归因与缺页对照
+
+[Mapped Profile 09](tasks/2026-11-08-v3-mapped-profile-09-result.md) 完成三组交错观测对照，
+完整8 GiB任务轻量/详细观测中位28.222448/28.047271 Gbps，CV1.150489/2.088662%。
+详细观测任务时间中位差约+0.625%，只代表本批三组；没有新的运行时吞吐候选通过性能门。
+六次V3任务的CRC、独立SHA、终态、源驻留、TCP显式绑定/接口计数和资源门均通过。
+
+接收端mapped writer跨range累计wall中位4.724 s，Entry等待0.965 s、checkpoint flush
+0.212 s、frame CRC0.162 s；这些区间重叠，不得相加成任务wall或CPU比例。客户端系统态
+CPU中位6.420 s，约211万次minor fault、零major fault。发送端producer/lane CPU仍约
+4.633/5.077 s；producer等待含下游背压，不能全部归为唤醒开销。perf实际权限拒绝，
+gprofng校准不可靠，因此未把其样本用作热点证据。
+
+提交5a9f06a7扩展现有offset-write诊断，增加写入区间缺页计数及独立prefill wall/CPU，
+不改变V3运行时。先验证旧二进制缺指标失败，再实现；两端相关CTest各4/4通过，八个原有
+二进制及新增变动的offset工具摘要一致。R1三组四worker/shared/mmap的8 GiB局部对照中，
+sparse/rewrite写入中位54.720/76.299 Gbps，CV0.346/0.262%，但计入serial prefill后的
+两段合计时间是1.256/2.558 s；写入区间都仍有2097152次minor fault。已分配文件页不能
+等同于已建立映射页表，局部76 Gbps不是V3吞吐，预填充暂不进入运行时。
+
+下一独立scope只评估一个有界窗口内批量建立可写页表的候选，先核实支持、计入全部准备/
+退役成本并通过本地内容/故障/资源与稳定收益门，再决定是否进入V3实验入口和五组完整任务
+A/B。失败则关闭该假设，转向发送read/socket CPU剖析，不叠加worker/队列。100 Gbps、
+70-85 Gbps及30 Gbps中期下限均未验收；三阶段结构扩张和RDMA优化继续暂停。
+
+本轮12个样本最低MemAvailable约20.010 GiB，owned swap与pswpout增量均零；全部payload
+已清理，两端/dev/shm归零，生产PID/启动时间保留。源码已提交推送并回读，证据在R1独立
+experiments目录，未将payload或凭据提交Git。
