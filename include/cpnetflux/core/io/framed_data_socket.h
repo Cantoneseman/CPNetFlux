@@ -39,6 +39,10 @@ class FramedDataSocket {
                                             std::size_t payloadLength);
     [[nodiscard]] common::Result<std::size_t> readSome(std::uint8_t* data, std::size_t length);
     [[nodiscard]] common::Status readAll(std::uint8_t* data, std::size_t length);
+    // Plain TCP only. Both destinations remain caller-owned until completion.
+    // Partial reads may mutate either span on failure; callers must not certify it.
+    [[nodiscard]] common::Status readAllV(std::uint8_t* prefix, std::size_t prefixLength,
+                                         std::uint8_t* payload, std::size_t payloadLength);
 
     [[nodiscard]] common::Status writeFrame(const std::uint8_t* header,
                                             std::size_t headerLength,

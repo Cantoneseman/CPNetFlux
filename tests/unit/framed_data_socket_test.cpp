@@ -108,6 +108,22 @@ std::vector<std::uint8_t> testBytes(std::size_t length) {
 
 extern "C" ssize_t __real_send(int fd, const void* bytes, std::size_t length, int flags);
 extern "C" ssize_t __real_sendmsg(int fd, const msghdr* message, int flags);
+extern "C" ssize_t __real_readv(int fd, const iovec* spans, int count);
+thread_local std::vector<ssize_t>* readSteps = nullptr;
+extern "C" ssize_t __wrap_readv(int fd, const iovec* spans, int count) {
+    if (!readSteps || readSteps->empty()) return __real_readv(fd, spans, count);
+    const auto step = readSteps->front();
+    readSteps->erase(readSteps->begin());
+    if (step < 0) { errno = static_cast<int>(-step); return -1; }
+    std::vector<iovec> bounded;
+    auto remaining = static_cast<std::size_t>(step);
+    for (int i = 0; i < count && remaining; ++i) {
+        const auto size = std::min(remaining, spans[i].iov_len);
+        bounded.push_back({spans[i].iov_base, size});
+        remaining -= size;
+    }
+    return __real_readv(fd, bounded.data(), static_cast<int>(bounded.size()));
+}
 
 #if CPNETFLUX_TEST_WRAP_NEW
 extern "C" void* __real__Znwm(std::size_t size);
@@ -176,6 +192,61 @@ extern "C" ssize_t __wrap_sendmsg(int fd, const msghdr* message, int flags) {
     limited.msg_iov = capped.data();
     limited.msg_iovlen = capped.size();
     return __real_sendmsg(fd, &limited, flags);
+}
+
+TEST(FramedDataSocketTest, ScatterReceiveHandlesEintrAndEverySpanBoundary) {
+    SocketPair pair;
+    const std::array<std::uint8_t, 11> input{1,2,3,4,5,6,7,8,9,10,11};
+    ASSERT_EQ(::send(pair.receiver.get(), input.data(), input.size(), MSG_NOSIGNAL), 11);
+    std::array<std::uint8_t, 4> prefix{};
+    std::array<std::uint8_t, 7> payload{};
+    std::vector<ssize_t> script{-EINTR, 1, 2, -EINTR, 1, 3, 4};
+    readSteps = &script;
+    const auto status = pair.sender.readAllV(prefix.data(), prefix.size(), payload.data(), payload.size());
+    readSteps = nullptr;
+    ASSERT_TRUE(status.isOk()) << status.message();
+    EXPECT_TRUE(script.empty());
+    EXPECT_TRUE(std::equal(prefix.begin(), prefix.end(), input.begin()));
+    EXPECT_TRUE(std::equal(payload.begin(), payload.end(), input.begin()+4));
+}
+
+TEST(FramedDataSocketTest, ScatterReceiveRejectsInvalidSpansAndTruncation) {
+    SocketPair pair;
+    std::array<std::uint8_t, 4> bytes{};
+    EXPECT_FALSE(pair.sender.readAllV(nullptr, 1, bytes.data(), 1).isOk());
+    EXPECT_FALSE(pair.sender.readAllV(bytes.data(), std::numeric_limits<std::size_t>::max(), nullptr, 0).isOk());
+    EXPECT_TRUE(pair.sender.readAllV(nullptr, 0, nullptr, 0).isOk());
+    const std::uint8_t value = 19;
+    ASSERT_EQ(::send(pair.receiver.get(), &value, 1, MSG_NOSIGNAL), 1);
+    pair.receiver.reset();
+    EXPECT_FALSE(pair.sender.readAllV(bytes.data(), 2, bytes.data()+2, 2).isOk());
+    EXPECT_EQ(bytes[0], value);
+    EXPECT_FALSE(FramedDataSocket().readAllV(bytes.data(), 1, nullptr, 0).isOk());
+}
+
+TEST(FramedDataSocketTest, ScatterReceiveEmptyPrefixAndPayloadDoNotConsumeExtraBytes) {
+    SocketPair pair;
+    const std::array<std::uint8_t, 4> input{3, 5, 7, 9};
+    ASSERT_EQ(::send(pair.receiver.get(), input.data(), input.size(), MSG_NOSIGNAL), 4);
+    std::array<std::uint8_t, 4> actual{};
+    ASSERT_TRUE(pair.sender.readAllV(nullptr, 0, actual.data(), 2).isOk());
+    ASSERT_TRUE(pair.sender.readAllV(actual.data()+2, 2, nullptr, 0).isOk());
+    EXPECT_EQ(actual, input);
+}
+
+TEST(FramedDataSocketTest, ScatterReceiveRejectsOtherTransportsAndReturnsEagain) {
+    std::array<std::uint8_t, 2> bytes{};
+    FramedDataSocket tls(cpnetflux::core::io::TlsConnection{});
+    FramedDataSocket rdma(cpnetflux::core::io::RdmaDataSocket{});
+    EXPECT_FALSE(tls.readAllV(bytes.data(), 1, bytes.data()+1, 1).isOk());
+    EXPECT_FALSE(rdma.readAllV(bytes.data(), 1, bytes.data()+1, 1).isOk());
+    SocketPair pair;
+    std::vector<ssize_t> script{-EAGAIN, 1};
+    readSteps = &script;
+    const auto status = pair.sender.readAllV(bytes.data(), 1, bytes.data()+1, 1);
+    readSteps = nullptr;
+    EXPECT_FALSE(status.isOk());
+    EXPECT_EQ(script.size(), 1U);
 }
 
 TEST(FramedDataSocketTest, BufferedFrameWritePreservesTcpByteStreamBytes) {

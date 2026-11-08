@@ -94,14 +94,10 @@ common::Status MappedFileWindow::close() {
     return common::Status::ok();
 }
 
-common::Status MappedFileWindow::write(std::uint64_t offset, std::span<const std::uint8_t> bytes) {
-    if (offset > fileSize_ || bytes.size() > fileSize_ - offset)
-        return common::Status::invalidArgument("experimental download write exceeds file boundary");
+common::Status MappedFileWindow::ensureMapped(std::uint64_t offset) {
 #ifndef __linux__
     return common::Status::invalidArgument("experimental download write requires Linux");
 #else
-    ++stats_.writeCalls;
-    while (!bytes.empty()) {
         if (!mapped_ || offset < base_ || offset - base_ >= stats_.activeMappedBytes) {
             const auto retired = close();
             if (!retired.isOk()) return retired;
@@ -123,6 +119,30 @@ common::Status MappedFileWindow::write(std::uint64_t offset, std::span<const std
             stats_.activeMappedBytes = length;
             stats_.peakMappedBytes = std::max(stats_.peakMappedBytes, length);
         }
+    return common::Status::ok();
+#endif
+}
+
+common::Result<std::span<std::uint8_t>> MappedFileWindow::writableSpan(
+    std::uint64_t offset, std::size_t requested) {
+    if (!requested || offset >= fileSize_ || requested > fileSize_ - offset)
+        return common::Status::invalidArgument("experimental writable span exceeds file boundary");
+    const auto status = ensureMapped(offset);
+    if (!status.isOk()) return status;
+    const auto count = std::min<std::uint64_t>(requested, stats_.activeMappedBytes - (offset - base_));
+    return std::span<std::uint8_t>(static_cast<std::uint8_t*>(mapping_) + (offset - base_), count);
+}
+
+common::Status MappedFileWindow::write(std::uint64_t offset, std::span<const std::uint8_t> bytes) {
+    if (offset > fileSize_ || bytes.size() > fileSize_ - offset)
+        return common::Status::invalidArgument("experimental download write exceeds file boundary");
+#ifndef __linux__
+    return common::Status::invalidArgument("experimental download write requires Linux");
+#else
+    ++stats_.writeCalls;
+    while (!bytes.empty()) {
+        const auto status = ensureMapped(offset);
+        if (!status.isOk()) return status;
         const auto count = std::min<std::uint64_t>(bytes.size(), stats_.activeMappedBytes - (offset - base_));
         auto& profile = stats_.profile;
         // SIGBUS is fatal to the isolated opt-in CLI; no shared-process recovery.

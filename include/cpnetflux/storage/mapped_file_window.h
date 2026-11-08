@@ -32,9 +32,14 @@ class MappedFileWindow {
     MappedFileWindow(const MappedFileWindow&) = delete;
     MappedFileWindow& operator=(const MappedFileWindow&) = delete;
     common::Status write(std::uint64_t offset, std::span<const std::uint8_t> bytes);
+    // Tentative writable storage, not certified bytes. At most one64MiB mapping.
+    // View ends at a window boundary and expires on next borrow/write/close.
+    // Caller holds the attempt writing pin/IO lease until network IO and CRC end.
+    common::Result<std::span<std::uint8_t>> writableSpan(std::uint64_t offset, std::size_t requested);
     common::Status close();
     const MappedWriteStats& stats() const { return stats_; }
  private:
+    common::Status ensureMapped(std::uint64_t offset);
     int fd_;
     std::uint64_t fileSize_, base_ = 0;
     void* mapping_ = nullptr;

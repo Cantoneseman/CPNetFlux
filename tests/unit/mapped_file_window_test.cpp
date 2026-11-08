@@ -44,6 +44,41 @@ TEST(MappedFileWindowTest, CrossesWindowBoundaryAndClosesBeforeDescriptor) {
     ASSERT_TRUE(window.close().isOk());
     EXPECT_EQ(window.stats().unmapCalls, 2U);
 }
+TEST(MappedFileWindowTest, BorrowIsTentativeBoundedAndRetiresThePreviousWindow) {
+    WindowFile temporary;
+    constexpr auto bound = MappedFileWindow::kWindowBytes;
+    ASSERT_TRUE(temporary.file.resize(bound + 9).isOk());
+    MappedFileWindow window(temporary.file.fd(), bound + 9);
+    auto first = window.writableSpan(bound - 3, 7);
+    ASSERT_TRUE(first.isOk());
+    ASSERT_EQ(first.value().size(), 3U);
+    std::fill(first.value().begin(), first.value().end(), 37);
+    auto second = window.writableSpan(bound, 4);
+    ASSERT_TRUE(second.isOk());
+    ASSERT_EQ(second.value().size(), 4U);
+    std::fill(second.value().begin(), second.value().end(), 71);
+    EXPECT_EQ(window.stats().mapCalls, 2U);
+    EXPECT_EQ(window.stats().unmapCalls, 1U);
+    EXPECT_EQ(window.stats().writtenBytes, 0U);
+    EXPECT_EQ(window.stats().writeCalls, 0U);
+    ASSERT_TRUE(window.close().isOk());
+    std::array<std::uint8_t, 7> actual{};
+    ASSERT_TRUE(temporary.file.readAtAll(bound-3, actual.data(), actual.size()).isOk());
+    EXPECT_EQ(actual, (std::array<std::uint8_t, 7>{37,37,37,71,71,71,71}));
+    EXPECT_EQ(window.stats().activeMappedBytes, 0U);
+}
+
+TEST(MappedFileWindowTest, BorrowRejectsZeroOverflowAndMapFailureWithoutCertifyingBytes) {
+    MappedFileWindow window(-1, 8);
+    EXPECT_FALSE(window.writableSpan(0, 0).isOk());
+    EXPECT_FALSE(window.writableSpan(8, 1).isOk());
+    EXPECT_FALSE(window.writableSpan(0, 9).isOk());
+    EXPECT_FALSE(window.writableSpan(std::numeric_limits<std::uint64_t>::max(), 1).isOk());
+    EXPECT_EQ(window.stats().mapCalls, 0U);
+    EXPECT_FALSE(window.writableSpan(0, 8).isOk());
+    EXPECT_EQ(window.stats().mapFailures, 1U);
+    EXPECT_EQ(window.stats().writtenBytes + window.stats().activeMappedBytes, 0U);
+}
 TEST(MappedFileWindowTest, RejectsOverflowAndOutOfBoundsWithoutMapping) {
     WindowFile temporary;
     ASSERT_TRUE(temporary.file.resize(8).isOk());

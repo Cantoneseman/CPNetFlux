@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <cstring>
@@ -232,6 +233,36 @@ common::Status FramedDataSocket::readAll(std::uint8_t* data, std::size_t length)
             continue;
         }
         completed += received.value();
+    }
+    return common::Status::ok();
+}
+
+common::Status FramedDataSocket::readAllV(std::uint8_t* prefix, std::size_t prefixLength,
+                                         std::uint8_t* payload, std::size_t payloadLength) {
+    if (tlsMode_ || rdmaMode_ || !fd_.isValid())
+        return common::Status::invalidArgument("scatter receive requires a plain TCP socket");
+    if ((prefixLength && !prefix) || (payloadLength && !payload) ||
+        prefixLength > static_cast<std::size_t>(std::numeric_limits<ssize_t>::max()) ||
+        payloadLength > static_cast<std::size_t>(std::numeric_limits<ssize_t>::max()) - prefixLength)
+        return common::Status::invalidArgument("invalid scatter receive spans");
+    std::array<iovec, 2> spans{{{prefix, prefixLength}, {payload, payloadLength}}};
+    std::size_t first = 0;
+    while (first < spans.size()) {
+        while (first < spans.size() && spans[first].iov_len == 0) ++first;
+        if (first == spans.size()) break;
+        const auto count = ::readv(fd_.get(), spans.data() + first,
+                                   static_cast<int>(spans.size() - first));
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) return common::Status::systemError("TCP scatter receive failed", errno);
+        if (count == 0) return common::Status::transportError("TCP scatter receive closed");
+        auto remaining = static_cast<std::size_t>(count);
+        while (remaining) {
+            const auto consumed = std::min(remaining, spans[first].iov_len);
+            spans[first].iov_base = static_cast<std::uint8_t*>(spans[first].iov_base) + consumed;
+            spans[first].iov_len -= consumed;
+            remaining -= consumed;
+            if (!spans[first].iov_len) ++first;
+        }
     }
     return common::Status::ok();
 }

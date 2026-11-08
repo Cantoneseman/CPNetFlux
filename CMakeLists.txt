@@ -462,7 +462,7 @@ if(CPNETFLUX_BUILD_TESTS)
         add_executable(cpnetflux_framed_socket_tests tests/unit/framed_data_socket_test.cpp)
         target_link_libraries(cpnetflux_framed_socket_tests PRIVATE CPNetFlux::core GTest::gtest_main)
         target_link_options(cpnetflux_framed_socket_tests PRIVATE
-            "-Wl,--wrap=sendmsg" "-Wl,--wrap=send")
+            "-Wl,--wrap=sendmsg" "-Wl,--wrap=send" "-Wl,--wrap=readv")
         if(CMAKE_SIZEOF_VOID_P EQUAL 8)
             target_compile_definitions(cpnetflux_framed_socket_tests PRIVATE CPNETFLUX_TEST_WRAP_NEW=1)
             target_link_options(cpnetflux_framed_socket_tests PRIVATE "-Wl,--wrap=_Znwm")
@@ -474,6 +474,12 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tcp_frame_bench_smoke.py
             --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_tcp_frame_bench_smoke PROPERTIES TIMEOUT 120)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME cpnetflux_direct_receive_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_direct_receive_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_direct_receive_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    endif()
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_library(cpnetflux_offset_write_fault_shim SHARED tools/test/offset_write_fault_shim.cpp)
