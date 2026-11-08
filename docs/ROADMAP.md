@@ -2,9 +2,11 @@
 
 更新日期：2026-11-09
 
-当前进度：[Receiver Critical 13 结果](tasks/2026-11-09-v3-receiver-critical-13-result.md) 已完成默认关闭的接收 CPU 归因，并按[V3执行路径决定](DECISIONS/2026-11-09-v3-dynamic-download-local-executor.md)在 `127f4b66` 修复 dynamic 下载且 scheduler=off 时遗漏本地 WorkExecutor 的缺口。两端相关214/214测试、六次8GiB完整任务通过；CPU计时off/on中位数27.602/26.836 Gbps、CV1.141%/1.516%，观察者wall开销2.858%。旧8f42c851首对的内容/终态证据保留，cpu1合同失败不改写为通过；旧28–29Gbps不代表补齐路径后的验收。
+当前进度：[Mapped Cost 14 结果](tasks/2026-11-09-v3-mapped-cost-14-result.md) 已在 `9d2189b4` 完成实际映射写类的默认关闭 map/unmap/copy CPU/缺页剖析、同一映射冷/热写诊断和三对8GiB完整任务。两端相关226/226测试，配置/版本/八个原二进制及新增诊断工具摘要一致。新剖析off/on完整任务中位27.932/27.648 Gbps、CV1.413%/1.276%，wall中位差+1.031%、接收CPU+1.735%。这不是新的运行时吞吐收益，也不把跨轮基线差异当作提速。
 
-当前实验基线为上述 `127f4b66`、R770-2 -> R770-1、四路TCP、8GiB tmpfs驻留源、queued发送/inline实验mmap接收、CRC32C/verified_chunks、TLS off、commit_sync=none，既有detail观测仍开；CPU-off的27.602 Gbps不是lean默认或生产成绩。新增计时样本中physical mapped write约占lane CPU57.6%、socket read22.6%、lease2.1%；CPU总量与并发wall不能相加。下一步区分映射切换、首次触页/页分配和memcpy；不据此删除校验/租约、预热输出或原样重试失败的population候选。只在明确机制后选一个有界候选，以五对真实文件>=10%收益/CV<=5%验收。**三阶段工程已收口，30–50 Gbps完整文件门仍未过，继续暂停线程/队列扩张与RDMA。**
+当前实验基线为上述 `9d2189b4`、R770-2 -> R770-1、四路TCP、8GiB tmpfs驻留源、queued发送/inline实验mmap接收、CRC32C/verified_chunks、TLS off、commit_sync=none，既有detail观测仍开；27.932 Gbps不是lean默认或生产成绩。新增profile的map/unmap/copy累计CPU中位0.000710/0.147002/4.617723秒，copy区间约占三项96.90%，但包含首次触页成本，不是纯memcpy。同映射本地冷/热copy CPU为4.925/1.935秒、minor fault为2097152/0；两次写入与校验都计入整体，热写不是传输候选。下一独立scope只评估受租约保护的有界映射窗口直接接收这一项假设，先定义帧/CRC/生命周期并做真实TCP可行性门，正向后才进入V3入口和五对完整文件>=10%收益/CV<=5%验收；无稳定收益则关闭该方向。不得预热真实输出、删校验/租约、重开population或盲调映射/队列。**三阶段工程已收口，30–50 Gbps完整文件门仍未过，继续暂停线程/队列扩张与RDMA。**
+
+上一轮 [Receiver Critical 13](tasks/2026-11-09-v3-receiver-critical-13-result.md) 按[V3执行路径决定](DECISIONS/2026-11-09-v3-dynamic-download-local-executor.md)在 `127f4b66` 修复dynamic下载且scheduler=off时遗漏本地WorkExecutor的缺口。两端214/214测试及六次8GiB完整任务通过，CPU计时off/on为27.602/26.836Gbps。physical mapped write约占lane CPU57.6%、socket read22.6%、lease2.1%，这些包装区间不能与wall相加。旧8f42c851首对的内容/终态证据保留，cpu1合同失败不改写为通过；旧28–29Gbps不代表补齐路径后的验收。
 
 上一阶段：[Sender Service 12](tasks/2026-11-08-v3-sender-service-12-result.md) 已在 `351ae7ce` 完成驻留源read/CRC/队列局部隔离和一个显式同步发送候选。五组完整8 GiB对照中，queued/inline为28.757/28.092 Gbps（-2.313%），CV1.351%/0.854%；发送端CPU下降40.663%、双端CPU/GiB下降21.852%，但吞吐门未过。其下载端仍有scope13发现的local executor缺口，保留原配置结论，不替代修复后测量。默认仍queued，inline仅保留显式诊断/CPU效率实验入口；不继续盲调发送队列。
 
