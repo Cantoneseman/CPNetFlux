@@ -578,6 +578,21 @@ TEST(PersistentSessionTest, ReceiverRejectsInvalidWriteBatchBeforeCreatingCheckp
     EXPECT_EQ(stats.payloadBytes, 0U);
 }
 
+TEST(PersistentSessionTest, ReceiverRejectsInvalidPayloadExecutionBeforeCreatingCheckpoint) {
+    ScopedEnvironment setting("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", "invalid");
+    SocketPair pair;
+    TempRoot root;
+    PersistentTreeStats stats;
+    const PersistentFileIdentity id{1, 1, 1, "invalid-execution.bin", "invalid-execution"};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    const auto status = receivePersistentTree(&pair.receiver, root.path.string(), false, "", &stats);
+    EXPECT_FALSE(status.isOk());
+    EXPECT_NE(status.message().find("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION"), std::string::npos);
+    EXPECT_TRUE(std::filesystem::is_empty(root.path));
+    EXPECT_EQ(stats.payloadBytes, 0U);
+}
+
 TEST(PersistentSessionTest, WriteBatchPreservesWholeFileCrcAndHonorsBufferedExclusion) {
     ScopedEnvironment setting("CPNETFLUX_RECEIVER_WRITE_BATCH", "2");
     for (const bool buffered : {false, true}) {

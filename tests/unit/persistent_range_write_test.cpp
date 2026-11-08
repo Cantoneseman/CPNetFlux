@@ -30,6 +30,7 @@ struct WriteGate {
     bool first = false, second = false, released = false;
     bool partialFailure = false, shortWritten = false, errorReturned = false;
     bool holdSecond = false, third = false;
+    std::thread::id firstWriter;
     explicit WriteGate(std::string root) : directory(std::move(root)) {}
     bool wait(bool WriteGate::*member) {
         std::unique_lock lock(mutex);
@@ -57,6 +58,7 @@ struct Lane {
     FramedDataSocket sender, receiver;
     PersistentTreeStats sent, received;
     cpnetflux::common::Status receiveStatus;
+    std::thread::id receiverThread;
     std::jthread rx;
     Lane(const TempRoot& destination, bool download,
          std::shared_ptr<PersistentTransferContext> context, unsigned index) {
@@ -66,6 +68,7 @@ struct Lane {
         receiver = FramedDataSocket(UniqueFd(fds[1]));
         received.phaseTiming = true;
         rx = std::jthread([&, download, context, index] {
+            receiverThread = std::this_thread::get_id();
             receiveStatus = receivePersistentTree(&receiver, destination.path.string(), download,
                 "remote/tree", &received, {}, 1, index, 2, kUnknownPersistentFileCount, true, true, context);
             (void)::shutdown(receiver.fd(), SHUT_RDWR);
@@ -122,6 +125,7 @@ extern "C" ssize_t __wrap_pwrite(int fd, const void* data, size_t length, off_t 
     }
     if (offset == 8) { gate->third = true; gate->changed.notify_all(); }
     if (offset == 0 && !gate->first) {
+        gate->firstWriter = std::this_thread::get_id();
         gate->first = true; gate->changed.notify_all();
         gate->changed.wait(lock, [&] { return gate->released; });
         if (gate->partialFailure) {
@@ -188,6 +192,47 @@ TEST_P(PersistentRangeWriteTest, IndependentDirectRangeProgressesWhileOtherWrite
     ASSERT_EQ(b.received.fileTimings.size(), 1U);
     EXPECT_EQ(a.received.fileTimings.front().rangeObservation.parallelDirectWriteCalls, 1U);
     EXPECT_EQ(b.received.fileTimings.front().rangeObservation.parallelDirectWriteCalls, 1U);
+}
+TEST_P(PersistentRangeWriteTest, InlinePayloadWritesOnReceiverThreadAndCertifiesOnlyAfterIo) {
+    struct ExecutionSetting {
+        std::string previous;
+        bool hadPrevious = false;
+        ExecutionSetting() {
+            if (const auto* value = std::getenv("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION")) {
+                previous = value; hadPrevious = true;
+            }
+            if (::setenv("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", "inline", 1))
+                throw std::runtime_error("setenv");
+        }
+        ~ExecutionSetting() {
+            if (hadPrevious) (void)::setenv("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", previous.c_str(), 1);
+            else (void)::unsetenv("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION");
+        }
+    } execution;
+    TempRoot source, destination;
+    auto id = identity(source); id.rangeLength = 8; id.rangeCount = 1;
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    policy.rangeCheckpointBatchChunks = 1;
+    auto context = makePersistentTransferContext(policy);
+    WriteGate gate(destination.path.string()); InstallGate installed(gate);
+    Lane lane(destination, GetParam(), context, 0);
+    auto transfer = lane.send(source, id, 0);
+    const bool blocked = gate.wait(&WriteGate::first);
+    EXPECT_TRUE(blocked);
+    if (blocked) EXPECT_EQ(gate.firstWriter, lane.receiverThread);
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "payload.bin"));
+    EXPECT_EQ(transfer.wait_for(30ms), std::future_status::timeout);
+    gate.release();
+    auto sent = transfer.get(); lane.rx.join();
+    ASSERT_TRUE(sent.isOk()) << sent.message();
+    ASSERT_TRUE(lane.receiveStatus.isOk()) << lane.receiveStatus.message();
+    checkOutput(destination);
+    EXPECT_EQ(records(destination, GetParam()).size(), 2U);
+    EXPECT_EQ(lane.received.payloadBytes, 8U);
+    ASSERT_EQ(lane.received.fileTimings.size(), 1U);
+    EXPECT_EQ(lane.received.fileTimings.front().pipelineHighWatermarkBytes, 0U);
+    EXPECT_EQ(lane.received.fileTimings.front().receiverWriterThreadCpuSeconds, 0);
 }
 TEST_P(PersistentRangeWriteTest, BufferedRangesRetainSerialization) {
     TempRoot source, destination;

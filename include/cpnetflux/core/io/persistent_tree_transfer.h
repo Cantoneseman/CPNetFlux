@@ -109,6 +109,7 @@ struct PersistentFileTiming {
     bool stageWritePool = false;
     double stageWritePoolCpuSeconds = 0;
     std::uint32_t payloadPipelineDepth = 0;
+    bool receiverInlinePayload = false;
     bool receiverEmptyQueueWake = false;
     std::uint32_t receiverWriteBatchLimit = 1;
     // Actual two-frame wrapper attempts; may include failed writes, never certified bytes.

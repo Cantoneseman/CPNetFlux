@@ -254,9 +254,18 @@ TEST(FramedDataSocketTest, PersistentSenderBoundsPayloadAllocationsAcrossManyFra
         << "bounded queue plus producer/batch owners and one readback buffer per verified chunk";
     ASSERT_EQ(received.fileTimings.size(), 1U);
     const auto& receiverTiming = received.fileTimings.front();
-    EXPECT_EQ(receiverTiming.payloadPipelineDepth, depth);
-    EXPECT_EQ(receiverTiming.pipelineBudgetBytes, depth * 65536U);
-    EXPECT_GT(receiverTiming.pipelineHighWatermarkBytes, 0U);
+    const auto* execution = std::getenv("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION");
+    const bool inlineReceiver = execution && std::string(execution) == "inline";
+    EXPECT_EQ(receiverTiming.receiverInlinePayload, inlineReceiver);
+    EXPECT_EQ(receiverTiming.payloadPipelineDepth, inlineReceiver ? 0U : depth);
+    EXPECT_EQ(receiverTiming.pipelineBudgetBytes, inlineReceiver ? 0U : depth * 65536U);
+    if (inlineReceiver) {
+        EXPECT_EQ(receiverTiming.pipelineHighWatermarkBytes, 0U);
+        EXPECT_EQ(receiverTiming.receiverWriterThreadCpuSeconds, 0);
+        EXPECT_LE(receiverAllocations, 1U + verifiedChunks);
+    } else {
+        EXPECT_GT(receiverTiming.pipelineHighWatermarkBytes, 0U);
+    }
     EXPECT_LE(receiverTiming.pipelineHighWatermarkBytes, receiverTiming.pipelineBudgetBytes);
     std::ifstream output(destination.path / "buffers.bin", std::ios::binary);
     const std::vector<std::uint8_t> actual((std::istreambuf_iterator<char>(output)), {});
