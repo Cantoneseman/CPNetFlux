@@ -2578,6 +2578,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     receiverPolicy.options.preallocateMode = options.preallocateMode;
     receiverPolicy.options.fileIo = options.fileIo;
     receiverPolicy.rangeCheckpointBatchChunks = options.rangeCheckpointBatchChunks;
+    receiverPolicy.experimentalMappedDownload = !upload && options.experimentalMappedDownload;
     receiverPolicy.limits.taskDeadline = options.transferDeadline;
     auto transactions = makePersistentTransferContext(receiverPolicy);
     PersistentTransferLimits transferLimits;
@@ -3064,6 +3065,38 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
         &persistentStats, true, &usedPersistent);
     return emitTreeSummary("tree_upload_complete", "upload", persistentStatus, options,
                            manifest, persistentStats, startedAt);
+}
+
+common::Status configureExperimentalDownloadWrite(config::TreeTransferOptions& options, std::string_view backend) {
+    options.experimentalMappedDownload = false;
+    if (backend.empty() || backend == "pwrite") return common::Status::ok();
+    if (backend != "mmap")
+        return common::Status::invalidArgument("experimental download write must be pwrite or mmap");
+    const auto setting = [](const char* key, const char* expected, bool required = false) {
+        const auto* value = std::getenv(key);
+        return value ? std::string_view(value) == expected : !required;
+    };
+    if (options.connections != 4 || options.fileParallelism != 4 || options.linkSetLinks != 1 ||
+        options.controlReuseMode != config::ControlReuseMode::Worker || !options.reuseDataSession ||
+        options.dataTransport != DataTransport::Tcp || options.dataTlsMode != DataTlsMode::Off ||
+        options.compressionMode != config::CompressionMode::Off || options.hotPathCompression.enabled ||
+        options.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
+        options.fileIo.backend != storage::FileIoBackendKind::Posix ||
+        options.fileIo.posixWriteStrategy != storage::PosixWriteStrategy::Direct || options.fileIo.bufferSize ||
+        options.preallocateMode != storage::PreallocateMode::Off ||
+        options.commitSyncPolicy != session::CommitSyncPolicy::None ||
+        !setting("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", "inline", true) ||
+        !setting("CPNETFLUX_STAGE_READ_CONCURRENCY", "0") ||
+        !setting("CPNETFLUX_STAGE_WRITE_CONCURRENCY", "0") ||
+        !setting("CPNETFLUX_RECEIVER_WRITE_BATCH", "1") ||
+        !setting("CPNETFLUX_RANGE_DIRECT_WRITE", "parallel"))
+        return common::Status::invalidArgument("experimental download write requires four inline TCP POSIX direct lanes, worker control reuse, CRC32C, no stage workers, buffers, compression, preallocation or sync");
+#ifndef __linux__
+    return common::Status::invalidArgument("experimental download write requires Linux");
+#else
+    options.experimentalMappedDownload = true;
+    return common::Status::ok();
+#endif
 }
 
 common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOptions) {

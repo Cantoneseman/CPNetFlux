@@ -692,8 +692,12 @@ class FileTransaction {
         return ioContext_.backend() == storage::FileIoBackendKind::Posix &&
             storage::effectivePosixWriteStrategy(ioContext_.config()) == storage::PosixWriteStrategy::Direct;
     }
+    std::unique_ptr<storage::MappedFileWindow> mappedWindow() const {
+        return std::make_unique<storage::MappedFileWindow>(file_.fd(), identity_.totalSize);
+    }
     Status writeRange(std::uint64_t offset, std::span<const std::uint8_t> bytes,
-                      RangeObservation* observation, bool independent = false) {
+                      RangeObservation* observation, bool independent = false,
+                      storage::MappedFileWindow* mapped = nullptr) {
         if (skipped_) return Status::ok();
         if (!active_ || offset > identity_.totalSize || bytes.size() > identity_.totalSize - offset)
             return Status::invalidArgument("persistent range write exceeds file boundary");
@@ -703,8 +707,8 @@ class FileTransaction {
         }
         const auto started = Clock::now();
         // Independent ranges bypass the mutable buffered writer. The coordinator
-        // pins this transaction and its fd until the syscall and certification finish.
-        auto status = independent
+        // pins this transaction and its fd until IO and certification finish.
+        auto status = mapped ? mapped->write(offset, bytes) : independent
             ? storage::writeAtAll(file_, offset, bytes.data(), bytes.size(), ioContext_, ioStats_,
                                   observation ? &observation->fileWrite : nullptr)
             : writer_->write(offset, bytes.data(), bytes.size(),
@@ -827,6 +831,7 @@ class RangeFileCoordinator {
  public:
     struct Slot {
         PersistentFileIdentity id;
+        std::unique_ptr<storage::MappedFileWindow> mapped;
         bool active = true, completed = false, writing = false;
         std::vector<chunk::CompletedRange> missing;
         std::size_t next = 0;
@@ -981,8 +986,13 @@ class RangeFileCoordinator {
             if (previous.completed && entry->completed != 0) --entry->completed;
         }
         auto& slot = found->second;
+        if (slot.mapped) {
+            const auto retired = slot.mapped->close();
+            if (!retired.isOk()) return retired;
+        }
         slot = Slot{};
         slot.id = id;
+        if (context.policy.experimentalMappedDownload) slot.mapped = entry->transaction->mappedWindow();
         slot.checksum = checksum::ChecksumComputer(id.checksumAlgorithm);
         for (const auto& missing:entry->transaction->missingRanges()) {
             const auto begin=std::max(missing.begin,id.rangeOffset);
@@ -1040,7 +1050,7 @@ class RangeFileCoordinator {
                     if (observation) ++observation->serializedDirectWriteCalls;
                     status = entry->transaction->writeRange(offset, bytes, observation, true);
                 } else {
-                    status = entry->transaction->writeRange(offset, bytes, observation, true);
+                    status = entry->transaction->writeRange(offset, bytes, observation, true, lease.mapped.get());
                 }
                 // The physical IO gate is released before Entry is reacquired below.
             } catch (...) {
@@ -1088,9 +1098,20 @@ class RangeFileCoordinator {
         return entry->transaction->rangeComplete(id.rangeOffset,id.rangeLength);
     }
     // Called on all receiver exits, including malformed input and clean disconnect.
-    static Status flush(const std::shared_ptr<Entry>& entry, RangeObservation* observation) {
+    static Status flush(const std::shared_ptr<Entry>& entry, const PersistentFileIdentity& id,
+                        RangeObservation* observation, storage::MappedWriteStats* mappedStats) {
         if (!entry) return Status::ok();
         ObservedEntryLock lock(entry->mutex, observation);
+        const auto slot = entry->slots.find(id.rangeId);
+        // A late old-attempt exit must neither unmap nor flush its replacement.
+        if (slot == entry->slots.end() || !samePersistentIdentity(slot->second.id, id))
+            return Status::ok();
+        if (slot->second.writing) return Status::runtimeError("range exit still has a writer");
+        if (slot->second.mapped) {
+            const auto retired = slot->second.mapped->close();
+            if (mappedStats) *mappedStats = slot->second.mapped->stats();
+            if (!retired.isOk()) return retired;
+        }
         return flushLocked(entry, observation);
     }
  private:
@@ -1187,6 +1208,10 @@ class RangeFileCoordinator {
         if (slot->second.next!=slot->second.missing.size())
             return Status::invalidArgument("range completion has missing bytes");
         auto status = Status::ok();
+        if (slot->second.mapped) {
+            status = slot->second.mapped->close();
+            if (!status.isOk()) return status;
+        }
         slot->second.completed = true;
         slot->second.active = false;
         ++entry->completed;
@@ -1935,6 +1960,19 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             return Status::invalidArgument("V3 receiver stage configuration changed");
     }
 
+    if (context->policy.experimentalMappedDownload) {
+        const auto& options = context->policy.options;
+        const auto* direct = std::getenv("CPNETFLUX_RANGE_DIRECT_WRITE");
+        if (!download || channelCount != 4 || socket->transport() != DataTransport::Tcp || socket->tlsEnabled() ||
+            !receiverInline.value() || receiverWriteBatch.value() != 1 ||
+            stages->readConcurrency || stages->writeConcurrency || stages->writerPool ||
+            options.fileIo.backend != storage::FileIoBackendKind::Posix ||
+            options.fileIo.posixWriteStrategy != storage::PosixWriteStrategy::Direct ||
+            options.fileIo.bufferSize || options.preallocateMode != storage::PreallocateMode::Off ||
+            options.commitSyncPolicy != session::CommitSyncPolicy::None ||
+            (direct && std::string_view(direct) != "parallel"))
+            return Status::invalidArgument("experimental download write requires four inline TCP POSIX direct ranges without workers, buffers, preallocation or sync");
+    }
     detail::PersistentTransferLifetime lifetime(socket, context->policy.limits);
     if (auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
     PersistentDataSession state(dynamic);
@@ -2050,12 +2088,18 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         std::shared_ptr<RangeFileCoordinator::Entry> rangeEntry;
         struct RangeExitFlush {
             std::shared_ptr<RangeFileCoordinator::Entry>& entry;
+            const PersistentFileIdentity& id;
             RangeObservation* observation;
+            storage::MappedWriteStats& mappedStats;
             bool armed = true;
-            ~RangeExitFlush() { if (armed) (void)RangeFileCoordinator::flush(entry, observation); }
-        } rangeExitFlush{rangeEntry, observation};
+            ~RangeExitFlush() { if (armed) (void)RangeFileCoordinator::flush(entry, id, observation, &mappedStats); }
+        } rangeExitFlush{rangeEntry, id, observation, timing.mappedWrite};
         std::shared_ptr<FileTransaction> transaction;
         Status fileStatus = Status::ok();
+        if (context->policy.experimentalMappedDownload &&
+            (!id.rangeId || id.rangeCount < 4 || id.rangeCount > 8 || id.totalSize > 8ULL * 1024 * 1024 * 1024 ||
+             id.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c))
+            return Status::invalidArgument("experimental download write requires 4..8 CRC32C ranges in a file <=8 GiB");
         if (id.rangeId != 0) {
             auto started = RangeFileCoordinator::begin(*context, root, id, download, remoteRoot, resume, observation);
             if (!started.isOk()) {
@@ -2065,6 +2109,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 return finishTransport(rejected.isOk() ? started.status() : rejected);
             } else {
                 rangeEntry = std::move(started.value());
+                timing.receiverMappedPayload = context->policy.experimentalMappedDownload;
                 stats->receiverRangeCheckpointBatchChunks = rangeEntry->checkpointBatch;
                 const auto rangeStats = RangeFileCoordinator::takeStats(rangeEntry);
                 stats->loadedVerifiedChunks += rangeStats.first;
@@ -2313,6 +2358,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 logical = logical.subspan(4);
             }
             if (data.header.flags & protocol::kDataCompressed) {
+                if (context->policy.experimentalMappedDownload)
+                    return Status::invalidArgument("experimental download write rejects compressed DATA");
                 const auto decoding = payloadObservation ? Clock::now() : Clock::time_point{};
                 auto size = protocol::compressedDataPayloadLogicalLength(logical.data(),logical.size());
                 if (!size.isOk()) { drainReceiverWriter(); return size.status(); }
@@ -2378,7 +2425,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         }
         tracePersistentProtocol("receiver", "commit_begin", channelIndex, &id);
         if (rangeEntry) {
-            const auto checkpoint = RangeFileCoordinator::flush(rangeEntry, observation);
+            const auto checkpoint = RangeFileCoordinator::flush(rangeEntry, id, observation, &timing.mappedWrite);
             if (!checkpoint.isOk()) fileStatus = checkpoint;
             rangeExitFlush.armed = false; // do not flush another lane after our result
         }
@@ -2543,6 +2590,13 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"lane_thread_cpu_seconds\":" << t.laneThreadCpuSeconds
             << ",\"lane_thread_cpu_scope\":\"" << (t.sender ? "payload_prepare_send_and_join" : "file_begin_through_result") << "\""
             << ",\"receiver_payload_execution\":\"" << (t.sender ? "not_receiver" : t.receiverInlinePayload ? "inline" : "queued") << "\""
+            << ",\"receiver_write_backend\":\"" << (t.sender ? "not_receiver" : t.receiverMappedPayload ? "mmap_experimental" : "configured_file_io") << "\""
+            << ",\"mapped_write\":{\"window_bound_bytes\":" << (t.receiverMappedPayload ? storage::MappedFileWindow::kWindowBytes : 0)
+            << ",\"concurrent_window_bound_bytes\":" << (t.receiverMappedPayload ? 4 * storage::MappedFileWindow::kWindowBytes : 0)
+            << ",\"map_calls\":" << t.mappedWrite.mapCalls << ",\"map_failures\":" << t.mappedWrite.mapFailures
+            << ",\"unmap_calls\":" << t.mappedWrite.unmapCalls << ",\"write_calls\":" << t.mappedWrite.writeCalls
+            << ",\"written_bytes\":" << t.mappedWrite.writtenBytes << ",\"active_mapped_bytes\":" << t.mappedWrite.activeMappedBytes
+            << ",\"peak_mapped_bytes\":" << t.mappedWrite.peakMappedBytes << "}"
             << ",\"receiver_writer_thread_cpu_seconds\":" << t.receiverWriterThreadCpuSeconds
             << ",\"producer_thread_cpu_seconds\":" << t.producerThreadCpuSeconds
             << ",\"frame_prepare_seconds\":" << t.framePrepareSeconds

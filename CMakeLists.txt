@@ -186,6 +186,7 @@ add_library(cpnetflux_core STATIC
     src/protocol/control/control_options.cpp
     src/protocol/control/control_server.cpp
     src/storage/file_io.cpp
+    src/storage/mapped_file_window.cpp
     ${CPNETFLUX_FILE_IO_URING_SOURCE}
     src/storage/posix_file.cpp
     src/storage/preallocate_mode.cpp
@@ -453,8 +454,9 @@ if(CPNETFLUX_BUILD_TESTS)
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         target_sources(cpnetflux_unit_tests PRIVATE tests/unit/gathered_write_test.cpp
-            tests/unit/persistent_range_write_test.cpp)
-        target_link_options(cpnetflux_unit_tests PRIVATE "-Wl,--wrap=pwritev" "-Wl,--wrap=pwrite")
+            tests/unit/persistent_range_write_test.cpp
+            tests/unit/mapped_file_window_test.cpp)
+        target_link_options(cpnetflux_unit_tests PRIVATE "-Wl,--wrap=pwritev" "-Wl,--wrap=pwrite" "-Wl,--wrap=mmap")
         add_executable(cpnetflux_framed_socket_tests tests/unit/framed_data_socket_test.cpp)
         target_link_libraries(cpnetflux_framed_socket_tests PRIVATE CPNetFlux::core GTest::gtest_main)
         target_link_options(cpnetflux_framed_socket_tests PRIVATE
@@ -473,6 +475,17 @@ if(CPNETFLUX_BUILD_TESTS)
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_library(cpnetflux_offset_write_fault_shim SHARED tools/test/offset_write_fault_shim.cpp)
+        add_library(cpnetflux_mapped_download_fault_shim SHARED tools/test/mapped_download_fault_shim.cpp)
+        target_link_libraries(cpnetflux_mapped_download_fault_shim PRIVATE ${CMAKE_DL_LIBS})
+        add_test(NAME cpnetflux_mapped_download_config_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_mapped_download_config_smoke.py
+                $<TARGET_FILE:cpnetflux-tree-download-client>)
+        add_test(NAME cpnetflux_mapped_download_fault_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_mapped_download_fault_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --fault-library $<TARGET_FILE:cpnetflux_mapped_download_fault_shim>)
+        set_tests_properties(cpnetflux_mapped_download_config_smoke PROPERTIES TIMEOUT 20)
+        set_tests_properties(cpnetflux_mapped_download_fault_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
         target_link_libraries(cpnetflux_offset_write_fault_shim PRIVATE ${CMAKE_DL_LIBS})
         add_test(NAME cpnetflux_offset_write_bench_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_offset_write_bench_smoke.py

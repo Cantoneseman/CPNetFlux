@@ -10,6 +10,7 @@
 #include <optional>
 #include <iosfwd>
 #include "cpnetflux/storage/file_io.h"
+#include "cpnetflux/storage/mapped_file_window.h"
 #include "cpnetflux/core/io/dynamic_file_queue.h"
 #include "cpnetflux/core/io/persistent_data_session.h"
 #include "cpnetflux/core/tree/tree_scan.h"
@@ -26,6 +27,7 @@ struct PersistentTransferPolicy {
     std::uint32_t rangeCheckpointBatchChunks = 0;
     // Internal S2 experiment; 0 keeps the existing direct/explicit file-IO policy.
     std::uint64_t rangeWriteBatchBytes = 0;
+    bool experimentalMappedDownload = false;
     PersistentTransferLimits limits;
 };
 struct PersistentTransferContext;
@@ -110,6 +112,8 @@ struct PersistentFileTiming {
     double stageWritePoolCpuSeconds = 0;
     std::uint32_t payloadPipelineDepth = 0;
     bool receiverInlinePayload = false;
+    bool receiverMappedPayload = false;
+    storage::MappedWriteStats mappedWrite;
     bool receiverEmptyQueueWake = false;
     std::uint32_t receiverWriteBatchLimit = 1;
     // Actual two-frame wrapper attempts; may include failed writes, never certified bytes.

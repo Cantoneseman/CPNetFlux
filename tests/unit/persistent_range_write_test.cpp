@@ -16,6 +16,7 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 using namespace cpnetflux::core::io;
@@ -61,16 +62,16 @@ struct Lane {
     std::thread::id receiverThread;
     std::jthread rx;
     Lane(const TempRoot& destination, bool download,
-         std::shared_ptr<PersistentTransferContext> context, unsigned index) {
+         std::shared_ptr<PersistentTransferContext> context, unsigned index, unsigned channels = 2) {
         int fds[2];
         if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) throw std::runtime_error("socketpair");
         sender = FramedDataSocket(UniqueFd(fds[0]));
         receiver = FramedDataSocket(UniqueFd(fds[1]));
         received.phaseTiming = true;
-        rx = std::jthread([&, download, context, index] {
+        rx = std::jthread([&, download, context, index, channels] {
             receiverThread = std::this_thread::get_id();
             receiveStatus = receivePersistentTree(&receiver, destination.path.string(), download,
-                "remote/tree", &received, {}, 1, index, 2, kUnknownPersistentFileCount, true, true, context);
+                "remote/tree", &received, {}, 1, index, channels, kUnknownPersistentFileCount, true, true, context);
             (void)::shutdown(receiver.fd(), SHUT_RDWR);
         });
     }
@@ -110,6 +111,27 @@ std::vector<cpnetflux::checkpoint::ChunkChecksumRecord> records(const TempRoot& 
 }
 }
 extern "C" ssize_t __real_pwrite(int, const void*, size_t, off_t);
+namespace { std::atomic<WriteGate*> activeMapGate{nullptr}; }
+extern "C" void* __real_mmap(void*, size_t, int, int, int, off_t);
+extern "C" void* __wrap_mmap(void* address, size_t length, int protection, int flags, int fd, off_t offset) {
+    auto* gate = activeMapGate.load();
+    if (gate && fd >= 0 && (protection & PROT_WRITE)) {
+        std::array<char, 1024> path{};
+        const auto link = "/proc/self/fd/" + std::to_string(fd);
+        const auto count = ::readlink(link.c_str(), path.data(), path.size());
+        if (count > 0 && std::string_view(path.data(), count).starts_with(gate->directory + "/")) {
+            std::unique_lock lock(gate->mutex);
+            if (!gate->first) {
+                gate->first = true; gate->changed.notify_all();
+                gate->changed.wait(lock, [&] { return gate->released; });
+                if (gate->partialFailure) { errno = ENOMEM; return MAP_FAILED; }
+            } else {
+                gate->second = true; gate->changed.notify_all();
+            }
+        }
+    }
+    return __real_mmap(address, length, protection, flags, fd, offset);
+}
 extern "C" ssize_t __wrap_pwrite(int fd, const void* data, size_t length, off_t offset) {
     auto* gate = activeGate.load();
     if (!gate) return __real_pwrite(fd, data, length, offset);
@@ -158,6 +180,151 @@ class PersistentRangeWriteTest : public ::testing::TestWithParam<bool> {
         else (void)::unsetenv("CPNETFLUX_RANGE_DIRECT_WRITE");
     }
 };
+namespace {
+struct MappedSettings {
+    std::vector<std::pair<std::string, std::optional<std::string>>> previous;
+    MappedSettings() {
+        for (const auto& [key, value] : std::vector<std::pair<const char*, const char*>>{
+                 {"CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", "inline"},
+                 {"CPNETFLUX_STAGE_READ_CONCURRENCY", "0"},
+                 {"CPNETFLUX_STAGE_WRITE_CONCURRENCY", "0"},
+                 {"CPNETFLUX_RANGE_DIRECT_WRITE", "parallel"},
+                 {"CPNETFLUX_RECEIVER_WRITE_BATCH", "1"}}) {
+            const auto* old = std::getenv(key);
+            previous.emplace_back(key, old ? std::optional<std::string>(old) : std::nullopt);
+            (void)::setenv(key, value, 1);
+        }
+    }
+    ~MappedSettings() {
+        for (const auto& [key, value] : previous) {
+            if (value) (void)::setenv(key.c_str(), value->c_str(), 1);
+            else (void)::unsetenv(key.c_str());
+        }
+    }
+};
+}
+TEST(PersistentMappedRangeTest, FourRangesRetireBeforePublication) {
+    MappedSettings settings;
+    TempRoot source, destination;
+    auto id = identity(source); id.chunkSize = 2; id.rangeLength = 2; id.rangeCount = 4;
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    policy.experimentalMappedDownload = true;
+    policy.rangeCheckpointBatchChunks = 1;
+    auto context = makePersistentTransferContext(policy);
+    std::vector<std::unique_ptr<Lane>> lanes;
+    std::vector<std::future<cpnetflux::common::Status>> sends;
+    for (unsigned i = 0; i < 4; ++i) {
+        lanes.push_back(std::make_unique<Lane>(destination, true, context, i, 4));
+        id.rangeId = i + 1; id.rangeOffset = i * 2;
+        sends.push_back(lanes.back()->send(source, id, i));
+    }
+    for (unsigned i = 0; i < 4; ++i) {
+        const auto status = sends[i].get(); lanes[i]->rx.join();
+        EXPECT_TRUE(status.isOk()) << status.message();
+        EXPECT_TRUE(lanes[i]->receiveStatus.isOk()) << lanes[i]->receiveStatus.message();
+        ASSERT_EQ(lanes[i]->received.fileTimings.size(), 1U);
+        const auto& timing = lanes[i]->received.fileTimings.front();
+        EXPECT_TRUE(timing.receiverMappedPayload);
+        EXPECT_EQ(timing.mappedWrite.mapCalls, 1U);
+        EXPECT_EQ(timing.mappedWrite.unmapCalls, 1U);
+        EXPECT_EQ(timing.mappedWrite.writtenBytes, 2U);
+        EXPECT_EQ(timing.mappedWrite.activeMappedBytes, 0U);
+        EXPECT_EQ(timing.rangeObservation.fileWrite.writeAtAllCalls, 0U);
+    }
+    checkOutput(destination);
+    EXPECT_TRUE(verifyCommittedPersistentOutputs(context).isOk());
+}
+TEST(PersistentMappedRangeTest, ReclaimWaitsForFailedMapWhileOtherRangesProgress) {
+    MappedSettings settings;
+    TempRoot source, destination;
+    auto id = identity(source); id.chunkSize = 2; id.rangeLength = 2; id.rangeCount = 4;
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    policy.experimentalMappedDownload = true;
+    policy.rangeCheckpointBatchChunks = 1;
+    auto context = makePersistentTransferContext(policy);
+    WriteGate gate(destination.path.string()); gate.partialFailure = true;
+    struct MapInstallation {
+        WriteGate& gate;
+        explicit MapInstallation(WriteGate& g) : gate(g) { activeMapGate.store(&g); }
+        ~MapInstallation() { gate.release(); activeMapGate.store(nullptr); }
+    } installed(gate);
+    Lane first(destination, true, context, 0, 4), retry(destination, true, context, 0, 4);
+    auto old = first.send(source, id, 0);
+    EXPECT_TRUE(gate.wait(&WriteGate::first));
+    auto replacement = id; ++replacement.attempt;
+    auto recovered = retry.send(source, replacement, 0);
+    pollfd descriptor{retry.sender.fd(), POLLIN, 0};
+    EXPECT_EQ(::poll(&descriptor, 1, 100), 0);
+    std::vector<std::unique_ptr<Lane>> others;
+    std::vector<std::future<cpnetflux::common::Status>> sends;
+    for (unsigned i = 1; i < 4; ++i) {
+        others.push_back(std::make_unique<Lane>(destination, true, context, i, 4));
+        id.rangeId = i + 1; id.rangeOffset = i * 2;
+        sends.push_back(others.back()->send(source, id, i));
+    }
+    for (unsigned i = 0; i < 3; ++i) {
+        EXPECT_EQ(sends[i].wait_for(2s), std::future_status::ready);
+        EXPECT_TRUE(sends[i].get().isOk()); others[i]->rx.join();
+        EXPECT_TRUE(others[i]->receiveStatus.isOk());
+    }
+    EXPECT_EQ(records(destination, true).size(), 3U);
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "payload.bin"));
+    gate.release();
+    EXPECT_FALSE(old.get().isOk());
+    const auto fixed = recovered.get(); first.rx.join(); retry.rx.join();
+    EXPECT_FALSE(first.receiveStatus.isOk());
+    EXPECT_TRUE(fixed.isOk()) << fixed.message();
+    EXPECT_TRUE(retry.receiveStatus.isOk()) << retry.receiveStatus.message();
+    ASSERT_EQ(retry.received.fileTimings.size(), 1U);
+    const auto& timing = retry.received.fileTimings.front();
+    EXPECT_EQ(timing.rangeObservation.reclaimWaitCalls, 1U);
+    EXPECT_GT(timing.rangeObservation.reclaimWaitSeconds, 0.05);
+    EXPECT_EQ(timing.mappedWrite.mapCalls, 1U);
+    EXPECT_EQ(timing.mappedWrite.unmapCalls, 1U);
+    EXPECT_EQ(timing.mappedWrite.writtenBytes, 2U);
+    EXPECT_EQ(timing.mappedWrite.activeMappedBytes, 0U);
+    checkOutput(destination);
+}
+TEST(PersistentMappedRangeTest, CorruptFrameCannotWriteOrCertifyOrPublish) {
+    MappedSettings settings;
+    TempRoot source, destination;
+    auto id = identity(source); id.chunkSize = 2; id.rangeLength = 2; id.rangeCount = 4;
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    policy.experimentalMappedDownload = true;
+    auto context = makePersistentTransferContext(policy);
+    Lane lane(destination, true, context, 0, 4);
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&lane.sender, id, true).isOk());
+    ASSERT_TRUE(PersistentDataSession::readResumeResponse(&lane.sender, id).isOk());
+    FrameHeader header;
+    header.type = FrameType::Data; header.streamId = id.fileId; header.chunkId = id.generation;
+    header.rangeId = id.rangeId; header.attempt = id.attempt; header.totalSize = id.totalSize;
+    header.flags = kDataChecksum; header.payloadSize = 6;
+    const std::array<std::uint8_t, 6> corrupt{0, 0, 0, 0, 'A', 'B'};
+    const auto encoded = encodeFrameHeader(header);
+    ASSERT_TRUE(lane.sender.writeFrame(encoded.data(), encoded.size(), corrupt.data(), corrupt.size()).isOk());
+    (void)::shutdown(lane.sender.fd(), SHUT_WR); lane.rx.join();
+    EXPECT_FALSE(lane.receiveStatus.isOk());
+    EXPECT_NE(lane.receiveStatus.message().find("checksum mismatch before write"), std::string::npos);
+    EXPECT_TRUE(records(destination, true).empty());
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "payload.bin"));
+}
+TEST(PersistentMappedRangeTest, RejectsUploadAndWrongLaneCountBeforeInput) {
+    MappedSettings settings;
+    for (bool download : {false, true}) {
+        TempRoot destination;
+        PersistentTransferPolicy policy;
+        policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+        policy.experimentalMappedDownload = true;
+        Lane lane(destination, download, makePersistentTransferContext(policy), 0, download ? 2 : 4);
+        lane.rx.join();
+        EXPECT_EQ(lane.receiveStatus.code(), cpnetflux::common::StatusCode::InvalidArgument);
+        EXPECT_NE(lane.receiveStatus.message().find("experimental download write"), std::string::npos);
+        EXPECT_TRUE(std::filesystem::is_empty(destination.path));
+    }
+}
 TEST_P(PersistentRangeWriteTest, IndependentDirectRangeProgressesWhileOtherWriteIsBlocked) {
     const bool download = GetParam();
     TempRoot source, destination;

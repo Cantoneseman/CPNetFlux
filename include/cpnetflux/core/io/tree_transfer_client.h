@@ -15,6 +15,8 @@ struct TreeAuthProbeResult {
 };
 
 [[nodiscard]] common::Status runTreeUploadClient(const config::TreeTransferOptions& options);
+[[nodiscard]] common::Status configureExperimentalDownloadWrite(
+    config::TreeTransferOptions& options, std::string_view backend);
 [[nodiscard]] common::Status runTreeDownloadClient(const config::TreeTransferOptions& options);
 [[nodiscard]] TreeAuthProbeResult runTreeAuthProbe(const config::TreeTransferOptions& options);
 

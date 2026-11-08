@@ -70,6 +70,7 @@ struct TreeTransferOptions {
     core::session::CommitSyncPolicy commitSyncPolicy = core::session::CommitSyncPolicy::None;
     storage::PreallocateMode preallocateMode = storage::PreallocateMode::Off;
     storage::FileIoConfig fileIo;
+    bool experimentalMappedDownload = false; // Set only by the opt-in download executable.
     std::uint32_t rangeCheckpointBatchChunks = 0; // 0 preserves runtime environment/default.
     bool resume = false;
     std::uint32_t reconnectAttempts = 0;

@@ -1,12 +1,14 @@
 #include <iostream>
 #include <chrono>
+#include <cstdlib>
+#include <sys/resource.h>
 
 #include "cpnetflux/config/tree_transfer_options.h"
 #include "cpnetflux/core/io/tree_transfer_client.h"
 #include "cpnetflux/core/metrics/event_log.h"
 
 int main(int argc, char** argv) {
-    const auto options = cpnetflux::config::parseTreeTransferOptions(
+    auto options = cpnetflux::config::parseTreeTransferOptions(
         argc, argv, cpnetflux::config::TreeTransferRole::Download);
     if (!options.isOk()) {
         std::cerr << options.status().message() << '\n'
@@ -14,6 +16,17 @@ int main(int argc, char** argv) {
                          argv[0], cpnetflux::config::TreeTransferRole::Download)
                   << '\n';
         return 2;
+    }
+    const auto* backend = std::getenv("CPNETFLUX_EXPERIMENTAL_DOWNLOAD_WRITE");
+    const auto configured = cpnetflux::core::io::configureExperimentalDownloadWrite(
+        options.value(), backend ? backend : "");
+    if (!configured.isOk()) { std::cerr << configured.message() << '\n'; return 2; }
+    if (options.value().experimentalMappedDownload) {
+        const rlimit noCore{0, 0};
+        if (::setrlimit(RLIMIT_CORE, &noCore)) {
+            std::cerr << "experimental download write cannot disable core dumps\n";
+            return 2;
+        }
     }
     (void)cpnetflux::core::metrics::writeEventLog(
         options.value().eventLogPath,
