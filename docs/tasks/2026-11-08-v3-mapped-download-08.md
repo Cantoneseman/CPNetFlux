@@ -2,7 +2,7 @@
 
 Date: 2026-11-08
 Input: ab5136b90379b33869050a6186b728d682c5d401
-Status: in progress; single writer on R770-1.
+Status: complete; explicit experimental backend passes the bounded full-task gate.
 
 ## Scope
 
@@ -112,5 +112,32 @@ download executable reads the environment switch; the core flag defaults false.
 Option parsing can create an empty destination before experimental validation;
 invalid configurations create no payload/checkpoint or control connection.
 
-Next: commit/push this implementation, sync R2 and build/test/hash both ends,
-then run the bounded five-pair full-task experiment. No performance promotion yet.
+## Full-task Gate and Handoff
+
+Source: 535d33db5d38fe7e380d022e100195a94ec5e32e, committed and pushed to the
+verified CPNetFlux GitHub origin; remote branch SHA was read back. R2 fast-forwarded
+to that exact source, all-target build succeeded and related CTest 107/107 passed.
+Both ends have identical configuration/version and all eight checked binaries.
+
+Five interleaved 8 GiB V3 TCP download pairs completed at that source commit.
+pwrite median 24.039570 Gbps (CV 2.083093%); mmap median 28.864204 Gbps
+(CV 1.874964%). Gain 20.069554%, all 5/5 paired gains positive, all ten task,
+CRC/SHA, interface/route, terminal, resource and cleanup gates pass. Both-end
+CPU/GiB median 2.43750 -> 2.21375; receiver 1.23375 -> 0.98375.
+Each mapped task reports 128 successful maps/unmaps, zero active mappings at
+completion, exactly 8 GiB written and configured 64 MiB/range, 256 MiB concurrent
+window bounds. These mapped windows are separate from frame buffer accounting.
+
+Minimum MemAvailable: R1 20.552109 GiB, R2 20.002949 GiB. Polled maximum owned
+RSS: R1 226.265625 MiB, R2 19.804688 MiB, alongside each task's tmpfs file pages.
+Owned swap and host pswpout delta are zero. All owned payload roots removed;
+both /dev/shm report zero used bytes. Original production PIDs/start times are
+preserved. Unrelated R1 October task files remain untracked; R2 tracked tree clean.
+
+Promotion applies only to retaining the explicit experimental CLI option. Default
+pwrite/queued selection is unchanged. 30 Gbps lower midterm threshold is still
+unmet; reverse direction, TLS-on, durable commit, mixed loads and long stability
+are not accepted by this experiment. No automatic selection or production enablement.
+
+Detailed commands, evidence hashes and next bounded profiling task:
+[result](2026-11-08-v3-mapped-download-08-result.md).

@@ -2,9 +2,9 @@
 
 更新日期：2026-11-08
 
-当前进度：[Write Backend 07](tasks/2026-11-08-v3-write-backend-07.md) 已在 `ae3f0a94` 完成两端 120 个稀疏文件写入样本。独立打开同一 inode 不能消除退化；四线程有界映射写中位数 54.896/55.348 Gbps，CV 0.913%/1.204%，相对 pwrite 提高 77.96%/77.91%，CPU/GiB 下降约44%，通过本地可行性门。单线程映射写退步约49%，双线程收益不足10%，不推广。**下一步先明确映射错误处理与 range-attempt 生命周期，再做独立 V3 下载 CLI 集成。三阶段工程已收口，30–50 Gbps 完整文件吞吐门仍未过。** 继续暂停线程/队列扩张和 RDMA。
+当前进度：[Mapped Download 08](tasks/2026-11-08-v3-mapped-download-08-result.md) 已在 `535d33db` 完成 V3 下载 CLI 显式映射写集成、错误/恢复与 range-attempt 生命周期验证，以及五组 8 GiB 完整任务 A/B。四路 inline 的 pwrite/mmap 中位数为 24.040/28.864 Gbps，CV 2.083%/1.875%，收益20.07%，五组配对全部改善；双端CPU/GiB下降9.18%。**通过受限实验入口保留门，默认仍为pwrite/queued，不自动选择。三阶段工程已收口，30–50 Gbps 完整文件吞吐门仍未过。下一步先剖析新后端下约29 Gbps路径的CPU/等待分布，再选择一个有证据的优化假设。** 继续暂停线程/队列扩张和 RDMA。
 
-最新完整文件成绩仍来自 [Lane / Storage 06](tasks/2026-11-08-v3-lane-storage-06.md)，输入 `76f7572d`：queued 的 1/2/4 lane 中位数为 22.764/18.128/15.537 Gbps，inline 为 15.736/23.378/24.139 Gbps。两 lane 两种模式均未过 CV≤5% 门；默认 queued、显式 inline，不自动选择。scope 07 没有修改运行时或新增网络互传，55 Gbps 是本地写入诊断，不是完整 V3 文件成绩。
+最新完整文件成绩为上述 scope 08 的 R770-2 -> R770-1、tmpfs驻留源、TCP/TLS off、verified_chunks、commit_sync=none；没有通过反向、TLS-on、持久化或长时间稳定性验收。此前 [Lane / Storage 06](tasks/2026-11-08-v3-lane-storage-06.md) 的 queued 1/2/4 lane 为22.764/18.128/15.537 Gbps，inline为15.736/23.378/24.139 Gbps，按 `76f7572d` 保留，不能替代本轮同提交单路复测。[Write Backend 07](tasks/2026-11-08-v3-write-backend-07.md) 的四线程54.896/55.348 Gbps仍只是本地可行性诊断；单线程映射写退步约49%，双线程收益不足10%，本轮不推广这些配置。
 
 旧阶段记录：`201a43a047102dfe52b1f05ec4497181dd64f6bb` 的 [TCP lane复核与两候选结果](tasks/2026-11-07-v3-tcp-scaling-audit-01-result.md) 保留原结论。file_serial/file_dual 两候选均 no-go；其 perf 定位到同 inode tmpfs 写锁 CPU 成本。后续 raw TCP、V3 帧内存路径、完整文件交接和本轮写入服务率已分别完成测量，不能再把它们标为尚未执行，也不重开失败的串行准入候选。
 
@@ -101,7 +101,7 @@ RDMA 后续任务现已暂停：[流水线优先决策](DECISIONS/2026-11-07-v3-
 | 0. E2E 基线 | 对照原生带宽、CPNetFlux direct bench、V3 真实文件；1/4 连接、4/64 GiB、至少 3 次重复；核实同一大文件是否真正并行 range | 完整性通过，稳定与 task rate 分开，失败可解释；完成后再定优化项 |
 | 1. 瓶颈归因 | 分解建连、注册/清零、RQ/CQ、帧复制、checksum、调度、写入/writeback、manifest/final verify | 主要耗时可被重复样本定位，不凭单一计数器推因果 |
 | 2. RDMA 资源与完成队列（暂停） | 测接收池预算、RQ/SQ 深度、补投递、CQ 批处理及完成等待；维持槽位所有权和有界反压 | 找到低内存且长传输稳定的窗口；若收益不成立，保留现状 |
-| 3. 三阶段流水线（工程收口；文件写后端独立研究） | 四线程映射写通过本地可行性门；下一步完成错误/生命周期契约，再做 V3 集成 A/B | 真实文件约24 Gbps，30–50 Gbps门未过；默认queued，inline显式，不扩线程/队列 |
+| 3. 三阶段流水线（工程收口；文件写后端独立研究） | 显式四lane inline映射写通过错误/生命周期/恢复与完整任务A/B；下一步剖析新路径剩余CPU与等待 | 真实文件中位28.864 Gbps，30–50 Gbps门未过；默认pwrite/queued，实验入口显式，不扩线程/队列 |
 | 4. 小文件自适应微批 | per-file 基线已完成；下一步先做 fixed microbundle，再在同矩阵比较 adaptive；测 4–256 KiB 与 1K–100K 文件规模 | fixed 先满足 T_ready 中位至少下降 20%、p95/恢复不恶化，再决定 adaptive |
 | 5. 条件式服务率调度 | 只有观察到 worker 异质性、队列偏斜或拖尾时，比较 SR-Dispatch/BAP | 多次重复收益成立且无公平性、饥饿和恢复回归；否则不实现 |
 | 6. 单链路稳定验收 | 冻结代码/配置/数据；双向 large/dense/mixed 重复测与超接收池长传输 | SHA 全过、CV ≤5%、无静默降级和未解释链路错误 |
@@ -263,3 +263,25 @@ tmpfs文件；映射RSS引用同一文件页，不重复计算成第二份8 GiB�
 mmap错误返回Status，SIGBUS当前会终止子进程，必须验证对端EOF退出、无成功/发布和checkpoint
 恢复；不能声称已有优雅恢复或直接放进共享服务端。完成这些行为门后，才进行五组8 GiB
 完整任务A/B，以≥10%中位收益、CV≤5%及原CRC/SHA/租约/恢复/内存门决定是否保留。
+
+## 2026-11-08 显式 V3 映射写集成验收
+
+[Mapped Download 08](tasks/2026-11-08-v3-mapped-download-08-result.md) 完成上一节的集成与验收。
+源码`535d33db5d38fe7e380d022e100195a94ec5e32e`已提交、推送并远端SHA回读，两端同配置、
+同八个二进制SHA。R1最终相关105/105及认证/故障5/5通过，R2相关107/107通过。
+1 GiB loopback故障验证ENOMEM退出1、真实SIGBUS退出-7、无残缺发布、对端EOF退出，随后
+恢复与独立SHA通过，SIGBUS场景复用64 MiB。SIGBUS仍按隔离任务失败处理，不是优雅恢复。
+
+五组8 GiB配对，四lane/inline、驻留tmpfs、TCP/TLS off、verified_chunks、commit_sync=none：
+pwrite中位24.039570 Gbps，mmap中位28.864204 Gbps，提升20.069554%；CV 2.083093%和1.874964%。
+双端CPU/GiB中位2.43750 -> 2.21375，接收端1.23375 -> 0.98375。所有10个任务完整性、路由/
+接口计数、V3终态、资源和清理门通过。每个映射任务128次map/unmap，完成时活动映射为零；
+每range最多64 MiB、四路活动窗口上限256 MiB，不改变帧缓冲预算。
+
+最低MemAvailable R1/R2为20.552/20.003 GiB，最大轮询owned RSS为226.266/19.805 MiB，
+另计tmpfs文件页；owned swap和主机pswpout增量均为零。源、输出及sidecar全部清理，两端
+/dev/shm归零，生产服务PID及October 30启动时间保持。证据约9.5 MiB位于R1独立experiments目录。
+
+只保留显式实验入口，不改变默认。下一独立scope先在新后端重新归因发送准备/CRC、接收帧/
+CRC、Entry锁、checkpoint和等待，再选一个假设；不扩大三阶段结构，不把小文件微批替代
+大文件吞吐门。单路同提交对照、反向、TLS-on、持久化、混合负载及长稳仍待验收。
