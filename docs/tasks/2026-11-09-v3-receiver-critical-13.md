@@ -80,3 +80,15 @@ Original three-pair acceptance at8f42c851 is superseded;preserve its initial two
 samples,then rerun allthree observer pairs under distinct v2 labels at the new
 fixed source. This correctness repair is not a claimed throughput optimization.
 If it changes throughput,report it as a semantic baseline correction,not a win.
+
+## Completion
+
+Instrumentation8f42c851 and dynamic download fix127f4b66 were committed,pushed
+and remote SHA read back before peer sync. Both hosts passed214/214 related
+tests;new dynamic inline/queued regressions2/2. Six fixed127f4b66 v2 tasks passed
+CPU/lease/bytes/SHA/terminal/resource/cleanup gates. New CPU-off median27.602Gbps,
+on26.836Gbps;observer wall+2.858%. No runtime throughput candidate was promoted.
+Physical mapped write is the largest measured wrapper,but faults/copy/allocation
+remain unsplit. Complete result and next scope:
+[Receiver Critical13 result](2026-11-09-v3-receiver-critical-13-result.md).
+Owned input/output cleaned,both tmpfs roots removed,production starts preserved.

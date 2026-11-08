@@ -1,6 +1,6 @@
 # V3 Dynamic Download Local Executor
 
-Date:2026-11-09. Status:implementation approved within existing V3-only mandate.
+Date:2026-11-09. Status:implemented and scoped validation passed at127f4b66.
 Input:8f42c8513d0169bbb30a4f4036c2bb868f7f759c.
 
 Receiver CPU instrumentation exposed that dynamic directory download with global
@@ -28,3 +28,9 @@ They do not prove the repaired local receiver path's performance or readiness.
 Stop the original scope13 observer matrix and remeasure a distinct fixed-source
 matrix after correction. This decision does not promote sender inline,mmap as a
 default,RDMA or additional worker/queue architecture.
+
+Validation:both hosts214/214 related tests,new dynamic inline/queued regressions,
+six same-commit8GiB file tasks passed. CPU-enabled records prove local executor
+and balanced per-frame start/finish. CPU-off task median27.602Gbps;this is a new
+correctness baseline,not a throughput improvement claim. See receiver-critical13
+task/result for evidence,boundaries and unchanged production readiness gates.

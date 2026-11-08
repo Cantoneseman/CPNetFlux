@@ -2,13 +2,15 @@
 
 更新日期：2026-11-09
 
-进行中：[Receiver Critical 13](tasks/2026-11-09-v3-receiver-critical-13.md) 新增默认关闭的接收CPU归因。首组实测发现dynamic下载且scheduler=off时未创建本地WorkExecutor；原数据/校验/终态证据保留，但不能代表补齐本地接收执行器后的性能。按[V3执行路径决定](DECISIONS/2026-11-09-v3-dynamic-download-local-executor.md)，先补测试和有界incoming工作队列，再固定新提交重测。原8f42c851三组观测计划已失效，两次原始样本保留，不据此继续调租约或宣布接收端唯一根因。
+当前进度：[Receiver Critical 13 结果](tasks/2026-11-09-v3-receiver-critical-13-result.md) 已完成默认关闭的接收 CPU 归因，并按[V3执行路径决定](DECISIONS/2026-11-09-v3-dynamic-download-local-executor.md)在 `127f4b66` 修复 dynamic 下载且 scheduler=off 时遗漏本地 WorkExecutor 的缺口。两端相关214/214测试、六次8GiB完整任务通过；CPU计时off/on中位数27.602/26.836 Gbps、CV1.141%/1.516%，观察者wall开销2.858%。旧8f42c851首对的内容/终态证据保留，cpu1合同失败不改写为通过；旧28–29Gbps不代表补齐路径后的验收。
 
-当前进度：[Sender Service 12](tasks/2026-11-08-v3-sender-service-12-result.md) 已在 `351ae7ce` 完成驻留源read/CRC/队列局部隔离和一个显式同步发送候选。五组完整8 GiB对照中，queued/inline为28.757/28.092 Gbps（-2.313%），CV1.351%/0.854%；发送端CPU下降40.663%、双端CPU/GiB下降21.852%，但吞吐门未过。默认仍queued，inline仅保留显式诊断/CPU效率实验入口。下一步保持queued发送端，区分接收端处理限制与发送读写重叠损失，不继续调发送队列。**三阶段工程已收口，30–50 Gbps 完整文件吞吐门仍未过；继续暂停线程/队列扩张和 RDMA。**
+当前实验基线为上述 `127f4b66`、R770-2 -> R770-1、四路TCP、8GiB tmpfs驻留源、queued发送/inline实验mmap接收、CRC32C/verified_chunks、TLS off、commit_sync=none，既有detail观测仍开；CPU-off的27.602 Gbps不是lean默认或生产成绩。新增计时样本中physical mapped write约占lane CPU57.6%、socket read22.6%、lease2.1%；CPU总量与并发wall不能相加。下一步区分映射切换、首次触页/页分配和memcpy；不据此删除校验/租约、预热输出或原样重试失败的population候选。只在明确机制后选一个有界候选，以五对真实文件>=10%收益/CV<=5%验收。**三阶段工程已收口，30–50 Gbps完整文件门仍未过，继续暂停线程/队列扩张与RDMA。**
+
+上一阶段：[Sender Service 12](tasks/2026-11-08-v3-sender-service-12-result.md) 已在 `351ae7ce` 完成驻留源read/CRC/队列局部隔离和一个显式同步发送候选。五组完整8 GiB对照中，queued/inline为28.757/28.092 Gbps（-2.313%），CV1.351%/0.854%；发送端CPU下降40.663%、双端CPU/GiB下降21.852%，但吞吐门未过。其下载端仍有scope13发现的local executor缺口，保留原配置结论，不替代修复后测量。默认仍queued，inline仅保留显式诊断/CPU效率实验入口；不继续盲调发送队列。
 
 最近通过吞吐保留门的变更仍为 [Mapped Download 08](tasks/2026-11-08-v3-mapped-download-08-result.md)：`535d33db` 完成 V3 下载 CLI 显式映射写集成、错误/恢复与 range-attempt 生命周期验证，以及五组 8 GiB 完整任务 A/B。四路 inline 的 pwrite/mmap 中位数为 24.040/28.864 Gbps，CV 2.083%/1.875%，收益20.07%，五组配对全部改善；双端CPU/GiB下降9.18%。默认仍为pwrite/queued，不自动选择。
 
-最新完整文件成绩为上述 scope 08 的 R770-2 -> R770-1、tmpfs驻留源、TCP/TLS off、verified_chunks、commit_sync=none；没有通过反向、TLS-on、持久化或长时间稳定性验收。此前 [Lane / Storage 06](tasks/2026-11-08-v3-lane-storage-06.md) 的 queued 1/2/4 lane 为22.764/18.128/15.537 Gbps，inline为15.736/23.378/24.139 Gbps，按 `76f7572d` 保留，不能替代本轮同提交单路复测。[Write Backend 07](tasks/2026-11-08-v3-write-backend-07.md) 的四线程54.896/55.348 Gbps仍只是本地可行性诊断；单线程映射写退步约49%，双线程收益不足10%，本轮不推广这些配置。
+历史 scope 08 完整文件成绩为 R770-2 -> R770-1、tmpfs驻留源、TCP/TLS off、verified_chunks、commit_sync=none；同样需结合scope13发现的local executor缺口解释，不代表修复后成绩。没有通过反向、TLS-on、持久化或长时间稳定性验收。此前 [Lane / Storage 06](tasks/2026-11-08-v3-lane-storage-06.md) 的 queued 1/2/4 lane 为22.764/18.128/15.537 Gbps，inline为15.736/23.378/24.139 Gbps，按 `76f7572d` 保留，不能替代本轮同提交单路复测。[Write Backend 07](tasks/2026-11-08-v3-write-backend-07.md) 的四线程54.896/55.348 Gbps仍只是本地可行性诊断；单线程映射写退步约49%，双线程收益不足10%，本轮不推广这些配置。
 
 旧阶段记录：`201a43a047102dfe52b1f05ec4497181dd64f6bb` 的 [TCP lane复核与两候选结果](tasks/2026-11-07-v3-tcp-scaling-audit-01-result.md) 保留原结论。file_serial/file_dual 两候选均 no-go；其 perf 定位到同 inode tmpfs 写锁 CPU 成本。后续 raw TCP、V3 帧内存路径、完整文件交接和本轮写入服务率已分别完成测量，不能再把它们标为尚未执行，也不重开失败的串行准入候选。
 
