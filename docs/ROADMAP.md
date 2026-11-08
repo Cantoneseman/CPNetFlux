@@ -1,6 +1,8 @@
 # CPNetFlux 性能路线图
 
-更新日期：2026-11-08
+更新日期：2026-11-09
+
+进行中：[Receiver Critical 13](tasks/2026-11-09-v3-receiver-critical-13.md) 新增默认关闭的接收CPU归因。首组实测发现dynamic下载且scheduler=off时未创建本地WorkExecutor；原数据/校验/终态证据保留，但不能代表补齐本地接收执行器后的性能。按[V3执行路径决定](DECISIONS/2026-11-09-v3-dynamic-download-local-executor.md)，先补测试和有界incoming工作队列，再固定新提交重测。原8f42c851三组观测计划已失效，两次原始样本保留，不据此继续调租约或宣布接收端唯一根因。
 
 当前进度：[Sender Service 12](tasks/2026-11-08-v3-sender-service-12-result.md) 已在 `351ae7ce` 完成驻留源read/CRC/队列局部隔离和一个显式同步发送候选。五组完整8 GiB对照中，queued/inline为28.757/28.092 Gbps（-2.313%），CV1.351%/0.854%；发送端CPU下降40.663%、双端CPU/GiB下降21.852%，但吞吐门未过。默认仍queued，inline仅保留显式诊断/CPU效率实验入口。下一步保持queued发送端，区分接收端处理限制与发送读写重叠损失，不继续调发送队列。**三阶段工程已收口，30–50 Gbps 完整文件吞吐门仍未过；继续暂停线程/队列扩张和 RDMA。**
 

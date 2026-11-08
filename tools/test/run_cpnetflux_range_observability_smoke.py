@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--sender-profile", choices=("0","1"), default="0")
     parser.add_argument("--receiver-cpu-profile", choices=("0","1"), default="0")
     parser.add_argument("--receiver-execution", choices=("queued","inline"), default="queued")
+    parser.add_argument("--dynamic-download", action="store_true")
     parser.add_argument("--sender-execution", choices=("queued","inline","invalid"), default="queued")
     parser.add_argument("--checkpoint-batch", choices=("1","4","16"), default="1")
     parser.add_argument("--direct-write", choices=("serial","parallel"), default="parallel")
@@ -64,6 +65,8 @@ def main():
                     "--file-parallelism","4","--connections","4","--link-set-links","4",
                     "--chunk-size","4194304","--phase-timing","on",
                     "--json-summary",str(summary)]
+                if args.dynamic_download:
+                    cmd += ["--file-scheduling","dynamic","--scheduler","off"]
                 done=subprocess.run(cmd,capture_output=True,text=True,env=env,timeout=60)
                 if args.sender_execution=="invalid":
                     assert direction=="upload" and done.returncode!=0, "invalid sender mode was accepted"
@@ -87,6 +90,9 @@ def main():
                 "missing sender execution contract"
             assert all(f.get("payload_pipeline_depth")== (0 if args.sender_execution=="inline" else 8) for f in senders)
             receivers=rows["download"]["file_timings"]
+            if args.dynamic_download and args.receiver_cpu_profile=='1' and args.observation=='on':
+                assert all(f.get('receiver_cpu_observation',{}).get('local_work_executor') is True for f in receivers), \
+                    'dynamic scheduler-off download lacks local V3 executor'
             assert all(f["range_id"] for f in receivers), "fixture must exercise striped ranges"
             if args.observation=="on":
                 assert sum(f["range_observation"]["data_frame_count"] for f in receivers)>0

@@ -844,6 +844,11 @@ if(CPNETFLUX_BUILD_TESTS)
     add_test(NAME cpnetflux_receiver_cpu_observability_disabled_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --receiver-cpu-profile 1 --observation off)
     set_tests_properties(cpnetflux_receiver_cpu_observability_smoke cpnetflux_receiver_cpu_inline_observability_smoke cpnetflux_receiver_cpu_queued_observability_smoke cpnetflux_receiver_cpu_observability_disabled_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_dynamic_download_local_executor_inline_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --receiver-cpu-profile 1 --receiver-execution inline --stage-read 0 --stage-write 0 --dynamic-download)
+    add_test(NAME cpnetflux_dynamic_download_local_executor_queued_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --receiver-cpu-profile 1 --stage-read 0 --stage-write 0 --dynamic-download)
+    set_tests_properties(cpnetflux_dynamic_download_local_executor_inline_smoke cpnetflux_dynamic_download_local_executor_queued_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME cpnetflux_sender_inline_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --sender-profile 1 --sender-execution inline)
     add_test(NAME cpnetflux_sender_inline_observability_disabled_smoke

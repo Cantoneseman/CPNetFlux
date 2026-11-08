@@ -59,3 +59,24 @@ dispatch. R1 tracked tree clean at input;two unrelated October14 untracked task
 files preserved. Current relevant skills:executing-plans,systematic-debugging,
 test-driven-development,verification-before-completion. No additional approval
 is needed for this authorized serial development and bounded experiment scope.
+
+## Amendment:Dynamic Download Local Executor Gap
+
+The first cpu0/cpu1 pair at8f42c851 completed bytes/SHA/terminals/resources and
+cleaned outputs,but the cpu1 contract assertion rejected local_work_executor=false.
+Code confirms tree_transfer_client.cpp creates incoming dynamic download ready
+only with globalScheduler;dynamic+scheduler=off skips the local WorkExecutor.
+This is an input-path fact,not an observation bug or a payload corruption result.
+Do not invent receiver lease cost or rewrite these two original receipts as pass.
+
+V3-only rules require closing this client path before further performance work.
+Decision:always create bounded incoming dynamic download work,attach the optional
+global scheduler only when present. No global scheduler is activated by this fix.
+Add actual dynamic+scheduler-off download regression asserting local executor
+and balanced per-frame lease counts;show failure before runtime implementation.
+Add affected src/core/io/tree_transfer_client.cpp and
+docs/DECISIONS/2026-11-09-v3-dynamic-download-local-executor.md;update roadmap.
+Original three-pair acceptance at8f42c851 is superseded;preserve its initial two
+samples,then rerun allthree observer pairs under distinct v2 labels at the new
+fixed source. This correctness repair is not a claimed throughput optimization.
+If it changes throughput,report it as a semantic baseline correction,not a win.

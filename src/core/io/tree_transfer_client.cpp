@@ -2173,12 +2173,16 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             if (!attached.isOk()) return attached;
         }
     }
-    if (!upload && options.dynamicFileScheduling && globalScheduler) {
+    if (!upload && options.dynamicFileScheduling) {
+        // Incoming V3 work still requires local leases when global scheduling
+        // policy is disabled, just as it does for statically scheduled downloads.
         ready = std::make_unique<DynamicFileQueue>(
             std::vector<WorkItem>{}, channelCount, dispatchWindow,
             channelCount * dispatchWindow * 2, true, false, laneLinkIds, options.linkSetLinks > 1);
-        auto attached = ready->attachScheduler(globalScheduler.get());
-        if (!attached.isOk()) return attached;
+        if (globalScheduler) {
+            auto attached = ready->attachScheduler(globalScheduler.get());
+            if (!attached.isOk()) return attached;
+        }
     }
     if (upload && !options.dynamicFileScheduling) {
         std::vector<WorkItem> staticWork;
