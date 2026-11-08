@@ -95,3 +95,33 @@ nonempty sender queue. Update that existing two-range/content/publication test t
 exercise both explicit execution modes, preserve positive queue checks for queued,
 and require zero queue metrics/single-buffer ownership for inline. Keep the
 initial failed receipt; it is a contract mismatch, not evidence of data failure.
+
+## Completion and Handoff
+
+Implementation351ae7ce7117da6a7250c72488f82b71ca0743c9 pushed/read back and synchronized;
+both builds/configuration/version/eight binary hashes matched before transfer.
+R1 initial default202/202; initial inline201/202 legacy queue assertion retained;
+final expanded inline208/208 including compression and interrupted/restart/timeout
+resume. R2 default208/208 and inline208/208. Final formatting-only unit rerun1/1.
+
+Five lean complete-task pairs:queued28.756716 Gbps,CV1.350980%;inline28.091585,
+CV0.853702%;gain-2.312962%,only1/5 pairs improve. Sender CPU9.96->5.91 s(-40.663%);
+both CPU/GiB2.21375->1.73000(-21.852%). Throughput candidate NO-GO; keep default
+queued, inline is an explicit diagnostic/CPU-efficiency experiment only. Local
+handoff cost is real but eliminating it does not resolve the current task limit.
+The data do not uniquely distinguish receiver limitation from lost IO overlap.
+
+An additional observed diagnostic pair validates CPU ownership on the real path;
+it is excluded from the five-pair acceptance cells and does not establish observer
+overhead. All12 tasks passed integrity/resources/route/terminals/cleanup. Minimum
+available20.003 GiB,max polled RSS242.891 MiB,owned swap/pswpout0. Time-v diagnostic
+probe maxRSS5236 KiB,major faults0,swaps0,exit0 closes the external-process RSS gap
+without rewriting the original18 receipts. Owned source/output removed; both
+tmpfs0,no owned live transfer,original production PID/start times retained.
+
+Next independent scope:retain queued sender, isolate receiver socket processing,
+mapped file processing and shared state on the actual critical path. A diagnostic
+must distinguish receiver limit from sender overlap loss; existing no-file frame
+rates are not a matched full-file counterfactual. No further sender queue/wake
+tuning, worker growth or RDMA under this scope. Result, acceptance commands and
+evidence index:2026-11-08-v3-sender-service-12-result.md.

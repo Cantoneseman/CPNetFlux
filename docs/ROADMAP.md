@@ -2,7 +2,7 @@
 
 更新日期：2026-11-08
 
-当前进度：[Sender CPU 11](tasks/2026-11-08-v3-sender-cpu-11-result.md) 已在 `2bd8280e` 完成发送端 read/checksum/push/pop/prepare/lease/socket 的可选 CPU 归因及三组 8 GiB 交错观测对照，两端相关 CTest 各198/198通过。完整任务仍约28 Gbps，CPU观测有额外成本，尚未选择新的吞吐候选。下一步隔离驻留源读取、并发时缓存/线程调度和逐帧socket成本，解释局部校验诊断与真实任务的差距，再决定一个有证据的数据供给或发送路径候选。**三阶段工程已收口，30–50 Gbps 完整文件吞吐门仍未过；继续暂停线程/队列扩张和 RDMA。**
+当前进度：[Sender Service 12](tasks/2026-11-08-v3-sender-service-12-result.md) 已在 `351ae7ce` 完成驻留源read/CRC/队列局部隔离和一个显式同步发送候选。五组完整8 GiB对照中，queued/inline为28.757/28.092 Gbps（-2.313%），CV1.351%/0.854%；发送端CPU下降40.663%、双端CPU/GiB下降21.852%，但吞吐门未过。默认仍queued，inline仅保留显式诊断/CPU效率实验入口。下一步保持queued发送端，区分接收端处理限制与发送读写重叠损失，不继续调发送队列。**三阶段工程已收口，30–50 Gbps 完整文件吞吐门仍未过；继续暂停线程/队列扩张和 RDMA。**
 
 最近通过吞吐保留门的变更仍为 [Mapped Download 08](tasks/2026-11-08-v3-mapped-download-08-result.md)：`535d33db` 完成 V3 下载 CLI 显式映射写集成、错误/恢复与 range-attempt 生命周期验证，以及五组 8 GiB 完整任务 A/B。四路 inline 的 pwrite/mmap 中位数为 24.040/28.864 Gbps，CV 2.083%/1.875%，收益20.07%，五组配对全部改善；双端CPU/GiB下降9.18%。默认仍为pwrite/queued，不自动选择。
 
@@ -369,3 +369,32 @@ CPU59%，但未定位到具体内核函数或锁；producer/consumer等待wall�
 下一独立scope先隔离驻留源read、实际user/sys与线程调度、逐帧socket服务成本；必要时
 在真实并发中继续拆分CRC update/combine。新候选仍需>=10%完整任务中位收益、CV<=5%
 和完整性/资源门。禁止据局部CPU下降继续扩队列、删CRC/lease或重开页表population。
+
+## 2026-11-08 发送端同线程候选：吞吐 No-go
+
+[Sender Service 12](tasks/2026-11-08-v3-sender-service-12-result.md) 先完成18个本地供数
+诊断：四lane同线程read+CRC服务率153.031 Gbps，经原depth2队列为128.185 Gbps；CPU
+1.666→3.178 s，主动切换约13万次。该局部结果不含网络/真实文件完成流程。原guard未识别
+外部诊断二进制，RSS0不作零内存结论；补time-v探针maxRSS5236 KiB、major/swaps0。
+
+源码351ae7ce提供默认关闭的CPNETFLUX_SENDER_PAYLOAD_EXECUTION=inline，发送lane复用
+单帧缓冲完成read/CRC/send，queued仍默认；两模式共用缺失区间、校验、压缩、租约、
+恢复和终态路径。新增执行方式/CPU归属与零队列记账契约，未改协议或扩大预算。
+R1最终inline相关CTest208/208，R2 default/inline各208/208；原旧队列正数断言的初次
+201/202结果保留，已改为同时验证两种模式。含压缩和中断/服务重启/超时恢复。
+
+两端同提交/配置/版本/八摘要后，五组8 GiB、四TCP lane、inline/mmap接收端、相同lean
+观测的queued/inline任务中位28.756716/28.091585 Gbps，CV1.350980%/0.853702%，变化
+-2.312962%，4/5配对回退。发送CPU9.96→5.91 s（-40.663%），双端CPU/GiB2.21375→1.73
+（-21.852%），接收CPU仍约8 s。**候选未通过>=10%吞吐门，不推广默认。** CPU成本得到
+改善不等同当前任务瓶颈解决，数据尚不能唯一判定下游限制或发送重叠损失。
+
+额外两次开启观测的样本只验证实际CPU归属，不合并性能单元或声称零观测成本。共12个
+完整任务SHA/字节/终态/route/NIC/资源/清理全过；最低MemAvailable20.003 GiB，最大
+轮询RSS242.891 MiB，owned swap与pswpout增量0。两端payload清空、tmpfs0、生产PID/start
+保留；原始证据和摘要在R1 experiments的2026-11-08-v3-sender-service-12目录。
+
+发送端fusion/队列调优在此收口。下一独立scope保留queued发送端，针对接收socket、
+映射文件处理与共享状态做匹配的关键路径对照，先区分下游上限和发送重叠损失，再选择
+候选；已有不含真实文件/租约的帧内存高带宽不是这个匹配对照。30 Gbps下限、70-85/100
+Gbps与生产验收仍未通过，RDMA和三阶段结构扩张继续暂停。
