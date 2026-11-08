@@ -133,7 +133,10 @@ Set EVIDENCE to the evidence root above. The matrix refuses to overwrite receipt
 use a new, explicitly scoped root for a new experiment. Related logs are
 `build-acceptance.log`, `ctest-broad.log`, `ctest-final.log`,
 `ctest-auth-and-fault-by-name.log`, `ctest-R770-2.log`, `matrix.log`.
-Build equality is in `acceptance/matching-builds-mapped08-before-transfer.json`;
+Source build equality is in
+`acceptance/matching-builds-pool-unrestricted-mapped08-pwrite-lean.json`;
+the later documentation-only commit check is preserved separately in
+`acceptance/matching-builds-after-documentation.json`.
 ten `metrics/*.verified.json` receipts retain full task/resource/counter evidence.
 
 | Artifact | SHA-256 |
