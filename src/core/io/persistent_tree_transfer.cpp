@@ -712,8 +712,8 @@ class FileTransaction {
         return ioContext_.backend() == storage::FileIoBackendKind::Posix &&
             storage::effectivePosixWriteStrategy(ioContext_.config()) == storage::PosixWriteStrategy::Direct;
     }
-    std::unique_ptr<storage::MappedFileWindow> mappedWindow() const {
-        return std::make_unique<storage::MappedFileWindow>(file_.fd(), identity_.totalSize);
+    std::unique_ptr<storage::MappedFileWindow> mappedWindow(bool profile) const {
+        return std::make_unique<storage::MappedFileWindow>(file_.fd(), identity_.totalSize, profile);
     }
     Status writeRange(std::uint64_t offset, std::span<const std::uint8_t> bytes,
                       RangeObservation* observation, bool independent = false,
@@ -1012,7 +1012,11 @@ class RangeFileCoordinator {
         }
         slot = Slot{};
         slot.id = id;
-        if (context.policy.experimentalMappedDownload) slot.mapped = entry->transaction->mappedWindow();
+        if (context.policy.experimentalMappedDownload) {
+            const auto* requested = std::getenv("CPNETFLUX_MAPPED_WRITE_PROFILE");
+            const bool profile = observation && requested && std::string_view(requested) == "1";
+            slot.mapped = entry->transaction->mappedWindow(profile);
+        }
         slot.checksum = checksum::ChecksumComputer(id.checksumAlgorithm);
         for (const auto& missing:entry->transaction->missingRanges()) {
             const auto begin=std::max(missing.begin,id.rangeOffset);
@@ -2693,7 +2697,19 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"map_calls\":" << t.mappedWrite.mapCalls << ",\"map_failures\":" << t.mappedWrite.mapFailures
             << ",\"unmap_calls\":" << t.mappedWrite.unmapCalls << ",\"write_calls\":" << t.mappedWrite.writeCalls
             << ",\"written_bytes\":" << t.mappedWrite.writtenBytes << ",\"active_mapped_bytes\":" << t.mappedWrite.activeMappedBytes
-            << ",\"peak_mapped_bytes\":" << t.mappedWrite.peakMappedBytes << "}"
+            << ",\"peak_mapped_bytes\":" << t.mappedWrite.peakMappedBytes << ",\"profile\":";
+        const auto& mappedProfile = t.mappedWrite.profile;
+        if (!mappedProfile.enabled) out << "null";
+        else out << "{\"schema\":\"cpnetflux_mapped_write_profile_v1\""
+            << ",\"cpu_clock\":\"CLOCK_THREAD_CPUTIME_ID\",\"fault_scope\":\"RUSAGE_THREAD_copy_brackets\""
+            << ",\"scope\":\"map/unmap/copy disjoint wall and CPU wrappers; copy includes faults,not pure memcpy; getrusage excluded from copy CPU but charged to task; faults include bracket instrumentation; counts are attempts; map/copy within physical write; final unmap may be in flush\""
+            << ",\"copy_calls\":" << mappedProfile.copyCalls << ",\"copy_bytes\":" << mappedProfile.copyBytes
+            << ",\"errors\":" << mappedProfile.errors << ",\"copy_minor_faults\":" << mappedProfile.copyMinorFaults
+            << ",\"copy_major_faults\":" << mappedProfile.copyMajorFaults
+            << ",\"map_cpu_seconds\":" << mappedProfile.mapCpuSeconds << ",\"map_wall_seconds\":" << mappedProfile.mapWallSeconds
+            << ",\"unmap_cpu_seconds\":" << mappedProfile.unmapCpuSeconds << ",\"unmap_wall_seconds\":" << mappedProfile.unmapWallSeconds
+            << ",\"copy_cpu_seconds\":" << mappedProfile.copyCpuSeconds << ",\"copy_wall_seconds\":" << mappedProfile.copyWallSeconds << "}";
+        out << "}"
             << ",\"receiver_writer_thread_cpu_seconds\":" << t.receiverWriterThreadCpuSeconds
             << ",\"producer_thread_cpu_seconds\":" << t.producerThreadCpuSeconds
             << ",\"frame_prepare_seconds\":" << t.framePrepareSeconds

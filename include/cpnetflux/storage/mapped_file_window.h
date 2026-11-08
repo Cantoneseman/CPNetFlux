@@ -7,17 +7,27 @@
 #include "cpnetflux/common/status.h"
 
 namespace cpnetflux::storage {
+struct MappedWriteProfile {
+    bool enabled = false;
+    std::uint64_t copyCalls = 0, copyBytes = 0, errors = 0;
+    std::uint64_t copyMinorFaults = 0, copyMajorFaults = 0;
+    double mapCpuSeconds = 0, mapWallSeconds = 0;
+    double unmapCpuSeconds = 0, unmapWallSeconds = 0;
+    double copyCpuSeconds = 0, copyWallSeconds = 0;
+};
 struct MappedWriteStats {
     std::uint64_t mapCalls = 0, mapFailures = 0, unmapCalls = 0;
     std::uint64_t writeCalls = 0, writtenBytes = 0;
     std::uint64_t activeMappedBytes = 0, peakMappedBytes = 0;
+    MappedWriteProfile profile;
 };
 
 // One range attempt owns this object; its writing pin protects the borrowed fd.
 class MappedFileWindow {
  public:
     static constexpr std::uint64_t kWindowBytes = 64ULL * 1024 * 1024;
-    MappedFileWindow(int fd, std::uint64_t fileSize) : fd_(fd), fileSize_(fileSize) {}
+    MappedFileWindow(int fd, std::uint64_t fileSize, bool profile = false)
+        : fd_(fd), fileSize_(fileSize) { stats_.profile.enabled = profile; }
     ~MappedFileWindow();
     MappedFileWindow(const MappedFileWindow&) = delete;
     MappedFileWindow& operator=(const MappedFileWindow&) = delete;

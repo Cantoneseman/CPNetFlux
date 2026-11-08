@@ -369,6 +369,8 @@ target_link_libraries(cpnetflux-tcp-frame-bench PRIVATE CPNetFlux::core)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(cpnetflux-offset-write-bench tools/perf/offset_write_bench.cpp)
     target_link_libraries(cpnetflux-offset-write-bench PRIVATE CPNetFlux::core)
+    add_executable(cpnetflux-mapped-cost-bench tools/perf/cpnetflux_mapped_cost_bench.cpp)
+    target_link_libraries(cpnetflux-mapped-cost-bench PRIVATE CPNetFlux::core)
 endif()
 
 add_executable(cpnetflux-gridftp-server
@@ -486,6 +488,24 @@ if(CPNETFLUX_BUILD_TESTS)
                 --fault-library $<TARGET_FILE:cpnetflux_mapped_download_fault_shim>)
         set_tests_properties(cpnetflux_mapped_download_config_smoke PROPERTIES TIMEOUT 20)
         set_tests_properties(cpnetflux_mapped_download_fault_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        foreach(mode IN ITEMS on off unobserved pwrite)
+            set(profile_args --profile 1)
+            if(mode STREQUAL "off")
+                set(profile_args --profile 0)
+            elseif(mode STREQUAL "unobserved")
+                list(APPEND profile_args --observation off)
+            elseif(mode STREQUAL "pwrite")
+                list(APPEND profile_args --backend pwrite)
+            endif()
+            add_test(NAME cpnetflux_mapped_profile_${mode}_smoke
+                COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_mapped_profile_smoke.py
+                    --build-dir ${CMAKE_BINARY_DIR} ${profile_args})
+            set_tests_properties(cpnetflux_mapped_profile_${mode}_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+        endforeach()
+        add_test(NAME cpnetflux_mapped_cost_bench_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_mapped_cost_bench_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_mapped_cost_bench_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
         target_link_libraries(cpnetflux_offset_write_fault_shim PRIVATE ${CMAKE_DL_LIBS})
         add_test(NAME cpnetflux_offset_write_bench_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_offset_write_bench_smoke.py

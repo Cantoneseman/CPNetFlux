@@ -5,6 +5,7 @@
 #include <array>
 #include <filesystem>
 #include <limits>
+#include <vector>
 #include <unistd.h>
 
 namespace {
@@ -66,4 +67,80 @@ TEST(MappedFileWindowTest, MapFailureDoesNotCertifyBytesOrRetainMapping) {
     EXPECT_EQ(window.stats().activeMappedBytes, 0U);
     EXPECT_TRUE(window.close().isOk());
     EXPECT_EQ(window.stats().unmapCalls, 0U);
+}
+
+TEST(MappedFileWindowTest, ProfileDisabledLeavesEveryProfileCounterZero) {
+    WindowFile temporary;
+    ASSERT_TRUE(temporary.file.resize(65536).isOk());
+    MappedFileWindow window(temporary.file.fd(), 65536);
+    const std::array<std::uint8_t, 2> bytes{8, 9};
+    ASSERT_TRUE(window.write(0, bytes).isOk());
+    ASSERT_TRUE(window.close().isOk());
+    const auto& p = window.stats().profile;
+    EXPECT_FALSE(p.enabled);
+    EXPECT_EQ(p.copyCalls + p.copyBytes + p.errors + p.copyMinorFaults + p.copyMajorFaults, 0U);
+    EXPECT_EQ(p.mapCpuSeconds + p.mapWallSeconds + p.unmapCpuSeconds + p.unmapWallSeconds +
+              p.copyCpuSeconds + p.copyWallSeconds, 0.0);
+}
+
+TEST(MappedFileWindowTest, ProfileColdAndWarmCopyOnSameLiveMappingPreservesContent) {
+    WindowFile temporary;
+    constexpr std::size_t length = 1024 * 1024;
+    ASSERT_TRUE(temporary.file.resize(length).isOk());
+    MappedFileWindow window(temporary.file.fd(), length, true);
+    std::vector<std::uint8_t> bytes(length, 53), actual(length);
+    ASSERT_TRUE(window.write(0, bytes).isOk());
+    const auto cold = window.stats().profile;
+    EXPECT_GT(cold.copyMinorFaults, 0U);
+    EXPECT_EQ(cold.copyMajorFaults, 0U);
+    std::fill(bytes.begin(), bytes.end(), 91);
+    ASSERT_TRUE(window.write(0, bytes).isOk());
+    ASSERT_TRUE(temporary.file.readAtAll(0, actual.data(), actual.size()).isOk());
+    EXPECT_EQ(actual, bytes);
+    EXPECT_EQ(window.stats().mapCalls, 1U);
+    ASSERT_TRUE(window.close().isOk());
+    const auto& p = window.stats().profile;
+    EXPECT_TRUE(p.enabled);
+    EXPECT_EQ(p.errors, 0U);
+    EXPECT_EQ(p.copyCalls, 2U);
+    EXPECT_EQ(p.copyBytes, 2 * length);
+    EXPECT_GE(p.copyMinorFaults, cold.copyMinorFaults);
+    EXPECT_EQ(p.copyMajorFaults, 0U);
+    EXPECT_GT(p.copyCpuSeconds, cold.copyCpuSeconds);
+    EXPECT_GT(p.mapCpuSeconds, 0);
+    EXPECT_GT(p.unmapCpuSeconds, 0);
+    EXPECT_GT(p.copyWallSeconds, 0);
+}
+
+TEST(MappedFileWindowTest, ProfileCountsSplitCopiesAndRejectsInvalidWrites) {
+    WindowFile temporary;
+    constexpr auto bound = MappedFileWindow::kWindowBytes;
+    ASSERT_TRUE(temporary.file.resize(bound + 9).isOk());
+    MappedFileWindow window(temporary.file.fd(), bound + 9, true);
+    const std::array<std::uint8_t, 7> bytes{1, 2, 3, 4, 5, 6, 7};
+    EXPECT_FALSE(window.write(bound + 8, bytes).isOk());
+    ASSERT_TRUE(window.write(bound + 9, {}).isOk());
+    EXPECT_EQ(window.stats().profile.copyCalls, 0U);
+    ASSERT_TRUE(window.write(bound - 3, bytes).isOk());
+    ASSERT_TRUE(window.close().isOk());
+    const auto before = window.stats().profile;
+    ASSERT_TRUE(window.close().isOk());
+    EXPECT_EQ(window.stats().profile.unmapCpuSeconds, before.unmapCpuSeconds);
+    EXPECT_EQ(before.copyCalls, 2U);
+    EXPECT_EQ(before.copyBytes, 7U);
+    EXPECT_EQ(before.errors, 0U);
+    EXPECT_EQ(window.stats().mapCalls, 2U);
+    EXPECT_EQ(window.stats().unmapCalls, 2U);
+}
+
+TEST(MappedFileWindowTest, ProfileMapErrorDoesNotInventCopyOrUnmap) {
+    MappedFileWindow window(-1, 8, true);
+    const std::array<std::uint8_t, 2> bytes{1, 2};
+    ASSERT_FALSE(window.write(0, bytes).isOk());
+    ASSERT_TRUE(window.close().isOk());
+    EXPECT_EQ(window.stats().mapFailures, 1U);
+    const auto& p = window.stats().profile;
+    EXPECT_GT(p.mapCpuSeconds, 0);
+    EXPECT_EQ(p.copyCalls + p.copyBytes + p.errors + p.copyMinorFaults + p.copyMajorFaults, 0U);
+    EXPECT_EQ(p.copyCpuSeconds + p.unmapCpuSeconds, 0);
 }
