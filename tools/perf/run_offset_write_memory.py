@@ -44,7 +44,7 @@ def cleanup(path, workers):
     path.rmdir()
 
 
-def measure(binary, path, layout, workers, size, mode, output):
+def measure(binary, path, layout, workers, size, mode, output, backend='pwrite'):
     if path.exists() or path.is_symlink():
         raise FileExistsError(path)
     if meminfo()['MemAvailable'] < 12 * GIB + size + 256 * 1024 ** 2:
@@ -52,8 +52,9 @@ def measure(binary, path, layout, workers, size, mode, output):
     if shutil.disk_usage('/dev/shm').free < size + 512 * 1024 ** 2:
         raise RuntimeError('insufficient tmpfs space before sample')
     before = swap()
-    command = [str(binary), str(path), layout, str(workers), str(size), mode, '65532', '1048576']
-    receipt = {'command': command, 'layout': layout, 'workers': workers, 'write_mode': mode,
+    command = [str(binary), str(path), layout, str(workers), str(size), mode, '65532', '1048576',
+               '--backend=' + backend]
+    receipt = {'command': command, 'layout': layout, 'workers': workers, 'write_mode': mode, 'backend': backend,
                'result': 'fail', 'minimum_available_bytes': meminfo()['MemAvailable'],
                'maximum_owned_rss_bytes': 0, 'maximum_owned_swap_bytes': 0,
                'samples': 0, 'owned_samples': 0, 'memory_sampling_seconds': 0.05, 'swap_before': before}
@@ -84,15 +85,28 @@ def measure(binary, path, layout, workers, size, mode, output):
         stdout, stderr = process.communicate(timeout=5)
         receipt.update(exit_code=process.returncode, stdout=stdout, stderr=stderr,
                        whole_process_seconds=time.monotonic() - started)
-        assert process.returncode == 0, stderr
+        if process.returncode != 0:
+            raise RuntimeError(f'diagnostic exited {process.returncode}: {stderr}')
         row = json.loads(stdout)
         assert row['result'] == 'pass' and row['diagnostic_only'] and not row['v3'] and not row['network']
         assert not row['durability'] and row['owned_files_removed'] and not row['kept_files']
         assert row['logical_bytes'] == row['written_bytes'] == row['verified_bytes'] == size
         assert row['layout'] == layout and row['workers'] == workers and row['write_mode'] == mode
-        assert row['write_at_all_calls'] == 17408 * (size // GIB)
+        expected_calls = 17408 * (size // GIB)
+        assert row['payload_write_calls'] == expected_calls
+        assert row['write_at_all_calls'] == (expected_calls if backend == 'pwrite' else 0)
+        assert row['mapped_copy_calls'] == (expected_calls if backend == 'mmap' else 0)
+        assert row['backend'] == backend
+        assert row['file_count'] == row['write_inode_count'] == (workers if layout == 'independent' else 1)
+        assert row['write_fd_count'] == (1 if layout == 'shared' else workers)
+        if backend == 'mmap':
+            assert row['mapping_calls'] == row['unmapping_calls'] == size // (64 * 1024 ** 2)
+            assert row['maximum_worker_mapping_bytes'] <= row['mapping_window_bytes'] == 64 * 1024 ** 2
+            assert row['core_dump_disabled'] and row['mapping_lifecycle_in_write_interval']
+        else:
+            assert row['mapping_calls'] == row['unmapping_calls'] == row['maximum_worker_mapping_bytes'] == 0
         assert row['frame_bytes'] == 65532 and row['chunk_bytes'] == 1048576
-        assert row['schema_version'] == 2
+        assert row['schema_version'] == 3
         assert row['initial_file_bytes'] == (0 if mode == 'fresh' else size)
         assert row['prefill_bytes'] == (size if mode == 'rewrite' else 0)
         if mode == 'rewrite':
@@ -136,11 +150,16 @@ def main():
     parser.add_argument('--repetitions', type=int, default=5, choices=range(1, 6))
     parser.add_argument('--modes', nargs='+', choices=('fresh', 'sparse', 'rewrite'),
                         default=['fresh', 'sparse', 'rewrite'])
+    parser.add_argument('--layouts', nargs='+', choices=('shared', 'shared-open', 'independent'),
+                        default=['shared', 'independent'])
+    parser.add_argument('--backends', nargs='+', choices=('pwrite', 'mmap'), default=['pwrite'])
     args = parser.parse_args()
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', args.run_id):
         parser.error('invalid run id')
-    if len(set(args.modes)) != len(args.modes):
-        parser.error('duplicate modes')
+    if any(len(set(values)) != len(values) for values in (args.modes, args.layouts, args.backends)):
+        parser.error('duplicate modes, layouts or backends')
+    if 'mmap' in args.backends and ('fresh' in args.modes or 'shared' not in args.layouts):
+        parser.error('mmap requires sized files and a shared layout')
     if subprocess.check_output(['git', '-C', str(PROJECT), 'rev-parse', 'HEAD'], text=True).strip() != args.commit:
         parser.error('HEAD does not match --commit')
     subprocess.run(['git', '-C', str(PROJECT), 'diff', '--quiet', 'HEAD'], check=True)
@@ -157,8 +176,10 @@ def main():
     configuration = (PROJECT / 'build/CMakeCache.txt').read_text().splitlines()
     state = {'commit': args.commit, 'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
              'configuration': [s for s in configuration if s.startswith('CPNETFLUX_') and ':BOOL=' in s],
+             'build_type': next(s for s in configuration if s.startswith('CMAKE_BUILD_TYPE:')),
              'task': 'offset_write_only_no_network_no_V3_no_durability',
              'gib': args.gib, 'repetitions': args.repetitions, 'modes': args.modes,
+             'layouts': args.layouts, 'backends': args.backends,
              'samples': [], 'result': 'fail'}
     temporary.mkdir()
     try:
@@ -166,12 +187,19 @@ def main():
         for repetition in range(1, args.repetitions + 1):
             for index, workers in enumerate(orders[repetition - 1]):
                 for mode in (args.modes if repetition % 2 else reversed(args.modes)):
-                    layouts = ('shared', 'independent') if (repetition + index) % 2 else ('independent', 'shared')
-                    for layout in layouts:
-                        name = f'{mode}-{layout}-w{workers}-r{repetition:02d}'
+                    cases = [(layout, 'pwrite') for layout in args.layouts] if 'pwrite' in args.backends else []
+                    if 'mmap' in args.backends:
+                        cases.append(('shared', 'mmap'))
+                    rotation = (repetition + index) % len(cases)
+                    cases = cases[rotation:] + cases[:rotation]
+                    if repetition % 2 == 0:
+                        cases.reverse()
+                    for layout, backend in cases:
+                        name = f'{mode}-{layout}-{backend}-w{workers}-r{repetition:02d}'
                         target = output / (name + '.json')
                         assert not target.exists()
-                        receipt = measure(binary, temporary / name, layout, workers, args.gib * GIB, mode, target)
+                        receipt = measure(binary, temporary / name, layout, workers, args.gib * GIB,
+                                          mode, target, backend=backend)
                         state['samples'].append(name)
                         print(json.dumps({'sample': name, 'result': receipt['result'],
                                           'write_gbps': receipt['measurement']['write_gbps']}), flush=True)

@@ -472,10 +472,17 @@ if(CPNETFLUX_BUILD_TESTS)
     set_tests_properties(cpnetflux_tcp_frame_bench_smoke PROPERTIES TIMEOUT 120)
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_library(cpnetflux_offset_write_fault_shim SHARED tools/test/offset_write_fault_shim.cpp)
+        target_link_libraries(cpnetflux_offset_write_fault_shim PRIVATE ${CMAKE_DL_LIBS})
         add_test(NAME cpnetflux_offset_write_bench_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_offset_write_bench_smoke.py
                 --build-dir ${CMAKE_BINARY_DIR})
         set_tests_properties(cpnetflux_offset_write_bench_smoke PROPERTIES TIMEOUT 60)
+        add_test(NAME cpnetflux_offset_write_backend_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_offset_write_backend_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --fault-library $<TARGET_FILE:cpnetflux_offset_write_fault_shim>)
+        set_tests_properties(cpnetflux_offset_write_backend_smoke PROPERTIES TIMEOUT 90)
     endif()
 
     add_test(NAME cpnetflux_rdma_duplex_smoke

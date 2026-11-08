@@ -52,7 +52,10 @@ def main():
                         assert row['kept_files'] and not row['owned_files_removed']
                         assert row['elapsed_seconds'] > 0 and row['write_gbps'] > 0
                         assert row['prefill_bytes'] == (size if mode == 'rewrite' else 0)
-                        assert row['schema_version'] == 2
+                        assert row['schema_version'] == 3 and row['backend'] == 'pwrite'
+                        assert row['payload_write_calls'] == row['write_at_all_calls']
+                        assert row['write_fd_count'] == row['write_inode_count'] == row['file_count']
+                        assert row['mapping_calls'] == row['unmapping_calls'] == 0
                         assert row['initial_file_bytes'] == (0 if mode == 'fresh' else size)
                         if mode == 'rewrite':
                             assert row['initial_allocated_bytes'] >= size
