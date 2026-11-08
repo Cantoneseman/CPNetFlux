@@ -365,6 +365,11 @@ target_link_libraries(cpnetflux-session-record-bench PRIVATE CPNetFlux::core)
 add_executable(cpnetflux-tcp-frame-bench tools/perf/tcp_frame_bench.cpp)
 target_link_libraries(cpnetflux-tcp-frame-bench PRIVATE CPNetFlux::core)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(cpnetflux-offset-write-bench tools/perf/offset_write_bench.cpp)
+    target_link_libraries(cpnetflux-offset-write-bench PRIVATE CPNetFlux::core)
+endif()
+
 add_executable(cpnetflux-gridftp-server
     src/apps/cpnetflux_gridftp_server.cpp
 )
@@ -465,6 +470,13 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tcp_frame_bench_smoke.py
             --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_tcp_frame_bench_smoke PROPERTIES TIMEOUT 120)
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME cpnetflux_offset_write_bench_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_offset_write_bench_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_offset_write_bench_smoke PROPERTIES TIMEOUT 60)
+    endif()
 
     add_test(NAME cpnetflux_rdma_duplex_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_rdma_duplex_smoke.py
