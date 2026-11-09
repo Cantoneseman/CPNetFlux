@@ -22,12 +22,16 @@ struct MappedWriteStats {
     MappedWriteProfile profile;
 };
 
+// Only the standalone diagnostic requests alignment; runtime defaults stay unchanged.
+enum class MappedWindowAlignment { Default, HugePage2MiB };
+
 // One range attempt owns this object; its writing pin protects the borrowed fd.
 class MappedFileWindow {
  public:
     static constexpr std::uint64_t kWindowBytes = 64ULL * 1024 * 1024;
-    MappedFileWindow(int fd, std::uint64_t fileSize, bool profile = false)
-        : fd_(fd), fileSize_(fileSize) { stats_.profile.enabled = profile; }
+    MappedFileWindow(int fd, std::uint64_t fileSize, bool profile = false,
+                     MappedWindowAlignment alignment = MappedWindowAlignment::Default)
+        : fd_(fd), fileSize_(fileSize), alignment_(alignment) { stats_.profile.enabled = profile; }
     ~MappedFileWindow();
     MappedFileWindow(const MappedFileWindow&) = delete;
     MappedFileWindow& operator=(const MappedFileWindow&) = delete;
@@ -44,6 +48,7 @@ class MappedFileWindow {
     std::uint64_t fileSize_, base_ = 0;
     void* mapping_ = nullptr;
     bool mapped_ = false;
+    MappedWindowAlignment alignment_;
     MappedWriteStats stats_;
 };
 }  // namespace cpnetflux::storage

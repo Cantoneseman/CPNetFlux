@@ -179,3 +179,76 @@ TEST(MappedFileWindowTest, ProfileMapErrorDoesNotInventCopyOrUnmap) {
     EXPECT_EQ(p.copyCalls + p.copyBytes + p.errors + p.copyMinorFaults + p.copyMajorFaults, 0U);
     EXPECT_EQ(p.copyCpuSeconds + p.unmapCpuSeconds, 0);
 }
+
+#include "../../tools/perf/mapped_window_collapse.h"
+#include <cstring>
+using cpnetflux::diagnostic::pmdBytes;
+using cpnetflux::diagnostic::prepareCollapse;
+
+TEST(MappedCollapseDiagnosticTest, PreservesExistingBytesAndOnlyPreparesOwnedInterior) {
+    WindowFile temporary;
+    constexpr std::size_t size = 8 * 1024 * 1024;
+    ASSERT_TRUE(temporary.file.resize(size).isOk());
+    std::vector<std::uint8_t> expected(size), actual(size);
+    for (std::size_t i=0;i<size;++i) expected[i]=1+(i*31+i/4096)%251;
+    ASSERT_TRUE(temporary.file.writeAtAll(0,expected.data(),size).isOk());
+    MappedFileWindow writer(temporary.file.fd(),size);
+    auto borrowed=writer.writableSpan(0,size); ASSERT_TRUE(borrowed.isOk());
+    // Partial borrowed subrange: first/last pages and all alignment edges are guards.
+    auto owned=borrowed.value().subspan(4096,size-8192);
+    unsigned calls=0;
+    auto report=prepareCollapse(owned,[&](void* p,std::size_t n,int kind) {
+        const auto start=reinterpret_cast<std::uintptr_t>(p);
+        EXPECT_EQ(start%pmdBytes,0U); EXPECT_EQ(n%pmdBytes,0U);
+        EXPECT_GE(start,reinterpret_cast<std::uintptr_t>(owned.data()));
+        EXPECT_LE(start+n,reinterpret_cast<std::uintptr_t>(owned.data())+owned.size());
+        EXPECT_EQ(kind,++calls==1?MADV_HUGEPAGE:cpnetflux::diagnostic::collapseAdvice);
+        return 0;
+    });
+    EXPECT_EQ(calls,2U); EXPECT_GE(report.eligibleBytes,2*pmdBytes);
+    EXPECT_EQ(report.eligibleBytes+report.edgeBytes,owned.size());
+    EXPECT_EQ(report.seeds,report.eligibleBytes/pmdBytes);
+    EXPECT_EQ(writer.stats().writeCalls+writer.stats().writtenBytes,0U);
+    ASSERT_TRUE(writer.close().isOk()); EXPECT_EQ(writer.stats().activeMappedBytes,0U);
+    ASSERT_TRUE(temporary.file.readAtAll(0,actual.data(),size).isOk()); EXPECT_EQ(actual,expected);
+}
+TEST(MappedCollapseDiagnosticTest, CancellationAndAdviceFailuresDoNotCertifyAndCanClose) {
+    for (int scenario=0;scenario<3;++scenario) {
+        WindowFile temporary; constexpr std::size_t size=8*1024*1024;
+        ASSERT_TRUE(temporary.file.resize(size).isOk());
+        MappedFileWindow writer(temporary.file.fd(),size);
+        auto view=writer.writableSpan(0,size); ASSERT_TRUE(view.isOk());
+        unsigned calls=0,checks=0;
+        EXPECT_THROW(prepareCollapse(view.value(),[&](void*,std::size_t,int) {
+            ++calls; if (calls==static_cast<unsigned>(scenario)) {errno=EIO;return -1;} return 0;
+        },[&] {return scenario==0 && ++checks==3;}),std::runtime_error);
+        EXPECT_EQ(calls,scenario==2?2U:1U);
+        EXPECT_EQ(writer.stats().writeCalls+writer.stats().writtenBytes,0U);
+        ASSERT_TRUE(writer.close().isOk()); EXPECT_EQ(writer.stats().activeMappedBytes,0U);
+        EXPECT_EQ(writer.stats().mapCalls,writer.stats().unmapCalls);
+    }
+}
+TEST(MappedCollapseDiagnosticTest, RejectsEmptySmallOversizedAndOverflowSpansBeforeSyscalls) {
+    unsigned calls=0;auto advice=[&](void*,std::size_t,int){++calls;return 0;};
+    std::uint8_t value=0;
+    EXPECT_THROW(prepareCollapse({},advice),std::invalid_argument);
+    EXPECT_THROW(prepareCollapse({&value,1},advice),std::invalid_argument);
+    EXPECT_THROW(prepareCollapse({&value,65ULL*1024*1024},advice),std::invalid_argument);
+    EXPECT_THROW(prepareCollapse({reinterpret_cast<std::uint8_t*>(
+        std::numeric_limits<std::uintptr_t>::max()-4096),pmdBytes},advice),std::invalid_argument);
+    EXPECT_EQ(calls,0U);
+}
+TEST(MappedCollapseDiagnosticTest, ExplicitAlignmentStaysBoundedAcrossWindows) {
+    WindowFile temporary;const auto size=MappedFileWindow::kWindowBytes+8*1024*1024;
+    ASSERT_TRUE(temporary.file.resize(size).isOk());
+    MappedFileWindow writer(temporary.file.fd(),size,false,
+        cpnetflux::storage::MappedWindowAlignment::HugePage2MiB);
+    for (const std::uint64_t offset:std::array<std::uint64_t,2>{0,MappedFileWindow::kWindowBytes}) {
+        auto view=writer.writableSpan(offset,1); ASSERT_TRUE(view.isOk());
+        EXPECT_EQ(reinterpret_cast<std::uintptr_t>(view.value().data())%pmdBytes,0U);
+        EXPECT_LE(writer.stats().activeMappedBytes,MappedFileWindow::kWindowBytes);
+    }
+    ASSERT_TRUE(writer.close().isOk()); EXPECT_EQ(writer.stats().activeMappedBytes,0U);
+    EXPECT_EQ(writer.stats().mapCalls,writer.stats().unmapCalls);
+    EXPECT_EQ(writer.stats().writeCalls+writer.stats().writtenBytes,0U);
+}

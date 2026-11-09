@@ -1,5 +1,6 @@
 // Same-live-mapping diagnostic of the production writer, not transfer throughput.
 #include "cpnetflux/storage/mapped_file_window.h"
+#include "mapped_window_collapse.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -90,12 +91,23 @@ int main(int argc, char** argv) {
         unsigned workers = 2;
         std::uint64_t frameBytes = 65532;
         bool profile = true;
+        std::string lifecycleMode, initialState = "fresh";
+        std::uint64_t cancelAfter = 0;
         for (int i = 1; i < argc; ++i) {
             const std::string arg = argv[i];
             require(i + 1 < argc, "missing option value");
             const std::string value = argv[++i];
             std::size_t consumed = 0;
-            if (arg == "--directory") directory = value;
+            if (arg == "--lifecycle-page-mode") {
+                require(value == "ordinary" || value == "collapse", "invalid lifecycle-page-mode");
+                lifecycleMode = value;
+            } else if (arg == "--initial-state") {
+                require(value == "fresh" || value == "pattern", "invalid initial-state"); initialState=value;
+            } else if (arg == "--cancel-after-seeds") {
+                require(!value.empty() && value.find_first_not_of("0123456789") == std::string::npos,
+                        "invalid cancel-after-seeds");
+                cancelAfter=std::stoull(value,&consumed); require(consumed==value.size() && cancelAfter>0 && cancelAfter<=32,"cancel-after-seeds must be 1..32");
+            } else if (arg == "--directory") directory = value;
             else if (arg == "--bytes") {
                 bytes = std::stoull(value, &consumed);
                 require(consumed == value.size(), "invalid bytes");
@@ -120,6 +132,13 @@ int main(int argc, char** argv) {
                 "bytes must be <=8GiB and divisible by workers*64MiB");
         rlimit limit{0, 0};
         require(::setrlimit(RLIMIT_CORE, &limit) == 0, "disable payload core dumps");
+        if (!lifecycleMode.empty()) {
+            require(bytes <= GiB && !profile, "lifecycle requires <=1GiB and --profile off");
+            require(!cancelAfter || lifecycleMode=="collapse", "cancellation requires collapse");
+            return cpnetflux::diagnostic::runMappedLifecycleBench(directory,bytes,workers,frameBytes,
+                                                                  lifecycleMode,initialState,cancelAfter);
+        }
+        require(initialState=="fresh" && !cancelAfter,"lifecycle options require explicit lifecycle-page-mode");
         File file(directory);
         require(::ftruncate(file.fd, bytes) == 0, "ftruncate");
         std::vector<Worker> results(workers);

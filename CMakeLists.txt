@@ -369,7 +369,8 @@ target_link_libraries(cpnetflux-tcp-frame-bench PRIVATE CPNetFlux::core)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(cpnetflux-offset-write-bench tools/perf/offset_write_bench.cpp)
     target_link_libraries(cpnetflux-offset-write-bench PRIVATE CPNetFlux::core)
-    add_executable(cpnetflux-mapped-cost-bench tools/perf/cpnetflux_mapped_cost_bench.cpp)
+    add_executable(cpnetflux-mapped-cost-bench tools/perf/cpnetflux_mapped_cost_bench.cpp
+        tools/perf/mapped_window_lifecycle_bench.cpp)
     target_link_libraries(cpnetflux-mapped-cost-bench PRIVATE CPNetFlux::core)
 endif()
 
@@ -517,6 +518,10 @@ if(CPNETFLUX_BUILD_TESTS)
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_mapped_cost_bench_smoke.py
                 --build-dir ${CMAKE_BINARY_DIR})
         set_tests_properties(cpnetflux_mapped_cost_bench_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_mapped_lifecycle_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_mapped_lifecycle_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_mapped_lifecycle_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
         target_link_libraries(cpnetflux_offset_write_fault_shim PRIVATE ${CMAKE_DL_LIBS})
         add_test(NAME cpnetflux_offset_write_bench_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_offset_write_bench_smoke.py

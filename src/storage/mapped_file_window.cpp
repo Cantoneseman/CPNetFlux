@@ -118,6 +118,35 @@ common::Status MappedFileWindow::ensureMapped(std::uint64_t offset) {
             mapped_ = true;
             stats_.activeMappedBytes = length;
             stats_.peakMappedBytes = std::max(stats_.peakMappedBytes, length);
+            constexpr std::uintptr_t alignment = 2ULL * 1024 * 1024;
+            if (alignment_ == MappedWindowAlignment::HugePage2MiB &&
+                reinterpret_cast<std::uintptr_t>(mapping_) % alignment != 0) {
+                // Non-fixed hint only: close first, never reserve extra address space
+                // or replace mappings owned by another thread. The kernel may refuse.
+                auto* hint = reinterpret_cast<void*>(
+                    reinterpret_cast<std::uintptr_t>(mapping_) & ~(alignment - 1));
+                const auto retired = close();
+                if (!retired.isOk()) return retired;
+                ++stats_.mapCalls;
+                {
+                    Phase phase(stats_.profile, stats_.profile.mapWallSeconds, stats_.profile.mapCpuSeconds);
+                    mapping = ::mmap(hint, length, PROT_READ | PROT_WRITE, MAP_SHARED,
+                                     fd_, static_cast<off_t>(base_));
+                }
+                if (mapping == MAP_FAILED) {
+                    ++stats_.mapFailures;
+                    return common::Status::systemError("diagnostic aligned mmap", errno);
+                }
+                mapping_ = mapping;
+                mapped_ = true;
+                stats_.activeMappedBytes = length;
+                if (reinterpret_cast<std::uintptr_t>(mapping_) % alignment != 0) {
+                    ++stats_.mapFailures;
+                    const auto rejected = close();
+                    if (!rejected.isOk()) return rejected;
+                    return common::Status::systemError("diagnostic mmap alignment hint not honored", EADDRNOTAVAIL);
+                }
+            }
         }
     return common::Status::ok();
 #endif

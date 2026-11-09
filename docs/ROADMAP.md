@@ -38,7 +38,7 @@
 
 ## 下一项工作
 
-**LF4：真实MappedFileWindow的大页准备/写入诊断，待开发。** [Byte Work18结果](tasks/2026-11-09-v3-byte-work-18-result.md)已完成局部诊断与16MiB可行性探针。详细依赖见[计划](tasks/2026-11-09-v3-large-file-next-plan.md)及[路线决定](DECISIONS/2026-11-09-v3-large-file-candidate-screening.md)。
+**LF4：真实MappedFileWindow的大页准备/写入诊断，开发中。** 范围和验收见[Mapped Collapse19](tasks/2026-11-09-v3-mapped-collapse-19.md)。 [Byte Work18结果](tasks/2026-11-09-v3-byte-work-18-result.md)已完成局部诊断与16MiB可行性探针。详细依赖见[计划](tasks/2026-11-09-v3-large-file-next-plan.md)及[路线决定](DECISIONS/2026-11-09-v3-large-file-candidate-screening.md)。
 
 1. 先验证实际有界窗口：R1 probe已得到ShmemPmdMapped=16MiB、minor faults 4096→8，尚非吞吐结果。准备/映射/seed/collapse/写入/关闭全部计时；保护已有verified内容、租约/attempt和范围边界。映射仍≤64MiB/lane、总≤256MiB，不改共享THP/mount。
 2. 先做≤1GiB有限局部筛选，再决定V3文件集成。正式保留仍需同提交双端、五对新8GiB任务、中位吞吐≥10%、CV≤5%、至少4/5配对改善及完整性/恢复/资源/网络门；失败关闭该页策略，不重开旧population。
