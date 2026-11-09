@@ -7,6 +7,12 @@ Driver `cb6c8bdd9bf689b31cc6dc1a6c715889b231ff3b`; corrected formal driver
 The result-document commit follows these fixed experiment commits.
 Scope and commands: [task](2026-11-09-v3-small-file-baseline-21.md).
 
+Later measurement correction: [Summary Path22](2026-11-09-v3-summary-path-22-result.md)
+found that this driver timestamped the observer-loop end, potentially including
+ss work after child exit. The numbers below are retained historical measurements,
+not the corrected independent-exit contract. Do not calculate gains against S1's
+formal-v2 using these rows. Integrity/resource evidence is unaffected.
+
 ## Completed Work And Evidence
 
 Added `tools/perf/run_small_file_baseline.py`, filesystem ownership/cleanup and

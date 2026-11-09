@@ -13,6 +13,19 @@ s0 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(s0)
 
 class BaselineTest(unittest.TestCase):
+    def test_timeout_reaps_only_its_owned_child(self):
+        seen=[]
+        original=s0.observe
+        def observe(proc, state):
+            seen.append(proc.pid)
+            original(proc,state)
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-timer-test-') as d:
+            with patch.object(s0,'observe',observe):
+                with self.assertRaisesRegex(AssertionError,'owned process timeout'):
+                    s0.run_guarded([sys.executable,'-c','import time; time.sleep(10)'],Path(d)/'child.log',timeout=.03)
+            self.assertTrue(seen)
+            with self.assertRaises(FileNotFoundError):s0.proc_info(seen[0])
+
     def test_task_wall_excludes_observer_work_after_child_exit(self):
         def slow_observer(proc, state):
             proc.wait(timeout=5)

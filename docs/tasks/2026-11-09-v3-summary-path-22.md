@@ -1,6 +1,7 @@
 # S1 Summary Path22 Development Scope
 
-Date:2026-11-09. Status: implementation in progress, no result yet.
+Date:2026-11-09. Status: opt-in implementation and bounded acceptance complete;
+see [result](2026-11-09-v3-summary-path-22-result.md). Shared default not promoted.
 Input experiment/source `522fb68d7f65e08fc1c3359331d23ea702aee2c4`;
 start implementation from the pushed Baseline21 result commit and record its SHA.
 R770-1 sole serial writer; no agents/worktrees. R770-2 fixed-commit peer only.
@@ -23,6 +24,8 @@ tree-hash unit cases and related summary/tree/V3 resume/conflict gates; then bot
 nodes fixed source/build receipts before 40 formal samples (five pairs for each
 of three filesystem-read cases plus the16KiB x10K reuse negative control).
 No parallel writer/agent, production changes, or unrelated October14 docs edits.
+Closure also updates the S0 result with a historical timing caveat and adds
+Default Gate23 as the explicit unexecuted follow-up before shared-default promotion.
 The shared traversal also propagates a terminal iterator error, checked with an
 unprivileged permission-denied directory test. Invalid mode fails before control
 connection; existing CLI parsing may create an empty download directory first,
