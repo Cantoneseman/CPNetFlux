@@ -40,23 +40,45 @@ def seed(args):
     source=base.owned(args.payload_root,'source');source.mkdir()
     path=source/'f000000.bin';block=os.urandom(8*base.MiB)
     state=base.resource_state()
+    state['phase']='source_write'
+    def guard():
+        state['samples']+=1
+        state['mem_available_min_bytes']=min(state['mem_available_min_bytes'],base.mem())
+        state['owned_swap_peak_bytes']=max(state['owned_swap_peak_bytes'],base.proc_info(os.getpid())['swap_bytes'])
+        assert state['mem_available_min_bytes']>=12*base.GIB,'seed memory threshold'
+        assert base.pswpout()==state['pswpout_before'],'seed host swap-out changed'
+        assert state['owned_swap_peak_bytes']==0,'seed process swap'
     try:
         with path.open('xb') as f:
             for _ in range(1024):
                 f.write(block)
-                state['mem_available_min_bytes']=min(state['mem_available_min_bytes'],base.mem())
-                state['owned_swap_peak_bytes']=max(state['owned_swap_peak_bytes'],base.proc_info(os.getpid())['swap_bytes'])
-                assert state['mem_available_min_bytes']>=12*base.GIB,'seed memory threshold'
-                assert base.pswpout()==state['pswpout_before'],'seed host swap-out changed'
-                assert state['owned_swap_peak_bytes']==0,'seed process swap'
+                guard()
+        state['phase']='source_sha';guard()
+        result=base.tree(source)
+        guard()
+        state['phase']='source_residency'
+        result['residency']=residency(path)
+        state['source_residency']=result['residency']
+        guard()
+        result['data_shape']='one random 8MiB block repeated 1024 times; fully materialized; compression off'
+        assert result['bytes']==SIZE and result['files']==1 and result['residency']['all_resident']
     finally:
         state['pswpout_delta']=base.pswpout()-state['pswpout_before']
         state['materialized_bytes']=path.stat().st_size
+        state['guard_scope']='per-write and SHA/residency boundaries; memory/process swap peaks are sampled'
         base.save(args.evidence/'peer/seed-resource.json',state)
-    result=base.tree(source);result['residency']=residency(path)
-    result['data_shape']='one random 8MiB block repeated 1024 times; fully materialized; compression off'
-    assert result['bytes']==SIZE and result['files']==1 and result['residency']['all_resident']
+    assert state['pswpout_delta']==0,'seed host swap-out changed'
     base.save(args.evidence/'peer/source.json',result)
+    return result
+
+
+def source_residency(args):
+    state=json.loads((args.evidence/'peer/seed-resource.json').read_text())
+    result=residency(base.owned(args.payload_root,'source')/'f000000.bin')
+    result['host_pswpout']=base.pswpout()
+    result['host_pswpout_delta_since_seed']=result['host_pswpout']-state['pswpout_before']
+    result['mem_available_bytes']=base.mem()
+    result['owned_probe_swap_bytes']=base.proc_info(os.getpid())['swap_bytes']
     return result
 
 
@@ -125,14 +147,22 @@ def evaluate(rows):
 
 
 def run_case(args,rows,port=49323):
-    started=False
+    started=False;completed=False;phase='seed';name=None
     try:
         expected=own_peer(args,'seed')
+        phase='server_start'
         base.peer(args,'start',name='large-reuse',port=port,data_base=61000);started=True;ready(port)
         for rep in range(1,6):
             for mode in (('original','cached') if rep%2 else ('cached','original')):
-                resident=own_peer(args,'residency');assert resident['all_resident']
                 name=f'8g-{mode}-r{rep}'
+                phase='source_residency'
+                resident=own_peer(args,'residency')
+                base.save(args.evidence/'samples'/(name+'.source-residency.json'),resident)
+                assert resident['all_resident'],'source residency gate'
+                assert resident['host_pswpout_delta_since_seed']==0,'source host swap-out changed'
+                assert resident['mem_available_bytes']>=12*base.GIB,'source memory threshold'
+                assert resident['owned_probe_swap_bytes']==0,'source probe swap'
+                phase='client_sample'
                 row=base.client_sample(args,name,expected,'2','on',port,summary_path=mode,mapped_download=True)
                 row['rep']=rep;row['source_residency_before']=resident
                 row['verified_chunk_count']=verify_chunks(row['manifest_checks']['member_example'])
@@ -141,15 +171,21 @@ def run_case(args,rows,port=49323):
                 rows.append(row);base.save(args.evidence/'samples'/(name+'.receipt.json'),row)
                 base.save(args.evidence/'results.json',rows)
                 print(json.dumps({'sample':name,'t_ready':row['t_ready_seconds'],'gbps':row['whole_task_gbps']}),flush=True)
+        phase='source_final_check'
         checked=base.peer(args,'source-check')
         assert checked=={k:expected[k] for k in ('sha256','files','bytes')}
         base.save(args.evidence/'source-final-check.json',checked)
+        completed=True
+    except BaseException as error:
+        base.save(args.evidence/'case-failure.json',{'phase':phase,'sample':name,
+                  'completed_samples':len(rows),'error':repr(error)})
+        raise
     finally:
         try:
             if started:
                 server=base.peer(args,'stop',name='large-reuse');base.save(args.evidence/'large-reuse.server.json',server)
                 assert 'error' not in server['resource'] and server['resource']['pswpout_delta']==0
-                assert server['sender_phases']['count']==80
+                if completed:assert server['sender_phases']['count']==80
                 assert all(r['sender_payload_execution']=='queued' for r in server['sender_phases']['examples'])
         finally:base.peer(args,'source-cleanup')
 
@@ -179,7 +215,7 @@ def main():
     if args.action=='matrix':matrix(args)
     else:
         base.receipt(args.commit)
-        result=seed(args) if args.action=='seed' else residency(base.owned(args.payload_root,'source')/'f000000.bin')
+        result=seed(args) if args.action=='seed' else source_residency(args)
         print(json.dumps(result))
 
 

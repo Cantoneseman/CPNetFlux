@@ -83,5 +83,84 @@ class DefaultGateTest(unittest.TestCase):
             self.assertEqual(r['pswpout_delta'],1)
             self.assertEqual(r['materialized_bytes'],8*1024**2)
 
+    def test_seed_hash_phase_swap_cannot_escape_preparation_guard(self):
+        import json
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-s0-gate-test-',dir='/dev/shm') as d:
+            root=Path(d);(root/gate.base.MARKER).write_text(gate.base.TOKEN)
+            args=SimpleNamespace(commit='test',payload_root=root,evidence=root/'evidence')
+            swap=[10]
+            def hash_source(source):
+                self.assertEqual((source/'f000000.bin').stat().st_size,1024)
+                swap[0]=11
+                return {'files':1,'bytes':1024,'sha256':'fixture'}
+            with patch.object(gate.base,'receipt'),patch.object(gate.base,'node',return_value=2), \
+                 patch.object(gate.base,'mem',return_value=32*1024**3), \
+                 patch.object(gate.base,'pswpout',side_effect=lambda:swap[0]), \
+                 patch.object(gate.base,'tree',side_effect=hash_source), \
+                 patch.object(gate,'residency',return_value={'all_resident':True}), \
+                 patch.object(gate.os,'urandom',return_value=b'x'),patch.object(gate,'SIZE',1024), \
+                 patch.object(gate.shutil,'disk_usage',return_value=SimpleNamespace(free=16*1024**3)):
+                with self.assertRaisesRegex(AssertionError,'seed host swap-out changed'):gate.seed(args)
+            r=json.loads((args.evidence/'peer/seed-resource.json').read_text())
+            self.assertEqual(r['pswpout_delta'],1)
+            self.assertEqual(r['phase'],'source_sha')
+            self.assertFalse((args.evidence/'peer/source.json').exists())
+
+    def test_pre_sample_residency_abort_is_saved_and_not_masked_by_phase_count(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            args=SimpleNamespace(evidence=Path(d));rows=[]
+            resident={'all_resident':False,'pages':100,'resident_pages':90}
+            def remote_action(args,action):
+                return resident if action=='residency' else {'sha256':'fixture','files':1,'bytes':gate.SIZE}
+            def base_action(args,action,**kwargs):
+                if action=='stop':return {'resource':{'pswpout_delta':0},'sender_phases':{'count':0,'examples':[]}}
+                return {}
+            with patch.object(gate,'own_peer',side_effect=remote_action), \
+                 patch.object(gate.base,'peer',side_effect=base_action),patch.object(gate,'ready'), \
+                 patch.object(gate.base,'client_sample') as client:
+                with self.assertRaisesRegex(AssertionError,'source residency gate'):gate.run_case(args,rows)
+            client.assert_not_called()
+            self.assertEqual(rows,[])
+            self.assertEqual(json.loads((args.evidence/'samples/8g-original-r1.source-residency.json').read_text()),resident)
+            failure=json.loads((args.evidence/'case-failure.json').read_text())
+            self.assertEqual(failure['phase'],'source_residency')
+            self.assertEqual(failure['completed_samples'],0)
+
+    def test_fully_resident_source_still_rejects_swap_since_seed(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            args=SimpleNamespace(evidence=Path(d));rows=[]
+            resident={'all_resident':True,'pages':100,'resident_pages':100,
+                      'host_pswpout_delta_since_seed':1,'mem_available_bytes':32*gate.base.GIB,
+                      'owned_probe_swap_bytes':0}
+            def remote_action(args,action):
+                return resident if action=='residency' else {'sha256':'fixture','files':1,'bytes':gate.SIZE}
+            def base_action(args,action,**kwargs):
+                if action=='stop':return {'resource':{'pswpout_delta':0},'sender_phases':{'count':0,'examples':[]}}
+                return {}
+            with patch.object(gate,'own_peer',side_effect=remote_action), \
+                 patch.object(gate.base,'peer',side_effect=base_action),patch.object(gate,'ready'), \
+                 patch.object(gate.base,'client_sample',side_effect=AssertionError('client incorrectly launched')) as client:
+                with self.assertRaisesRegex(AssertionError,'source host swap-out changed'):gate.run_case(args,rows)
+            client.assert_not_called()
+            saved=json.loads((args.evidence/'samples/8g-original-r1.source-residency.json').read_text())
+            self.assertEqual(saved,resident)
+
+    def test_residency_probe_carries_original_seed_swap_baseline(self):
+        import json
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-s0-gate-test-',dir='/dev/shm') as d:
+            root=Path(d);(root/gate.base.MARKER).write_text(gate.base.TOKEN)
+            (root/'source').mkdir();(root/'source/f000000.bin').write_bytes(b'x'*8192)
+            evidence=root/'evidence';(evidence/'peer').mkdir(parents=True)
+            (evidence/'peer/seed-resource.json').write_text(json.dumps({'pswpout_before':10}))
+            args=SimpleNamespace(payload_root=root,evidence=evidence)
+            probe=getattr(gate,'source_residency',None)
+            self.assertTrue(callable(probe),'source probe must carry the original seed baseline')
+            with patch.object(gate.base,'pswpout',return_value=11):r=probe(args)
+            self.assertTrue(r['all_resident'])
+            self.assertEqual(r['host_pswpout'],11)
+            self.assertEqual(r['host_pswpout_delta_since_seed'],1)
+
 
 if __name__=='__main__':unittest.main()

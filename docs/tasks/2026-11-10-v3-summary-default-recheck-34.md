@@ -1,6 +1,6 @@
 # S1B Summary Default Recheck34
 
-Date:2026-11-10. Status: scoped; resource prerequisites pending.
+Date:2026-11-10. Status: single attempt stopped before samples; diagnostic correction in progress.
 Input:6cfb1bb7c516b7677dadb8a255f5476525b36e3d.
 R1 sole serial writer; R2 fixed-commit build/test/transfer peer. No delegation.
 
@@ -26,6 +26,18 @@ Conditional ONLY after the existing gate passes: minimal unset-selector fallback
 in src/core/io/tree_transfer_client.cpp, its default assertion in
 tools/test/run_cpnetflux_summary_path_smoke.py and current README/default docs.
 Do not change existing benchmark mechanics just to obtain a pass.
+
+Observed execution update: both241-sample resource windows passed, but the single
+fixed2bb75d787be61b738327d93d1058ad86bb23a4b3 attempt failed at its first pre-sample
+source-residency check. No client/performance sample started; both owned roots
+were removed. Seed write diagnostics show8GiB/zero swap, but host pswpout rose
+2207568 ->2292431 before server supervision began. This exposes a guard/evidence
+gap: seed diagnostics finalize before source SHA/residency, the failed residency
+report is discarded, and a finally-block expected80-phase assertion masks the
+initial failure. Extend scope ONLY to tools/perf/run_summary_default_gate.py and
+tools/test/run_summary_default_gate_test.py for boundary guards, retained failure
+evidence and non-masking aborted cleanup. Add small synthetic regressions first;
+do not rerun preparation/matrix or change the runtime/default/performance gates.
 
 Non-goals: receiver performance branch restart, RDMA, new profiler, frame/thread/
 queue sweep, serialization/microbatch development, system/network/mount/THP/swap
