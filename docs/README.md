@@ -1,29 +1,30 @@
-# CPNetFlux 文档入口
+# CPNetFlux 文档导航
 
-本页是仓库文档索引。项目当前事实以 R770-1 权威工作树、最新固定提交、验收记录和原始实验数据为准；历史文档保留证据，不自动代表当前路线或 readiness。
+**当前性能主线只维护在[路线图](ROADMAP.md)。** 本页负责导航，详细数据、失败与验收命令留在各任务/结果中；历史结论按其输入提交和环境解释。
 
-## 当前优先阅读
+## 当前入口
 
-1. [项目入口](../README.md)：项目定位、当前性能状态和开发入口。
-2. [性能路线图](ROADMAP.md)：唯一当前性能主线。
-3. [详细开发计划](tasks/2026-11-04-performance-roadmap.md)：阶段、指标、门槛和目标。
-4. [R770 环境](coordination/ENVIRONMENT.md)：SSH alias、主机角色、管理/数据地址、工具链和实验边界。
-5. [三阶段收口结果](tasks/2026-11-07-v3-stage-decoupling-01-result.md)与[执行指南](V3_TRANSFER_STAGES.md)：最新实现、配置、性能处置和剩余门。
-6. [流水线优先决定](DECISIONS/2026-11-07-v3-pipeline-priority.md)：RDMA优化暂停；[RDMA路线](roadmaps/rdma.md)与[原基线](tasks/2026-11-04-r770-rdma-e2e-baseline-01.md)保留历史及后续参考。
-7. [研究基线](RESEARCH_BASELINE.md)：论文与历史证据边界。
-
-## 按用途查找
-
-| 用途 | 入口 |
+| 要查什么 | 文档 |
 |---|---|
-| 当前架构决策 | [性能路线决策](DECISIONS/2026-11-04-performance-route.md)、[R770 主开发环境决策](DECISIONS/2026-10-30-r770-primary.md) |
-| 当前状态和历史结论 | [最新验收状态](tasks/2026-11-07-v3-stage-decoupling-01-result.md)、[实验目录](experiments/)、[任务记录](tasks/) |
-| 性能脚本使用参考 | `tools/perf/` 脚本与当前基线任务 |
-| 协议、架构和工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md) |
-| 目录传输、恢复与安全 | [目录传输](DIRECTORY_TRANSFER.md)、[安全边界](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md) |
+| 项目、服务器与开发入口 | [项目 README](../README.md)、[开发规则](../AGENTS.md)、[R770 环境](coordination/ENVIRONMENT.md) |
+| 当前状态、配置、未过门与下一项 | [性能路线图](ROADMAP.md) |
+| 执行方式和缓冲所有权 | [三阶段指南](V3_TRANSFER_STAGES.md)、[映射下载边界](tasks/2026-11-08-v3-mapped-download-08-result.md) |
+| 设计、协议与工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md)、[目录传输](DIRECTORY_TRANSFER.md) |
+| 安全、发布与证据边界 | [安全](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md)、[历史研究基线](RESEARCH_BASELINE.md) |
 
-## 历史材料规则
+## 详细结果导航
 
-- `docs/tasks` 和 `docs/experiments` 中的记录按其输入提交与采样环境解释；历史 “go” 不等于当前单链路 100G 或生产 readiness。
-- 深圳/上海云端主开发、旧协作角色、强制 worktree、旧 root 路径和旧 SSH 命令均为历史材料；当前操作规则读 [R770 环境](coordination/ENVIRONMENT.md)。
-- 路线变化先更新 [决策](DECISIONS/2026-11-04-performance-route.md) 与 [路线图](ROADMAP.md)，再做源码实现。
+| 主题 | 任务 / 结果 |
+|---|---|
+| 最新大文件基线与归因 | [内核服务17](tasks/2026-11-09-v3-kernel-service-17-result.md)、[观测开销16](tasks/2026-11-09-v3-observation-audit-16-result.md)、[本地 V3 executor 修复13](tasks/2026-11-09-v3-receiver-critical-13-result.md) |
+| 写入路径与集成 | [lane/storage06](tasks/2026-11-08-v3-lane-storage-06.md)、[写后端07](tasks/2026-11-08-v3-write-backend-07.md)、[映射下载08](tasks/2026-11-08-v3-mapped-download-08-result.md)、[映射成本14](tasks/2026-11-09-v3-mapped-cost-14-result.md) |
+| 已关闭候选与负结果 | [流水线交接](tasks/2026-11-07-v3-path-isolation-01-result.md)、[population10](tasks/2026-11-08-v3-mapped-populate-10-result.md)、[发送inline12](tasks/2026-11-08-v3-sender-service-12-result.md)、[直接接收15](tasks/2026-11-09-v3-direct-receive-15-result.md) |
+| 小文件 | [逐文件基线01](tasks/2026-11-08-v3-small-file-microbatch-01.md)、[清单候选02](tasks/2026-11-08-v3-small-file-microbatch-02.md)、[pending-window03](tasks/2026-11-08-v3-protocol-microbatch-03.md) |
+| 历史三阶段 / RDMA | [三阶段工程收口](tasks/2026-11-07-v3-stage-decoupling-01-result.md)、[RDMA 基线](tasks/2026-11-04-r770-rdma-e2e-baseline-01-result.md)、[result 生命周期](tasks/2026-11-05-v3-result-lifetime-01-result.md)、[冷建连](tasks/2026-11-06-v3-rdma-startup-01-result.md) |
+| 其余记录与宏观设计 | [全部任务](tasks/)、[历史实验](experiments/)、[原分阶段计划](tasks/2026-11-04-performance-roadmap.md)（执行优先级以当前路线图为准） |
+
+## 决策与历史规则
+
+- 当前开发环境遵循 [R770 主开发决定](DECISIONS/2026-10-30-r770-primary.md)；[性能路线决定](DECISIONS/2026-11-04-performance-route.md)和[流水线优先决定](DECISIONS/2026-11-07-v3-pipeline-priority.md)按当前路线图理解。
+- 深圳/上海主开发、旧协作角色、强制 worktree、旧路径和 SSH 命令均为历史材料，不覆盖当前开发规则。
+- 路线图只更新当前结论、推荐配置、开放门和下一项；逐次测量、失败修正、测试清单、证据路径与历史下一步写回对应结果，避免继续追加实验时间线。
