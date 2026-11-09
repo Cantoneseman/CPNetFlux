@@ -1,6 +1,6 @@
 # S2F Sender Producer And Credit Budget29
 
-Date:2026-11-09. Status: implementation/attribution started; no candidate accepted.
+Date:2026-11-09. Status: completed; see [result](2026-11-09-v3-sender-credit-budget-29-result.md). No candidate accepted.
 Frozen checkout input:2daeae8b002da590d44da8bfc036015a194976a2.
 Input:Budget28 measured source42a2a9d9eca07d8c553691262590fc8b4fd9d26e plus its
 result/route documentation; final backup SHA is in Budget28 evidence closure.
@@ -112,3 +112,10 @@ interrupted/corrupt/conflict/edge tests pass. Ready tests cover exhausted credit
 unadmitted metadata, stale/drained owner, cancel, affinity and both requeue paths.
 Evidence:/home/Su/experiments/CPNetFlux/2026-11-09-v3-sender-credit-budget-29.
 Next:commit/push/readback, exact R2 build/test/binary receipt, exactly3 pairs.
+
+Closure:measured987746820559b4203a85fd3132589a2a23d0bbaf, both nodes58+4 tests
+pass and3 binary hashes match. Exactly3 observer pairs; overhead2.21925%,
+CV0.9328%/0.5945%. Producer join-work0 for4KiB; proven-ready credit union~35%
+does not imply whole-task idle or removable ACK cost. All content/checkpoint,
+resource/NIC/production/cleanup checks pass. Next:one bounded
+[receiver transaction audit30](2026-11-09-v3-receiver-transaction-audit-30.md).
