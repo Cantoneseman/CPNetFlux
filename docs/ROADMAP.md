@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- V3 三阶段工程已收口；大文件性能门未过。[Kernel Service17](tasks/2026-11-09-v3-kernel-service-17-result.md)的无预算候选暂停仍有效。[Byte Work18](tasks/2026-11-09-v3-byte-work-18-result.md)的大帧/CRC整任务预算未证实；[Mapped Collapse19](tasks/2026-11-09-v3-mapped-collapse-19-result.md)和[Source Read20](tasks/2026-11-09-v3-source-read-20-result.md)当前候选不集成。[TCP Buffer Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)已完成独立零拷贝诊断和双机五对1GiB对照：发送CPU下降19.84%，中位服务时间增加1.81%，copied CV5.39%超门，性能NO-GO，不接入V3。本轮无完整任务吞吐收益。下一项为接收端服务需求/工作分配的有界架构预算；RDMA、线程/队列扩张和微批实现继续暂停。
+- V3 三阶段工程已收口；大文件性能门未过。[Receiver Service Budget33](tasks/2026-11-10-v3-receiver-service-budget-33-result.md)已复核scope17/32证据和当前热路径：chunk CRC确在共享锁内，但现有栈无法区分锁内/会话CRC成本，未建立可消除机制及保守≥10%整任务预算；当前大文件接收端软件候选分支暂停，不自动追加profiler或并发扫描。[TCP Buffer Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)发送CPU下降19.84%、服务墙钟增加1.81%，已停止，不接入V3。scope33只增加审计工具，无运行时修改或新吞吐成绩；RDMA、线程/队列扩张和微批实现继续暂停。下一独立待办是S1B资源前置核对，不能替代大文件目标。
 - 小文件S0/S1显式摘要缓存受限通过，S1B默认晋级仍受资源门阻塞；默认original、cached显式选择。[S2C Runtime26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)整任务慢2.50%，S2D清单同步、S2E/F两端生命周期及[S2G事务审计30](tasks/2026-11-10-v3-receiver-transaction-audit-30-result.md)均未建立可消除机制及保守≥10%预算，逐文件性能归因暂停。原序列化默认、profile关闭。[Publication31](tasks/2026-11-10-v3-publication-reconcile-31-result.md)已修复可证明自有hard-link发布后的CRC32C恢复缺口；scope32含其回归，两端各140项相关测试通过。
 - 最近的大文件同轮完整任务 baseline/profile 中位数为 **27.291/27.296 Gbps**（三对），仅验证采样开销，没有新大文件吞吐收益；输入 `025c38a9`，运行时未改。内容、V3 终态和资源门通过，sample02 接收接口 `rx_missed_errors` 增加 94，网络计数门未清洁。
 - 上述成绩限定为 R770-2 → R770-1、单个 8 GiB 驻留 tmpfs 源及全新 tmpfs 目标、4 路 TCP、queued 发送/inline 实验 mmap 接收、CRC32C/verified_chunks、TLS off、commit_sync=none；不是默认、物理磁盘或持久化性能。
@@ -45,9 +45,11 @@
 
 ## 下一项工作
 
-**下一项：接收端CPU服务需求与工作分配的有界架构预算。** 先复用scope17/32已有证据和当前源码，区分内核接收/页面、CRC及用户态复制/租约工作，选出一个能减少关键路径实际工作、具有保守≥10%完整任务预算的机制，再确定实现范围。scope32接收端约0.94 CPU秒/GiB、26.2万minor faults支持优先核对这一侧，但不能将全部CPU归为缺页，或用CPU/墙钟比直接批准扩线程。没有新机制过预算就收口，不自动追加profiler或并发扫描，也不原样重开旧候选。
+**下一独立待办：S1B稳定资源与默认晋级前置核对。** [Receiver Service Budget33](tasks/2026-11-10-v3-receiver-service-budget-33-result.md)已按预算边界收口，当前接收端性能候选暂停；每GiB有17408帧、34816次两层CRC拼接，但处理次数和CPU样本不能代替可消除的关键路径时间。重新开展大文件运行时开发必须有新机制和保守≥10%完整任务收益预算，不自动再测或扩大并发。
 
-[TCP Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)有界池和完成通知正确性已验证，物理网卡没有报告COPIED回退，仍未获得墙钟收益；该候选停止，不重跑调参、不接入运行时。两端测试及12次互传完整性通过，内存池合计8.5MiB、最大单源/目标1GiB、最小可用内存约27.04GiB，采样owned swap及host swap-out增量均0；新接口错误增量0不消除scope17历史+94。逐文件归因和S1B默认晋级保持暂停，不删保存或改ACK；正常verified_chunks完成没有额外verifyPublished全文回读，不能省去不存在的扫描。
+scope32连续有界1GiB准备/互传区间的主机换出增量为零，是重新核对S1B资源前置条件的依据，不能证明8GiB准备安全。后续须独立立项，先确认稳定资源窗口，再最多进行一次有界尝试；最低可用内存、owned swap和host swap-out零增量门保持不变，触门即停止并清理，不自动重试。当前summary仍默认original、cached显式选择；本轮未启动S1B准备或互传，小文件默认验收不计为大文件100G进展。
+
+[TCP Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)有界池和完成通知正确性已验证，物理网卡没有报告COPIED回退，仍未获得墙钟收益；该候选停止，不重跑调参、不接入运行时。两端测试及12次互传完整性通过，内存池合计8.5MiB、最大单源/目标1GiB、最小可用内存约27.04GiB，采样owned swap及host swap-out增量均0；新接口错误增量0不消除scope17历史+94。逐文件归因仍暂停；S1B只有资源前置核对待办，默认晋级未通过。不删保存或改ACK；正常verified_chunks完成没有额外verifyPublished全文回读，不能省去不存在的扫描。
 
 1. 真实MappedFileWindow已确认1GiB大页和fault大幅下降，但五对ordinary CV=5.124%超门，准备/写入/关闭CPU基本不变。诊断whole墙钟下降26.04%；两对归因补测显示大部分差来自close/unlink，自有实验文件销毁不代表真实传输T_ready。候选不接入V3，不重测挑CV，不再调种子/窗口。
 2. LF5当前候选已结束：1GiB/4路五对，同CRC/切分、map/PTE/CRC/close全计时；CPU下降8.205%但墙钟仅3.188%，两臂CV<2%。省一遍显式复制同时增加约1.64万minor faults，不足以支持运行时集成；不重跑调参，不把诊断服务率外推完整任务。后续TCP零拷贝32也未过墙钟门；原生RDMA保持独立设计门和暂停范围，不宣称全部大文件方向已穷尽。
