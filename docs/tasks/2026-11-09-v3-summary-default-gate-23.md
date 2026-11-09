@@ -24,7 +24,7 @@ tools/test/run_summary_default_gate_test.py, tools/perf/run_small_file_baseline.
 (narrow explicit mapped-download option), CMakeLists.txt (analysis test), this
 task/result. Conditional promotion only: src/core/io/tree_transfer_client.cpp,
 tools/test/run_cpnetflux_summary_path_smoke.py, README.md,
-docs/RESEARCH_BASELINE.md and docs/PERFORMANCE_ROADMAP.md. Inspect each route
+docs/README.md and docs/ROADMAP.md. Inspect each route
 document before editing. No new protocol fields.
 
 Use installed libc mincore through Python ctypes for read-only residency proof
@@ -41,6 +41,13 @@ mapped_lifecycle diagnostic failed at its collapse/pattern subcase with
 MADV_COLLAPSE ENOMEM. Collapse is not selected in S1B and its prior LF4 candidate
 was rejected. Record this host-sensitive diagnostic separately; do not weaken its
 test or change host memory policy. Normal mapped fault and unobserved tests pass.
+
+First fixed-commit preparation (0e25ab0) aborted in the seed resource guard,
+before any transfer or performance sample; owned partial payload/root removed
+on both nodes. The old combined assertion did not distinguish memory/swap.
+Add persistent seed diagnostics and allow one bounded preparation recheck on
+the corrected driver; keep the failed launch/evidence. Never lower resource gates
+or retry completed performance samples to chase CV.
 
 ## Regression Before Promotion
 

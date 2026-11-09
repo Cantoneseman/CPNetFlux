@@ -40,10 +40,19 @@ def seed(args):
     source=base.owned(args.payload_root,'source');source.mkdir()
     path=source/'f000000.bin';block=os.urandom(8*base.MiB)
     state=base.resource_state()
-    with path.open('xb') as f:
-        for _ in range(1024):
-            f.write(block)
-            assert base.mem()>=12*base.GIB and base.pswpout()==state['pswpout_before']
+    try:
+        with path.open('xb') as f:
+            for _ in range(1024):
+                f.write(block)
+                state['mem_available_min_bytes']=min(state['mem_available_min_bytes'],base.mem())
+                state['owned_swap_peak_bytes']=max(state['owned_swap_peak_bytes'],base.proc_info(os.getpid())['swap_bytes'])
+                assert state['mem_available_min_bytes']>=12*base.GIB,'seed memory threshold'
+                assert base.pswpout()==state['pswpout_before'],'seed host swap-out changed'
+                assert state['owned_swap_peak_bytes']==0,'seed process swap'
+    finally:
+        state['pswpout_delta']=base.pswpout()-state['pswpout_before']
+        state['materialized_bytes']=path.stat().st_size
+        base.save(args.evidence/'peer/seed-resource.json',state)
     result=base.tree(source);result['residency']=residency(path)
     result['data_shape']='one random 8MiB block repeated 1024 times; fully materialized; compression off'
     assert result['bytes']==SIZE and result['files']==1 and result['residency']['all_resident']
