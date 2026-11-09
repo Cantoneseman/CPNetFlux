@@ -4,8 +4,8 @@
 
 ## 当前状态
 
-- V3 三阶段工程已收口；大文件性能门未过。[Receiver Service Budget33](tasks/2026-11-10-v3-receiver-service-budget-33-result.md)已复核scope17/32证据和当前热路径：chunk CRC确在共享锁内，但现有栈无法区分锁内/会话CRC成本，未建立可消除机制及保守≥10%整任务预算；当前大文件接收端软件候选分支暂停，不自动追加profiler或并发扫描。[TCP Buffer Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)发送CPU下降19.84%、服务墙钟增加1.81%，已停止，不接入V3。scope33只增加审计工具，无运行时修改或新吞吐成绩；RDMA、线程/队列扩张和微批实现继续暂停。下一独立待办是S1B资源前置核对，不能替代大文件目标。
-- 小文件S0/S1显式摘要缓存受限通过，S1B默认晋级仍受资源门阻塞；默认original、cached显式选择。[S2C Runtime26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)整任务慢2.50%，S2D清单同步、S2E/F两端生命周期及[S2G事务审计30](tasks/2026-11-10-v3-receiver-transaction-audit-30-result.md)均未建立可消除机制及保守≥10%预算，逐文件性能归因暂停。原序列化默认、profile关闭。[Publication31](tasks/2026-11-10-v3-publication-reconcile-31-result.md)已修复可证明自有hard-link发布后的CRC32C恢复缺口；scope32含其回归，两端各140项相关测试通过。
+- V3 三阶段工程已收口；大文件性能门未过。[Receiver Service Budget33](tasks/2026-11-10-v3-receiver-service-budget-33-result.md)已复核scope17/32证据和当前热路径：chunk CRC确在共享锁内，但现有栈无法区分锁内/会话CRC成本，未建立可消除机制及保守≥10%整任务预算；当前大文件接收端软件候选分支暂停，不自动追加profiler或并发扫描。[TCP Buffer Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)发送CPU下降19.84%、服务墙钟增加1.81%，已停止，不接入V3。[S1B Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)两端空闲资源窗口通过，但唯一8GiB准备后首次驻留检查失败、主机发生换出，零性能样本；已修复准备/SHA/驻留资源记录与基线跨阶段缺口，不重试。本轮无运行时提速；RDMA、线程/队列扩张和微批实现继续暂停。
+- 小文件S0/S1显式摘要缓存受限通过，S1B默认晋级仍受资源/驻留门阻塞；scope34写入阶段记录为零换出，写入记录到服务启动之间却增加84863页主机换出，初次性能样本未启动。默认original、cached显式选择。[S2C Runtime26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)整任务慢2.50%，S2D清单同步、S2E/F两端生命周期及[S2G事务审计30](tasks/2026-11-10-v3-receiver-transaction-audit-30-result.md)均未建立可消除机制及保守≥10%预算，逐文件性能归因暂停。原序列化默认、profile关闭。[Publication31](tasks/2026-11-10-v3-publication-reconcile-31-result.md)已修复可证明自有hard-link发布后的CRC32C恢复缺口；scope32含其回归，两端各140项相关测试通过。
 - 最近的大文件同轮完整任务 baseline/profile 中位数为 **27.291/27.296 Gbps**（三对），仅验证采样开销，没有新大文件吞吐收益；输入 `025c38a9`，运行时未改。内容、V3 终态和资源门通过，sample02 接收接口 `rx_missed_errors` 增加 94，网络计数门未清洁。
 - 上述成绩限定为 R770-2 → R770-1、单个 8 GiB 驻留 tmpfs 源及全新 tmpfs 目标、4 路 TCP、queued 发送/inline 实验 mmap 接收、CRC32C/verified_chunks、TLS off、commit_sync=none；不是默认、物理磁盘或持久化性能。
 - [Observation Audit16](tasks/2026-11-09-v3-observation-audit-16-result.md) 的 detail-off 中位数为 27.858 Gbps，计时合同与 scope17 不同，不能跨轮计算收益。scope13 之前的约 28–29 Gbps 数据还须结合[本地 V3 executor 修复](tasks/2026-11-09-v3-receiver-critical-13-result.md)解释。
@@ -21,7 +21,7 @@
 | 复现当前大文件基线 | sender queued；receiver 显式 inline + mmap；4 connections、4 路活跃 range；POSIX direct、read0/write0、depth2/batch1 | 仅隔离的单任务下载 CLI；遵守 mmap 文件/range 限制；每路窗口 ≤64 MiB、总映射 ≤256 MiB、payload 预算 64 MiB |
 | 上述基线的校验与观测 | CRC32C/verified_chunks、checkpoint16、无预分配/压缩；TLS off、commit_sync=none；range/payload detail 及新增 CPU profile 关闭 | 保留基础 phase；源驻留/SHA 在计时外；scope17 另有共同 /proc 采集器和 gate 计时，不混用口径 |
 | 密集小文件的既有对照 | 默认窗口2；auto仅在选择时已有清单且≥10K/平均≤64KiB时选8 | S0发现全新下载选择时清单为空，auto实际为2；显式8对照收益混合且不足3%，不改默认，不把历史window1收益当本轮成果 |
-| S1小文件实验摘要 | 任务级 `CPNETFLUX_SUMMARY_PATH=cached`；默认仍original；保留原有内容读取与CRC | 仅改变filesystem_read摘要路径；verified_chunks复用时effective=not_used。三组受测小文件过门；S1B源准备出现主机换出，默认晋级与大文件回归暂缓 |
+| S1小文件实验摘要 | 任务级 `CPNETFLUX_SUMMARY_PATH=cached`；默认仍original；保留原有内容读取与CRC | 仅改变filesystem_read摘要路径；verified_chunks复用时effective=not_used。三组受测小文件过门；S1B34空闲窗口通过仍未满足受载驻留/零换出门，默认晋级与大文件回归暂缓 |
 | S2C序列化复现 | 默认 `CPNETFLUX_TREE_MANIFEST_SERIALIZER=original`；buffered仅显式复现 | 4KiB×10K完整任务未过门，不推荐用于提速；逐字节格式、CRC、恢复与保存策略不变 |
 | S2D清单归因 | 默认 `CPNETFLUX_TREE_MANIFEST_PROFILE=0`；1仅任务级诊断 | 单独输出复制/销毁、排序/编码、写入/发布与去重等待；这些嵌套/重叠区间不能相加为收益 |
 | S2E成员归因 | 默认 `CPNETFLUX_MEMBER_WORK_PROFILE=0`；1仅任务级诊断 | 本地成功whole-file接收的线程/事务/result写入汇总；上传明确not_used_sender，范围/失败/截断不得外推整任务 |
@@ -45,11 +45,13 @@
 
 ## 下一项工作
 
-**下一独立待办：S1B稳定资源与默认晋级前置核对。** [Receiver Service Budget33](tasks/2026-11-10-v3-receiver-service-budget-33-result.md)已按预算边界收口，当前接收端性能候选暂停；每GiB有17408帧、34816次两层CRC拼接，但处理次数和CPU样本不能代替可消除的关键路径时间。重新开展大文件运行时开发必须有新机制和保守≥10%完整任务收益预算，不自动再测或扩大并发。
+**下一独立待办：解释S1B受载准备期间的回收/换出与资源归属。** [S1B Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)唯一尝试在首个客户端启动前结束。空闲窗口、高MemAvailable和进程VmSwap0不足以保证源驻留及主机零换出；当前SSH/上层cgroup读数也不是原准备进程的因果时间线。先基于已保存证据明确剩余缺口，任何新诊断需独立限定范围并覆盖同一准备进程/cgroup的写入、SHA、驻留生命周期；当前范围不允许再次准备8GiB，不凭另一个空闲窗口重试，不改系统策略或降低门槛。
 
-scope32连续有界1GiB准备/互传区间的主机换出增量为零，是重新核对S1B资源前置条件的依据，不能证明8GiB准备安全。后续须独立立项，先确认稳定资源窗口，再最多进行一次有界尝试；最低可用内存、owned swap和host swap-out零增量门保持不变，触门即停止并清理，不自动重试。当前summary仍默认original、cached显式选择；本轮未启动S1B准备或互传，小文件默认验收不计为大文件100G进展。
+scope34两端各241样本/60秒窗口通过，最低可用约28.54/28.00GiB；8GiB写入记录仍为零换出，随后到服务启动之前R2 pswpout2207568→2292431。原失败驻留页数未保存，不能用84863页主机换出来反推源缺失页数。已修复SHA/驻留后检查、原始换出基线延续、失败报告落盘和中止时80阶段断言掩盖问题；两端各19项相关测试通过，12项驱动单测通过，修复后未重跑准备。自有源/目标和隔离服务已清理，默认仍original、cached显式选择；S1B仍HOLD，无新Gbps成绩。
 
-[TCP Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)有界池和完成通知正确性已验证，物理网卡没有报告COPIED回退，仍未获得墙钟收益；该候选停止，不重跑调参、不接入运行时。两端测试及12次互传完整性通过，内存池合计8.5MiB、最大单源/目标1GiB、最小可用内存约27.04GiB，采样owned swap及host swap-out增量均0；新接口错误增量0不消除scope17历史+94。逐文件归因仍暂停；S1B只有资源前置核对待办，默认晋级未通过。不删保存或改ACK；正常verified_chunks完成没有额外verifyPublished全文回读，不能省去不存在的扫描。
+[Receiver Service Budget33](tasks/2026-11-10-v3-receiver-service-budget-33-result.md)的接收端候选暂停仍有效；每GiB17408帧、34816次两层CRC拼接不能代替可消除的关键路径预算。重新开展大文件运行时开发须有新机制及保守≥10%完整任务收益预算，不自动扩大并发。S1B默认验收不能替代大文件100G目标。
+
+[TCP Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)有界池和完成通知正确性已验证，物理网卡没有报告COPIED回退，仍未获得墙钟收益；该候选停止，不重跑调参、不接入运行时。两端测试及12次互传完整性通过，内存池合计8.5MiB、最大单源/目标1GiB、最小可用内存约27.04GiB，采样owned swap及host swap-out增量均0；新接口错误增量0不消除scope17历史+94。逐文件归因仍暂停，S1B默认晋级未通过。不删保存或改ACK；正常verified_chunks完成没有额外verifyPublished全文回读，不能省去不存在的扫描。
 
 1. 真实MappedFileWindow已确认1GiB大页和fault大幅下降，但五对ordinary CV=5.124%超门，准备/写入/关闭CPU基本不变。诊断whole墙钟下降26.04%；两对归因补测显示大部分差来自close/unlink，自有实验文件销毁不代表真实传输T_ready。候选不接入V3，不重测挑CV，不再调种子/窗口。
 2. LF5当前候选已结束：1GiB/4路五对，同CRC/切分、map/PTE/CRC/close全计时；CPU下降8.205%但墙钟仅3.188%，两臂CV<2%。省一遍显式复制同时增加约1.64万minor faults，不足以支持运行时集成；不重跑调参，不把诊断服务率外推完整任务。后续TCP零拷贝32也未过墙钟门；原生RDMA保持独立设计门和暂停范围，不宣称全部大文件方向已穷尽。

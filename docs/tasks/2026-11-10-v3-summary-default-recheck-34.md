@@ -1,6 +1,6 @@
 # S1B Summary Default Recheck34
 
-Date:2026-11-10. Status: single attempt stopped before samples; diagnostic correction in progress.
+Date:2026-11-10. Status: execution/correction complete; S1B remains HOLD_RESOURCE_RESIDENCY.
 Input:6cfb1bb7c516b7677dadb8a255f5476525b36e3d.
 R1 sole serial writer; R2 fixed-commit build/test/transfer peer. No delegation.
 
@@ -38,6 +38,12 @@ initial failure. Extend scope ONLY to tools/perf/run_summary_default_gate.py and
 tools/test/run_summary_default_gate_test.py for boundary guards, retained failure
 evidence and non-masking aborted cleanup. Add small synthetic regressions first;
 do not rerun preparation/matrix or change the runtime/default/performance gates.
+
+Correction8a486d7f3997bbafa78f0c72cb6484261d04f6e0 pushed/read back. Four added
+regressions observed failing then passing; suite12/12, R1/R2 configured19/19 each
+after correction. Runtime binaries remain unchanged. Result:
+2026-11-10-v3-summary-default-recheck-34-result.md. Final SHA/peer/cleanup/mirror
+records are in evidence closure.json; no second preparation attempt is authorized.
 
 Non-goals: receiver performance branch restart, RDMA, new profiler, frame/thread/
 queue sweep, serialization/microbatch development, system/network/mount/THP/swap
