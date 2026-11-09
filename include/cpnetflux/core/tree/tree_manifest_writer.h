@@ -6,10 +6,31 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include "cpnetflux/core/tree/tree_manifest.h"
 
 namespace cpnetflux::core::tree {
+
+using TreeManifestProfileInterval = std::pair<std::uint64_t, std::uint64_t>;
+[[nodiscard]] std::uint64_t treeManifestMonotonicNanoseconds();
+
+struct TreeManifestBlocking {
+    double callbackWaitUnionSeconds = 0, snapshotHoldUnionSeconds = 0;
+    double callbackWaitOnSnapshotUnionSeconds = 0;
+};
+[[nodiscard]] common::Result<TreeManifestBlocking> measureTreeManifestBlocking(
+    std::vector<TreeManifestProfileInterval> waits, std::vector<TreeManifestProfileInterval> holds);
+
+// Caller reads after finish(); only the worker mutates this bounded profile.
+struct TreeManifestWriterProfile {
+    std::uint64_t snapshotCopyRecords = 0;
+    double snapshotCopySeconds = 0, snapshotDestroySeconds = 0;
+    bool truncated = false;
+    std::vector<TreeManifestProfileInterval> snapshotHolds;
+    void recordHold(std::uint64_t start, std::uint64_t end);
+};
 
 struct TreeManifestWriteStats {
     std::uint64_t generation = 0;
@@ -29,7 +50,8 @@ class TreeManifestWriter {
 
     TreeManifestWriter(TreeManifest& manifest, std::mutex& stateMutex, SaveSnapshot save,
                        std::uint64_t eventThreshold = 32,
-                       std::chrono::milliseconds maxDelay = std::chrono::milliseconds(100));
+                       std::chrono::milliseconds maxDelay = std::chrono::milliseconds(100),
+                       TreeManifestWriterProfile* profile = nullptr);
     ~TreeManifestWriter();
     TreeManifestWriter(const TreeManifestWriter&) = delete;
     TreeManifestWriter& operator=(const TreeManifestWriter&) = delete;
@@ -52,6 +74,7 @@ class TreeManifestWriter {
     std::chrono::steady_clock::time_point dirtySince_;
     common::Status status_;
     bool stopping_ = false;
+    TreeManifestWriterProfile* profile_;
     std::thread worker_;
 };
 

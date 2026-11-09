@@ -40,6 +40,7 @@
 
 #include "cpnetflux/checksum/checksum.h"
 #include "cpnetflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
 #include "cpnetflux/config/file_download_options.h"
 #include "cpnetflux/config/file_transfer_options.h"
 #include "cpnetflux/core/io/file_download_client.h"
@@ -975,6 +976,13 @@ void addRdmaTransportStats(RdmaTransportStats* target,
 struct TreeRunStats {
     core::tree::TreeHashPathMode summaryPathMode = core::tree::TreeHashPathMode::Original;
     core::tree::TreeManifestSerializer treeManifestSerializer = core::tree::TreeManifestSerializer::Original;
+    bool treeManifestProfileEnabled = false, treeManifestProfileTruncated = false;
+    checkpoint::ManifestSaveStats treeManifestSaveProfile;
+    std::uint64_t treeManifestSnapshotCopyRecords = 0, treeManifestCallbackWaitIntervals = 0;
+    double treeManifestSnapshotCopySeconds = 0, treeManifestSnapshotDestroySeconds = 0;
+    double treeManifestCallbackWaitUnionSeconds = 0, treeManifestSnapshotHoldUnionSeconds = 0;
+    double treeManifestCallbackWaitOnSnapshotUnionSeconds = 0;
+    double treeManifestFinalReconcileSeconds = 0, treeManifestFinishBarrierSeconds = 0;
     std::atomic<std::uint64_t> completedThisRun{0};
     std::atomic<std::uint64_t> skippedFiles{0};
     std::atomic<std::uint64_t> transferredBytes{0};
@@ -1167,6 +1175,13 @@ common::Result<core::tree::TreeHashPathMode> summaryPathModeFromEnvironment() {
 common::Result<core::tree::TreeManifestSerializer> treeManifestSerializerFromEnvironment() {
     const auto* setting = std::getenv("CPNETFLUX_TREE_MANIFEST_SERIALIZER");
     return core::tree::parseTreeManifestSerializer(setting ? setting : "original");
+}
+
+common::Result<bool> treeManifestProfileFromEnvironment() {
+    const auto* setting = std::getenv("CPNETFLUX_TREE_MANIFEST_PROFILE");
+    if (!setting || std::string_view(setting) == "0") return false;
+    if (std::string_view(setting) == "1") return true;
+    return common::Status::invalidArgument("CPNETFLUX_TREE_MANIFEST_PROFILE must be 0 or 1");
 }
 
 common::Result<std::string> computeTreeVerificationHashFromChunks(
@@ -1396,6 +1411,36 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"tree_manifest_serializer_effective\": \""
            << core::tree::treeManifestSerializerName(stats.treeManifestSerializer) << "\",\n";
     output << "  \"tree_manifest_serializer_scope\": \"all_client_tree_manifest_save_attempts\",\n";
+    output << "  \"tree_manifest_profile\": {\"enabled\": "
+           << (stats.treeManifestProfileEnabled ? "true" : "false");
+    if (stats.treeManifestProfileEnabled) {
+        const auto& p = stats.treeManifestSaveProfile;
+        output << ", \"scope\": \"persistent_writer_attempts_excludes_initial_and_preflight\""
+               << ", \"truncated\": " << (stats.treeManifestProfileTruncated ? "true" : "false")
+               << ", \"snapshot_copy_records\": " << stats.treeManifestSnapshotCopyRecords
+               << ", \"snapshot_copy_seconds\": " << stats.treeManifestSnapshotCopySeconds
+               << ", \"snapshot_destroy_seconds\": " << stats.treeManifestSnapshotDestroySeconds
+               << ", \"callback_wait_intervals\": " << stats.treeManifestCallbackWaitIntervals
+               << ", \"callback_wait_union_seconds\": " << stats.treeManifestCallbackWaitUnionSeconds
+               << ", \"snapshot_hold_union_seconds\": " << stats.treeManifestSnapshotHoldUnionSeconds
+               << ", \"callback_wait_on_snapshot_union_seconds\": " << stats.treeManifestCallbackWaitOnSnapshotUnionSeconds
+               << ", \"final_reconcile_seconds\": " << stats.treeManifestFinalReconcileSeconds
+               << ", \"finish_barrier_seconds\": " << stats.treeManifestFinishBarrierSeconds
+               << ", \"save\": {\"attempts\": " << p.attempts
+               << ", \"failures\": " << p.failures
+               << ", \"publish_successes\": " << p.publishSuccesses
+               << ", \"serialized_bytes\": " << p.serializedBytes
+               << ", \"record_copy_items\": " << p.recordCopyItems
+               << ", \"record_sort_calls\": " << p.recordSortCalls
+               << ", \"save_seconds\": " << p.saveSeconds
+               << ", \"serialize_seconds\": " << p.serializeSeconds
+               << ", \"record_copy_sort_seconds\": " << p.recordPreparationSeconds
+               << ", \"record_format_seconds\": " << p.recordFormatSeconds
+               << ", \"body_crc_seconds\": " << p.bodyCrcSeconds
+               << ", \"temp_write_seconds\": " << p.tempWriteSeconds
+               << ", \"rename_seconds\": " << p.renameSeconds << "}";
+    }
+    output << "},\n";
 
     output << "  \"completed_files\": " << summary.completedFiles << ",\n";
     output << "  \"skipped_files\": " << stats.skippedFiles.load() << ",\n";
@@ -2355,11 +2400,19 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     if (!firstFailure.isOk()) return firstFailure;
 
     std::mutex manifestMutex;
+    core::tree::TreeManifestWriterProfile writerProfile;
+    std::vector<core::tree::TreeManifestProfileInterval> callbackWaits;
+    if (stats->treeManifestProfileEnabled) {
+        writerProfile.snapshotHolds.reserve(4096);
+        callbackWaits.reserve(65536);
+    }
     core::tree::TreeManifestWriter manifestWriter(*manifest, manifestMutex,
         [&](const auto& snapshot, std::uint64_t* bytes) {
-            return core::tree::saveTreeManifestAtomic(manifestPath, snapshot, bytes, stats->treeManifestSerializer);
+            return core::tree::saveTreeManifestAtomic(manifestPath, snapshot, bytes, stats->treeManifestSerializer,
+                stats->treeManifestProfileEnabled ? &stats->treeManifestSaveProfile : nullptr);
         }, options.treeManifestEventThreshold,
-        std::chrono::milliseconds(options.treeManifestMaxDelayMs));
+        std::chrono::milliseconds(options.treeManifestMaxDelayMs),
+        stats->treeManifestProfileEnabled ? &writerProfile : nullptr);
     std::unordered_map<std::uint32_t, std::size_t> downloadRecords;
     struct ActiveIdentity {
         PersistentFileIdentity base;
@@ -2373,8 +2426,15 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                         bool complete) {
         const auto lockStarted = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> lock(manifestMutex);
+        const auto lockAcquired = std::chrono::steady_clock::now();
         stats->treeManifestCallbackLockWaitSeconds += std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - lockStarted).count();
+            lockAcquired - lockStarted).count();
+        if (stats->treeManifestProfileEnabled) {
+            if (callbackWaits.size() == 65536) stats->treeManifestProfileTruncated = true;
+            else callbackWaits.emplace_back(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(lockStarted.time_since_epoch()).count(),
+                std::chrono::duration_cast<std::chrono::nanoseconds>(lockAcquired.time_since_epoch()).count());
+        }
         // Sibling socket cancellation is a consequence of a terminal target
         // conflict. Preserve the semantic cause even if that cancellation was
         // observed first by a different worker.
@@ -2814,6 +2874,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             firstFileFailure.message().find("output already exists") != std::string::npos;
         result = targetConflict || firstFailure.isOk() ? firstFileFailure : firstFailure;
     }
+    checkpoint::OptionalManifestTimer finalReconcile(
+        stats->treeManifestProfileEnabled ? &stats->treeManifestFinalReconcileSeconds : nullptr);
     {
         // Producers have stopped. The snapshot worker still owns disk writes,
         // so final sorting/failure reconciliation uses the same state mutex.
@@ -2835,7 +2897,24 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         }
         (void)manifestWriter.markDirtyLocked();
     }
+    finalReconcile.stop();
+    checkpoint::OptionalManifestTimer finishBarrier(
+        stats->treeManifestProfileEnabled ? &stats->treeManifestFinishBarrierSeconds : nullptr);
     const auto saved = manifestWriter.finish();
+    finishBarrier.stop();
+    if (stats->treeManifestProfileEnabled) {
+        stats->treeManifestCallbackWaitIntervals += callbackWaits.size();
+        auto blocking = core::tree::measureTreeManifestBlocking(std::move(callbackWaits),
+                                                               std::move(writerProfile.snapshotHolds));
+        if (!blocking.isOk()) return blocking.status();
+        stats->treeManifestProfileTruncated |= writerProfile.truncated;
+        stats->treeManifestSnapshotCopyRecords += writerProfile.snapshotCopyRecords;
+        stats->treeManifestSnapshotCopySeconds += writerProfile.snapshotCopySeconds;
+        stats->treeManifestSnapshotDestroySeconds += writerProfile.snapshotDestroySeconds;
+        stats->treeManifestCallbackWaitUnionSeconds += blocking.value().callbackWaitUnionSeconds;
+        stats->treeManifestSnapshotHoldUnionSeconds += blocking.value().snapshotHoldUnionSeconds;
+        stats->treeManifestCallbackWaitOnSnapshotUnionSeconds += blocking.value().callbackWaitOnSnapshotUnionSeconds;
+    }
     const auto writes = manifestWriter.stats();
     stats->treeManifestWrites.generation += writes.generation;
     stats->treeManifestWrites.persistedGeneration += writes.persistedGeneration;
@@ -2947,6 +3026,8 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
     if (!summaryPath.isOk()) return summaryPath.status();
     const auto serializer = treeManifestSerializerFromEnvironment();
     if (!serializer.isOk()) return serializer.status();
+    const auto manifestProfile = treeManifestProfileFromEnvironment();
+    if (!manifestProfile.isOk()) return manifestProfile.status();
     auto options = inputOptions;
     if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     if (options.transferTimeoutMs != 0)
@@ -2992,6 +3073,7 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
     TreeRunStats persistentStats;
     persistentStats.summaryPathMode = summaryPath.value();
     persistentStats.treeManifestSerializer = serializer.value();
+    persistentStats.treeManifestProfileEnabled = manifestProfile.value();
     persistentStats.scanSeconds = scanSeconds;
     if (options.resume) {
         const auto preflight = preflightUploadResume(options, &manifest, manifestPath, persistentStats.treeManifestSerializer);
@@ -3044,6 +3126,8 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
     if (!summaryPath.isOk()) return summaryPath.status();
     const auto serializer = treeManifestSerializerFromEnvironment();
     if (!serializer.isOk()) return serializer.status();
+    const auto manifestProfile = treeManifestProfileFromEnvironment();
+    if (!manifestProfile.isOk()) return manifestProfile.status();
     auto options = inputOptions;
     if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     if (options.transferTimeoutMs != 0)
@@ -3053,6 +3137,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
     TreeRunStats stats;
     stats.summaryPathMode = summaryPath.value();
     stats.treeManifestSerializer = serializer.value();
+    stats.treeManifestProfileEnabled = manifestProfile.value();
     ControlClient control;
     config::TreeTransferOptions controlOptions = options;
     if (options.resume && persistentEligible(options)) controlOptions.connections = 1;

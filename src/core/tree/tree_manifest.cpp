@@ -15,6 +15,7 @@
 #include <unordered_map>
 
 #include "cpnetflux/checkpoint/transfer_manifest.h"
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
 #include "cpnetflux/checksum/crc32c.h"
 #include "cpnetflux/core/tree/tree_scan.h"
 
@@ -123,12 +124,20 @@ common::Status requireKey(const std::unordered_map<std::string, std::string>& va
     return common::Status::ok();
 }
 
-std::string serializeFiles(const std::vector<TreeFileRecord>& files) {
+std::string serializeFiles(const std::vector<TreeFileRecord>& files, checkpoint::ManifestSaveStats* stats) {
+    checkpoint::OptionalManifestTimer prepare(stats ? &stats->recordPreparationSeconds : nullptr);
+    if (stats) {
+        ++stats->recordPreparationCalls;
+        ++stats->recordSortCalls;
+        stats->recordCopyItems += files.size();
+    }
     std::vector<TreeFileRecord> sorted = files;
     std::sort(sorted.begin(), sorted.end(),
               [](const TreeFileRecord& left, const TreeFileRecord& right) {
                   return left.relativePath < right.relativePath;
               });
+    prepare.stop();
+    checkpoint::OptionalManifestTimer format(stats ? &stats->recordFormatSeconds : nullptr);
     std::ostringstream output;
     for (std::size_t index = 0; index < sorted.size(); ++index) {
         if (index != 0) {
@@ -209,7 +218,7 @@ common::Result<std::vector<TreeFileRecord>> parseFiles(const std::string& text) 
     return records;
 }
 
-std::string bodyWithoutChecksum(const TreeManifest& manifest) {
+std::string bodyWithoutChecksum(const TreeManifest& manifest, checkpoint::ManifestSaveStats* stats) {
     std::ostringstream output;
     output << "manifest_version=" << manifest.version << '\n';
     output << "mode=" << treeTransferModeName(manifest.mode) << '\n';
@@ -218,7 +227,7 @@ std::string bodyWithoutChecksum(const TreeManifest& manifest) {
            << checksum::checksumAlgorithmName(manifest.checksumAlgorithm) << '\n';
     output << "created_at_unix_ns=" << manifest.createdAtUnixNanos << '\n';
     output << "updated_at_unix_ns=" << manifest.updatedAtUnixNanos << '\n';
-    output << "files=" << serializeFiles(manifest.files) << '\n';
+    output << "files=" << serializeFiles(manifest.files, stats) << '\n';
     return output.str();
 }
 
@@ -238,14 +247,20 @@ void appendHex(std::string& out, std::string_view bytes) {
     }
 }
 
-std::string bufferedBodyWithoutChecksum(const TreeManifest& m) {
+std::string bufferedBodyWithoutChecksum(const TreeManifest& m, checkpoint::ManifestSaveStats* stats) {
+    checkpoint::OptionalManifestTimer prepare(stats ? &stats->recordPreparationSeconds : nullptr);
+    if (stats) ++stats->recordPreparationCalls;
     const auto less = [](const auto& a, const auto& b) { return a.relativePath < b.relativePath; };
     // Equal keys also take the legacy sort path: std::sort is not stable.
     const bool strict = std::adjacent_find(m.files.begin(), m.files.end(),
         [&](const auto& a, const auto& b) { return !less(a, b); }) == m.files.end();
     std::vector<TreeFileRecord> sorted;
-    if (!strict) { sorted = m.files; std::sort(sorted.begin(), sorted.end(), less); }
+    if (!strict) {
+        if (stats) { ++stats->recordSortCalls; stats->recordCopyItems += m.files.size(); }
+        sorted = m.files; std::sort(sorted.begin(), sorted.end(), less);
+    }
     const auto& records = strict ? m.files : sorted;
+    prepare.stop();
     std::string out;
     if (records.size() < (out.max_size() - 256) / 128) out.reserve(256 + records.size() * 128);
     out.append("manifest_version="); appendDecimal(out, m.version); out.push_back('\n');
@@ -255,6 +270,7 @@ std::string bufferedBodyWithoutChecksum(const TreeManifest& m) {
     out.append("created_at_unix_ns="); appendDecimal(out, m.createdAtUnixNanos); out.push_back('\n');
     out.append("updated_at_unix_ns="); appendDecimal(out, m.updatedAtUnixNanos); out.push_back('\n');
     out.append("files=");
+    checkpoint::OptionalManifestTimer format(stats ? &stats->recordFormatSeconds : nullptr);
     for (std::size_t i = 0; i < records.size(); ++i) {
         if (i) out.push_back(',');
         const auto& r = records[i];
@@ -350,7 +366,10 @@ common::Result<TreeManifestSerializer> parseTreeManifestSerializer(std::string_v
 }
 
 common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest,
-                                                TreeManifestSerializer serializer) {
+                                                TreeManifestSerializer serializer,
+                                                checkpoint::ManifestSaveStats* stats) {
+    if (stats) ++stats->serializeCalls;
+    checkpoint::OptionalManifestTimer total(stats ? &stats->serializeSeconds : nullptr);
     if (manifest.version != kTreeManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported tree manifest version");
     }
@@ -367,9 +386,11 @@ common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest,
         }
     }
     std::string body = serializer == TreeManifestSerializer::Buffered
-        ? bufferedBodyWithoutChecksum(manifest) : bodyWithoutChecksum(manifest);
+        ? bufferedBodyWithoutChecksum(manifest, stats) : bodyWithoutChecksum(manifest, stats);
+    checkpoint::OptionalManifestTimer crcTimer(stats ? &stats->bodyCrcSeconds : nullptr);
     const std::uint32_t crc =
         checksum::crc32c(reinterpret_cast<const std::uint8_t*>(body.data()), body.size());
+    crcTimer.stop();
     body += "manifest_body_crc32c=" + hex32(crc) + "\n";
     return body;
 }
@@ -465,14 +486,20 @@ common::Result<TreeManifest> parseTreeManifest(const std::string& text) {
 
 common::Status saveTreeManifestAtomic(const std::string& path, const TreeManifest& manifest,
                                       std::uint64_t* serializedBytes,
-                                      TreeManifestSerializer serializer) {
-    auto serialized = serializeTreeManifest(manifest, serializer);
+                                      TreeManifestSerializer serializer,
+                                      checkpoint::ManifestSaveStats* stats) {
+    checkpoint::OptionalManifestTimer total(stats ? &stats->saveSeconds : nullptr);
+    checkpoint::ManifestSaveAttempt attempt(stats);
+    auto serialized = serializeTreeManifest(manifest, serializer, stats);
     if (!serialized.isOk()) {
         return serialized.status();
     }
     if (serializedBytes != nullptr) *serializedBytes = serialized.value().size();
+    if (stats) stats->serializedBytes += serialized.value().size();
     const std::string tempPath = path + ".tmp." + std::to_string(::getpid());
     {
+        checkpoint::OptionalManifestTimer write(stats ? &stats->tempWriteSeconds : nullptr);
+        if (stats) ++stats->tempWriteCalls;
         std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
         if (!output) {
             return common::Status::systemError("open tree manifest temp failed: " +
@@ -487,6 +514,8 @@ common::Status saveTreeManifestAtomic(const std::string& path, const TreeManifes
                                                errno);
         }
     }
+    checkpoint::OptionalManifestTimer rename(stats ? &stats->renameSeconds : nullptr);
+    if (stats) { ++stats->renameCalls; ++stats->publishCalls; }
     if (::rename(tempPath.c_str(), path.c_str()) != 0) {
         const int errorNumber = errno;
         (void)::unlink(tempPath.c_str());
@@ -494,6 +523,8 @@ common::Status saveTreeManifestAtomic(const std::string& path, const TreeManifes
                                                std::string(std::strerror(errorNumber)),
                                            errorNumber);
     }
+    attempt.succeed();
+    if (stats) ++stats->publishSuccesses;
     return common::Status::ok();
 }
 

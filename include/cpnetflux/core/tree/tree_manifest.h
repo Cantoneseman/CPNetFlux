@@ -8,6 +8,8 @@
 #include "cpnetflux/checksum/checksum.h"
 #include "cpnetflux/common/status.h"
 
+namespace cpnetflux::checkpoint { struct ManifestSaveStats; }
+
 namespace cpnetflux::core::tree {
 
 inline constexpr std::uint32_t kTreeManifestSchemaVersion = 1;
@@ -57,12 +59,14 @@ struct TreeManifest {
 [[nodiscard]] bool isTreeTransferComplete(const TreeManifest& manifest);
 
 [[nodiscard]] common::Result<std::string> serializeTreeManifest(
-    const TreeManifest& manifest, TreeManifestSerializer serializer = TreeManifestSerializer::Original);
+    const TreeManifest& manifest, TreeManifestSerializer serializer = TreeManifestSerializer::Original,
+    checkpoint::ManifestSaveStats* stats = nullptr);
 [[nodiscard]] common::Result<TreeManifest> parseTreeManifest(const std::string& text);
 [[nodiscard]] common::Status saveTreeManifestAtomic(const std::string& path,
                                                     const TreeManifest& manifest,
                                                     std::uint64_t* serializedBytes = nullptr,
-                                                    TreeManifestSerializer serializer = TreeManifestSerializer::Original);
+                                                    TreeManifestSerializer serializer = TreeManifestSerializer::Original,
+                                                    checkpoint::ManifestSaveStats* stats = nullptr);
 [[nodiscard]] common::Result<TreeManifest> loadTreeManifest(const std::string& path);
 
 }  // namespace cpnetflux::core::tree

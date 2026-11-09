@@ -543,6 +543,9 @@ if(CPNETFLUX_BUILD_TESTS)
         add_test(NAME cpnetflux_tree_serializer_ab_test
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tree_serializer_ab_test.py)
         set_tests_properties(cpnetflux_tree_serializer_ab_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_tree_state_budget_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tree_state_budget_test.py)
+        set_tests_properties(cpnetflux_tree_state_budget_test PROPERTIES TIMEOUT 20)
         add_test(NAME cpnetflux_summary_path_ab_test
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_summary_path_ab_test.py)
         set_tests_properties(cpnetflux_summary_path_ab_test PROPERTIES TIMEOUT 20)

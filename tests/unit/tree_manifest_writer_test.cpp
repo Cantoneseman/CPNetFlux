@@ -10,6 +10,8 @@
 #include <thread>
 #include <vector>
 
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
+
 namespace {
 using namespace cpnetflux::core::tree;
 using cpnetflux::common::Status;
@@ -186,5 +188,60 @@ TEST_F(TreeManifestWriterTest, DestructorFlushesOutstandingState) {
     auto loaded = loadTreeManifest(path);
     ASSERT_TRUE(loaded.isOk()) << loaded.status().message();
     EXPECT_EQ(loaded.value().files[0].status, TreeFileStatus::Failed);
+}
+
+TEST(TreeManifestBlockingTest, UnionsOverlappingWaitsAndIntersectsSnapshotHolds) {
+    using Interval = TreeManifestProfileInterval;
+    const std::vector<Interval> waits{{20, 40}, {0, 10}, {5, 20}, {100, 100}};
+    const std::vector<Interval> holds{{8, 12}, {30, 35}, {32, 50}};
+    auto result = measureTreeManifestBlocking(waits, holds);
+    ASSERT_TRUE(result.isOk());
+    EXPECT_DOUBLE_EQ(result.value().callbackWaitUnionSeconds, 40e-9);
+    EXPECT_DOUBLE_EQ(result.value().snapshotHoldUnionSeconds, 24e-9);
+    EXPECT_DOUBLE_EQ(result.value().callbackWaitOnSnapshotUnionSeconds, 14e-9);
+    EXPECT_EQ(waits.front(), (Interval{20, 40}));
+    EXPECT_TRUE(measureTreeManifestBlocking({}, {}).isOk());
+    EXPECT_FALSE(measureTreeManifestBlocking({{2, 1}}, {}).isOk());
+}
+
+TEST_F(TreeManifestWriterTest, OptionalProfileAccountsCopiesDestructionAndSaveFailures) {
+    for (const auto serializer : {TreeManifestSerializer::Original, TreeManifestSerializer::Buffered}) {
+        cpnetflux::checkpoint::ManifestSaveStats stats;
+        const auto plain = serializeTreeManifest(manifest, serializer);
+        const auto profiled = serializeTreeManifest(manifest, serializer, &stats);
+        ASSERT_TRUE(plain.isOk());
+        ASSERT_TRUE(profiled.isOk());
+        EXPECT_EQ(plain.value(), profiled.value());
+        EXPECT_EQ(stats.serializeCalls, 1U);
+    }
+    for (const bool fail : {false, true}) {
+        TreeManifestWriterProfile profile;
+        cpnetflux::checkpoint::ManifestSaveStats saveStats;
+        TreeManifestWriter writer(manifest, mutex,
+            [&](const TreeManifest& snapshot, std::uint64_t* bytes) {
+                return saveTreeManifestAtomic(fail ? (root / "missing/tree").string() : path,
+                    snapshot, bytes, TreeManifestSerializer::Original, &saveStats);
+            }, 32, 60s, &profile);
+        {
+            std::lock_guard lock(mutex);
+            ASSERT_TRUE(writer.markDirtyLocked().isOk());
+        }
+        EXPECT_EQ(writer.finish().isOk(), !fail);
+        EXPECT_EQ(profile.snapshotCopyRecords, 1U);
+        EXPECT_EQ(profile.snapshotHolds.size(), 2U);
+        EXPECT_FALSE(profile.truncated);
+        EXPECT_GT(profile.snapshotCopySeconds, 0);
+        EXPECT_GE(profile.snapshotDestroySeconds, 0);
+        EXPECT_EQ(saveStats.attempts, 1U);
+        EXPECT_EQ(saveStats.failures, fail ? 1U : 0U);
+        EXPECT_EQ(saveStats.publishSuccesses, fail ? 0U : 1U);
+    }
+}
+
+TEST(TreeManifestBlockingTest, ProfileStorageIsBoundedAndMarksTruncation) {
+    TreeManifestWriterProfile profile;
+    for (std::uint64_t i = 0; i < 4100; ++i) profile.recordHold(i * 2, i * 2 + 1);
+    EXPECT_EQ(profile.snapshotHolds.size(), 4096U);
+    EXPECT_TRUE(profile.truncated);
 }
 }  // namespace

@@ -48,7 +48,9 @@ def main():
                     '--checksum', 'crc32c', '--checksum-backend', 'auto', '--phase-timing', 'off']
             transfers = 0
             for index, mode in enumerate((None, 'original', 'buffered')):
-                run_env = dict(env, CPNETFLUX_SUMMARY_PATH='cached')
+                run_env = dict(env, CPNETFLUX_SUMMARY_PATH='cached',
+                               CPNETFLUX_TREE_MANIFEST_PROFILE='1' if mode == 'buffered' else '0')
+                if mode is None: run_env.pop('CPNETFLUX_TREE_MANIFEST_PROFILE')
                 if mode is not None: run_env['CPNETFLUX_TREE_MANIFEST_SERIALIZER'] = mode
                 for direction in ('upload', 'download'):
                     summary = root/f'{index}-{direction}.json'
@@ -63,6 +65,13 @@ def main():
                     assert value.get('tree_manifest_serializer_requested') == (mode or 'original'), value
                     assert value.get('tree_manifest_serializer_effective') == (mode or 'original'), value
                     assert value.get('tree_manifest_serializer_scope') == 'all_client_tree_manifest_save_attempts', value
+                    profile = value.get('tree_manifest_profile')
+                    assert profile is not None and profile['enabled'] == (mode == 'buffered'), value
+                    if profile['enabled']:
+                        assert not profile['truncated'] and profile['snapshot_copy_records'] > 0, profile
+                        assert profile['save']['attempts'] == value['tree_manifest_snapshots'], profile
+                        assert profile['callback_wait_on_snapshot_union_seconds'] <= profile['callback_wait_union_seconds'], profile
+                        assert profile['finish_barrier_seconds'] >= 0, profile
                     assert value.get('summary_path_effective') == 'cached', value
                     assert value['summary_tree_hash_source'] == 'filesystem_read' and value['tree_hash'] == expected, value
                     assert value['actual_transport'] == 'v3' and value['completed_files'] == len(files), value
@@ -94,6 +103,16 @@ def main():
                 if destination.exists(): assert destination.is_dir() and not any(destination.iterdir())
                 assert not Path(str(destination)+'.cpnetflux.tree.download.manifest').exists()
                 assert not (server_root/'invalid-upload').exists()
+            for direction in ('upload', 'download'):
+                invalid_env = dict(env, CPNETFLUX_TREE_MANIFEST_PROFILE='invalid')
+                invalid_base = list(base)
+                invalid_base[invalid_base.index('--port')+1] = str(free_port())
+                result = subprocess.run([str(build/f'cpnetflux-tree-{direction}-client'), *invalid_base,
+                    '--source-dir', str(source) if direction == 'upload' else 'upload-0',
+                    '--dest-dir', 'invalid-profile' if direction == 'upload' else str(root/'invalid-profile')],
+                    env=invalid_env, capture_output=True, text=True, timeout=5)
+                assert result.returncode != 0 and 'CPNETFLUX_TREE_MANIFEST_PROFILE' in result.stdout+result.stderr
+                assert not (server_root/'invalid-profile').exists()
             print(json.dumps({'result':'pass','transfers':transfers,'invalid_selectors':2,'reference':expected}))
         finally:
             stop_server(server, root/'server.log')
