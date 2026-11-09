@@ -470,6 +470,11 @@ if(CPNETFLUX_BUILD_TESTS)
         gtest_discover_tests(cpnetflux_framed_socket_tests)
     endif()
 
+    add_test(NAME cpnetflux_checksum_combine_bench_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_checksum_combine_bench_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_checksum_combine_bench_smoke PROPERTIES TIMEOUT 60)
+
     add_test(NAME cpnetflux_tcp_frame_bench_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tcp_frame_bench_smoke.py
             --build-dir ${CMAKE_BINARY_DIR})

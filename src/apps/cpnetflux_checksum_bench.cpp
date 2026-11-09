@@ -27,10 +27,78 @@ cpnetflux::common::Result<std::uint64_t> parseUnsigned(std::string_view value,
     return parsed;
 }
 
+// This isolates chunk-CRC assembly. It neither reads a file nor sends DATA.
+int combineBench(std::uint64_t bytes, std::uint64_t iterations, std::uint64_t frameBytes,
+                 cpnetflux::checksum::ChecksumBackend backend) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    using Clock = std::chrono::steady_clock;
+    constexpr std::uint64_t chunkBytes = 1024ULL * 1024;
+    if (bytes > 8ULL * 1024 * chunkBytes || bytes % chunkBytes != 0 || iterations > 100 ||
+        (frameBytes != 65532 && frameBytes != 256 * 1024 && frameBytes != chunkBytes)) {
+        std::cerr << "combine requires 1MiB-aligned bytes <=8GiB, iterations <=100, "
+                     "frame-bytes 65532, 262144 or 1048576\n";
+        return 2;
+    }
+    const auto setupStarted = Clock::now();
+    std::vector<std::uint8_t> chunk(chunkBytes);
+    for (std::size_t i = 0; i < chunk.size(); ++i) chunk[i] = i % 251U;
+    ChecksumComputer oracle(ChecksumAlgorithm::Crc32c, backend);
+    oracle.update(chunk.data(), chunk.size());
+    const auto expected = oracle.finalize();
+    struct Leaf { cpnetflux::checksum::ChecksumValue crc; std::uint64_t bytes; };
+    std::vector<Leaf> leaves;
+    ChecksumComputer warmup(ChecksumAlgorithm::Crc32c, backend);
+    for (std::uint64_t offset = 0; offset < chunkBytes;) {
+        const auto count = std::min(frameBytes, chunkBytes - offset);
+        ChecksumComputer part(ChecksumAlgorithm::Crc32c, backend);
+        part.update(chunk.data() + offset, count);
+        leaves.push_back({part.finalize(), count});
+        if (!warmup.combine(leaves.back().crc, count)) return 1;
+        offset += count;
+    }
+    if (warmup.finalize().value != expected.value) {
+        std::cerr << "chunk combine warmup differs from independent CRC scan\n";
+        return 1;
+    }
+    const double setup = std::chrono::duration<double>(Clock::now() - setupStarted).count();
+    const auto chunks = bytes / chunkBytes;
+    std::uint32_t result = 0, guard = 0;
+    const auto start = Clock::now();
+    for (std::uint64_t i = 0; i < iterations; ++i) {
+        for (std::uint64_t n = 0; n < chunks; ++n) {
+            ChecksumComputer combined(ChecksumAlgorithm::Crc32c, backend);
+            for (const auto& leaf : leaves) {
+                if (!combined.combine(leaf.crc, leaf.bytes)) return 1;
+            }
+            result = combined.finalize().value;
+            guard ^= result + static_cast<std::uint32_t>(n);
+        }
+    }
+    const double elapsed = std::chrono::duration<double>(Clock::now() - start).count();
+    if (result != expected.value) { std::cerr << "chunk combine mismatch\n"; return 1; }
+    const auto calls = chunks * iterations * leaves.size();
+    std::cout.precision(12);
+    std::cout << "{\"schema\":\"cpnetflux_chunk_combine_bench_v1\","
+                 "\"mode\":\"chunk_combine\",\"diagnostic_only\":true,\"file_io\":false,"
+                 "\"network_io\":false,\"verified\":true,"
+                 "\"timing_scope\":\"warm CRC assembly including accumulator construction; "
+                 "leaf CRC scans/setup excluded; virtual repeated chunk, not transfer throughput\","
+              << "\"backend\":\"" << cpnetflux::checksum::checksumBackendName(backend) << "\","
+              << "\"logical_bytes_per_iteration\":" << bytes << ",\"iterations\":" << iterations
+              << ",\"chunk_bytes\":" << chunkBytes << ",\"frame_bytes\":" << frameBytes
+              << ",\"frames_per_chunk\":" << leaves.size() << ",\"tail_bytes\":" << chunkBytes % frameBytes
+              << ",\"combine_calls\":" << calls << ",\"setup_seconds\":" << setup
+              << ",\"elapsed_seconds\":" << elapsed << ",\"ns_per_combine\":" << elapsed * 1e9 / calls
+              << ",\"expected_crc32c\":" << expected.value << ",\"result_crc32c\":" << result
+              << ",\"guard\":" << guard << "}\n";
+    return 0;
+}
+
 void usage(const char* program) {
     std::cerr << "Usage: " << program
               << " --backend <auto|software|hardware> --bytes <N> --iterations <N> "
-                 "[--buffer-size <N>]\n";
+                 "[--buffer-size <N>] [--mode <scan|combine>] [--frame-bytes <N>]\n";
 }
 
 }  // namespace
@@ -41,6 +109,9 @@ int main(int argc, char** argv) {
     std::uint64_t bytes = 64ULL * 1024ULL * 1024ULL;
     std::uint64_t iterations = 5;
     std::uint64_t bufferSize = 1024ULL * 1024ULL;
+    std::uint64_t frameBytes = 65532;
+    std::string_view mode = "scan";
+    bool frameSpecified = false;
 
     for (int index = 1; index < argc; ++index) {
         const std::string_view option(argv[index]);
@@ -54,7 +125,15 @@ int main(int argc, char** argv) {
             return 2;
         }
         const std::string_view value(argv[++index]);
-        if (option == "--backend") {
+        if (option == "--mode") {
+            if (value != "scan" && value != "combine") { std::cerr << "invalid mode\n"; return 2; }
+            mode = value;
+        } else if (option == "--frame-bytes") {
+            auto parsed = parseUnsigned(value, "--frame-bytes");
+            if (!parsed.isOk()) { std::cerr << parsed.status().message() << '\n'; return 2; }
+            frameBytes = parsed.value();
+            frameSpecified = true;
+        } else if (option == "--backend") {
             auto parsed = cpnetflux::checksum::parseChecksumBackend(value);
             if (!parsed.isOk()) {
                 std::cerr << parsed.status().message() << '\n';
@@ -102,6 +181,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (mode == "combine") return combineBench(bytes, iterations, frameBytes, resolved.value());
+    if (frameSpecified) { std::cerr << "frame-bytes requires combine mode\n"; return 2; }
     std::vector<std::uint8_t> buffer(static_cast<std::size_t>(bufferSize));
     for (std::size_t index = 0; index < buffer.size(); ++index) {
         buffer[index] = static_cast<std::uint8_t>(index % 251U);
