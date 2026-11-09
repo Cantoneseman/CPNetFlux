@@ -56,3 +56,11 @@ wire/logical上限、控制帧限制、不支持peer拒绝和预算；不得仅�
 R1自有16MiB映射已实际得到大页且fault减少，下一项LF4真实MappedFileWindow诊断。
 单样本probe不改变完整任务门或默认策略；保护已有内容、租约、恢复并计入全部生命周期成本。
 结果及SHA见[Byte Work18结果](../tasks/2026-11-09-v3-byte-work-18-result.md)。
+
+## Mapped Collapse19后的执行决定
+
+[结果](../tasks/2026-11-09-v3-mapped-collapse-19-result.md)已确认真实窗口大页，
+但种子触页+collapse的准备CPU基本抵消复制阶段节省，whole墙钟差主要来自实验文件销毁，
+原五对ordinary CV=5.124%亦未过门。当前策略不晋级V3，不用两对归因补测翻转结论。
+下一项LF5先核实发送源pread与只读有界映射的工作量和所有权预算，保持CRC及queued语义。
+LF1/2/3仍暂缓，旧候选和RDMA暂停不变；完整27.3Gbps基线及网络+94缺口不变。

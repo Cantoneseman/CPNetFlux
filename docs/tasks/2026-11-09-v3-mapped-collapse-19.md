@@ -1,6 +1,7 @@
 # V3 Mapped Collapse19：实际有界窗口诊断
 
-日期：2026-11-09。输入 `4b2bda724bccdbe7fea46e43bf28b5507bfff1da`。状态：开发中。
+日期：2026-11-09。输入 `4b2bda724bccdbe7fea46e43bf28b5507bfff1da`。状态：开发/验收/有限测量完成；局部门未过，当前seed+collapse不晋级运行时。
+结果与下一项见[结果记录](2026-11-09-v3-mapped-collapse-19-result.md)。
 
 ## 范围、非目标与受影响文件
 

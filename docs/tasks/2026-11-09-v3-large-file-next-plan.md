@@ -1,7 +1,7 @@
 # CPNetFlux 大文件后续开发计划
 
 日期：2026-11-09。输入提交 `7dbaa06fcc8d70dd5e1f9cdfc9df9e5dca727ea1`。
-状态：路线合并后Byte Work18诊断已完成，下一项LF4真实窗口诊断；大帧/CRC运行时预算未证实。历史计划不作为性能结果。
+状态：Byte Work18及Mapped Collapse19诊断已完成，当前LF4 seed+collapse不晋级，下一项LF5搬运成本核对；大帧/CRC运行时预算未证实。历史计划不作为性能结果。
 依据：[当前路线](../ROADMAP.md)、[scope17结果](2026-11-09-v3-kernel-service-17-result.md)、
 [本轮路线决定](../DECISIONS/2026-11-09-v3-large-file-candidate-screening.md)。
 
@@ -174,6 +174,10 @@ A、B分别有可保留收益和正确性证据后，再固定同一提交比较
 已关闭population/直接接收保持关闭；把fault移到计时外不算优化。tmpfs收益不能外推磁盘。
 本阶段先形成可行性结论，再按LF2同等级完整任务门决定实现/保留，不能无限续测。
 
+[Mapped Collapse19结果](2026-11-09-v3-mapped-collapse-19-result.md)：实际大页有效，但五对基线CV超门，
+worker准备/写入/关闭CPU基本不变；whole收益大部分由额外close/unlink解释。当前seed+collapse
+不晋级V3，不以降低fault为理由继续调参；转入LF5。
+
 ## LF5：数据搬运路径
 
 先按每GiB列源文件→发送缓冲→内核、内核→接收缓冲→目标映射的逻辑复制边界，
@@ -182,6 +186,12 @@ TCP复制规避候选需管理发送完成、部分写、取消/超时、buffer 
 MSG_ZEROCOPY的buffer复用必须等待完成通知，不能只加flag，内核可能退回复制。
 原生RDMA后续重启时单独设计注册池复用、CQ批处理、持有者和完整文件生命周期。
 每项先独立预算和测试，再完整任务验收；不承诺70–85或100Gbps。
+
+下一项首选核实驻留源只读有界映射是否能消除pread→发送buffer的一遍复制，先查现有路径。
+如需局部诊断，仅一轮<=1GiB真实多样字节，对照actual PosixFile::readAt与只读映射消费，
+CRC32C、字节数相同，map/首次PTE/CRC/close计入必要服务边界，源准备/目标销毁分列。
+运行时前先设计queued消费者持有的窗口pin、部分写/取消/源变更及64MiB/lane预算，
+没有可信关键路径预算则停止，不能把微基准CPU相减冒称完整任务收益。
 
 ## S0及后续：小文件固定开销，独立研究目标
 
