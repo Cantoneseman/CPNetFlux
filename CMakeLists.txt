@@ -362,6 +362,8 @@ target_link_libraries(cpnetflux-rdma-socket-bench
 
 add_executable(cpnetflux-session-record-bench tools/perf/session_record_bench.cpp)
 target_link_libraries(cpnetflux-session-record-bench PRIVATE CPNetFlux::core)
+add_executable(cpnetflux-tree-manifest-serialization-bench tools/perf/tree_manifest_serialization_bench.cpp)
+target_link_libraries(cpnetflux-tree-manifest-serialization-bench PRIVATE CPNetFlux::core)
 
 add_executable(cpnetflux-tcp-frame-bench tools/perf/tcp_frame_bench.cpp)
 target_link_libraries(cpnetflux-tcp-frame-bench PRIVATE CPNetFlux::core)
@@ -547,6 +549,10 @@ if(CPNETFLUX_BUILD_TESTS)
         add_test(NAME cpnetflux_small_file_fixed_work_test
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_small_file_fixed_work_test.py)
         set_tests_properties(cpnetflux_small_file_fixed_work_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_tree_manifest_serialization_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tree_manifest_serialization_test.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_tree_manifest_serialization_test PROPERTIES TIMEOUT 30)
         add_library(cpnetflux_source_read_fault_shim SHARED tools/test/source_read_fault_shim.cpp)
         target_link_libraries(cpnetflux_source_read_fault_shim PRIVATE ${CMAKE_DL_LIBS})
         target_link_libraries(cpnetflux_offset_write_fault_shim PRIVATE ${CMAKE_DL_LIBS})

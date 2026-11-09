@@ -1,7 +1,7 @@
 # S2B Tree Serialization25
 
-Date:2026-11-09. Status: next bounded feasibility task, not implemented/measured.
-Input: pushed Fixed Work24 result commit; record exact SHA at start.
+Date:2026-11-09. Status: implementation in progress; no measured result yet.
+Input: cf73a90ac386e4a0837980ca3b2012a33d133a4e, pushed Fixed Work24 result.
 
 ## Hypothesis And Boundary
 
@@ -20,6 +20,18 @@ reference/smoke tests and CMakeLists.txt. Feasibility candidate initially lives
 only in the diagnostic target; do not change default runtime serialization before
 recording its local result and integration decision. Reuse public manifest types,
 validation/parser/CRC APIs rather than invent a new schema or persist fake bytes.
+
+Exact files: this task/result, tools/perf/tree_manifest_serialization_bench.cpp,
+tools/perf/run_tree_manifest_serialization.py,
+tools/test/run_tree_manifest_serialization_test.py, CMakeLists.txt,
+docs/ROADMAP.md and docs/README.md. No runtime source/header edits.
+Declare five interleaved baseline/candidate pairs for10K records/225 evolving
+snapshots, sorted and reversed order separately (20 process runs total).
+Each includes fixture preparation, validation, encoding/CRC and destruction.
+Full-series byte/parse equality checks run separately outside measured intervals;
+small independent Python byte oracle includes an independent bitwise CRC32C.
+Runner checks fixed pushed commit, binary/fixture digest, MemAvailable>=12GiB,
+owned VmSwap0, pswpout delta0 and owned RSS<=256MiB; no payload files/network.
 
 Candidate: borrow already ordered input; use a private sorted view for arbitrary
 order without mutation; reserve one output buffer, append decimal with to_chars
