@@ -160,7 +160,7 @@ def observe(proc, state):
         if filtered:state['tcp_snapshots'].append(filtered)
 
 def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False, tree_manifest_serializer=None,
-                tree_manifest_profile=None):
+                tree_manifest_profile=None, member_work_profile=None):
     state=resource_state();started=time.monotonic()
     env=environment()
     if mapped_download:
@@ -175,6 +175,9 @@ def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False
     if tree_manifest_profile is not None:
         assert tree_manifest_profile in ('0','1')
         env['CPNETFLUX_TREE_MANIFEST_PROFILE']=tree_manifest_profile
+    if member_work_profile is not None:
+        assert member_work_profile in ('0','1')
+        env['CPNETFLUX_MEMBER_WORK_PROFILE']=member_work_profile
     with log.open('x') as f:
         proc=subprocess.Popen(argv,stdout=f,stderr=subprocess.STDOUT,env=env,start_new_session=True)
         exited=threading.Event();exit_info={}

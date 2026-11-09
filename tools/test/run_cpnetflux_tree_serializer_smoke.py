@@ -49,8 +49,10 @@ def main():
             transfers = 0
             for index, mode in enumerate((None, 'original', 'buffered')):
                 run_env = dict(env, CPNETFLUX_SUMMARY_PATH='cached',
-                               CPNETFLUX_TREE_MANIFEST_PROFILE='1' if mode == 'buffered' else '0')
+                               CPNETFLUX_TREE_MANIFEST_PROFILE='1' if mode == 'buffered' else '0',
+                               CPNETFLUX_MEMBER_WORK_PROFILE='1' if mode == 'buffered' else '0')
                 if mode is None: run_env.pop('CPNETFLUX_TREE_MANIFEST_PROFILE')
+                if mode is None: run_env.pop('CPNETFLUX_MEMBER_WORK_PROFILE')
                 if mode is not None: run_env['CPNETFLUX_TREE_MANIFEST_SERIALIZER'] = mode
                 for direction in ('upload', 'download'):
                     summary = root/f'{index}-{direction}.json'
@@ -61,6 +63,15 @@ def main():
                     result = subprocess.run(command, env=run_env, capture_output=True, text=True, timeout=20)
                     assert result.returncode == 0, result.stdout+result.stderr
                     value = json.loads(summary.read_text())
+                    member = value.get('member_work_profile')
+                    assert member is not None and member['enabled'] == (mode == 'buffered'), value
+                    if member['enabled']:
+                        assert member['effective'] == ('receiver' if direction == 'download' else 'not_used_sender'), member
+                        if direction == 'download':
+                            assert member['completed_members'] == len(files) and not member['truncated'], member
+                            assert member['stages']['transaction_begin']['calls'] == len(files), member
+                            assert member['stages']['commit']['calls'] == len(files), member
+                            assert member['manifest_save']['attempts'] >= 2*len(files), member
                     transfers += 1
                     assert value.get('tree_manifest_serializer_requested') == (mode or 'original'), value
                     assert value.get('tree_manifest_serializer_effective') == (mode or 'original'), value
@@ -113,7 +124,17 @@ def main():
                     env=invalid_env, capture_output=True, text=True, timeout=5)
                 assert result.returncode != 0 and 'CPNETFLUX_TREE_MANIFEST_PROFILE' in result.stdout+result.stderr
                 assert not (server_root/'invalid-profile').exists()
-            print(json.dumps({'result':'pass','transfers':transfers,'invalid_selectors':2,'reference':expected}))
+            for direction in ('upload', 'download'):
+                invalid_env = dict(env, CPNETFLUX_MEMBER_WORK_PROFILE='invalid')
+                invalid_base = list(base)
+                invalid_base[invalid_base.index('--port')+1] = str(free_port())
+                result = subprocess.run([str(build/f'cpnetflux-tree-{direction}-client'), *invalid_base,
+                    '--source-dir', str(source) if direction == 'upload' else 'upload-0',
+                    '--dest-dir', 'invalid-member' if direction == 'upload' else str(root/'invalid-member')],
+                    env=invalid_env, capture_output=True, text=True, timeout=5)
+                assert result.returncode != 0 and 'CPNETFLUX_MEMBER_WORK_PROFILE' in result.stdout+result.stderr
+                assert not (server_root/'invalid-member').exists()
+            print(json.dumps({'result':'pass','transfers':transfers,'invalid_selectors':3,'reference':expected}))
         finally:
             stop_server(server, root/'server.log')
 

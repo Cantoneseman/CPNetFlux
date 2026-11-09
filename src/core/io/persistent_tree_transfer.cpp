@@ -2136,13 +2136,21 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (!status.isOk()) return finishTransport(status);
         PersistentFileTiming timing;
         timing.file = id; timing.channel = channelIndex;
+        auto& memberProfile = stats->memberWorkProfile;
+        const bool observeMember = memberProfile.enabled && id.rangeId == 0;
+        if (memberProfile.enabled) {
+            if (id.rangeId) ++memberProfile.excludedRanges;
+            else ++memberProfile.startedMembers;
+        }
+        MemberWorkSample memberSample;
+        double workerEntered = 0, workerLoopExit = 0;
         timing.stageWritePool=bool(stages->writerPool);
         timing.stageReadConcurrency=stages->readConcurrency;
         timing.stageWriteConcurrency=stages->writeConcurrency;
         timing.stageNetworkLanes=stages->networkLanes;
         timing.stageBufferBudgetBytes=stages->bufferBudgetBytes;
         timing.stageOwnershipBoundBytes=stages->ownershipBoundBytes;
-        timing.wholeFileObservationEnabled = stats->phaseTiming && id.rangeId == 0;
+        timing.wholeFileObservationEnabled = (stats->phaseTiming || observeMember) && id.rangeId == 0;
         timing.rangeObservationEnabled = observeRanges(*stats);
         const auto* receiverProfile = std::getenv("CPNETFLUX_RECEIVER_PROFILE");
         auto& receiverCpu = timing.receiverCpuObservation;
@@ -2203,7 +2211,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 }
             }
         } else {
-            transaction = std::make_shared<FileTransaction>(stats->phaseTiming ? &timing : nullptr,
+            transaction = std::make_shared<FileTransaction>(stats->phaseTiming || observeMember ? &timing : nullptr,
                 context->policy, &stats->fileIoStats, context.get());
             {
                 std::lock_guard lock(context->mutex);
@@ -2212,7 +2220,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 });
             }
             const bool requestedResume = resume || (frame.header.flags & protocol::kFileResume);
+            const auto beginStarted = observeMember ? memberWorkNow() : 0;
             fileStatus = transaction->begin(root, id, download, remoteRoot, requestedResume);
+            if (observeMember) memberSample.set(MemberWorkStage::TransactionBegin, beginStarted, memberWorkNow());
             if (fileStatus.isOk()) {
                 stats->loadedVerifiedChunks += transaction->loadedVerifiedChunks();
                 stats->removedCorruptChunks += transaction->removedCorruptChunks();
@@ -2349,7 +2359,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             }
             return writerTerminal;
         };
+        const auto createStarted = observeMember && !timing.receiverInlinePayload ? memberWorkNow() : 0;
         if (!timing.receiverInlinePayload) receiverWriter = std::thread([&] {
+            if (observeMember) workerEntered = memberWorkNow();
             const auto writerCpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
             std::array<PreparedPayload, 2> slots;
             for (;;) {
@@ -2374,7 +2386,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             }
             timing.receiverWriterThreadCpuSeconds +=
                 threadCpuSeconds(timing.rangeObservationEnabled) - writerCpuStarted;
+            if (observeMember) workerLoopExit = memberWorkNow();
         });
+        if (createStarted) memberSample.set(MemberWorkStage::ThreadCreate, createStarted, memberWorkNow());
         auto drainReceiverWriter = [&] {
             if (receiverWriter.joinable()) {
                 receiverPipeline.close();
@@ -2398,7 +2412,14 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             if (data.header.type == FrameType::FileEnd) {
                 tracePersistentProtocol("receiver", "file_end_read", channelIndex, &id);
                 receiverPipeline.close();
-                if (receiverWriter.joinable()) receiverWriter.join();
+                if (receiverWriter.joinable()) {
+                    const auto joinStarted = observeMember ? memberWorkNow() : 0;
+                    receiverWriter.join();
+                    if (observeMember) {
+                        memberSample.splitJoin(joinStarted, workerLoopExit, memberWorkNow());
+                        memberSample.workerEntrySeconds = workerEntered - createStarted;
+                    }
+                }
                 timing.payloadPipelineDepth = timing.receiverInlinePayload ? 0 : static_cast<std::uint32_t>(receiverDepth.value());
                 timing.pipelineBudgetBytes = timing.receiverInlinePayload ? 0 : receiverPipelineChunkBytes * receiverDepth.value();
                 timing.pipelineHighWatermarkBytes = receiverPipeline.highWatermarkBytes();
@@ -2531,7 +2552,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         }
         if (fileStatus.isOk() && transaction) {
             Timer timer{&timing.finalizeSeconds};
+            const auto commitStarted = observeMember ? memberWorkNow() : 0;
             fileStatus = transaction->commit();
+            if (observeMember) memberSample.set(MemberWorkStage::Commit, commitStarted, memberWorkNow());
         }
         tracePersistentProtocol("receiver", "commit_end", channelIndex, &id,
             0, 0, static_cast<int>(fileStatus.code()));
@@ -2570,7 +2593,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         if (const auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
         tracePersistentProtocol("receiver", "file_result_write_begin", channelIndex, &id,
             0, 0, static_cast<int>(fileFailureCode(fileStatus)));
+        const auto resultWriteStarted = observeMember ? memberWorkNow() : 0;
         status = PersistentDataSession::writeResult(socket, id, fileFailureCode(fileStatus));
+        if (observeMember) memberSample.set(MemberWorkStage::ResultWrite, resultWriteStarted, memberWorkNow());
         tracePersistentProtocol("receiver", "file_result_write_end", channelIndex, &id,
             0, 0, static_cast<int>(status.code()));
         if (!status.isOk()) return finishTransport(status);
@@ -2588,6 +2613,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         timing.laneThreadCpuSeconds = threadCpuSeconds(timing.rangeObservationEnabled)-laneCpuStarted;
         timing.fileResultSeconds = secondsSince(resultStarted);
         timing.wallSeconds = secondsSince(fileStarted);
+        if (observeMember && fileStatus.isOk()) memberProfile.record(memberSample, timing.wholeFileObservation.manifestSave);
         if (stats->phaseTiming) stats->fileTimings.push_back(std::move(timing));
     }
 }

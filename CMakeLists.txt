@@ -148,6 +148,7 @@ add_library(cpnetflux_core STATIC
     src/core/io/rdma_data_socket.cpp
     src/core/io/persistent_data_session.cpp
     src/core/io/persistent_tree_transfer.cpp
+    src/core/io/member_work_profile.cpp
     src/core/io/payload_pipeline.cpp
     src/core/io/transfer_stages.cpp
     src/core/io/dynamic_file_queue.cpp
@@ -443,6 +444,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/transfer_progress_test.cpp
         tests/unit/tree_manifest_test.cpp
         tests/unit/tree_manifest_writer_test.cpp
+        tests/unit/member_work_profile_test.cpp
         tests/unit/tree_scan_test.cpp
         tests/unit/tree_transfer_options_test.cpp
         tests/unit/tree_pipeline_control_io_test.cpp
@@ -546,6 +548,9 @@ if(CPNETFLUX_BUILD_TESTS)
         add_test(NAME cpnetflux_tree_state_budget_test
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tree_state_budget_test.py)
         set_tests_properties(cpnetflux_tree_state_budget_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_member_work_budget_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_member_work_budget_test.py)
+        set_tests_properties(cpnetflux_member_work_budget_test PROPERTIES TIMEOUT 20)
         add_test(NAME cpnetflux_summary_path_ab_test
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_summary_path_ab_test.py)
         set_tests_properties(cpnetflux_summary_path_ab_test PROPERTIES TIMEOUT 20)

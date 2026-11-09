@@ -974,6 +974,8 @@ void addRdmaTransportStats(RdmaTransportStats* target,
 }
 
 struct TreeRunStats {
+    bool memberWorkProfileEnabled = false;
+    std::vector<MemberWorkProfile> memberWorkProfiles;
     core::tree::TreeHashPathMode summaryPathMode = core::tree::TreeHashPathMode::Original;
     core::tree::TreeManifestSerializer treeManifestSerializer = core::tree::TreeManifestSerializer::Original;
     bool treeManifestProfileEnabled = false, treeManifestProfileTruncated = false;
@@ -1182,6 +1184,13 @@ common::Result<bool> treeManifestProfileFromEnvironment() {
     if (!setting || std::string_view(setting) == "0") return false;
     if (std::string_view(setting) == "1") return true;
     return common::Status::invalidArgument("CPNETFLUX_TREE_MANIFEST_PROFILE must be 0 or 1");
+}
+
+common::Result<bool> memberWorkProfileFromEnvironment() {
+    const auto* setting = std::getenv("CPNETFLUX_MEMBER_WORK_PROFILE");
+    if (!setting || std::string_view(setting) == "0") return false;
+    if (std::string_view(setting) == "1") return true;
+    return common::Status::invalidArgument("CPNETFLUX_MEMBER_WORK_PROFILE must be 0 or 1");
 }
 
 common::Result<std::string> computeTreeVerificationHashFromChunks(
@@ -1442,6 +1451,10 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     }
     output << "},\n";
 
+    output << "  \"member_work_profile\": ";
+    appendMemberWorkProfile(output, stats.memberWorkProfileEnabled, std::string_view(direction) == "download",
+                            stats.memberWorkProfiles);
+    output << ",\n";
     output << "  \"completed_files\": " << summary.completedFiles << ",\n";
     output << "  \"skipped_files\": " << stats.skippedFiles.load() << ",\n";
     output << "  \"failed_files\": " << summary.failedFiles << ",\n";
@@ -2581,6 +2594,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         workers.emplace_back([&, index]() {
             auto& channel = *channels[index];
             channel.observed.phaseTiming = options.phaseTiming;
+            channel.observed.memberWorkProfile.enabled = stats->memberWorkProfileEnabled && !upload;
             std::uint32_t laneAttempt = 0;
             auto recordTransferOutcome = [&](const common::Status& outcome) {
                 if (outcome.isOk()) return;
@@ -2824,6 +2838,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             stats->scanSeconds = std::max(stats->scanSeconds.value_or(0),channel->remoteScan);
         stats->queueHighWatermark = std::max(stats->queueHighWatermark,channel->remoteQueueHigh);
         stats->fileTimings.insert(stats->fileTimings.end(),channel->observed.fileTimings.begin(),channel->observed.fileTimings.end());
+        if (stats->memberWorkProfileEnabled && !upload)
+            stats->memberWorkProfiles.push_back(std::move(channel->observed.memberWorkProfile));
         stats->verifiedChunkCrcs.insert(stats->verifiedChunkCrcs.end(),
             channel->observed.verifiedChunkCrcs.begin(), channel->observed.verifiedChunkCrcs.end());
         stats->verifiedFileMetadata.insert(stats->verifiedFileMetadata.end(),
@@ -3028,6 +3044,8 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
     if (!serializer.isOk()) return serializer.status();
     const auto manifestProfile = treeManifestProfileFromEnvironment();
     if (!manifestProfile.isOk()) return manifestProfile.status();
+    const auto memberProfile = memberWorkProfileFromEnvironment();
+    if (!memberProfile.isOk()) return memberProfile.status();
     auto options = inputOptions;
     if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     if (options.transferTimeoutMs != 0)
@@ -3074,6 +3092,7 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
     persistentStats.summaryPathMode = summaryPath.value();
     persistentStats.treeManifestSerializer = serializer.value();
     persistentStats.treeManifestProfileEnabled = manifestProfile.value();
+    persistentStats.memberWorkProfileEnabled = memberProfile.value();
     persistentStats.scanSeconds = scanSeconds;
     if (options.resume) {
         const auto preflight = preflightUploadResume(options, &manifest, manifestPath, persistentStats.treeManifestSerializer);
@@ -3128,6 +3147,8 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
     if (!serializer.isOk()) return serializer.status();
     const auto manifestProfile = treeManifestProfileFromEnvironment();
     if (!manifestProfile.isOk()) return manifestProfile.status();
+    const auto memberProfile = memberWorkProfileFromEnvironment();
+    if (!memberProfile.isOk()) return memberProfile.status();
     auto options = inputOptions;
     if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     if (options.transferTimeoutMs != 0)
@@ -3138,6 +3159,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
     stats.summaryPathMode = summaryPath.value();
     stats.treeManifestSerializer = serializer.value();
     stats.treeManifestProfileEnabled = manifestProfile.value();
+    stats.memberWorkProfileEnabled = memberProfile.value();
     ControlClient control;
     config::TreeTransferOptions controlOptions = options;
     if (options.resume && persistentEligible(options)) controlOptions.connections = 1;
