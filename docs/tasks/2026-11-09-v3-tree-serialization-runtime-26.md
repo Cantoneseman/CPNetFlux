@@ -1,6 +1,7 @@
 # S2C Tree Serialization Runtime26
 
-Date:2026-11-09. Status: implementation started; performance gate not executed.
+Date:2026-11-09. Status: complete; full-task performance NO-GO, original default.
+Outcome: [Runtime26 result](2026-11-09-v3-tree-serialization-runtime-26-result.md).
 Input: pushed/read-back commit 0d01a933ddd6e43db10fa4713ce330dc99cad68d.
 
 ## Scope And Hypothesis
@@ -73,4 +74,6 @@ output corruption. Both-direction cross-serializer resume is covered by10 tiny
 transfers plus two pre-connection invalid selectors. Sorted/reversed full-series
 byte/parsed-field/input-immutability proof passed450/450 snapshots.
 Evidence: /home/Su/experiments/CPNetFlux/2026-11-09-v3-tree-serialization-runtime-26.
-Full-task performance has not been run at this checkpoint; default is original.
+The checkpoint preceded fixed-commit measurement. The final result records all
+five pairs: T_ready median1.18330->1.21285s (2.50% slower); no retries or default
+promotion. Increased snapshot/byte/lock work is retained as negative evidence.

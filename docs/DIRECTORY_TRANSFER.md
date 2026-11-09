@@ -84,6 +84,16 @@ logic.
 
 ## Manifests
 
+Research-only selector `CPNETFLUX_TREE_MANIFEST_SERIALIZER=original|buffered`
+is frozen once before connecting. The default is `original`; `buffered` failed
+the [Runtime26 full-task performance gate](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)
+and is retained for explicit reproduction, not recommended as a faster setting.
+It affects all client tree-manifest save attempts, including preflight/reconnect
+and finish; member checkpoints, on-disk bytes/CRC and save cadence are unchanged.
+JSON `tree_manifest_serializer_requested/effective` records the selected routing,
+not successful persistence of every attempt. Shared programmatic APIs default to
+original independently of this environment variable.
+
 Directory transfer adds a file-level manifest:
 
 - Upload: `<source_dir>.cpnetflux.tree.upload.manifest`
