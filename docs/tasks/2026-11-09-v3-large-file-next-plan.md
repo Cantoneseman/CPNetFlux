@@ -1,7 +1,7 @@
 # CPNetFlux 大文件后续开发计划
 
 日期：2026-11-09。输入提交 `7dbaa06fcc8d70dd5e1f9cdfc9df9e5dca727ea1`。
-状态：Byte Work18及Mapped Collapse19诊断已完成，当前LF4 seed+collapse不晋级，下一项LF5搬运成本核对；大帧/CRC运行时预算未证实。历史计划不作为性能结果。
+状态：Byte Work18、Mapped Collapse19、Source Read20诊断已完成；当前LF4 seed+collapse及LF5只读源窗口不晋级，下一项S0小文件固定开销基线。大帧/CRC运行时预算未证实。历史计划不作为性能结果。
 依据：[当前路线](../ROADMAP.md)、[scope17结果](2026-11-09-v3-kernel-service-17-result.md)、
 [本轮路线决定](../DECISIONS/2026-11-09-v3-large-file-candidate-screening.md)。
 
@@ -192,6 +192,11 @@ MSG_ZEROCOPY的buffer复用必须等待完成通知，不能只加flag，内核�
 CRC32C、字节数相同，map/首次PTE/CRC/close计入必要服务边界，源准备/目标销毁分列。
 运行时前先设计queued消费者持有的窗口pin、部分写/取消/源变更及64MiB/lane预算，
 没有可信关键路径预算则停止，不能把微基准CPU相减冒称完整任务收益。
+
+[Source Read20结果](2026-11-09-v3-source-read-20-result.md)已执行上述一次有界筛选。
+五对1GiB/4路，服务墙钟中位仅下降3.188%，低于15%门，CPU下降8.205%、CV<2%。
+该机制不接入V3，不重复筛选；上述“下一项”已完成，当前进入S0。更广的TCP零拷贝/
+原生RDMA路径未设计验收，不据此宣称所有大文件方向均关闭，RDMA仍暂停。
 
 ## S0及后续：小文件固定开销，独立研究目标
 
