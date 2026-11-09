@@ -939,6 +939,25 @@ struct DynamicDirectory {
     std::shared_ptr<core::io::PersistentDirectoryBatch> batch;
     std::unique_ptr<core::io::DynamicFileQueue> queue;
     std::shared_ptr<core::io::PersistentTransferContext> transactions = core::io::makePersistentTransferContext();
+    std::mutex senderProfileMutex;
+    std::vector<core::io::SenderWorkProfile> senderProfiles;
+    std::vector<bool> senderProfileSeen;
+    std::uint32_t senderProfileArrivals = 0, senderProfileSeenCount = 0;
+    void publishSenderProfile(std::uint32_t channel, core::io::SenderWorkProfile profile,
+                              const std::string& batchId, bool enabled) {
+        std::lock_guard lock(senderProfileMutex);
+        if (senderProfiles.empty()) { senderProfiles.resize(channels); senderProfileSeen.resize(channels); }
+        ++senderProfileArrivals;
+        if (!senderProfileSeen[channel]) { senderProfileSeen[channel] = true; ++senderProfileSeenCount; }
+        senderProfiles[channel] = std::move(profile);
+        if (senderProfileSeenCount != channels) return;
+        std::ostringstream out;
+        out << std::setprecision(17) << "CPNETFLUX_SENDER_WORK {\"batch_id\":\"" << batchId
+            << "\",\"channels\":" << channels << ",\"attempt_records\":" << senderProfileArrivals << ",\"profile\":";
+        core::io::appendSenderWorkProfile(out, enabled, true, senderProfiles);
+        out << "}\n";
+        std::osyncstream(std::cout) << out.str() << std::flush_emit;
+    }
 };
 struct DirectoryRegistration {
     std::shared_ptr<DynamicDirectory> directory;
@@ -1193,6 +1212,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     }
     core::io::PersistentTreeStats stats;
     stats.phaseTiming = guard.directory != nullptr;
+    stats.senderWorkProfile.enabled = options.senderWorkProfile && !upload;
     core::io::PersistentFileCallback callback;
     if (guard.directory) callback = [&](const auto& id, const auto& fileStatus, bool complete) {
         return guard.directory->batch->fileEvent(channelIndex,id,fileStatus,complete);
@@ -1206,6 +1226,8 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
                      pendingWindow, channelIndex, channelCount, guard.directory ? guard.directory->queue.get() : nullptr, &policy.options);
     std::string details;
     if (guard.directory) {
+        if (!upload) guard.directory->publishSenderProfile(channelIndex, std::move(stats.senderWorkProfile), batchId,
+                                                           options.senderWorkProfile);
         auto original = guard.directory->batch->status();
         if (original.isOk()) original = status;
         if (!original.isOk() &&
@@ -1620,7 +1642,11 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
 
 }  // namespace
 
-common::Status runControlServer(const ControlServerOptions& options) {
+common::Status runControlServer(const ControlServerOptions& inputOptions) {
+    const auto senderProfile = core::io::senderWorkProfileFromEnvironment();
+    if (!senderProfile.isOk()) return senderProfile.status();
+    auto options = inputOptions;
+    options.senderWorkProfile = senderProfile.value();
     EventLoggerPtr eventLogger;
     if (!options.eventLogPath.empty()) {
         auto logger = core::metrics::EventLogger::open(options.eventLogPath);

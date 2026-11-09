@@ -24,6 +24,7 @@ inline constexpr std::uint16_t kMaxPassiveDataPortBase =
                                kPassiveDataPortWindowSize + 1);
 
 struct ControlServerOptions {
+    bool senderWorkProfile = false; // Internal startup-frozen diagnostic, not a wire option.
     std::string host = "127.0.0.1";
     std::uint16_t port = 2121;
     std::string root;

@@ -40,7 +40,8 @@ def main():
         with (root/'server.log').open('w') as log:
             server = subprocess.Popen([str(build/'cpnetflux-gridftp-server'), '--host', '127.0.0.1',
                 '--port', str(port), '--data-port-base', str(data), '--root', str(server_root),
-                '--checksum', 'crc32c'], stdout=log, stderr=subprocess.STDOUT, env=env)
+                '--checksum', 'crc32c'], stdout=log, stderr=subprocess.STDOUT,
+                env=dict(env, CPNETFLUX_SENDER_WORK_PROFILE='1'))
         try:
             wait_for_control(port)
             base = ['--host', '127.0.0.1', '--port', str(port), '--connections', '1',
@@ -51,6 +52,7 @@ def main():
                 run_env = dict(env, CPNETFLUX_SUMMARY_PATH='cached',
                                CPNETFLUX_TREE_MANIFEST_PROFILE='1' if mode == 'buffered' else '0',
                                CPNETFLUX_MEMBER_WORK_PROFILE='1' if mode == 'buffered' else '0')
+                if mode is not None: run_env['CPNETFLUX_SENDER_WORK_PROFILE'] = '1' if mode == 'buffered' else '0'
                 if mode is None: run_env.pop('CPNETFLUX_TREE_MANIFEST_PROFILE')
                 if mode is None: run_env.pop('CPNETFLUX_MEMBER_WORK_PROFILE')
                 if mode is not None: run_env['CPNETFLUX_TREE_MANIFEST_SERIALIZER'] = mode
@@ -63,6 +65,14 @@ def main():
                     result = subprocess.run(command, env=run_env, capture_output=True, text=True, timeout=20)
                     assert result.returncode == 0, result.stdout+result.stderr
                     value = json.loads(summary.read_text())
+                    sender = value.get('sender_work_profile')
+                    assert sender is not None and sender['enabled'] == (mode == 'buffered'), value
+                    if sender['enabled']:
+                        assert sender['effective'] == ('sender' if direction == 'upload' else 'not_used_receiver'), sender
+                        if direction == 'upload':
+                            assert sender['started_members'] == sender['sent_members'] == sender['completed_members'] == len(files), sender
+                            assert not sender['truncated'] and sender['result_failures'] == 0, sender
+                            assert sender['stages']['producer_create']['calls'] == len(files), sender
                     member = value.get('member_work_profile')
                     assert member is not None and member['enabled'] == (mode == 'buffered'), value
                     if member['enabled']:
@@ -134,7 +144,22 @@ def main():
                     env=invalid_env, capture_output=True, text=True, timeout=5)
                 assert result.returncode != 0 and 'CPNETFLUX_MEMBER_WORK_PROFILE' in result.stdout+result.stderr
                 assert not (server_root/'invalid-member').exists()
-            print(json.dumps({'result':'pass','transfers':transfers,'invalid_selectors':3,'reference':expected}))
+            for direction in ('upload', 'download'):
+                invalid_base = list(base); invalid_base[invalid_base.index('--port')+1] = str(free_port())
+                result = subprocess.run([str(build/f'cpnetflux-tree-{direction}-client'), *invalid_base,
+                    '--source-dir', str(source) if direction == 'upload' else 'upload-0',
+                    '--dest-dir', 'invalid-sender' if direction == 'upload' else str(root/'invalid-sender')],
+                    env=dict(env, CPNETFLUX_SENDER_WORK_PROFILE='invalid'), capture_output=True, text=True, timeout=5)
+                assert result.returncode != 0 and 'CPNETFLUX_SENDER_WORK_PROFILE' in result.stdout+result.stderr
+            invalid_server = subprocess.run([str(build/'cpnetflux-gridftp-server'), '--root', str(server_root),
+                '--host','127.0.0.1','--port',str(free_port())],
+                env=dict(env, CPNETFLUX_SENDER_WORK_PROFILE='invalid'), capture_output=True, text=True, timeout=5)
+            assert invalid_server.returncode != 0 and 'CPNETFLUX_SENDER_WORK_PROFILE' in invalid_server.stdout+invalid_server.stderr
+            records = [json.loads(line.split(' ',1)[1]) for line in (root/'server.log').read_text().splitlines()
+                       if line.startswith('CPNETFLUX_SENDER_WORK ')]
+            assert records and any(r['profile']['completed_members'] == len(files) and not r['profile']['truncated']
+                                   for r in records), records
+            print(json.dumps({'result':'pass','transfers':transfers,'invalid_selectors':4,'reference':expected}))
         finally:
             stop_server(server, root/'server.log')
 

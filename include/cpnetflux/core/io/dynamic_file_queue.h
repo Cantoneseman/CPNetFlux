@@ -76,6 +76,9 @@ class DynamicFileQueue {
     void cancel(const common::Status& reason);
     [[nodiscard]] std::size_t highWatermark() const;
     [[nodiscard]] std::size_t outstanding() const;
+    // Positive remaining work proves preceding readiness only while monotone.
+    struct ReadyObservation { bool monotone = false; std::size_t remaining = 0; };
+    [[nodiscard]] ReadyObservation observeReadyIgnoringCredit(const WorkerContext&) const;
  private:
     enum class WorkerState { Accepting, Draining, Disconnected };
     struct Worker { WorkerContext context; WorkerState state = WorkerState::Accepting; };
@@ -100,6 +103,7 @@ class DynamicFileQueue {
     std::uint64_t readyBytes_ = 0;
     bool leasesIssued_ = false;
     bool claimsStopped_ = false;
+    bool workEverRequeued_ = false;
     std::vector<WorkItem> files_;
     std::vector<std::optional<Ready>> ring_;
     // Reclaimed work is bounded by released active credits and is claimed before fresh ready work.

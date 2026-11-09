@@ -290,6 +290,13 @@ common::Status DynamicFileQueue::schedulerFeedback() {
     changed_.notify_all();
     return common::Status::ok();
 }
+DynamicFileQueue::ReadyObservation DynamicFileQueue::observeReadyIgnoringCredit(const WorkerContext& owner) const {
+    std::lock_guard lock(mutex_);
+    if (!status_.isOk() || claimsStopped_ || workEverRequeued_ || scheduler_ ||
+        staticChannelAffinity_ || rangeAffinity_ || !matchesWorker(owner) ||
+        workers_[owner.workerId].state != WorkerState::Accepting) return {};
+    return {true, size_ + files_.size() - next_};
+}
 void DynamicFileQueue::fill() {
     while (size_ < ring_.size() && next_ < files_.size()) {
         ring_[tail_] = Ready{std::move(files_[next_++]), WorkClock::now()};
@@ -799,6 +806,7 @@ common::Status DynamicFileQueue::requeue(const WorkLease& lease, WorkClock::time
             return observed;
         }
     }
+    workEverRequeued_ = true;
     retry_.push_back({std::move(item), now});
     --credits_[current.owner.workerId]; active_.erase(activeKey(lease.file));
     changed_.notify_all();
@@ -967,6 +975,7 @@ common::Result<WorkerContext> DynamicFileQueue::recover(
         if (retry) {
             auto item = static_cast<const WorkItem&>(active.lease);
             ++item.file.attempt;
+            workEverRequeued_ = true;
             retry_.push_back({std::move(item), now});
         }
         --credits_[owner.workerId];

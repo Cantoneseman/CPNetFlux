@@ -13,6 +13,7 @@
 #include "cpnetflux/storage/mapped_file_window.h"
 #include "cpnetflux/core/io/dynamic_file_queue.h"
 #include "cpnetflux/core/io/member_work_profile.h"
+#include "cpnetflux/core/io/sender_work_profile.h"
 #include "cpnetflux/core/io/persistent_data_session.h"
 #include "cpnetflux/core/tree/tree_scan.h"
 
@@ -164,6 +165,7 @@ void appendRangeObservationContract(std::ostream& out);
 struct PersistentTreeStats {
     bool phaseTiming = false;
     MemberWorkProfile memberWorkProfile;
+    SenderWorkProfile senderWorkProfile;
     std::vector<PersistentFileTiming> fileTimings;
     std::uint64_t files = 0;
     std::uint64_t rangeCompletions = 0;

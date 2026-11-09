@@ -1,6 +1,7 @@
 # S2F Sender Producer And Credit Budget29
 
-Date:2026-11-09. Status: next task, not started.
+Date:2026-11-09. Status: implementation/attribution started; no candidate accepted.
+Frozen checkout input:2daeae8b002da590d44da8bfc036015a194976a2.
 Input:Budget28 measured source42a2a9d9eca07d8c553691262590fc8b4fd9d26e plus its
 result/route documentation; final backup SHA is in Budget28 evidence closure.
 R1 sole writer, no agents/worktrees; R2 fixed-commit build/test/source peer only.
@@ -47,6 +48,45 @@ large-file seed, system memory/network changes or expanded tuning matrix.
 
 ## Acceptance And Decision
 
+### Frozen Edit Scope And Observation Contract
+
+Implement CPNETFLUX_SENDER_WORK_PROFILE=0|1, default0, validated/frozen at
+client entry and server startup before listen/connect. Server option is internal,
+not a new wire/CLI capability. Per-connection sender writer and result-reader
+own separate bounded collectors, merged after result-reader join; max65536
+intervals per channel. Record producer constructor, worker loop, join-work and
+post-loop tail, result-read/drain, and classified pending-window waits. Reuse
+existing read/CRC timers. Counts expose started, sent and acknowledged members,
+range exclusions, failures and truncation. No raw intervals emitted.
+
+For dynamic fresh queues, a read-only snapshot after a window wait reports
+whether eligible metadata remains, ignoring exhausted credit. Whole-wait ready
+proof is restricted to queues whose eligible ready population only decreases:
+no affinity/scheduler, requeue ever, stopped claims, cancel or stale/drained owner.
+An end snapshot with remaining work proves work existed throughout this monotone
+interval. Empty-at-resume does not prove it was empty throughout; classify as
+unproven/empty-at-resume, never subtract it as a gain. Snapshot uses the existing
+queue lock only when profiling an actual window wait; no recording lock in the
+per-member hot path. Static known-next-file waits are separately supported.
+
+Server aggregates profiles only once all channel send calls have stopped, using
+one post-transfer publication lock per channel. Emit batch/attempt/channel scope;
+duplicate attempt records or partial/error coverage cannot pass fresh attribution.
+Off emits disabled aggregate only, with existing detailed server logging retained
+equally. Do not align remote steady clocks with receiver intervals.
+
+Affected files:new sender_work_profile.h/.cpp and unit test; existing
+persistent_tree_transfer.h/.cpp, dynamic_file_queue.h/.cpp and its unit test;
+tree_transfer_client.cpp; protocol/control/control_options.h and control_server.cpp;
+tools/test/run_cpnetflux_tree_serializer_smoke.py; tools/perf/run_small_file_baseline.py;
+new tools/perf/run_sender_credit_budget.py and tools/test/run_sender_credit_budget_test.py;
+CMakeLists.txt; this task/result and docs/ROADMAP.md/docs/README.md.
+Exactly3 off/on pairs, one isolated server per sample so startup-frozen observation
+mode changes without production service edits; startup outside T_ready in both
+arms.39.0625MiB source reused and audited, each destination removed after audit.
+
+### Gates
+
 MemAvailable>=12GiB, experiment-owned swap0, host pswpout delta0, own payload
 <=1GiB per endpoint; explicit .1/.2 binds, no persistent production service use.
 Reject incomplete/overlapping/role-confused budgets. A wait is not automatically
@@ -61,3 +101,14 @@ commits, commands/tests/failures, raw evidence, all3 pairs, resource/cleanup and
 GitHub/local mirror receipts. Fixed/adaptive microbatch independently retain
 >=20% median wall benefit, tail/recovery and matched-large-file<=5% regression
 gates. This task does not claim large-file throughput improvement or100G readiness.
+
+## Pre-measurement Verification
+
+Observer and driver implemented. Old binary fails the new sender_work_profile
+summary assertion (red-smoke.log). First build caught a test using generation
+instead of WorkerContext.epoch.value; corrected and saved first-build-failure.log.
+R1 RelWithDebInfo build passes,58 related CTests pass, and4 additional profile1
+interrupted/corrupt/conflict/edge tests pass. Ready tests cover exhausted credit,
+unadmitted metadata, stale/drained owner, cancel, affinity and both requeue paths.
+Evidence:/home/Su/experiments/CPNetFlux/2026-11-09-v3-sender-credit-budget-29.
+Next:commit/push/readback, exact R2 build/test/binary receipt, exactly3 pairs.

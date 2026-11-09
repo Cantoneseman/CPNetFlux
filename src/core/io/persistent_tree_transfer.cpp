@@ -1363,6 +1363,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     auto stages = stageResult.value();
     stats->pendingWindow = pendingWindow;
     const std::uint64_t filesAtConnectionStart = stats->files;
+    auto& senderWork = stats->senderWorkProfile;
+    SenderWorkProfile resultWork;
+    resultWork.enabled = senderWork.enabled;
     auto status = PersistentDataSession::setTimeout(socket, 30);
     if (!status.isOk()) return status;
     std::optional<WorkExecutor> executor;
@@ -1424,11 +1427,14 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             }
             const auto started = std::chrono::steady_clock::now();
             tracePersistentProtocol("sender", "file_result_read_begin", channelIndex, &expected);
+            const auto observedRead = resultWork.enabled && expected.rangeId == 0 ? memberWorkNow() : 0;
             auto result = PersistentDataSession::readResult(socket, expected);
+            if (observedRead) resultWork.record(SenderWorkStage::ResultRead, observedRead, memberWorkNow());
             const double resultSeconds = secondsSince(resultStarted);
             const double waitSeconds = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - started).count();
             if (!result.isOk()) {
+                if (observedRead) ++resultWork.resultFailures;
                 tracePersistentProtocol("sender", "file_result_read_error", channelIndex,
                     &expected, 0, 0, static_cast<int>(result.status().code()));
                 requestAbort(result.status());
@@ -1437,6 +1443,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             tracePersistentProtocol("sender", "file_result_read_end", channelIndex, &expected,
                 0, 0, static_cast<int>(result.value()));
             const auto fileStatus = receiverFileStatus(result.value(), expected.relativePath);
+            if (observedRead && !fileStatus.isOk()) ++resultWork.resultFailures;
             if (ready) {
                 if (!lease) { requestAbort(Status::runtimeError("missing work lease")); return; }
                 auto completed = !fileStatus.isOk() &&
@@ -1473,6 +1480,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             changed.notify_all();
             const auto manifestStarted = Clock::now();
             const auto callbackStatus = notifySafe(expected, fileStatus, true);
+            if (observedRead && fileStatus.isOk() && callbackStatus.isOk()) ++resultWork.completedMembers;
             timing.manifestSeconds += secondsSince(manifestStarted);
             timing.fileResultSeconds = resultSeconds;
             timing.wallSeconds = secondsSince(fileStarted);
@@ -1502,11 +1510,26 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             failWriter(Status::invalidArgument("persistent file assigned to wrong channel"));
             break;
         }
+        double creditStarted = 0, creditEnded = 0;
+        bool creditAborted = false;
         {
             std::unique_lock<std::mutex> lock(mutex);
+            if (senderWork.enabled && !abort && pending.size() >= pendingWindow) creditStarted = memberWorkNow();
             changed.wait(lock, [&] { return abort || pending.size() < pendingWindow; });
-            if (abort) break;
+            if (creditStarted) creditEnded = memberWorkNow();
+            creditAborted = abort;
         }
+        if (creditStarted) {
+            auto kind = SenderWorkStage::CreditTerminal;
+            if (!creditAborted) {
+                const auto snapshot = ready ? ready->observeReadyIgnoringCredit(executor->owner())
+                    : DynamicFileQueue::ReadyObservation{true, 1};
+                kind = !snapshot.monotone ? SenderWorkStage::CreditUnproven : snapshot.remaining
+                    ? SenderWorkStage::CreditReady : SenderWorkStage::CreditEmptyAtResume;
+            }
+            senderWork.record(kind, creditStarted, creditEnded);
+        }
+        if (creditAborted) break;
         if (ready) {
             auto next = executor->claim();
             if (!next.isOk()) { failWriter(next.status()); break; }
@@ -1519,6 +1542,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (transferOptions && transferOptions->reconnectAttempt != UINT32_MAX)
             id.attempt = transferOptions->reconnectAttempt;
         timing.file = id; timing.channel = channelIndex; timing.sender = true;
+        const bool observeSender = senderWork.enabled && id.rangeId == 0;
+        if (senderWork.enabled) {
+            if (id.rangeId) ++senderWork.excludedRanges;
+            else ++senderWork.startedMembers;
+        }
         timing.stageWritePool=bool(stages->writerPool);
         timing.stageReadConcurrency=stages->readConcurrency;
         timing.stageWriteConcurrency=stages->writeConcurrency;
@@ -1675,12 +1703,19 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             return std::optional<PreparedPayload>(std::move(prepared));
         };
         std::thread producer;
+        double producerEntered = 0, producerLoopExit = 0;
+        const auto producerCreateStarted = observeSender && pipeline ? memberWorkNow() : 0;
         if (pipeline) producer = std::thread([&]() {
+            if (observeSender) producerEntered = memberWorkNow();
             const auto cpuStarted = threadCpuSeconds(timing.rangeObservationEnabled);
             struct CpuSample { PersistentFileTiming& timing; double started;
                 ~CpuSample() { timing.producerThreadCpuSeconds += threadCpuSeconds(timing.rangeObservationEnabled)-started; }
             } cpuSample{timing,cpuStarted};
             std::vector<std::uint8_t> producerBuffer;
+            struct ProducerExit {
+                bool enabled; double& ended;
+                ~ProducerExit() { if (enabled) ended = memberWorkNow(); }
+            } producerExit{observeSender, producerLoopExit};
             for (;;) {
                 auto next = preparePayload(std::move(producerBuffer));
                 if (!next.isOk()) {
@@ -1699,6 +1734,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             }
             pipeline->close();
         });
+        if (producerCreateStarted) senderWork.record(SenderWorkStage::ProducerCreate, producerCreateStarted, memberWorkNow());
         std::vector<std::uint8_t> reusablePayloadBuffer;
         for (;;) {
             OptionalThreadCpuTimer popCpu(senderCpu.enabled && pipeline ? &senderCpu.popCpuSeconds : nullptr);
@@ -1830,7 +1866,19 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         }
         if (writeFailed && pipeline)
             pipeline->cancel(status.isOk() ? Status::runtimeError("persistent data write failed") : status);
-        if (producer.joinable()) producer.join();
+        if (producer.joinable()) {
+            const auto joinStarted = observeSender ? memberWorkNow() : 0;
+            producer.join();
+            if (observeSender) {
+                senderWork.join(joinStarted, producerLoopExit, memberWorkNow());
+                senderWork.record(SenderWorkStage::ProducerLoop, producerEntered, producerLoopExit);
+                senderWork.workerEntrySeconds += producerEntered - producerCreateStarted;
+            }
+        }
+        if (observeSender) {
+            senderWork.readSeconds += producerReadSeconds;
+            senderWork.checksumSeconds += producerChecksumSeconds;
+        }
         timing.payloadBufferAllocations = bufferAllocations;
         timing.payloadBufferReuses = bufferReuses;
         timing.payloadBufferAllocatedCapacityBytes = allocatedCapacityBytes;
@@ -1882,6 +1930,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 0, 0, static_cast<int>(status.code()));
         }
         if (writeFailed || !status.isOk()) { failWriter(status.isOk() ? Status::runtimeError("persistent data write failed") : status); break; }
+        if (observeSender) ++senderWork.sentMembers;
         const auto resultDeadline = lifetime.beginResult(id);
         status = setPersistentReceiveDeadline(socket, resultDeadline);
         if (!status.isOk()) { failWriter(status); break; }
@@ -1892,8 +1941,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         if (needsHandshake || socket->tlsEnabled()) {
             const auto resultStarted = Clock::now();
             tracePersistentProtocol("sender", "file_result_read_begin", channelIndex, &id);
+            const auto observedRead = observeSender ? memberWorkNow() : 0;
             auto result = PersistentDataSession::readResult(socket, id);
+            if (observedRead) senderWork.record(SenderWorkStage::ResultRead, observedRead, memberWorkNow());
             if (!result.isOk()) {
+                if (observeSender) ++senderWork.resultFailures;
                 tracePersistentProtocol("sender", "file_result_read_error", channelIndex,
                     &id, 0, 0, static_cast<int>(result.status().code()));
                 failWriter(result.status()); break;
@@ -1902,6 +1954,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 0, 0, static_cast<int>(result.value()));
             const double resultSeconds = secondsSince(resultStarted);
             const auto rangeStatus = receiverFileStatus(result.value(), id.relativePath);
+            if (observeSender && !rangeStatus.isOk()) ++senderWork.resultFailures;
             if (ready) {
                 tracePersistentProtocol("sender", "lease_finalize_begin", channelIndex, &id);
                 auto completed = result.value() == FrameStatusCode::OutputExists
@@ -1927,6 +1980,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             const auto callbackStarted = Clock::now();
             tracePersistentProtocol("sender", "callback_begin", channelIndex, &id);
             const auto callbackStatus = notifySafe(id, rangeStatus, true);
+            if (observeSender && rangeStatus.isOk() && callbackStatus.isOk()) ++senderWork.completedMembers;
             tracePersistentProtocol("sender", "callback_end", channelIndex, &id,
                 0, 0, static_cast<int>(callbackStatus.code()));
             timing.manifestSeconds += secondsSince(callbackStarted);
@@ -1950,7 +2004,12 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         writerDone = true;
         changed.notify_all();
     }
+    const auto drainStarted = senderWork.enabled ? memberWorkNow() : 0;
     resultReader.join();
+    if (senderWork.enabled) {
+        senderWork.record(SenderWorkStage::ResultDrain, drainStarted, memberWorkNow());
+        senderWork.merge(std::move(resultWork));
+    }
     Status finalStatus;
     {
         std::lock_guard<std::mutex> lock(mutex);

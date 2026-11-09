@@ -38,6 +38,42 @@ TEST(DynamicFileQueueTest, RingWrapsAndIdleChannelClaimsBeyondOldShard) {
     EXPECT_EQ(q.highWatermark(),3U);
     EXPECT_EQ(q.outstanding(),0U);
 }
+TEST(DynamicFileQueueTest, ReadyObservationIgnoresCreditAndCountsUnadmittedMetadata) {
+    DynamicFileQueue q(tasks(4),1,1,1);
+    auto owner=q.worker(0); ASSERT_TRUE(owner.isOk());
+    EXPECT_EQ(q.observeReadyIgnoringCredit(owner.value()).remaining,4U);
+    auto first=q.claim(owner.value()); ASSERT_TRUE(first.isOk()); ASSERT_TRUE(first.value());
+    EXPECT_FALSE(q.claim(owner.value()).isOk());
+    const auto observed=q.observeReadyIgnoringCredit(owner.value());
+    EXPECT_TRUE(observed.monotone); EXPECT_EQ(observed.remaining,3U);
+    ASSERT_TRUE(q.stopClaims().isOk()); EXPECT_FALSE(q.observeReadyIgnoringCredit(owner.value()).monotone);
+}
+TEST(DynamicFileQueueTest, ReadyObservationRejectsAffinityCancelAndStaleOrDrainingOwner) {
+    DynamicFileQueue affinity(tasks(4),2,1,2,false,true);
+    EXPECT_FALSE(affinity.observeReadyIgnoringCredit(affinity.worker(0).value()).monotone);
+    DynamicFileQueue q(tasks(4),2,1,2);
+    auto owner=q.worker(0).value(); auto stale=owner; ++stale.epoch.value;
+    EXPECT_FALSE(q.observeReadyIgnoringCredit(stale).monotone);
+    ASSERT_TRUE(q.requestDrain(owner).isOk()); EXPECT_FALSE(q.observeReadyIgnoringCredit(owner).monotone);
+    auto other=q.worker(1).value(); q.cancel(Status::runtimeError("cancel"));
+    EXPECT_FALSE(q.observeReadyIgnoringCredit(other).monotone);
+}
+TEST(DynamicFileQueueTest, ReadyObservationCannotProveMonotonicityAfterRequeue) {
+    DynamicFileQueue q(tasks(3),2,1,2);
+    auto owner=q.worker(0).value(); auto claimed=q.claim(owner);
+    ASSERT_TRUE(claimed.isOk()); ASSERT_TRUE(claimed.value());
+    ASSERT_TRUE(q.disconnect(owner).isOk());
+    ASSERT_TRUE(q.requeue(*claimed.value()).isOk());
+    EXPECT_FALSE(q.observeReadyIgnoringCredit(q.worker(1).value()).monotone);
+}
+TEST(DynamicFileQueueTest, ReadyObservationCannotProveMonotonicityAfterMissingRecovery) {
+    DynamicFileQueue q(tasks(3),2,1,2);
+    auto owner=q.worker(0).value(); auto claimed=q.claim(owner);
+    ASSERT_TRUE(claimed.isOk()); ASSERT_TRUE(claimed.value());
+    ASSERT_TRUE(q.disconnect(owner).isOk());
+    ASSERT_TRUE(q.recover(owner,{{*claimed.value(),WorkRecoveryDisposition::Missing}},3).isOk());
+    EXPECT_FALSE(q.observeReadyIgnoringCredit(q.worker(1).value()).monotone);
+}
 TEST(DynamicFileQueueTest, CompletionChecksAllIdentityFieldsAndChannelCredit) {
     DynamicFileQueue q(tasks(3),2,1,1);
     auto next=q.claim(0); ASSERT_TRUE(next.isOk()); auto id=next.value()->file;
