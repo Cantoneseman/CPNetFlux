@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- V3 三阶段工程已收口；大文件性能门未过。[Kernel Service17](tasks/2026-11-09-v3-kernel-service-17-result.md)的无预算候选暂停仍有效。[Byte Work18](tasks/2026-11-09-v3-byte-work-18-result.md)的大帧/CRC整任务预算未证实；[Mapped Collapse19](tasks/2026-11-09-v3-mapped-collapse-19-result.md)和[Source Read20](tasks/2026-11-09-v3-source-read-20-result.md)当前候选不集成。S0完成，[S1 Summary Path22](tasks/2026-11-09-v3-summary-path-22-result.md)显式摘要缓存受测小文件过门；[S1B Gate23](tasks/2026-11-09-v3-summary-default-gate-23-result.md)资源门阻塞，默认仍original、cached显式启用。[S2C Runtime26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)完整任务慢2.50%，性能NO-GO；[S2D Budget27](tasks/2026-11-09-v3-tree-state-budget-27-result.md)清单直接同步预算不足10%，不开发增量清单候选。[S2E接收端28](tasks/2026-11-09-v3-per-file-budget-28-result.md)与[S2F发送端29](tasks/2026-11-09-v3-sender-credit-budget-29-result.md)生命周期归因完成，线程复用未过保守≥10%预算门。[S2G事务审计30](tasks/2026-11-10-v3-receiver-transaction-audit-30-result.md)限一轮已完成，未建立可消除机制及预算，逐文件性能归因现已暂停。原序列化继续默认，buffered仅显式复现，profile默认关闭。审计复现了link发布后、committed保存前的恢复缺口，下一项先修复此正确性问题；RDMA、线程/队列扩张和微批实现继续暂停。
+- V3 三阶段工程已收口；大文件性能门未过。[Kernel Service17](tasks/2026-11-09-v3-kernel-service-17-result.md)的无预算候选暂停仍有效。[Byte Work18](tasks/2026-11-09-v3-byte-work-18-result.md)的大帧/CRC整任务预算未证实；[Mapped Collapse19](tasks/2026-11-09-v3-mapped-collapse-19-result.md)和[Source Read20](tasks/2026-11-09-v3-source-read-20-result.md)当前候选不集成。S0完成，[S1 Summary Path22](tasks/2026-11-09-v3-summary-path-22-result.md)显式摘要缓存受测小文件过门；[S1B Gate23](tasks/2026-11-09-v3-summary-default-gate-23-result.md)资源门阻塞，默认仍original、cached显式启用。[S2C Runtime26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)完整任务慢2.50%，性能NO-GO；[S2D Budget27](tasks/2026-11-09-v3-tree-state-budget-27-result.md)清单直接同步预算不足10%，不开发增量清单候选。[S2E接收端28](tasks/2026-11-09-v3-per-file-budget-28-result.md)与[S2F发送端29](tasks/2026-11-09-v3-sender-credit-budget-29-result.md)生命周期归因完成，线程复用未过保守≥10%预算门。[S2G事务审计30](tasks/2026-11-10-v3-receiver-transaction-audit-30-result.md)限一轮已完成，未建立可消除机制及预算，逐文件性能归因现已暂停。原序列化继续默认，buffered仅显式复现，profile默认关闭。[Publication31](tasks/2026-11-10-v3-publication-reconcile-31-result.md)已修复可证明自有hard-link发布后的CRC32C恢复缺口，两端各130项相关测试通过；本轮无吞吐收益。下一项为[TCP Buffer Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32.md)的有界设计/诊断，尚未实现；RDMA、线程/队列扩张和微批实现继续暂停。
 - 最近的大文件同轮完整任务 baseline/profile 中位数为 **27.291/27.296 Gbps**（三对），仅验证采样开销，没有新大文件吞吐收益；输入 `025c38a9`，运行时未改。内容、V3 终态和资源门通过，sample02 接收接口 `rx_missed_errors` 增加 94，网络计数门未清洁。
 - 上述成绩限定为 R770-2 → R770-1、单个 8 GiB 驻留 tmpfs 源及全新 tmpfs 目标、4 路 TCP、queued 发送/inline 实验 mmap 接收、CRC32C/verified_chunks、TLS off、commit_sync=none；不是默认、物理磁盘或持久化性能。
 - [Observation Audit16](tasks/2026-11-09-v3-observation-audit-16-result.md) 的 detail-off 中位数为 27.858 Gbps，计时合同与 scope17 不同，不能跨轮计算收益。scope13 之前的约 28–29 Gbps 数据还须结合[本地 V3 executor 修复](tasks/2026-11-09-v3-receiver-critical-13-result.md)解释。
@@ -36,7 +36,7 @@
 | 大文件吞吐 | 30–50 Gbps 中期门未过；70–85 Gbps、85–90 Gbps 探索及 100 Gbps 均未验收，1 Tbps 多端口另立范围 |
 | 新候选保留 | 先有可消除机制和保守关键路径收益预算，再做固定提交、同配置的完整任务 A/B；至少五对、中位收益 ≥10%、CV ≤5%，完整性和资源无回退；局部服务率/CPU 降幅不替代此门 |
 | 网络与 RDMA 稳定性 | scope17 的接口 +94 尚未关联到具体连接；历史 RDMA CQ/flush/peer-mapping 问题仍开。内容正确不等于链路稳定 |
-| 发布恢复 | Audit30在上传/下载V3接收器复现：目标已link到自有临时inode、完整检查点仍transferring时resume被拒；尚未修复，Publication31优先处理。正常前后状态能恢复不覆盖该窗口 |
+| 发布恢复边界 | Publication31已修复默认非覆盖、CRC32C、完整检查点且目标/temp同一自有inode的link后恢复；先保存committed再成功返回，保存/清理失败可重试。两端各130项通过，CLI双向恢复及再次恢复均0重传；这是分阶段状态重建，非SIGKILL/掉电验收。overwrite/rename、无校验transferring及掉电持久化不在新增保证内 |
 | 适用范围 | 当前路径的同提交单路、反向、TLS-on、磁盘持久化、混合负载及长时间稳定性尚未完成验收 |
 | 小文件研究 | S0/S1显式路径缓存受限验收完成；S1B共享默认/大文件回归仍受资源门阻塞；S2C整任务性能NO-GO，S2D清单直接同步预算不足10%；S2E/F两端归因与S2G事务审计完成，逐文件性能归因暂停；≥20%微批墙钟预算仍未证实 |
 
@@ -44,7 +44,9 @@
 
 ## 下一项工作
 
-**下一项：[Publication31发布恢复修复](tasks/2026-11-10-v3-publication-reconcile-31.md)，属于正确性前置任务，尚未开始；逐文件性能归因已暂停，S1B默认晋级暂缓。** [Audit30](tasks/2026-11-10-v3-receiver-transaction-audit-30-result.md)核对了每文件3次成员保存的状态边界，既有数据中的ordered-record准备仅约1.1ms/万文件，不能形成≥10%整任务收益预算；不删保存、不改ACK、不新增观测循环。其V3接收器分阶段磁盘状态探针在上传/下载均复现link后、committed保存前的拒绝恢复，前后对照状态可恢复。下一轮先证明目标与自有temp的身份、CRC和完整覆盖，补齐原子committed保存及可重试清理，再返回成功；任意同内容但不同inode的输出不能视为自有发布。加入故障/冲突/真实CLI恢复验收，保留格式、同步策略和租约语义。审计还确认全新CRC32C/verified_chunks下载不在正常完成后运行verifyPublished全文回读；该核对属于异常恢复，摘要filesystem_read仍计入T_ready，独立实验SHA在计时外。不得据此假定两遍正常内容扫描。修复后另行明确下一架构问题，不能把本轮正确性工作当作性能收益。
+**下一项：[TCP Buffer Ownership32](tasks/2026-11-10-v3-tcp-buffer-ownership-32.md)，先完成发送缓冲所有权设计和主机能力检查，可行后只做一个独立零拷贝发送诊断；尚未实现，不直接接入V3运行时。** [Publication31](tasks/2026-11-10-v3-publication-reconcile-31-result.md)正确性前置任务已完成，不算吞吐收益。逐文件性能归因继续暂停，S1B默认晋级暂缓；Audit30未建立每文件3次保存的冗余机制及≥10%整任务预算，不删保存或改ACK。正常新建CRC32C/verified_chunks完成没有额外verifyPublished全文回读，不能以省去不存在的扫描设计候选。
+
+当前普通sendmsg返回后可回收vector；零拷贝诊断须有界持有header/CRC/payload直到实际完成通知，覆盖短写、取消、合并/乱序/回绕通知与复制回退。loopback只测正确性；实际复制避免和性能须走双机直连网卡并保留计数。先小探针，再至多五对1GiB诊断；局部墙钟≥15%、CV≤5%以及保守≥10%整任务预算均成立后，才另立运行时集成任务。CPU下降或理论少一遍复制均不替代该门；失败就收口，不重跑参数求过门。内存池建议每路≤4MiB、合计≤16MiB，上限64MiB，保持两端12GiB可用内存和零换出门，RDMA仍暂停。
 
 1. 真实MappedFileWindow已确认1GiB大页和fault大幅下降，但五对ordinary CV=5.124%超门，准备/写入/关闭CPU基本不变。诊断whole墙钟下降26.04%；两对归因补测显示大部分差来自close/unlink，自有实验文件销毁不代表真实传输T_ready。候选不接入V3，不重测挑CV，不再调种子/窗口。
 2. LF5当前候选已结束：1GiB/4路五对，同CRC/切分、map/PTE/CRC/close全计时；CPU下降8.205%但墙钟仅3.188%，两臂CV<2%。省一遍显式复制同时增加约1.64万minor faults，不足以支持运行时集成；不重跑调参，不把诊断服务率外推完整任务。TCP零拷贝/原生RDMA更大改动仍有独立设计门，不宣称全部大文件方向已穷尽。

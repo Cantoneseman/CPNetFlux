@@ -1,6 +1,10 @@
 # V3 Publication Reconciliation31
 
-Date:2026-11-10. Status: implementation in progress. Priority: correctness prerequisite.
+Date:2026-11-10. Status: completed within the bounded recovery contract.
+Priority: correctness prerequisite, no performance gain claimed.
+Implementation:a0ae45728cb4223aec45c9a2f970d9001d8f8c01, GitHub readback verified.
+R1/R2 build and130 related tests per node pass; three runtime binary hashes match.
+See [result and limits](2026-11-10-v3-publication-reconcile-31-result.md).
 Exact input:df239afdb542f165f972865ba443541aa28fd4c7.
 Input:Audit30 final docs commit in evidence closure.json; runtime remains
 8a781d134b551d36385c4e6c6bd3e506768d2c1f. R1 sole writer, R2 fixed-commit peer.
@@ -89,4 +93,7 @@ idempotent. Test current overwrite/range behavior and state explicit limits.
 Retain raw logs and payload hashes outside Git, clean exact owned fixtures,
 preserve production identities and unrelated dirty files. GitHub verified backup,
 two-node source/config/binary receipt and local recovery mirror complete delivery.
-Future performance direction remains a separate explicit architecture decision.
+Future performance direction is the separate bounded architecture/feasibility task
+[TCP Buffer Ownership32](2026-11-10-v3-tcp-buffer-ownership-32.md). Its handoff and
+the current route/navigation updates are documentation scope of this delivery;
+no zero-copy runtime or diagnostic is implemented in Publication31.
