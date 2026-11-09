@@ -29,7 +29,7 @@ cpnetflux::common::Result<std::uint64_t> parseUnsigned(std::string_view value,
 
 // This isolates chunk-CRC assembly. It neither reads a file nor sends DATA.
 int combineBench(std::uint64_t bytes, std::uint64_t iterations, std::uint64_t frameBytes,
-                 cpnetflux::checksum::ChecksumBackend backend) {
+                 cpnetflux::checksum::ChecksumBackend backend, std::string_view pattern) {
     using cpnetflux::checksum::ChecksumAlgorithm;
     using cpnetflux::checksum::ChecksumComputer;
     using Clock = std::chrono::steady_clock;
@@ -41,34 +41,47 @@ int combineBench(std::uint64_t bytes, std::uint64_t iterations, std::uint64_t fr
         return 2;
     }
     const auto setupStarted = Clock::now();
-    std::vector<std::uint8_t> chunk(chunkBytes);
-    for (std::size_t i = 0; i < chunk.size(); ++i) chunk[i] = i % 251U;
-    ChecksumComputer oracle(ChecksumAlgorithm::Crc32c, backend);
-    oracle.update(chunk.data(), chunk.size());
-    const auto expected = oracle.finalize();
     struct Leaf { cpnetflux::checksum::ChecksumValue crc; std::uint64_t bytes; };
-    std::vector<Leaf> leaves;
-    ChecksumComputer warmup(ChecksumAlgorithm::Crc32c, backend);
-    for (std::uint64_t offset = 0; offset < chunkBytes;) {
-        const auto count = std::min(frameBytes, chunkBytes - offset);
-        ChecksumComputer part(ChecksumAlgorithm::Crc32c, backend);
-        part.update(chunk.data() + offset, count);
-        leaves.push_back({part.finalize(), count});
-        if (!warmup.combine(leaves.back().crc, count)) return 1;
-        offset += count;
-    }
-    if (warmup.finalize().value != expected.value) {
-        std::cerr << "chunk combine warmup differs from independent CRC scan\n";
-        return 1;
+    struct Chunk { std::vector<Leaf> leaves; std::uint32_t expected; };
+    const auto chunks = bytes / chunkBytes;
+    const auto poolSize = pattern == "varied" ? std::min<std::uint64_t>(chunks, 64) : 1;
+    std::vector<Chunk> pool;
+    std::vector<std::uint8_t> chunk(chunkBytes);
+    std::uint32_t randomState = 0x9e3779b9U;
+    for (std::uint64_t n = 0; n < poolSize; ++n) {
+        for (std::size_t i = 0; i < chunk.size(); ++i) {
+            if (pattern == "varied") {
+                randomState ^= randomState << 13U;
+                randomState ^= randomState >> 17U;
+                randomState ^= randomState << 5U;
+                chunk[i] = static_cast<std::uint8_t>(randomState);
+            } else chunk[i] = i % 251U;
+        }
+        ChecksumComputer oracle(ChecksumAlgorithm::Crc32c, backend);
+        oracle.update(chunk.data(), chunk.size());
+        Chunk sample{{}, oracle.finalize().value};
+        ChecksumComputer warmup(ChecksumAlgorithm::Crc32c, backend);
+        for (std::uint64_t offset = 0; offset < chunkBytes;) {
+            const auto count = std::min(frameBytes, chunkBytes - offset);
+            ChecksumComputer part(ChecksumAlgorithm::Crc32c, backend);
+            part.update(chunk.data() + offset, count);
+            sample.leaves.push_back({part.finalize(), count});
+            if (!warmup.combine(sample.leaves.back().crc, count)) return 1;
+            offset += count;
+        }
+        if (warmup.finalize().value != sample.expected) {
+            std::cerr << "chunk combine warmup differs from independent CRC scan\n";
+            return 1;
+        }
+        pool.push_back(std::move(sample));
     }
     const double setup = std::chrono::duration<double>(Clock::now() - setupStarted).count();
-    const auto chunks = bytes / chunkBytes;
     std::uint32_t result = 0, guard = 0;
     const auto start = Clock::now();
     for (std::uint64_t i = 0; i < iterations; ++i) {
         for (std::uint64_t n = 0; n < chunks; ++n) {
             ChecksumComputer combined(ChecksumAlgorithm::Crc32c, backend);
-            for (const auto& leaf : leaves) {
+            for (const auto& leaf : pool[n % pool.size()].leaves) {
                 if (!combined.combine(leaf.crc, leaf.bytes)) return 1;
             }
             result = combined.finalize().value;
@@ -76,21 +89,24 @@ int combineBench(std::uint64_t bytes, std::uint64_t iterations, std::uint64_t fr
         }
     }
     const double elapsed = std::chrono::duration<double>(Clock::now() - start).count();
-    if (result != expected.value) { std::cerr << "chunk combine mismatch\n"; return 1; }
-    const auto calls = chunks * iterations * leaves.size();
+    const auto expected = pool[(chunks - 1) % pool.size()].expected;
+    if (result != expected) { std::cerr << "chunk combine mismatch\n"; return 1; }
+    const auto frames = pool.front().leaves.size();
+    const auto calls = chunks * iterations * frames;
     std::cout.precision(12);
     std::cout << "{\"schema\":\"cpnetflux_chunk_combine_bench_v1\","
                  "\"mode\":\"chunk_combine\",\"diagnostic_only\":true,\"file_io\":false,"
                  "\"network_io\":false,\"verified\":true,"
-                 "\"timing_scope\":\"warm CRC assembly including accumulator construction; "
-                 "leaf CRC scans/setup excluded; virtual repeated chunk, not transfer throughput\","
+                 "\"timing_scope\":\"warm chunk CRC assembly including accumulator construction; "
+                 "leaf CRC scans/setup excluded; virtual repeated CRC pool, not transfer throughput\","
               << "\"backend\":\"" << cpnetflux::checksum::checksumBackendName(backend) << "\","
+              << "\"crc_pattern\":\"" << pattern << "\",\"crc_pool_chunks\":" << pool.size() << ','
               << "\"logical_bytes_per_iteration\":" << bytes << ",\"iterations\":" << iterations
               << ",\"chunk_bytes\":" << chunkBytes << ",\"frame_bytes\":" << frameBytes
-              << ",\"frames_per_chunk\":" << leaves.size() << ",\"tail_bytes\":" << chunkBytes % frameBytes
+              << ",\"frames_per_chunk\":" << frames << ",\"tail_bytes\":" << chunkBytes % frameBytes
               << ",\"combine_calls\":" << calls << ",\"setup_seconds\":" << setup
               << ",\"elapsed_seconds\":" << elapsed << ",\"ns_per_combine\":" << elapsed * 1e9 / calls
-              << ",\"expected_crc32c\":" << expected.value << ",\"result_crc32c\":" << result
+              << ",\"expected_crc32c\":" << expected << ",\"result_crc32c\":" << result
               << ",\"guard\":" << guard << "}\n";
     return 0;
 }
@@ -98,7 +114,7 @@ int combineBench(std::uint64_t bytes, std::uint64_t iterations, std::uint64_t fr
 void usage(const char* program) {
     std::cerr << "Usage: " << program
               << " --backend <auto|software|hardware> --bytes <N> --iterations <N> "
-                 "[--buffer-size <N>] [--mode <scan|combine>] [--frame-bytes <N>]\n";
+                 "[--buffer-size <N>] [--mode <scan|combine>] [--frame-bytes <N>] [--crc-pattern <fixed|varied>]\n";
 }
 
 }  // namespace
@@ -112,6 +128,8 @@ int main(int argc, char** argv) {
     std::uint64_t frameBytes = 65532;
     std::string_view mode = "scan";
     bool frameSpecified = false;
+    std::string_view crcPattern = "fixed";
+    bool patternSpecified = false;
 
     for (int index = 1; index < argc; ++index) {
         const std::string_view option(argv[index]);
@@ -128,6 +146,10 @@ int main(int argc, char** argv) {
         if (option == "--mode") {
             if (value != "scan" && value != "combine") { std::cerr << "invalid mode\n"; return 2; }
             mode = value;
+        } else if (option == "--crc-pattern") {
+            if (value != "fixed" && value != "varied") { std::cerr << "invalid crc-pattern\n"; return 2; }
+            crcPattern = value;
+            patternSpecified = true;
         } else if (option == "--frame-bytes") {
             auto parsed = parseUnsigned(value, "--frame-bytes");
             if (!parsed.isOk()) { std::cerr << parsed.status().message() << '\n'; return 2; }
@@ -181,7 +203,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (mode == "combine") return combineBench(bytes, iterations, frameBytes, resolved.value());
+    if (mode == "combine") return combineBench(bytes, iterations, frameBytes, resolved.value(), crcPattern);
+    if (patternSpecified) { std::cerr << "crc-pattern requires combine mode\n"; return 2; }
     if (frameSpecified) { std::cerr << "frame-bytes requires combine mode\n"; return 2; }
     std::vector<std::uint8_t> buffer(static_cast<std::size_t>(bufferSize));
     for (std::size_t index = 0; index < buffer.size(); ++index) {
