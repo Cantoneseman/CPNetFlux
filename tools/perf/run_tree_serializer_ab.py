@@ -9,6 +9,47 @@ import run_small_file_baseline as base
 from run_summary_path_ab import ready
 
 
+def crc_table():
+    table = []
+    for byte in range(256):
+        value = byte
+        for _ in range(8):
+            value = (value >> 1) ^ (0x82f63b78 if value & 1 else 0)
+        table.append(value)
+    return table
+
+
+CRC_TABLE = crc_table()
+
+
+def crc32c(data):
+    value = 0xffffffff
+    for byte in data:
+        value = CRC_TABLE[(value ^ byte) & 255] ^ (value >> 8)
+    return value ^ 0xffffffff
+
+
+def checkpoint_crcs(root):
+    count = 0
+    for path in root.rglob('*.manifest'):
+        assert not path.is_symlink()
+        data = path.read_bytes()
+        body, separator, trailer = data.rpartition(b'manifest_body_crc32c=')
+        assert separator and len(trailer) == 9 and trailer.endswith(b'\n'), path
+        assert trailer == f'{crc32c(body):08x}\n'.encode(), ('checkpoint CRC mismatch', str(path))
+        count += 1
+    return count
+
+
+def run_verified(argv, log, **options):
+    resource = base.run_guarded(argv, log, **options)
+    # This independent audit runs after spawn-to-exit timing, before payload cleanup.
+    slot = Path(argv[argv.index('--dest-dir') + 1]).parent
+    resource['independent_checkpoint_body_crcs'] = checkpoint_crcs(slot)
+    assert resource['independent_checkpoint_body_crcs'] == 10001
+    return resource
+
+
 def evaluate(rows):
     assert len(rows) == 10, 'requires exactly five complete pairs'
     groups = {mode: sorted([r for r in rows if r['tree_manifest_serializer_request'] == mode],
@@ -33,6 +74,7 @@ def evaluate(rows):
             assert r['manifest_checks']['committed_member_manifests'] == 10000
             assert r['manifest_checks']['completed_tree_manifests'] == 1
             assert r['resource']['pswpout_delta'] == 0
+            assert r['resource']['independent_checkpoint_body_crcs'] == 10001
     assert len({r['summary']['tree_hash'] for r in rows}) == 1, 'tree CRC changed'
     assert len({r['actual_tree']['sha256'] for r in rows}) == 1, 'tree SHA changed'
     result = {'scope': '4KiB x10K cached summary, phase off, independent spawn-to-exit', 'arms': {}}
@@ -85,7 +127,7 @@ def main():
             for mode in modes:
                 name = f'{case}-{mode}-r{rep}'
                 row = base.client_sample(args, name, expected, '2', 'off', port,
-                                         summary_path='cached', tree_manifest_serializer=mode)
+                                         summary_path='cached', tree_manifest_serializer=mode, runner=run_verified)
                 row['rep'] = rep; rows.append(row)
                 base.save(args.evidence/'samples'/(name+'.receipt.json'), row)
                 base.save(args.evidence/'results.json', rows)

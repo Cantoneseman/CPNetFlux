@@ -3,10 +3,11 @@
 import copy
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'perf'))
-from run_tree_serializer_ab import evaluate
+from run_tree_serializer_ab import evaluate, checkpoint_crcs, crc32c
 
 
 def fixture():
@@ -16,7 +17,8 @@ def fixture():
             expected = {'files': 10000, 'bytes': 40960000, 'sha256': 'abc'}
             rows.append(dict(rep=rep, tree_manifest_serializer_request=mode, result='pass',
                 output_slot_removed=True, t_ready_seconds=time, phase_timing='off', window_request='2',
-                expected=expected, actual_tree=dict(expected), resource={'pswpout_delta': 0},
+                expected=expected, actual_tree=dict(expected), resource={
+                    'pswpout_delta': 0, 'independent_checkpoint_body_crcs': 10001},
                 manifest_checks={'committed_member_manifests': 10000, 'completed_tree_manifests': 1},
                 summary=dict(completed_files=10000, failed_files=0, changed_files=0, actual_transport='v3',
                     tree_manifest_serializer_requested=mode, tree_manifest_serializer_effective=mode,
@@ -32,6 +34,16 @@ def fixture():
 
 
 class Evaluation(unittest.TestCase):
+    def test_independent_checkpoint_crc_rejects_corruption(self):
+        self.assertEqual(crc32c(b'123456789'), 0xe3069283)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'tree.manifest'
+            body = b'manifest_version=1\nfiles=\n'
+            path.write_bytes(body + f'manifest_body_crc32c={crc32c(body):08x}\n'.encode())
+            self.assertEqual(checkpoint_crcs(Path(directory)), 1)
+            path.write_bytes(path.read_bytes().replace(b'files=', b'filEs='))
+            with self.assertRaises(AssertionError): checkpoint_crcs(Path(directory))
+
     def test_pass(self):
         result = evaluate(fixture())
         self.assertTrue(result['gate_pass'])
