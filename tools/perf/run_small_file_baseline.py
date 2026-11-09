@@ -159,7 +159,7 @@ def observe(proc, state):
                 filtered+=lines[max(0,i-1):min(len(lines),i+2)]
         if filtered:state['tcp_snapshots'].append(filtered)
 
-def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False):
+def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False, tree_manifest_serializer=None):
     state=resource_state();started=time.monotonic()
     env=environment()
     if mapped_download:
@@ -168,6 +168,9 @@ def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False
     if summary_path is not None:
         assert summary_path in ('original','cached')
         env['CPNETFLUX_SUMMARY_PATH']=summary_path
+    if tree_manifest_serializer is not None:
+        assert tree_manifest_serializer in ('original','buffered')
+        env['CPNETFLUX_TREE_MANIFEST_SERIALIZER']=tree_manifest_serializer
     with log.open('x') as f:
         proc=subprocess.Popen(argv,stdout=f,stderr=subprocess.STDOUT,env=env,start_new_session=True)
         exited=threading.Event();exit_info={}
@@ -296,7 +299,8 @@ def check_manifests(slot, count, size):
     return {'committed_member_manifests':len(member),'completed_tree_manifests':len(trees),
             'member_example':member[0].read_text()}
 
-def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None):
+def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None,
+                  tree_manifest_serializer=None):
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
     folder=args.evidence/'samples';folder.mkdir(exist_ok=True)
     summary=folder/(name+'.summary.json');log=folder/(name+'.client.log')
@@ -312,9 +316,17 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
     row={'name':name,'window_request':window,'phase_timing':timing,'expected':expected,'command':command,
          'before':snapshot(),'result':'fail'}
     try:
-        resources=(runner or run_guarded)(command,log,summary_path=summary_path,mapped_download=mapped_download)
+        run_options=dict(summary_path=summary_path,mapped_download=mapped_download)
+        if tree_manifest_serializer is not None:
+            run_options['tree_manifest_serializer']=tree_manifest_serializer
+        resources=(runner or run_guarded)(command,log,**run_options)
         row['resource']=resources;assert resources['exit_code']==0,log.read_text()[-4000:]
         value=json.loads(summary.read_text())
+        if tree_manifest_serializer is not None:
+            row['tree_manifest_serializer_request']=tree_manifest_serializer
+            assert value['tree_manifest_serializer_requested']==tree_manifest_serializer
+            assert value['tree_manifest_serializer_effective']==tree_manifest_serializer
+            assert value['tree_manifest_serializer_scope']=='all_client_tree_manifest_save_attempts'
         if summary_path is not None:
             row['summary_path_request']=summary_path
             assert value['summary_path_requested']==summary_path

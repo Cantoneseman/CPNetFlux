@@ -537,6 +537,12 @@ if(CPNETFLUX_BUILD_TESTS)
         add_test(NAME cpnetflux_summary_path_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_summary_path_smoke.py --build-dir ${CMAKE_BINARY_DIR})
         set_tests_properties(cpnetflux_summary_path_smoke PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_tree_serializer_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_serializer_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_tree_serializer_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_tree_serializer_ab_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tree_serializer_ab_test.py)
+        set_tests_properties(cpnetflux_tree_serializer_ab_test PROPERTIES TIMEOUT 20)
         add_test(NAME cpnetflux_summary_path_ab_test
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_summary_path_ab_test.py)
         set_tests_properties(cpnetflux_summary_path_ab_test PROPERTIES TIMEOUT 20)

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <string_view>
 #include <unordered_map>
 
@@ -221,6 +222,52 @@ std::string bodyWithoutChecksum(const TreeManifest& manifest) {
     return output.str();
 }
 
+template <class Integer>
+void appendDecimal(std::string& out, Integer value) {
+    char digits[21];
+    const auto converted = std::to_chars(digits, digits + sizeof(digits), value);
+    if (converted.ec != std::errc{}) throw std::runtime_error("decimal conversion failed");
+    out.append(digits, static_cast<std::size_t>(converted.ptr - digits));
+}
+
+void appendHex(std::string& out, std::string_view bytes) {
+    constexpr char digits[] = "0123456789abcdef";
+    for (unsigned char byte : bytes) {
+        out.push_back(digits[byte >> 4]);
+        out.push_back(digits[byte & 15]);
+    }
+}
+
+std::string bufferedBodyWithoutChecksum(const TreeManifest& m) {
+    const auto less = [](const auto& a, const auto& b) { return a.relativePath < b.relativePath; };
+    // Equal keys also take the legacy sort path: std::sort is not stable.
+    const bool strict = std::adjacent_find(m.files.begin(), m.files.end(),
+        [&](const auto& a, const auto& b) { return !less(a, b); }) == m.files.end();
+    std::vector<TreeFileRecord> sorted;
+    if (!strict) { sorted = m.files; std::sort(sorted.begin(), sorted.end(), less); }
+    const auto& records = strict ? m.files : sorted;
+    std::string out;
+    if (records.size() < (out.max_size() - 256) / 128) out.reserve(256 + records.size() * 128);
+    out.append("manifest_version="); appendDecimal(out, m.version); out.push_back('\n');
+    out.append("mode="); out.append(treeTransferModeName(m.mode)); out.push_back('\n');
+    out.append("root_logical_path_hex="); appendHex(out, m.rootLogicalPath); out.push_back('\n');
+    out.append("checksum_algorithm="); out.append(checksum::checksumAlgorithmName(m.checksumAlgorithm)); out.push_back('\n');
+    out.append("created_at_unix_ns="); appendDecimal(out, m.createdAtUnixNanos); out.push_back('\n');
+    out.append("updated_at_unix_ns="); appendDecimal(out, m.updatedAtUnixNanos); out.push_back('\n');
+    out.append("files=");
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        if (i) out.push_back(',');
+        const auto& r = records[i];
+        appendHex(out, r.relativePath); out.push_back(':');
+        appendDecimal(out, r.size); out.push_back(':');
+        appendDecimal(out, r.mtimeUnixSeconds); out.push_back(':');
+        out.append(r.transferId); out.push_back(':');
+        out.append(treeFileStatusName(r.status)); out.push_back(':'); appendHex(out, r.error);
+    }
+    out.push_back('\n');
+    return out;
+}
+
 }  // namespace
 
 std::string treeManifestPathForUpload(const std::string& sourceDir) {
@@ -292,7 +339,18 @@ bool isTreeTransferComplete(const TreeManifest& manifest) {
     });
 }
 
-common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest) {
+const char* treeManifestSerializerName(TreeManifestSerializer mode) noexcept {
+    return mode == TreeManifestSerializer::Buffered ? "buffered" : "original";
+}
+
+common::Result<TreeManifestSerializer> parseTreeManifestSerializer(std::string_view text) {
+    if (text == "original") return TreeManifestSerializer::Original;
+    if (text == "buffered") return TreeManifestSerializer::Buffered;
+    return common::Status::invalidArgument("CPNETFLUX_TREE_MANIFEST_SERIALIZER must be original or buffered");
+}
+
+common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest,
+                                                TreeManifestSerializer serializer) {
     if (manifest.version != kTreeManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported tree manifest version");
     }
@@ -308,7 +366,8 @@ common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest) 
             return common::Status::invalidArgument("tree file transfer_id is invalid");
         }
     }
-    std::string body = bodyWithoutChecksum(manifest);
+    std::string body = serializer == TreeManifestSerializer::Buffered
+        ? bufferedBodyWithoutChecksum(manifest) : bodyWithoutChecksum(manifest);
     const std::uint32_t crc =
         checksum::crc32c(reinterpret_cast<const std::uint8_t*>(body.data()), body.size());
     body += "manifest_body_crc32c=" + hex32(crc) + "\n";
@@ -405,8 +464,9 @@ common::Result<TreeManifest> parseTreeManifest(const std::string& text) {
 }
 
 common::Status saveTreeManifestAtomic(const std::string& path, const TreeManifest& manifest,
-                                      std::uint64_t* serializedBytes) {
-    auto serialized = serializeTreeManifest(manifest);
+                                      std::uint64_t* serializedBytes,
+                                      TreeManifestSerializer serializer) {
+    auto serialized = serializeTreeManifest(manifest, serializer);
     if (!serialized.isOk()) {
         return serialized.status();
     }

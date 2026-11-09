@@ -113,64 +113,8 @@ tree::TreeManifest fixture(const Options& o) {
     return m;
 }
 
-template <class Integer>
-void appendDecimal(std::string& out, Integer value) {
-    char digits[21];
-    const auto converted = std::to_chars(digits, digits + sizeof(digits), value);
-    if (converted.ec != std::errc{}) throw std::runtime_error("decimal conversion failed");
-    out.append(digits, static_cast<std::size_t>(converted.ptr - digits));
-}
-
-void appendHex(std::string& out, std::string_view bytes) {
-    constexpr char digits[] = "0123456789abcdef";
-    for (unsigned char byte : bytes) {
-        out.push_back(digits[byte >> 4]);out.push_back(digits[byte & 15]);
-    }
-}
-
 Result<std::string> candidate(const tree::TreeManifest& m) {
-    if (m.version != tree::kTreeManifestSchemaVersion)
-        return Status::invalidArgument("unsupported tree manifest version");
-    if (m.rootLogicalPath.empty())
-        return Status::invalidArgument("tree manifest root path must not be empty");
-    for (const auto& r : m.files) {
-        const auto valid = tree::validateTreeRelativePath(r.relativePath);
-        if (!valid.isOk()) return valid;
-        if (!cpnetflux::checkpoint::isValidTransferId(r.transferId))
-            return Status::invalidArgument("tree file transfer_id is invalid");
-    }
-    const auto less = [](const auto& a, const auto& b) {return a.relativePath < b.relativePath;};
-    // Equal keys also take the legacy sort path: std::sort is not stable.
-    const bool strict = std::adjacent_find(m.files.begin(), m.files.end(),
-        [&](const auto& a, const auto& b) {return !less(a, b);}) == m.files.end();
-    std::vector<tree::TreeFileRecord> sorted;
-    if (!strict) { sorted = m.files;std::sort(sorted.begin(), sorted.end(), less); }
-    const auto& records = strict ? m.files : sorted;
-    std::string out;
-    if (records.size() < (out.max_size() - 256) / 128) out.reserve(256 + records.size() * 128);
-    out.append("manifest_version=");appendDecimal(out, m.version);out.push_back('\n');
-    out.append("mode=");out.append(tree::treeTransferModeName(m.mode));out.push_back('\n');
-    out.append("root_logical_path_hex=");appendHex(out, m.rootLogicalPath);out.push_back('\n');
-    out.append("checksum_algorithm=");out.append(checksum::checksumAlgorithmName(m.checksumAlgorithm));out.push_back('\n');
-    out.append("created_at_unix_ns=");appendDecimal(out, m.createdAtUnixNanos);out.push_back('\n');
-    out.append("updated_at_unix_ns=");appendDecimal(out, m.updatedAtUnixNanos);out.push_back('\n');
-    out.append("files=");
-    for (std::size_t i = 0; i < records.size(); ++i) {
-        if (i) out.push_back(',');
-        const auto& r = records[i];
-        appendHex(out, r.relativePath);out.push_back(':');
-        appendDecimal(out, r.size);out.push_back(':');
-        appendDecimal(out, r.mtimeUnixSeconds);out.push_back(':');
-        out.append(r.transferId);out.push_back(':');
-        out.append(tree::treeFileStatusName(r.status));out.push_back(':');appendHex(out, r.error);
-    }
-    out.push_back('\n');
-    const auto crc = checksum::crc32c(reinterpret_cast<const std::uint8_t*>(out.data()), out.size());
-    out.append("manifest_body_crc32c=");
-    constexpr char digits[] = "0123456789abcdef";
-    for (unsigned shift = 32; shift; shift -= 4) out.push_back(digits[(crc >> (shift - 4)) & 15]);
-    out.push_back('\n');
-    return out;
+    return tree::serializeTreeManifest(m, tree::TreeManifestSerializer::Buffered);
 }
 
 Result<std::string> serialize(const tree::TreeManifest& m, const Options& o) {

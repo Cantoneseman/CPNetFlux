@@ -1,7 +1,7 @@
 # S2C Tree Serialization Runtime26
 
-Date:2026-11-09. Status: next implementation/experiment plan, not executed.
-Input: pushed Serialization25 result commit; record exact SHA at start.
+Date:2026-11-09. Status: implementation started; performance gate not executed.
+Input: pushed/read-back commit 0d01a933ddd6e43db10fa4713ce330dc99cad68d.
 
 ## Scope And Hypothesis
 
@@ -11,11 +11,13 @@ small-file T_ready. S1B default promotion remains held; no RDMA, queue/thread po
 coalescing frequency/schema/protocol/member batching or system policy changes.
 R1 sole writer; R2 fixed-commit build/test/source peer, no agents/worktrees.
 
-Inspect runtime ownership first and record exact files. Expected modules:
-include/cpnetflux/core/tree/tree_manifest.h, src/core/tree/tree_manifest.cpp,
-tree_manifest_writer integration/caller in tree_transfer_client.cpp, relevant
-unit/CLI tests, diagnostic target (remove duplicate candidate after core reuse),
-bounded A/B driver and task/result/route docs. Extend the current module APIs
+Affected implementation files: include/cpnetflux/core/tree/tree_manifest.h,
+src/core/tree/tree_manifest.cpp, src/core/io/tree_transfer_client.cpp,
+tools/perf/tree_manifest_serialization_bench.cpp,
+tools/perf/run_small_file_baseline.py, tools/perf/run_tree_serializer_ab.py,
+tools/test/run_cpnetflux_tree_serializer_smoke.py,
+tools/test/run_tree_serializer_ab_test.py, CMakeLists.txt. Task/result and current
+route documents will record acceptance and handoff. Extend the current module APIs
 conservatively; original default must remain byte-for-byte supported. Reuse the
 independent Python oracle, complete225-snapshot proof and legacy comparator.
 
@@ -51,3 +53,24 @@ correctness/recovery and separate matched large-file regression under unchanged
 resource gates. If fail, leave original default and do not retry/chase CV or tune
 snapshot frequency. Keep module byte/CPU evidence distinct from throughput claims.
 Microbatch/adaptive require their separate>=20% wall and recovery gates.
+
+## Implementation Checkpoint
+
+R1 implementation freezes the selector once at each tree client entry before
+connection, threads it through initial/preflight/reconnect/background/final saves,
+and reports requested/effective mode and all-client-save-attempt scope. Shared
+programmatic APIs default to Original and never read environment variables.
+Buffered builds a reserved string with to_chars/hex appends; strictly sorted
+records borrow the snapshot, otherwise the legacy full-copy/std::sort path is
+retained, including duplicate keys. Atomic write/rename and CRC remain shared.
+The diagnostic candidate now calls this exact core implementation.
+
+New CLI test first failed against input build as expected (missing selector JSON).
+R1 build then passed new selector/oracle/A-B CTests3/3, related tests28/28,
+buffered resume/coalesce/corrupt tests4/4, buffered conflict/changed/S0-driver3/3.
+Coalesce test includes four SIGKILL/resume points, failed atomic save and completed
+output corruption. Both-direction cross-serializer resume is covered by10 tiny
+transfers plus two pre-connection invalid selectors. Sorted/reversed full-series
+byte/parsed-field/input-immutability proof passed450/450 snapshots.
+Evidence: /home/Su/experiments/CPNetFlux/2026-11-09-v3-tree-serialization-runtime-26.
+Full-task performance has not been run at this checkpoint; default is original.

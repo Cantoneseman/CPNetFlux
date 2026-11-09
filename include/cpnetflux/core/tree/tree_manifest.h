@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "cpnetflux/checksum/checksum.h"
@@ -10,6 +11,10 @@
 namespace cpnetflux::core::tree {
 
 inline constexpr std::uint32_t kTreeManifestSchemaVersion = 1;
+
+enum class TreeManifestSerializer { Original, Buffered };
+[[nodiscard]] const char* treeManifestSerializerName(TreeManifestSerializer mode) noexcept;
+[[nodiscard]] common::Result<TreeManifestSerializer> parseTreeManifestSerializer(std::string_view text);
 
 enum class TreeTransferMode {
     Upload,
@@ -51,11 +56,13 @@ struct TreeManifest {
 [[nodiscard]] common::Result<TreeFileStatus> parseTreeFileStatus(const std::string& text);
 [[nodiscard]] bool isTreeTransferComplete(const TreeManifest& manifest);
 
-[[nodiscard]] common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest);
+[[nodiscard]] common::Result<std::string> serializeTreeManifest(
+    const TreeManifest& manifest, TreeManifestSerializer serializer = TreeManifestSerializer::Original);
 [[nodiscard]] common::Result<TreeManifest> parseTreeManifest(const std::string& text);
 [[nodiscard]] common::Status saveTreeManifestAtomic(const std::string& path,
                                                     const TreeManifest& manifest,
-                                                    std::uint64_t* serializedBytes = nullptr);
+                                                    std::uint64_t* serializedBytes = nullptr,
+                                                    TreeManifestSerializer serializer = TreeManifestSerializer::Original);
 [[nodiscard]] common::Result<TreeManifest> loadTreeManifest(const std::string& path);
 
 }  // namespace cpnetflux::core::tree

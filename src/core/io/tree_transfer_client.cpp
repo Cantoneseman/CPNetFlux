@@ -745,9 +745,10 @@ std::string joinRemotePath(const std::string& root, const std::string& relative)
 }
 
 
-common::Status saveManifest(core::tree::TreeManifest* manifest, const std::string& path) {
+common::Status saveManifest(core::tree::TreeManifest* manifest, const std::string& path,
+                            core::tree::TreeManifestSerializer serializer) {
     manifest->updatedAtUnixNanos = checkpoint::nowUnixNanos();
-    return core::tree::saveTreeManifestAtomic(path, *manifest);
+    return core::tree::saveTreeManifestAtomic(path, *manifest, nullptr, serializer);
 }
 
 common::Status ensureControlReady(ControlClient* client,
@@ -973,6 +974,7 @@ void addRdmaTransportStats(RdmaTransportStats* target,
 
 struct TreeRunStats {
     core::tree::TreeHashPathMode summaryPathMode = core::tree::TreeHashPathMode::Original;
+    core::tree::TreeManifestSerializer treeManifestSerializer = core::tree::TreeManifestSerializer::Original;
     std::atomic<std::uint64_t> completedThisRun{0};
     std::atomic<std::uint64_t> skippedFiles{0};
     std::atomic<std::uint64_t> transferredBytes{0};
@@ -1160,6 +1162,11 @@ ChangedErrorDetails parseChangedError(const std::string& message) {
 common::Result<core::tree::TreeHashPathMode> summaryPathModeFromEnvironment() {
     const auto* setting = std::getenv("CPNETFLUX_SUMMARY_PATH");
     return core::tree::parseTreeHashPathMode(setting ? setting : "original");
+}
+
+common::Result<core::tree::TreeManifestSerializer> treeManifestSerializerFromEnvironment() {
+    const auto* setting = std::getenv("CPNETFLUX_TREE_MANIFEST_SERIALIZER");
+    return core::tree::parseTreeManifestSerializer(setting ? setting : "original");
 }
 
 common::Result<std::string> computeTreeVerificationHashFromChunks(
@@ -1384,6 +1391,11 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"tree_manifest_state_lock_wait_seconds\": "
            << stats.treeManifestCallbackLockWaitSeconds + stats.treeManifestWrites.stateLockWaitSeconds << ",\n";
     output << "  \"tree_manifest_metrics_scope\": \"persistent_callbacks_and_final_sum_attempts_excludes_preflight\",\n";
+    output << "  \"tree_manifest_serializer_requested\": \""
+           << core::tree::treeManifestSerializerName(stats.treeManifestSerializer) << "\",\n";
+    output << "  \"tree_manifest_serializer_effective\": \""
+           << core::tree::treeManifestSerializerName(stats.treeManifestSerializer) << "\",\n";
+    output << "  \"tree_manifest_serializer_scope\": \"all_client_tree_manifest_save_attempts\",\n";
 
     output << "  \"completed_files\": " << summary.completedFiles << ",\n";
     output << "  \"skipped_files\": " << stats.skippedFiles.load() << ",\n";
@@ -1750,10 +1762,11 @@ common::Status ensureControlReadyWithStats(ControlClient* client,
 
 common::Status markManifestChanged(core::tree::TreeManifest* manifest,
                                    const std::string& manifestPath, std::size_t index,
-                                   const std::string& message) {
+                                   const std::string& message,
+                                   core::tree::TreeManifestSerializer serializer) {
     manifest->files[index].status = core::tree::TreeFileStatus::Changed;
     manifest->files[index].error = message;
-    const common::Status saveStatus = saveManifest(manifest, manifestPath);
+    const common::Status saveStatus = saveManifest(manifest, manifestPath, serializer);
     if (!saveStatus.isOk()) {
         return saveStatus;
     }
@@ -1762,7 +1775,8 @@ common::Status markManifestChanged(core::tree::TreeManifest* manifest,
 
 common::Status preflightUploadResume(const config::TreeTransferOptions& options,
                                      core::tree::TreeManifest* manifest,
-                                     const std::string& manifestPath) {
+                                     const std::string& manifestPath,
+                                     core::tree::TreeManifestSerializer serializer) {
     if (!options.resume) {
         return common::Status::ok();
     }
@@ -1781,11 +1795,11 @@ common::Status preflightUploadResume(const config::TreeTransferOptions& options,
         if (found == current.end()) {
             const std::string message =
                 changedMissingMessage("source file changed", record, "missing from source tree");
-            return markManifestChanged(manifest, manifestPath, index, message);
+            return markManifestChanged(manifest, manifestPath, index, message, serializer);
         }
         if (!metadataMatches(record, found->second)) {
             const std::string message = changedMessage("source file changed", record, found->second);
-            return markManifestChanged(manifest, manifestPath, index, message);
+            return markManifestChanged(manifest, manifestPath, index, message, serializer);
         }
     }
     for (const auto& [relativePath, metadata] : current) {
@@ -1826,19 +1840,19 @@ common::Status preflightDownloadResume(const config::TreeTransferOptions& option
             if (remoteSize.status().code() == common::StatusCode::TransportError) return remoteSize.status();
             const std::string message =
                 changedMissingMessage("remote file changed", record, remoteSize.status().message());
-            return markManifestChanged(manifest, manifestPath, index, message);
+            return markManifestChanged(manifest, manifestPath, index, message, stats->treeManifestSerializer);
         }
         auto remoteMtime = control->mdtm(remotePath);
         if (!remoteMtime.isOk()) {
             if (remoteMtime.status().code() == common::StatusCode::TransportError) return remoteMtime.status();
             const std::string message =
                 changedMissingMessage("remote file changed", record, remoteMtime.status().message());
-            return markManifestChanged(manifest, manifestPath, index, message);
+            return markManifestChanged(manifest, manifestPath, index, message, stats->treeManifestSerializer);
         }
         const FileMetadata remoteMetadata{remoteSize.value(), remoteMtime.value()};
         if (!metadataMatches(record, remoteMetadata)) {
             const std::string message = changedMessage("remote file changed", record, remoteMetadata);
-            return markManifestChanged(manifest, manifestPath, index, message);
+            return markManifestChanged(manifest, manifestPath, index, message, stats->treeManifestSerializer);
         }
         if (record.status == core::tree::TreeFileStatus::Completed) {
             const std::filesystem::path localPath =
@@ -1847,12 +1861,12 @@ common::Status preflightDownloadResume(const config::TreeTransferOptions& option
             if (!localMetadata.isOk()) {
                 const std::string message = changedMissingMessage(
                     "completed download file changed", record, localMetadata.status().message());
-                return markManifestChanged(manifest, manifestPath, index, message);
+                return markManifestChanged(manifest, manifestPath, index, message, stats->treeManifestSerializer);
             }
             if (!metadataMatches(record, localMetadata.value())) {
                 const std::string message =
                     changedMessage("completed download file changed", record, localMetadata.value());
-                return markManifestChanged(manifest, manifestPath, index, message);
+                return markManifestChanged(manifest, manifestPath, index, message, stats->treeManifestSerializer);
             }
         }
     }
@@ -2255,7 +2269,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         manifest->rootLogicalPath = options.sourceDir;
         manifest->checksumAlgorithm = options.checksumAlgorithm;
         manifest->createdAtUnixNanos = checkpoint::nowUnixNanos();
-        auto saved = saveManifest(manifest, manifestPath);
+        auto saved = saveManifest(manifest, manifestPath, stats->treeManifestSerializer);
         if (!saved.isOk()) return saved;
     }
     for (const auto& file : files) {
@@ -2343,7 +2357,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     std::mutex manifestMutex;
     core::tree::TreeManifestWriter manifestWriter(*manifest, manifestMutex,
         [&](const auto& snapshot, std::uint64_t* bytes) {
-            return core::tree::saveTreeManifestAtomic(manifestPath, snapshot, bytes);
+            return core::tree::saveTreeManifestAtomic(manifestPath, snapshot, bytes, stats->treeManifestSerializer);
         }, options.treeManifestEventThreshold,
         std::chrono::milliseconds(options.treeManifestMaxDelayMs));
     std::unordered_map<std::uint32_t, std::size_t> downloadRecords;
@@ -2883,7 +2897,7 @@ common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOption
             }
             attemptOptions.resume = true;
             if (status.isOk()) status = upload
-                ? preflightUploadResume(attemptOptions, manifest, manifestPath)
+                ? preflightUploadResume(attemptOptions, manifest, manifestPath, stats->treeManifestSerializer)
                 : preflightDownloadResume(attemptOptions, manifest, manifestPath, stats, &reconciliation);
             if (status.isOk() && upload) {
                 // Replay every identity, including uncertain FILE_RESULT. The receiver
@@ -2892,7 +2906,7 @@ common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOption
                     file.status = core::tree::TreeFileStatus::Pending;
                     file.error.clear();
                 }
-                status = saveManifest(manifest, manifestPath);
+                status = saveManifest(manifest, manifestPath, stats->treeManifestSerializer);
             }
         }
         if (status.isOk())
@@ -2931,6 +2945,8 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
     const auto startedAt = std::chrono::steady_clock::now();
     const auto summaryPath = summaryPathModeFromEnvironment();
     if (!summaryPath.isOk()) return summaryPath.status();
+    const auto serializer = treeManifestSerializerFromEnvironment();
+    if (!serializer.isOk()) return serializer.status();
     auto options = inputOptions;
     if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     if (options.transferTimeoutMs != 0)
@@ -2967,7 +2983,7 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
                 file.relativePath, file.size, file.mtimeUnixSeconds, generateTransferId(),
                 core::tree::TreeFileStatus::Pending, ""});
         }
-        const common::Status saveStatus = saveManifest(&manifest, manifestPath);
+        const common::Status saveStatus = saveManifest(&manifest, manifestPath, serializer.value());
         if (!saveStatus.isOk()) {
             return saveStatus;
         }
@@ -2975,9 +2991,10 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
 
     TreeRunStats persistentStats;
     persistentStats.summaryPathMode = summaryPath.value();
+    persistentStats.treeManifestSerializer = serializer.value();
     persistentStats.scanSeconds = scanSeconds;
     if (options.resume) {
-        const auto preflight = preflightUploadResume(options, &manifest, manifestPath);
+        const auto preflight = preflightUploadResume(options, &manifest, manifestPath, persistentStats.treeManifestSerializer);
         if (!preflight.isOk())
             return emitTreeSummary("tree_upload_complete", "upload", preflight, options,
                                    manifest, persistentStats, startedAt);
@@ -3025,6 +3042,8 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
     const auto startedAt = std::chrono::steady_clock::now();
     const auto summaryPath = summaryPathModeFromEnvironment();
     if (!summaryPath.isOk()) return summaryPath.status();
+    const auto serializer = treeManifestSerializerFromEnvironment();
+    if (!serializer.isOk()) return serializer.status();
     auto options = inputOptions;
     if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     if (options.transferTimeoutMs != 0)
@@ -3033,6 +3052,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
     core::tree::TreeManifest manifest;
     TreeRunStats stats;
     stats.summaryPathMode = summaryPath.value();
+    stats.treeManifestSerializer = serializer.value();
     ControlClient control;
     config::TreeTransferOptions controlOptions = options;
     if (options.resume && persistentEligible(options)) controlOptions.connections = 1;
