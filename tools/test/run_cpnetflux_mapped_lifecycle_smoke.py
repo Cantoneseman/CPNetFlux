@@ -26,7 +26,8 @@ with tempfile.TemporaryDirectory(prefix='cpnetflux-collapse-smoke-',dir='/dev/sh
         assert row['mapping_observations']==workers,row
         assert row['preserved_windows_verified']==(workers if initial=='pattern' else 0),row
         assert row['whole_diagnostic_wall_seconds']>0 and row['whole_process_cpu_seconds']>0,row
-        for work in ('worker_work','copy_work'):
+        assert row['cleanup_wall_seconds']>0 and row['cleanup_process_cpu_seconds']>=0,row
+        for work in ('worker_work','copy_work','output_verification_work'):
             assert row[work]['worker_wall_seconds_sum']>0,row
             assert row[work]['worker_cpu_seconds_sum']>=0 and row[work]['major_faults']==0,row
         if mode=='collapse':

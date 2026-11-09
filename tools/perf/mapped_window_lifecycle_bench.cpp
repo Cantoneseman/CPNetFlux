@@ -107,7 +107,7 @@ std::uint64_t observedPmdBytes(std::span<std::uint8_t> span) {
     throw std::runtime_error("smaps ShmemPmdMapped missing");
 }
 struct Row {
-    Work work,prep,copy;
+    Work work,prep,copy,verify;
     std::uint64_t maps=0,unmaps=0,peak=0,calls=0,written=0,eligible=0,edges=0,seeds=0;
     std::uint64_t observed=0,observations=0,preparedChecks=0;
     std::string error;
@@ -180,7 +180,9 @@ int runMappedLifecycleBench(const std::string& directory,std::uint64_t bytes,uns
                     row.copy.add(copyUsage,usage(RUSAGE_THREAD),copyStarted);
                     require(writer.close().isOk(),"close mapping");
                     row.work.add(workUsage,usage(RUSAGE_THREAD),workStarted);
+                    const auto verifyUsage=usage(RUSAGE_THREAD);const auto verifyStarted=Clock::now();
                     checkContent(file.fd,offset,window,outputValue(offset),actual);
+                    row.verify.add(verifyUsage,usage(RUSAGE_THREAD),verifyStarted);
                 }
                 const auto& stats=writer.stats();row.maps=stats.mapCalls;row.unmaps=stats.unmapCalls;
                 row.peak=stats.peakMappedBytes;row.calls=stats.writeCalls;row.written=stats.writtenBytes;
@@ -193,13 +195,16 @@ int runMappedLifecycleBench(const std::string& directory,std::uint64_t bytes,uns
     Row total;
     for(const auto& row:rows) {
         require(row.error.empty(),row.error);
-        total.work.merge(row.work);total.prep.merge(row.prep);total.copy.merge(row.copy);
+        total.work.merge(row.work);total.prep.merge(row.prep);total.copy.merge(row.copy);total.verify.merge(row.verify);
 #define SUM(f) total.f+=row.f
         SUM(maps);SUM(unmaps);SUM(peak);SUM(calls);SUM(written);SUM(eligible);SUM(edges);SUM(seeds);
         SUM(observed);SUM(observations);SUM(preparedChecks);
 #undef SUM
     }
+    const auto cleanupUsage=usage(RUSAGE_SELF);const auto cleanupStarted=Clock::now();
     file.closeAndRemove();
+    const auto cleanupAfter=usage(RUSAGE_SELF);
+    const auto cleanupSeconds=std::chrono::duration<double>(Clock::now()-cleanupStarted).count();
     const auto after=usage(RUSAGE_SELF);
     const auto elapsed=std::chrono::duration<double>(Clock::now()-started).count();
     std::cout.precision(12);
@@ -220,7 +225,10 @@ int runMappedLifecycleBench(const std::string& directory,std::uint64_t bytes,uns
       <<",\"whole_process_major_faults\":"<<after.ru_majflt-before.ru_majflt
       <<",\"payload_removed\":true,\"output_verified_bytes\":"<<bytes<<",\"worker_work\":";
     total.work.json();std::cout<<",\"prepare_work\":";total.prep.json();
-    std::cout<<",\"copy_work\":";total.copy.json();std::cout<<"}\n";
+    std::cout<<",\"copy_work\":";total.copy.json();
+    std::cout<<",\"output_verification_work\":";total.verify.json();
+    std::cout<<",\"cleanup_wall_seconds\":"<<cleanupSeconds
+        <<",\"cleanup_process_cpu_seconds\":"<<cpu(cleanupAfter)-cpu(cleanupUsage)<<"}\n";
     return 0;
 }
 }

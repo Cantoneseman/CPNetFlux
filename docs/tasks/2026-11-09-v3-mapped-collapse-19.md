@@ -73,3 +73,12 @@ tools/test/run_cpnetflux_mapped_lifecycle_smoke.py；tests/unit/mapped_file_wind
 显式require-collapse smoke通过：6个成功场景（fresh、pattern、1/4 workers）和11个负例，
 包括真实PMD、覆盖后独立逐字节检查及取消清理。诊断观测修正前失败日志保留。
 未向V3 runtime开放对齐/大页选项；没有跨机payload。下一步固定提交本机五对测量。
+
+## 五对后有界归因补测（不重开收益门）
+
+64ee2af五对中whole墙钟下降26.04%，但ordinary CV=5.124%超5%，且worker CPU
+0.643919→0.650689s/GiB、worker墙钟和0.655129→0.659553s/GiB基本不变。
+因此门未过，不接入V3。不重跑挑选较好CV。
+在同一工具增加输出校验及close/unlink独立CPU/墙钟计数，默认输出不改变执行顺序；
+相关smoke核验新字段，提交固定代码后仅做两对归因补测。保留原五对，不合并成新收益样本。
+目标是确认whole收益是否主要来自校验/销毁目标，而非接收关键路径；不扩大payload/并发。
