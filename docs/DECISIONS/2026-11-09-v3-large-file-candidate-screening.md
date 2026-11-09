@@ -21,7 +21,7 @@ scope17结果和旧候选关闭记录保留，不改写历史通过/失败结论
 2. 次选CRC拼接算子：已经缓存幂矩阵，剩余研究是固定长度的等价变换；只有有足够
    关键路径预算才进入，不能因为原语有收益就放宽完整任务>=10%门。
 3. 旧population、direct-receive、sender-inline保持关闭；不扩大线程/队列，不改RDMA。
-   per-file大页/页布局及系统调优尚无可实施依据，不排为当前实现任务。
+   初版尚无per-file大页依据；Byte Work18已出现per-mapping collapse可行性，转入真实窗口诊断。系统调优不在范围。
 4. 两个逐帧机制完成/关闭/跳过后，进入页面管理、搬运路径的独立可行性/候选门，再进入小文件固定开销基线。原计划的小文件研究保留，
    tuned native必须包括已有pending-window auto，不重复包装历史窗口收益。
 
@@ -49,3 +49,10 @@ wire/logical上限、控制帧限制、不支持peer拒绝和预算；不得仅�
 两者各自有新机制/预算门；旧两机制上限不再解释为取消这些结构性方向。
 不改共享THP、mount、网络，不重开旧population/direct-receive/sender-inline。
 完整任务保留门不降；原生RDMA继续暂停，小文件保持独立目标。
+
+## Byte Work18执行结果后的顺序
+
+局部诊断已完成，A/B尚未证明完整任务收益预算，暂缓运行时开发而非宣告失败。
+R1自有16MiB映射已实际得到大页且fault减少，下一项LF4真实MappedFileWindow诊断。
+单样本probe不改变完整任务门或默认策略；保护已有内容、租约、恢复并计入全部生命周期成本。
+结果及SHA见[Byte Work18结果](../tasks/2026-11-09-v3-byte-work-18-result.md)。

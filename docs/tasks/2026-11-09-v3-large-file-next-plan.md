@@ -1,7 +1,7 @@
 # CPNetFlux 大文件后续开发计划
 
 日期：2026-11-09。输入提交 `7dbaa06fcc8d70dd5e1f9cdfc9df9e5dca727ea1`。
-状态：开发安排，尚未执行筛选或实现新运行时候选，不是性能结果或协议实现批准记录。
+状态：路线合并后Byte Work18诊断已完成，下一项LF4真实窗口诊断；大帧/CRC运行时预算未证实。历史计划不作为性能结果。
 依据：[当前路线](../ROADMAP.md)、[scope17结果](2026-11-09-v3-kernel-service-17-result.md)、
 [本轮路线决定](../DECISIONS/2026-11-09-v3-large-file-candidate-screening.md)。
 
@@ -49,8 +49,9 @@ scope17的实验事实、未过门和旧候选关闭结论保留。
 5. `src/core/io/transfer_stages.cpp`的所有权预算目前用65536计算。改变帧上限必须同时
    修正预算和每个实际持有者，禁止只放大协议常量、隐式增加所有连接内存。
 6. 大帧不消除首次触页、TCP复制或文件发布成本；CRC优化也不消除这些成本。
-   每项仍需证明关键路径收益。per-file大页/页布局是低优先级研究项，当前THP策略及
-   软件边界未证明可行，不能预先列为可实施方案。全局THP、mount、NUMA和网络改动不进入本计划。
+   每项仍需证明关键路径收益。初版尚未验证per-file页布局；Byte Work18已在R1证明
+   per-mapping MADV_COLLAPSE的16MiB可行性，下一步验证真实窗口和完整生命周期。
+   全局THP、mount、NUMA和网络改动不进入本计划。
 7. [Memory Attribution04](2026-11-08-v3-memory-attribution-04.md)在旧提交、重复热payload、
    无文件/租约/manifest的诊断中，64KiB V3帧/session加CRC观察到88.514Gbps中位数；
    CV 6.281%未过稳定性门。它反驳“64KiB帧天然只能跑27Gbps”，不是文件吞吐或稳定成绩。
@@ -209,7 +210,8 @@ open、成员校验、manifest/checkpoint、commit/发布成本。只有固定�
 - 每轮只交付一个机制的实现/结果；明确源码SHA、同轮baseline/candidate、收益及未过门，
   指定文件提交、推送已核实GitHub remote并回读SHA。无收益的原型不默认集成。
 
-第一项可启动工作为LF0及候选A的设计准备，不是立即把64KiB常量改大。
+Byte Work18完成LF0局部诊断及页面探针，见[结果](2026-11-09-v3-byte-work-18-result.md)。
+下一项是LF4实际有界窗口诊断；A/B保留为预算未证实的暂缓项，不直接放大64KiB常量。
 当前没有证据承诺30/50/70–85Gbps；若新同轮baseline仍27.3Gbps，+10%门约为30Gbps，
 只作为条件计算。100Gbps有效应用吞吐、1Tbps聚合和生产readiness继续不作承诺。
 
