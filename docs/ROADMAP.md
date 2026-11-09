@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- V3 三阶段工程已收口；大文件性能门未过。[Kernel Service17](tasks/2026-11-09-v3-kernel-service-17-result.md)的无预算候选暂停仍有效。[Byte Work18](tasks/2026-11-09-v3-byte-work-18-result.md)的大帧/CRC整任务预算未证实；[Mapped Collapse19](tasks/2026-11-09-v3-mapped-collapse-19-result.md)和[Source Read20](tasks/2026-11-09-v3-source-read-20-result.md)当前候选不集成。S0完成，[S1 Summary Path22](tasks/2026-11-09-v3-summary-path-22-result.md)显式摘要缓存受测小文件过门；[S1B Gate23](tasks/2026-11-09-v3-summary-default-gate-23-result.md)资源门阻塞，默认仍original、cached显式启用。[S2归因24](tasks/2026-11-09-v3-small-file-fixed-work-24-result.md)、[S2B局部序列化25](tasks/2026-11-09-v3-tree-serialization-25-result.md)之后，[S2C Runtime26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)完整任务慢2.50%，性能NO-GO。[S2D Budget27](tasks/2026-11-09-v3-tree-state-budget-27-result.md)进一步测得清单直接同步预算仅3.35%–3.57%，不开发增量清单或复制/销毁候选。原序列化继续默认；buffered仅显式复现，profile默认关闭。下一项是其他逐文件固定成本预算。RDMA、线程/队列扩张和微批实现继续暂停。
+- V3 三阶段工程已收口；大文件性能门未过。[Kernel Service17](tasks/2026-11-09-v3-kernel-service-17-result.md)的无预算候选暂停仍有效。[Byte Work18](tasks/2026-11-09-v3-byte-work-18-result.md)的大帧/CRC整任务预算未证实；[Mapped Collapse19](tasks/2026-11-09-v3-mapped-collapse-19-result.md)和[Source Read20](tasks/2026-11-09-v3-source-read-20-result.md)当前候选不集成。S0完成，[S1 Summary Path22](tasks/2026-11-09-v3-summary-path-22-result.md)显式摘要缓存受测小文件过门；[S1B Gate23](tasks/2026-11-09-v3-summary-default-gate-23-result.md)资源门阻塞，默认仍original、cached显式启用。[S2C Runtime26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)完整任务慢2.50%，性能NO-GO；[S2D Budget27](tasks/2026-11-09-v3-tree-state-budget-27-result.md)清单直接同步预算仅3.35%–3.57%，不开发增量清单候选。[S2E Budget28](tasks/2026-11-09-v3-per-file-budget-28-result.md)接收端线程管理跨通道去重覆盖19.15%–19.56%，但最大单通道累计仅占6.46%–6.79%，且仍含必要清理；尚无保守≥10%整任务收益预算。原序列化继续默认；buffered仅显式复现，profile默认关闭。下一项S2F补齐发送端producer与FILE_RESULT窗口依赖。RDMA、线程/队列扩张和微批实现继续暂停。
 - 最近的大文件同轮完整任务 baseline/profile 中位数为 **27.291/27.296 Gbps**（三对），仅验证采样开销，没有新大文件吞吐收益；输入 `025c38a9`，运行时未改。内容、V3 终态和资源门通过，sample02 接收接口 `rx_missed_errors` 增加 94，网络计数门未清洁。
 - 上述成绩限定为 R770-2 → R770-1、单个 8 GiB 驻留 tmpfs 源及全新 tmpfs 目标、4 路 TCP、queued 发送/inline 实验 mmap 接收、CRC32C/verified_chunks、TLS off、commit_sync=none；不是默认、物理磁盘或持久化性能。
 - [Observation Audit16](tasks/2026-11-09-v3-observation-audit-16-result.md) 的 detail-off 中位数为 27.858 Gbps，计时合同与 scope17 不同，不能跨轮计算收益。scope13 之前的约 28–29 Gbps 数据还须结合[本地 V3 executor 修复](tasks/2026-11-09-v3-receiver-critical-13-result.md)解释。
@@ -23,6 +23,7 @@
 | S1小文件实验摘要 | 任务级 `CPNETFLUX_SUMMARY_PATH=cached`；默认仍original；保留原有内容读取与CRC | 仅改变filesystem_read摘要路径；verified_chunks复用时effective=not_used。三组受测小文件过门；S1B源准备出现主机换出，默认晋级与大文件回归暂缓 |
 | S2C序列化复现 | 默认 `CPNETFLUX_TREE_MANIFEST_SERIALIZER=original`；buffered仅显式复现 | 4KiB×10K完整任务未过门，不推荐用于提速；逐字节格式、CRC、恢复与保存策略不变 |
 | S2D清单归因 | 默认 `CPNETFLUX_TREE_MANIFEST_PROFILE=0`；1仅任务级诊断 | 单独输出复制/销毁、排序/编码、写入/发布与去重等待；这些嵌套/重叠区间不能相加为收益 |
+| S2E成员归因 | 默认 `CPNETFLUX_MEMBER_WORK_PROFILE=0`；1仅任务级诊断 | 本地成功whole-file接收的线程/事务/result写入汇总；上传明确not_used_sender，范围/失败/截断不得外推整任务 |
 
 实验必须保留 CRC、V3 WorkExecutor/租约、checkpoint、恢复和原子发布。TCP 明确绑定 `192.168.100.2/.1`，保留路由/接口证据；经 RDMA 网卡的 TCP 不称为 verbs。
 单次源和输出各 ≤8 GiB，MemAvailable ≥12 GiB、owned swap 和主机 swap-out 增量为零；校验后清理自有 payload。服务器、构建与同步规程见[环境](coordination/ENVIRONMENT.md)。
@@ -35,16 +36,16 @@
 | 新候选保留 | 先有可消除机制和保守关键路径收益预算，再做固定提交、同配置的完整任务 A/B；至少五对、中位收益 ≥10%、CV ≤5%，完整性和资源无回退；局部服务率/CPU 降幅不替代此门 |
 | 网络与 RDMA 稳定性 | scope17 的接口 +94 尚未关联到具体连接；历史 RDMA CQ/flush/peer-mapping 问题仍开。内容正确不等于链路稳定 |
 | 适用范围 | 当前路径的同提交单路、反向、TLS-on、磁盘持久化、混合负载及长时间稳定性尚未完成验收 |
-| 小文件研究 | S0/S1显式路径缓存受限验收完成；S1B共享默认/大文件回归仍受资源门阻塞；S2C整任务性能NO-GO，S2D清单直接同步预算不足10%；下一项S2E逐文件预算，≥20%微批墙钟预算仍未证实 |
+| 小文件研究 | S0/S1显式路径缓存受限验收完成；S1B共享默认/大文件回归仍受资源门阻塞；S2C整任务性能NO-GO，S2D清单直接同步预算不足10%；S2E接收端归因完成、线程复用未过预算门；下一项S2F发送端依赖，≥20%微批墙钟预算仍未证实 |
 
 已关闭的 sender-inline、population、direct-receive 候选不重开；结果保留在[对应记录](README.md)。研究历史不能外推为生产 readiness，见[研究边界](RESEARCH_BASELINE.md)。
 
 ## 下一项工作
 
-**下一项：[S2E逐文件固定成本预算28](tasks/2026-11-09-v3-per-file-budget-28.md)；清单候选关闭，S1B默认晋级暂缓。** [Budget27](tasks/2026-11-09-v3-tree-state-budget-27-result.md)三对归因中位观测开销1.99%，CV均<1.4%；后台保存累计约0.416秒，但去重后的快照占锁重叠等待，加全部最终整理/屏障，仅占T_ready的3.35%–3.57%。即使计入所有回调等待也只有4.49%–4.74%。它不是包含间接CPU/cache竞争的通用加速上界，但不足以支持≥10%的保守关键路径预算；本阶段不开发增量格式、不另开复制/销毁微调矩阵、不调阈值/延迟。下轮改查逐文件执行上下文建立/回收、成员checkpoint/原子发布、FILE_RESULT依赖；不用scope24受perf继承污染的clone占比证明线程池价值，先取得低干扰的直接预算，再选择单一候选。
+**下一项：[S2F发送端producer与结果窗口预算29](tasks/2026-11-09-v3-sender-credit-budget-29.md)；线程复用尚未通过预算门，清单候选关闭，S1B默认晋级暂缓。** [Budget28](tasks/2026-11-09-v3-per-file-budget-28-result.md)三对归因中位观测开销0.097%、CV均<1.2%，完成4KiB×10K接收成本拆解。线程构造与循环结束后的join尾部去重覆盖约19%，但每通道累计仅72–81ms，尾部仍含必要缓冲清理；不能把union当预期收益，也不能把单通道数当通用加速上界。事务建立/提交覆盖约22%/24%，成员checkpoint每万文件保存3万次，均含必要且相互重叠的工作。先补齐发送端producer建立/回收、实际payload工作及“有ready工作却被结果窗口阻塞”的区间；不把readResult等待或两端时钟区间直接相加。取得可移除机制和保守≥10%整任务预算后，才开发单一候选并做五对A/B。
 
 1. 真实MappedFileWindow已确认1GiB大页和fault大幅下降，但五对ordinary CV=5.124%超门，准备/写入/关闭CPU基本不变。诊断whole墙钟下降26.04%；两对归因补测显示大部分差来自close/unlink，自有实验文件销毁不代表真实传输T_ready。候选不接入V3，不重测挑CV，不再调种子/窗口。
 2. LF5当前候选已结束：1GiB/4路五对，同CRC/切分、map/PTE/CRC/close全计时；CPU下降8.205%但墙钟仅3.188%，两臂CV<2%。省一遍显式复制同时增加约1.64万minor faults，不足以支持运行时集成；不重跑调参，不把诊断服务率外推完整任务。TCP零拷贝/原生RDMA更大改动仍有独立设计门，不宣称全部大文件方向已穷尽。
 3. 大帧/CRC暂缓运行时开发，未判为已淘汰。Byte Work18中1GiB写调用17408→1024，冷写fault仍262144、冷写CPU基本不变；CRC原语有成本但整任务预算未证实。以后有新关键路径预算才恢复LF1/LF2/LF3，独立有收益再测组合，不能相加。scope17接口+94仍未关联，网络门继续开放。
 4. 源映射借用必须覆盖queued消费者实际使用期，取消/部分写/源变更和预算先过门；区分逻辑复制边界、CRC扫描和实测DRAM流量。TCP完成通知、buffer pin/回收或RDMA注册池/CQ所有权有独立设计门；RDMA仍暂停，不先修改系统网络。
-5. S0完成33次；其原时间保留为采集器循环口径，S1发现退出后ss耗时可能混入，不跨口径计算收益。全新下载auto仍为2，显式8未过门。详细计时开销约18%，基线保持off。S1显式缓存受测小文件过门，S1B默认切换受资源门阻塞；S2C完整任务未过门，S2D清单同步预算不足，S2E转查其他逐文件固定成本。固定批和adaptive仍各自要求T_ready中位下降≥20%、p95/恢复不恶化、大文件回退≤5%，不替代大文件未过门结论。
+5. S0完成33次；其原时间保留为采集器循环口径，S1发现退出后ss耗时可能混入，不跨口径计算收益。全新下载auto仍为2，显式8未过门。详细计时开销约18%，基线保持off。S1显式缓存受测小文件过门，S1B默认切换受资源门阻塞；S2C完整任务未过门，S2D清单同步预算不足，S2E完成接收端归因，S2F补发送端预算。固定批和adaptive仍各自要求T_ready中位下降≥20%、p95/恢复不恶化、大文件回退≤5%，不替代大文件未过门结论。

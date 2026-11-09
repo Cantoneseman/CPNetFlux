@@ -1,6 +1,6 @@
 # S2E Per-file Budget28
 
-Date:2026-11-09. Status: observer implemented/tested; bounded attribution pending; no optimization accepted.
+Date:2026-11-09. Status: completed; see [result](2026-11-09-v3-per-file-budget-28-result.md). No optimization accepted.
 Input: d59f942e210d6e8596fcdc5bffc0608ee2dae952, pushed Budget27 result.
 R1 sole writer; no agents/worktrees. R2 same fixed-commit build/source peer.
 
@@ -93,3 +93,9 @@ were used for acceptance. RelWithDebInfo build and20 related CTests passed;
 four interrupted/corrupt/conflict/edge tests also passed with profile1.
 R1 core.whitespace=cr-at-eol diff --check passes. Next: commit/push/readback,
 same-commit R2 build/test/hash, then exactly three observer pairs, no retries.
+
+Closure: measured42a2a9d9eca07d8c553691262590fc8b4fd9d26e, both nodes20+4
+tests pass and three binary hashes match. Three observer pairs completed;
+overhead0.09689%, CV0.8501%/1.1133%. Thread union19.15%-19.56% remains an
+envelope, not an accepted saving. All integrity/resource/NIC/cleanup checks pass.
+Next:[sender producer/credit budget29](2026-11-09-v3-sender-credit-budget-29.md).
