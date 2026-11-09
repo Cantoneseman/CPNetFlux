@@ -1,6 +1,7 @@
 # S2B Tree Serialization25
 
-Date:2026-11-09. Status: implementation in progress; no measured result yet.
+Date:2026-11-09. Status: local feasibility accepted; runtime integration pending.
+See [result](2026-11-09-v3-tree-serialization-25-result.md).
 Input: cf73a90ac386e4a0837980ca3b2012a33d133a4e, pushed Fixed Work24 result.
 
 ## Hypothesis And Boundary
@@ -49,7 +50,7 @@ cases, <=256MiB owned memory/output, no network payload or system changes. Inclu
 baseline/candidate preparation, validation, ordering, encoding/CRC and destruction
 in wall/CPU; report stages only if useful, no overlap summation. Snapshot cadence
 and data identical, three to five interleaved pairs declared before execution,
-CV<=5%, >=30% local CPU reduction and exact full-byte/parse equality required.
+CPU and wall CV<=5% per arm, >=30% local CPU reduction and full-byte/parse equality required.
 Stop once the declared matrix completes; no parameter/CV chasing.
 
 A local pass proves module feasibility only. Estimate an optimistic *upper bound*
@@ -67,3 +68,12 @@ Record commands, input/candidate commits, fixture/binary SHA, byte/CPU/variance
 results, acceptance/no-go decision and exact cleanup. Build/test R1, commit/push
 and read back; R2 sync/build/test only if needed for runtime acceptance, no dirty
 tree transfers. Update current route with the actual decision, not predicted gain.
+
+Measured source a173124cb17a37fd62207d0d050243ca8c9870ac, pushed/read back.
+All20 samples and450 full snapshot equality/parse checks passed resource/content
+gates. CPU medians: sorted1.091433->0.259224s (-76.249%); reversed
+1.083250->0.434849s (-59.857%). Max arm CPU/wall CV1.489%; local gate passes.
+This is a synthetic10K-record full-vector fixture, not a trace replay of scope24's
+growing snapshot sizes. No file transfer, runtime source/default or schema changed.
+Integration decision: one opt-in same-binary full-task experiment in new scope26;
+the21.86%/17.16% optimistic ceilings do not predict actual task gains.

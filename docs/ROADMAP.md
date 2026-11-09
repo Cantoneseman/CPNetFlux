@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- V3 三阶段工程已收口；大文件性能门未过。[Kernel Service17 结果](tasks/2026-11-09-v3-kernel-service-17-result.md)的无预算候选暂停仍有效。[Byte Work18](tasks/2026-11-09-v3-byte-work-18-result.md)的大帧/CRC整任务预算未证实；[Mapped Collapse19](tasks/2026-11-09-v3-mapped-collapse-19-result.md)当前seed+collapse不晋级；[Source Read20](tasks/2026-11-09-v3-source-read-20-result.md)局部墙钟仅降3.188%，不集成。S0完成，[S1 Summary Path22](tasks/2026-11-09-v3-summary-path-22-result.md)显式摘要缓存三组小文件完整任务下降44.7%/54.5%/41.5%。[S1B Gate23](tasks/2026-11-09-v3-summary-default-gate-23-result.md)准备资源门阻塞，默认仍original、cached显式启用。[S2 Fixed Work24](tasks/2026-11-09-v3-small-file-fixed-work-24-result.md)已完成一对归因；下一项是[Tree Serialization25](tasks/2026-11-09-v3-tree-serialization-25.md)局部可行性，不直接实现微批。RDMA优化、线程/队列扩张继续暂停。
+- V3 三阶段工程已收口；大文件性能门未过。[Kernel Service17](tasks/2026-11-09-v3-kernel-service-17-result.md)的无预算候选暂停仍有效。[Byte Work18](tasks/2026-11-09-v3-byte-work-18-result.md)的大帧/CRC整任务预算未证实；[Mapped Collapse19](tasks/2026-11-09-v3-mapped-collapse-19-result.md)和[Source Read20](tasks/2026-11-09-v3-source-read-20-result.md)当前候选不集成。S0完成，[S1 Summary Path22](tasks/2026-11-09-v3-summary-path-22-result.md)显式摘要缓存受测小文件过门；[S1B Gate23](tasks/2026-11-09-v3-summary-default-gate-23-result.md)资源门阻塞，默认仍original、cached显式启用。[S2 Fixed Work24](tasks/2026-11-09-v3-small-file-fixed-work-24-result.md)归因后，[S2B Serialization25](tasks/2026-11-09-v3-tree-serialization-25-result.md)局部CPU下降76.25%/59.86%、字节不变；尚未接入运行时，下一项是[Runtime26](tasks/2026-11-09-v3-tree-serialization-runtime-26.md)显式候选完整任务对照。RDMA、线程/队列扩张和微批实现继续暂停。
 - 最近的大文件同轮完整任务 baseline/profile 中位数为 **27.291/27.296 Gbps**（三对），仅验证采样开销，没有新大文件吞吐收益；输入 `025c38a9`，运行时未改。内容、V3 终态和资源门通过，sample02 接收接口 `rx_missed_errors` 增加 94，网络计数门未清洁。
 - 上述成绩限定为 R770-2 → R770-1、单个 8 GiB 驻留 tmpfs 源及全新 tmpfs 目标、4 路 TCP、queued 发送/inline 实验 mmap 接收、CRC32C/verified_chunks、TLS off、commit_sync=none；不是默认、物理磁盘或持久化性能。
 - [Observation Audit16](tasks/2026-11-09-v3-observation-audit-16-result.md) 的 detail-off 中位数为 27.858 Gbps，计时合同与 scope17 不同，不能跨轮计算收益。scope13 之前的约 28–29 Gbps 数据还须结合[本地 V3 executor 修复](tasks/2026-11-09-v3-receiver-critical-13-result.md)解释。
@@ -33,16 +33,16 @@
 | 新候选保留 | 先有可消除机制和保守关键路径收益预算，再做固定提交、同配置的完整任务 A/B；至少五对、中位收益 ≥10%、CV ≤5%，完整性和资源无回退；局部服务率/CPU 降幅不替代此门 |
 | 网络与 RDMA 稳定性 | scope17 的接口 +94 尚未关联到具体连接；历史 RDMA CQ/flush/peer-mapping 问题仍开。内容正确不等于链路稳定 |
 | 适用范围 | 当前路径的同提交单路、反向、TLS-on、磁盘持久化、混合负载及长时间稳定性尚未完成验收 |
-| 小文件研究 | S0/S1显式路径缓存受限验收完成；S1B共享默认/大文件回归仍受资源门阻塞；S2归因完成但未证实≥20%微批墙钟预算，固定成员微批和adaptive未实现 |
+| 小文件研究 | S0/S1显式路径缓存受限验收完成；S1B共享默认/大文件回归仍受资源门阻塞；S2/S2B归因与序列化局部可行性完成，Runtime26整任务待验收；≥20%微批墙钟预算仍未证实 |
 
 已关闭的 sender-inline、population、direct-receive 候选不重开；结果保留在[对应记录](README.md)。研究历史不能外推为生产 readiness，见[研究边界](RESEARCH_BASELINE.md)。
 
 ## 下一项工作
 
-**S2B：目录清单序列化的局部可行性；S1B默认晋级暂缓。** [Fixed Work24](tasks/2026-11-09-v3-small-file-fixed-work-24-result.md)完成4KiB×10K的一对归因：未采样1.473s、采样1.736s（观测开销17.9%，不是收益验收）；未采样摘要前1.040s、摘要0.192s。225次完整目录快照序列化60.33MB，tree写区间0.422s且与传输重叠；不能直接当成可节省墙钟。调用栈还受perf线程继承影响，不据此扩线程池。下一项[Tree Serialization25](tasks/2026-11-09-v3-tree-serialization-25.md)只诊断借用有序输入/缓冲格式化的逐字节兼容可行性，先局部门再决定运行时集成。已失败的合并阈值/延迟调参不重开。微批≥20%墙钟预算尚未证实；S1B仍须资源门和匹配大文件回归，默认不切换。
+**S2C：序列化显式候选的完整任务对照；S1B默认晋级暂缓。** [Serialization25](tasks/2026-11-09-v3-tree-serialization-25-result.md)五对有序/逆序10K记录×225快照（共20次）局部门通过：CPU中位下降76.25%/59.86%，各臂CV<1.5%，450次完整字节/解析校验通过。候选只在诊断目标中；此合成负载不是scope24快照轨迹，也不是文件传输成绩。借用有序输入、缓冲数字/hex编码值得一次[Runtime26](tasks/2026-11-09-v3-tree-serialization-runtime-26.md)接入对照，原实现继续默认。固定同提交/配置、cached摘要、phase/detail off，五对4KiB×10K完整任务要求墙钟中位下降≥10%、CV≤5%、p95/完整性/恢复无回退。局部比例折算的21.86%/17.16%只是宽松上界，不能承诺收益；微批≥20%预算仍未证实。已失败的合并阈值/延迟调参不重开。
 
 1. 真实MappedFileWindow已确认1GiB大页和fault大幅下降，但五对ordinary CV=5.124%超门，准备/写入/关闭CPU基本不变。诊断whole墙钟下降26.04%；两对归因补测显示大部分差来自close/unlink，自有实验文件销毁不代表真实传输T_ready。候选不接入V3，不重测挑CV，不再调种子/窗口。
 2. LF5当前候选已结束：1GiB/4路五对，同CRC/切分、map/PTE/CRC/close全计时；CPU下降8.205%但墙钟仅3.188%，两臂CV<2%。省一遍显式复制同时增加约1.64万minor faults，不足以支持运行时集成；不重跑调参，不把诊断服务率外推完整任务。TCP零拷贝/原生RDMA更大改动仍有独立设计门，不宣称全部大文件方向已穷尽。
 3. 大帧/CRC暂缓运行时开发，未判为已淘汰。Byte Work18中1GiB写调用17408→1024，冷写fault仍262144、冷写CPU基本不变；CRC原语有成本但整任务预算未证实。以后有新关键路径预算才恢复LF1/LF2/LF3，独立有收益再测组合，不能相加。scope17接口+94仍未关联，网络门继续开放。
 4. 源映射借用必须覆盖queued消费者实际使用期，取消/部分写/源变更和预算先过门；区分逻辑复制边界、CRC扫描和实测DRAM流量。TCP完成通知、buffer pin/回收或RDMA注册池/CQ所有权有独立设计门；RDMA仍暂停，不先修改系统网络。
-5. S0完成33次；其原时间保留为采集器循环口径，S1已发现可能混入退出后ss耗时，不跨口径计算收益。全新下载auto仍为2，显式8未过收益门，策略缺口单独设计。详细计时开销约18%，基线保持off。S1显式缓存受测小文件过门，S1B默认切换受资源门阻塞；S2已完成有界归因，S2B将测试每次快照的序列化工作量。固定批和adaptive仍各自要求T_ready中位下降≥20%、p95/恢复不恶化、大文件回退≤5%，不替代大文件未过门结论。
+5. S0完成33次；其原时间保留为采集器循环口径，S1发现退出后ss耗时可能混入，不跨口径计算收益。全新下载auto仍为2，显式8未过门。详细计时开销约18%，基线保持off。S1显式缓存受测小文件过门，S1B默认切换受资源门阻塞；S2归因/S2B局部可行性已完成，S2C先做序列化显式候选整任务验收。固定批和adaptive仍各自要求T_ready中位下降≥20%、p95/恢复不恶化、大文件回退≤5%，不替代大文件未过门结论。
