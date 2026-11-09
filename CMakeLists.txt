@@ -529,6 +529,9 @@ if(CPNETFLUX_BUILD_TESTS)
                 --build-dir ${CMAKE_BINARY_DIR}
                 --fault-library $<TARGET_FILE:cpnetflux_source_read_fault_shim>)
         set_tests_properties(cpnetflux_source_read_bench_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_small_file_baseline_driver_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_small_file_baseline_test.py)
+        set_tests_properties(cpnetflux_small_file_baseline_driver_test PROPERTIES TIMEOUT 20)
         add_library(cpnetflux_source_read_fault_shim SHARED tools/test/source_read_fault_shim.cpp)
         target_link_libraries(cpnetflux_source_read_fault_shim PRIVATE ${CMAKE_DL_LIBS})
         target_link_libraries(cpnetflux_offset_write_fault_shim PRIVATE ${CMAKE_DL_LIBS})
