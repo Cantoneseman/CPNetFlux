@@ -26,7 +26,7 @@ large-file-only mmap experiment. These are nondurable memory-file results.
 
 - Baseline: explicit pending-window auto; seven size/count cases, three repeats:
   4/16/64/256KiB x1K and 4/16/64KiB x10K. 256KiB x10K exceeds1GiB and is excluded.
-- Auto should select2 for1K and8 for the three dense10K cases. Verify actual policy
+- Initial assumption (invalidated below): auto selects2 for1K and8 for dense10K. Verify actual policy
   and selection; download receiver high-watermark0 is not sender observed depth.
 - At4KiB x10K add three interleaved fixed-window2 samples, using same commit/config.
   Window1 is not a performance baseline. This is contextual validation of existing
@@ -67,8 +67,8 @@ interface deltas are not connection attribution; scope17 rx_missed_errors+94 sta
 
 Evidence: `/home/Su/experiments/CPNetFlux/2026-11-09-v3-small-file-baseline-21`.
 Acceptance: driver boundary/cleanup/aggregation tests, existing V3 tree correctness/
-resume/pending-window tests, fixed peer receipts, 27 samples (21 baseline +3 timing
-+3 fixed-window2) with complete integrity/resource/cleanup outcomes. No throughput
+resume/pending-window tests, fixed peer receipts, revised 33 samples (21 auto +3 timing
++9 fixed-window8) with complete integrity/resource/cleanup outcomes. No throughput
 gain gate for a baseline; any failed/unstable sample is retained and qualified.
 
 After attribution, design member microbatch only if fixed work dominates. Fixed
@@ -95,3 +95,27 @@ from performance samples. Driver exceptions preserve receipts; inspect owned
 supervisor PID/start and marked children before explicit cleanup/retry. Never
 reuse a failed sample name or silently discard its evidence. Final result records
 source/result SHAs, remote readback, resource/integrity outcomes and next scope.
+
+## S0 Revision1: Fresh Download Auto Lacks Source Statistics
+
+The cb6c8bd attempt stopped on the first4KiB x10K sample: the client completed
+10K files but the driver's expected-auto8 assertion failed before independent
+integrity acceptance. Earlier samples/evidence are retained and excluded from
+the revised formal matrix. Both owned roots were emptied and removed.
+Source inspection: `runTreeDownloadClient` starts with an empty manifest;
+`selectPersistentDispatchWindow` runs before remote scan/prepare, sees zero files
+and selects2. The >=10K rule works only with an already populated manifest.
+Do not call fresh-download auto8 tuned or silently force it in the runtime.
+
+This revision changes only the driver/measurement scope: record existing auto2,
+compare explicit8 at all three10K sizes, three interleaved pairs each. Total33
+samples in evidence subdirectory `revision1`, all under a new fixed commit;
+repeat the1K cases to keep the formal matrix on that commit. Runtime binaries
+remain unchanged. The former fixed2 comparison is superseded because it would
+compare the same selected window. Auto policy correction requires its own
+design/correctness scope after baseline; pending window is not member microbatch.
+
+Also inspect `summary_tree_hash_seconds/source`: early samples show JSON summary
+performs a separate filesystem CRC scan below128MiB. It is included in T_ready;
+the client's elapsed_seconds stops before that scan and cannot substitute for
+T_ready. Attribute this measured work before choosing a protocol microbatch.

@@ -301,7 +301,8 @@ def client_sample(args, name, expected, window, timing, port):
         value=json.loads(summary.read_text())
         assert value['actual_transport']=='v3' and value['completed_files']==args.count
         assert value['failed_files']==value['changed_files']==0
-        selected=8 if window=='auto' and args.count>=10000 and args.size<=65536 else 2
+        # A fresh download selects before it has the remote manifest: auto is 2.
+        selected=2 if window=='auto' else int(window)
         assert value['data_pending_window']==selected and value['data_pending_window_policy']==('auto' if window=='auto' else 'fixed')
         assert value['data_pending_high_watermark']==0, 'download receiver is not sender pending depth'
         actual=tree(target)
@@ -348,7 +349,7 @@ def matrix(args):
             for rep in range(1,4):
                 choices=[('auto','off')]
                 if size==4096 and count==1000:choices.append(('auto','on'))
-                if size==4096 and count==10000:choices.append(('2','off'))
+                if count==10000:choices.append(('8','off'))
                 if rep%2==0:choices.reverse()
                 for window,timing in choices:
                     name=f'{case}-w{window}-timing{timing}-r{rep}'
