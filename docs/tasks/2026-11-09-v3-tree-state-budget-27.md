@@ -1,7 +1,8 @@
 # S2D Tree State Budget27
 
 Date:2026-11-09. Input:f5cd9f56f474594a9fd01b69001c64f438bfa553.
-Status: implementation/attribution, not an optimization acceptance.
+Status: complete; observer gate passes, direct sync budget below10%; no incremental candidate.
+Result:[Budget27 result](2026-11-09-v3-tree-state-budget-27-result.md).
 R1 sole writer; R2 fixed-commit peer. No agents/worktrees/desktop.
 
 ## Scope And Non-Goals
@@ -72,4 +73,7 @@ timing retains original lock ownership; no destructor relocation candidate.
 Save substeps reuse checkpoint::ManifestSaveStats and OptionalManifestTimer.
 Only the background writer updates its profile; callback intervals are captured
 under the state mutex and merged after producer stop/finish. No hot-path output.
-Runtime profile0/default allocates no interval capacity or optional timers.
+Runtime profile0/default reserves no interval buffers or optional timer readings.
+Fixed-commit3-pair result: median observer overhead1.985%, CV0.265%/1.389%;
+direct sync envelope3.35%-3.57%, all callbacks plus final tail4.49%-4.74%.
+No tree format/copy-relocation implementation; next is per-file budget reassessment.
