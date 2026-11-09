@@ -3,13 +3,29 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import sys
+import time
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('s0', Path(__file__).resolve().parents[1]/'perf/run_small_file_baseline.py')
 s0 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(s0)
 
 class BaselineTest(unittest.TestCase):
+    def test_task_wall_excludes_observer_work_after_child_exit(self):
+        def slow_observer(proc, state):
+            proc.wait(timeout=5)
+            time.sleep(.15)
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-timer-test-') as d:
+            started=time.monotonic()
+            with patch.object(s0,'observe',slow_observer):
+                result=s0.run_guarded([sys.executable,'-c','import time; time.sleep(.05)'],Path(d)/'child.log')
+            outer_wall=time.monotonic()-started
+            self.assertEqual(result['exit_code'],0)
+            self.assertGreater(outer_wall-result['wall_seconds'],.10)
+            self.assertGreater(result['observer_seconds_after_exit'],.10)
+
     def test_matrix_has_seven_bounded_cases(self):
         values = s0.cases()
         self.assertEqual(len(values), 7)

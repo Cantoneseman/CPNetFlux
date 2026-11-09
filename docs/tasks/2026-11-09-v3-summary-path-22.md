@@ -48,6 +48,26 @@ must pass independent SHA/member manifest/tree terminal checks before cleanup.
 
 ## Mechanism, Scope And Non-Goals
 
+### Measurement Revision2
+
+First40 samples completed on c8e1428, integrity/resources/cleanup passed, but
+overall acceptance failed:64KiB x1K control CV5.217% and negative-control
+descriptive p95 worsened. Preserve all in `formal/`, do not select samples or
+relax gates. Review found `run_guarded` synchronously runs ss then timestamps
+the loop end, including collector work after the client has already exited.
+The two64KiB control samples at25 collector iterations show19.99/21.13ms beyond
+client elapsed+hash, versus3.45/5.40/4.18ms at24 iterations. Structural code
+confirms the spawn-to-exit contract was not enforced.
+
+Add a failing delayed-observer regression to the existing
+`tools/test/run_small_file_baseline_test.py`; use an independent wait thread to
+timestamp child exit and separately record collector duration after exit.
+No transfer runtime changes. Fix and commit/push, sync both nodes, verify hashes,
+then repeat the entire40-sample matrix once in `formal-v2/`, owned root
+`/dev/shm/cpnetflux-s0-summary22-v2`. This replaces the timing acceptance set,
+not the retained failure evidence. No further reruns to chase CV/p95. Reuse-path
+negative-control variability remains subject to its original gate.
+
 [Baseline21](2026-11-09-v3-small-file-baseline-21-result.md) measured1.57989s
 summary hashing out of2.59057s T_ready for4KiB x10K. The filesystem-read hash
 sort comparator repeatedly calls `filesystem::relative`. Cache the already

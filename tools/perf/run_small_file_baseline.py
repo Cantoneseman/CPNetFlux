@@ -15,6 +15,7 @@ import socket
 import statistics
 import subprocess
 import sys
+import threading
 import time
 
 PROJECT = Path(__file__).resolve().parents[2]
@@ -150,7 +151,7 @@ def observe(proc, state):
     state['samples']+=1
     assert state['mem_available_min_bytes']>=12*GIB, 'memory threshold'
     assert state['owned_swap_peak_bytes']==0 and pswpout()==state['pswpout_before'], 'swap gate'
-    if state['samples']%25==0 and len(state['tcp_snapshots'])<4:
+    if state['samples']%25==0 and len(state['tcp_snapshots'])<4 and proc.poll() is None:
         text=output('ss','-tinp')
         lines=text.splitlines();filtered=[]
         for i,line in enumerate(lines):
@@ -166,19 +167,27 @@ def run_guarded(argv, log, timeout=120, summary_path=None):
         env['CPNETFLUX_SUMMARY_PATH']=summary_path
     with log.open('x') as f:
         proc=subprocess.Popen(argv,stdout=f,stderr=subprocess.STDOUT,env=env,start_new_session=True)
+        exited=threading.Event();exit_info={}
+        def wait_for_exit():
+            exit_info['code']=proc.wait()
+            exit_info['at']=time.monotonic()
+            exited.set()
+        waiter=threading.Thread(target=wait_for_exit)
+        waiter.start()
         try:
-            while proc.poll() is None:
+            while not exited.is_set():
                 observe(proc,state)
                 assert time.monotonic()-started<timeout, 'owned process timeout'
-                try:proc.wait(timeout=.01)
-                except subprocess.TimeoutExpired:pass
-            state['exit_code']=proc.returncode
+                exited.wait(.01)
+            state['exit_code']=exit_info['code']
         finally:
-            if proc.poll() is None:
+            if not exited.is_set():
                 proc.terminate()
-                try:proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:proc.kill();proc.wait()
-    state['wall_seconds']=time.monotonic()-started
+                if not exited.wait(5):proc.kill()
+            waiter.join()
+    state['wall_seconds']=exit_info['at']-started
+    state['observer_wall_seconds']=time.monotonic()-started
+    state['observer_seconds_after_exit']=state['observer_wall_seconds']-state['wall_seconds']
     state['pswpout_delta']=pswpout()-state['pswpout_before']
     assert state['pswpout_delta']==0
     return state
