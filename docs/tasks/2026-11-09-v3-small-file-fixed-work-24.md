@@ -1,6 +1,7 @@
 # S2 Small-File Fixed Work24
 
-Date:2026-11-09. Status: implementation in progress, no profile results yet.
+Date:2026-11-09. Status: completed bounded attribution, no batching budget proven.
+See [result](2026-11-09-v3-small-file-fixed-work-24-result.md).
 Input: fa937c024206527ad40e9bab2022bfe39a4b6790, pushed Gate23 result.
 S1B default promotion is held by the preparation resource gate, not superseded.
 
@@ -36,6 +37,18 @@ weights and blocked-thread snapshot fractions are not removable wall-time budget
 No exact per-phase monotonic markers exist in the runtime; elapsed_seconds is
 captured before summary hashing. Use it and hash_seconds as intervals only, not
 an exact perf segmentation boundary. Preserve raw sample output for re-analysis.
+
+Measured commit06899f6cc909277bb10d34de7c0f88a2c89b1896; both peers19/19
+related CTests and owned-PID/new-thread profiler selftests passed. One pair only,
+reference1.472798411s/profile1.736296627s (+17.891% observation overhead).
+Both10K files passed independent SHA, CRC/manifests and memory/swap/route/counters.
+All owned payloads removed. Do not repeat to chase observation overhead/CV.
+
+Final analysis exposes profiler inheritance separately from thread-creation CPU;
+raw perf data originally root0600 needed exact owned-artifact export. Collector
+now gives only its completed raw file to the invoking uid/gid. No host policy
+changes. Next limited candidate: byte-compatible tree-manifest serialization
+feasibility, not coalescing-threshold retries or member/protocol batching.
 
 One unprofiled cached reference and at most one paired profiled run, same pushed
 commit/config/binaries, four TCP connections/pending2/queued pwrite, phase summary

@@ -8,7 +8,7 @@ import time
 import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'perf'))
-from owned_process_profile import OwnedProcess, analyze_samples, validate_identity, parse_script
+from owned_process_profile import OwnedProcess, analyze_samples, component_cpu, validate_identity, parse_script
 import run_small_file_baseline as base
 
 
@@ -32,6 +32,14 @@ class OwnedProfileTest(unittest.TestCase):
 
     def test_empty_samples_fail(self):
         with self.assertRaises(AssertionError):analyze_samples([])
+
+    def test_profiler_thread_inheritance_is_marked_as_observer_work(self):
+        result=component_cpu([{'period':100,'symbols':['perf_event_alloc','kernel_clone']},
+                              {'period':300,'symbols':['serializeTreeManifest']}])
+        self.assertEqual(result['components']['profiler_thread_inheritance']['fraction'],.25)
+        self.assertEqual(result['components']['thread_creation']['fraction'],.25)
+        self.assertEqual(result['components']['tree_manifest_serialization']['fraction'],.75)
+        self.assertIn('observer work',result['scope'])
 
     def test_sample_parser_retains_worker_identity_and_frames(self):
         samples,lost=parse_script('worker 100/102 123.456789012: 1000 cpu-clock:\n'

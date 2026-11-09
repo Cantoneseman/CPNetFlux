@@ -25,6 +25,15 @@ CATEGORIES={
     'checksum':r'crc32c|Crc32c|computeChecksum',
     'allocation':r'malloc|calloc|realloc|operator new|_M_create|_M_mutate',
 }
+COMPONENTS={
+    'tree_manifest_serialization':r'serializeTreeManifest',
+    'member_manifest_save':r'saveDownloadManifestAtomic',
+    'thread_creation':r'kernel_clone',
+    'profiler_thread_inheritance':r'perf_event_alloc|inherit_event',
+    'json_summary_including_hash':r'writeTreeJsonSummary',
+    'json_summary_output':r'emitTreeSummary',
+    'sender_result_read_cpu':r'PersistentDataSession::readResult',
+}
 
 
 def validate_identity(pid,start,info):
@@ -49,6 +58,16 @@ def analyze_samples(samples):
         'top_leaf_symbols':[{'symbol':k,'cpu_ns':v,'fraction':v/total}
                             for k,v in sorted(leaves.items(),key=lambda kv:-kv[1])[:40]],
         'threads':threads}
+
+
+def component_cpu(samples):
+    total=sum(s['period'] for s in samples);assert total>0
+    result={}
+    for name,pattern in COMPONENTS.items():
+        period=sum(s['period'] for s in samples if re.search(pattern,'\n'.join(s['symbols'])))
+        result[name]={'sampled_cpu_seconds':period/1e9,'fraction':period/total}
+    return {'scope':'inclusive sampled CPU, components overlap; profiler inheritance is observer work, not software baseline cost',
+            'components':result}
 
 
 def parse_script(text):
@@ -162,13 +181,17 @@ class OwnedProcess:
                 # perf stops automatically after an exiting target's inherited threads.
             rc=self.perf.wait(timeout=10);assert rc==0,(rc,(self.folder/'perf.stderr').read_text())
             data=self.folder/'perf.data';assert data.stat().st_size<=CAP
+            assert data.is_file() and not data.is_symlink()
             script=subprocess.check_output(['sudo','-n','perf','script','--ns','--show-lost-events',
                 '-i',str(data),'-F','comm,pid,tid,time,period,event,ip,sym,dso'],text=True,stderr=subprocess.PIPE,timeout=20)
+            # Export after parsing: perf rejects a different owner's input by default.
+            subprocess.run(['sudo','-n','chown','--',f'{os.getuid()}:{os.getgid()}',str(data)],check=True,timeout=5)
             assert len(script.encode())<=CAP,'perf script cap'
             with gzip.open(self.folder/'perf.script.gz','wt') as f:f.write(script)
             samples,lost=parse_script(script);assert not lost,('lost samples',lost)
             assert all(s['pid']==self.pid for s in samples),'sample escaped owned PID'
-            result.update(analyze_samples(samples));result.update(perf_exit=rc,data_bytes=data.stat().st_size,
+            result.update(analyze_samples(samples));result.update(component_cpu(samples))
+            result.update(perf_exit=rc,data_bytes=data.stat().st_size,
                 lost_events=lost,first_sample_ns=min(s['at_ns'] for s in samples),last_sample_ns=max(s['at_ns'] for s in samples))
         base.save(self.folder/'profile.json',result)
         base.save(self.folder/'thread-snapshots.json',self.thread_rows)
