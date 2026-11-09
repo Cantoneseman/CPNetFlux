@@ -477,6 +477,11 @@ if(CPNETFLUX_BUILD_TESTS)
             target_link_options(cpnetflux_framed_socket_tests PRIVATE "-Wl,--wrap=_Znwm")
         endif()
         gtest_discover_tests(cpnetflux_framed_socket_tests)
+        add_executable(cpnetflux_publication_tests tests/unit/publication_recovery_test.cpp)
+        target_link_libraries(cpnetflux_publication_tests PRIVATE CPNetFlux::core GTest::gtest_main)
+        target_link_options(cpnetflux_publication_tests PRIVATE
+            "-Wl,--wrap=rename" "-Wl,--wrap=unlink" "-Wl,--wrap=fsync")
+        gtest_discover_tests(cpnetflux_publication_tests PROPERTIES TIMEOUT 30)
     endif()
 
     add_test(NAME cpnetflux_checksum_combine_bench_smoke
@@ -1008,6 +1013,11 @@ if(CPNETFLUX_BUILD_TESTS)
             --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-v3-target-conflict-idempotency-evidence
     )
     set_tests_properties(cpnetflux_v3_target_conflict_idempotency_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_publication_resume_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_publication_resume_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-publication-resume-evidence)
+    set_tests_properties(cpnetflux_publication_resume_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_tree_edge_cases_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_edge_cases_smoke.py --build-dir ${CMAKE_BINARY_DIR}

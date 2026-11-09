@@ -351,39 +351,75 @@ class FileTransaction {
             std::error_code sizeError;
             const auto size = fs::file_size(output_, sizeError);
             if (sizeError || size != id.totalSize) return Status::invalidArgument("persistent output identity mismatch");
+            const auto checkpointPath = download ? checkpoint::downloadManifestPathForOutput(output_)
+                                                 : checkpoint::manifestPathForOutput(output_);
+            const auto checkpointType = fs::symlink_status(checkpointPath, error);
+            if (error || !fs::is_regular_file(checkpointType) || fs::is_symlink(checkpointType))
+                return Status::invalidArgument("persistent checkpoint is not a safe regular file");
+            std::optional<checkpoint::TransferManifest> uploadManifest;
             auto loaded = [&]() -> common::Result<checkpoint::DownloadManifest> {
-                if (download) return checkpoint::loadDownloadManifest(checkpoint::downloadManifestPathForOutput(output_));
-                auto uploaded = checkpoint::ManifestStore::load(checkpoint::manifestPathForOutput(output_));
+                if (download) return checkpoint::loadDownloadManifest(checkpointPath);
+                auto uploaded = checkpoint::ManifestStore::load(checkpointPath);
                 if (!uploaded.isOk()) return uploaded.status();
                 const auto& upload = uploaded.value();
                 if (upload.transferId != id.transferId || upload.chunkSize != id.chunkSize)
                     return Status::invalidArgument("committed upload identity mismatch");
                 checkpoint::DownloadManifest converted;
                 converted.state = upload.state; converted.totalSize = upload.totalSize;
+                converted.transferId = upload.transferId; converted.chunkSize = upload.chunkSize;
+                converted.targetPath = upload.outputPath; converted.tempPath = upload.tempPath;
                 converted.checksumAlgorithm = upload.checksumAlgorithm;
                 converted.sourcePath = (fs::path(remoteRoot)/relative).lexically_normal().generic_string();
                 converted.verifiedChunks = upload.verifiedChunks;
+                uploadManifest = std::move(uploaded.value());
                 return converted;
             }();
             if (!loaded.isOk()) return loaded.status();
             const auto& m = loaded.value();
-            if (m.state != checkpoint::ManifestState::Committed || m.totalSize != id.totalSize ||
+            const bool reconcile = m.state == checkpoint::ManifestState::Transferring &&
+                id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c;
+            const auto expectedTemp = download ? checkpoint::downloadTempPathForOutput(output_, m.transferId)
+                                               : checkpoint::tempPathForOutput(output_, m.transferId);
+            if ((!reconcile && m.state != checkpoint::ManifestState::Committed) || m.totalSize != id.totalSize ||
+                m.chunkSize != id.chunkSize || m.targetPath != output_ || m.tempPath != expectedTemp ||
                 m.checksumAlgorithm != id.checksumAlgorithm || m.sourcePath !=
                     (fs::path(remoteRoot)/relative).lexically_normal().generic_string())
                 return Status::invalidArgument("committed download identity mismatch");
-            auto existingFile = storage::PosixFile::openReadOnly(output_);
-            if (!existingFile.isOk()) return existingFile.status();
+            storage::PosixFile existingFile(UniqueFd(::open(output_.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW)));
+            if (!existingFile.isValid()) return Status::runtimeError("open published output failed");
             struct stat existingMetadata{};
-            if (::fstat(existingFile.value().fd(), &existingMetadata) != 0 ||
+            if (::fstat(existingFile.fd(), &existingMetadata) != 0 || !S_ISREG(existingMetadata.st_mode) ||
+                existingMetadata.st_size < 0 || static_cast<std::uint64_t>(existingMetadata.st_size) != id.totalSize ||
                 existingMetadata.st_mtim.tv_sec != id.mtimeUnixSeconds)
                 return Status::invalidArgument("committed output mtime mismatch");
+            struct stat tempMetadata{};
+            const bool aliasPresent = ::lstat(expectedTemp.c_str(), &tempMetadata) == 0;
+            if ((!aliasPresent && errno != ENOENT) || (reconcile && !aliasPresent))
+                return Status::invalidArgument("published checkpoint has no provable temp alias");
+            const auto unchanged = [&](const struct stat& value) {
+                return S_ISREG(value.st_mode) && value.st_dev == existingMetadata.st_dev &&
+                    value.st_ino == existingMetadata.st_ino && value.st_size == existingMetadata.st_size &&
+                    value.st_mtim.tv_sec == existingMetadata.st_mtim.tv_sec &&
+                    value.st_mtim.tv_nsec == existingMetadata.st_mtim.tv_nsec &&
+                    value.st_ctim.tv_sec == existingMetadata.st_ctim.tv_sec &&
+                    value.st_ctim.tv_nsec == existingMetadata.st_ctim.tv_nsec;
+            };
+            // The saved state alone cannot prove that an existing target is our publication.
+            const auto proveAlias = [&] {
+                struct stat descriptor{}, output{}, temporary{};
+                return ::fstat(existingFile.fd(), &descriptor) == 0 && unchanged(descriptor) &&
+                    ::lstat(output_.c_str(), &output) == 0 && unchanged(output) &&
+                    ::lstat(expectedTemp.c_str(), &temporary) == 0 && unchanged(temporary);
+            };
+            if (aliasPresent && !proveAlias())
+                return Status::invalidArgument("published checkpoint temp/output identity mismatch");
             chunk::RangeList coverage;
             std::vector<std::uint8_t> checkBuffer(65536);
             for (const auto& record : m.verifiedChunks) {
                 checksum::ChecksumComputer computer(id.checksumAlgorithm,policy_.options.checksumBackend);
                 for (std::uint64_t pos=0;pos<record.length;) {
                     auto count = static_cast<std::size_t>(std::min<std::uint64_t>(checkBuffer.size(),record.length-pos));
-                    auto read = existingFile.value().readAtAll(record.offset+pos,checkBuffer.data(),count);
+                    auto read = existingFile.readAtAll(record.offset+pos,checkBuffer.data(),count);
                     if (!read.isOk()) return read;
                     computer.update(checkBuffer.data(),count);pos+=count;
                 }
@@ -394,6 +430,39 @@ class FileTransaction {
             }
             if (!coverage.missingRanges(id.totalSize).empty())
                 return Status::invalidArgument("committed download coverage mismatch");
+            if (aliasPresent) {
+                if (!proveAlias()) return Status::invalidArgument("published output changed during verification");
+                if (policy_.options.commitSyncPolicy != session::CommitSyncPolicy::None) {
+                    auto synced = existingFile.sync();
+                    if (!synced.isOk()) return synced;
+                }
+                if (policy_.options.commitSyncPolicy == session::CommitSyncPolicy::FsyncFileAndDir) {
+                    auto synced = storage::PosixFile::fsyncParentDirectory(output_);
+                    if (!synced.isOk()) return synced;
+                }
+                if (!proveAlias()) return Status::invalidArgument("published output changed before reconciliation");
+                if (reconcile) {
+                    auto* whole = wholeObservation();
+                    auto* saves = observation ? &observation->manifestSave : whole ? &whole->manifestSave : nullptr;
+                    Timer timer{timing_ ? &timing_->manifestSeconds : nullptr};
+                    Status saved;
+                    if (download) {
+                        auto committed = m;
+                        committed.state = checkpoint::ManifestState::Committed;
+                        committed.updatedAtUnixNanos = checkpoint::nowUnixNanos();
+                        saved = checkpoint::saveDownloadManifestAtomic(checkpointPath, committed, saves);
+                    } else {
+                        uploadManifest->state = checkpoint::ManifestState::Committed;
+                        uploadManifest->updatedAtUnixNanos = checkpoint::nowUnixNanos();
+                        saved = checkpoint::ManifestStore::saveAtomic(checkpointPath, *uploadManifest, saves);
+                    }
+                    if (!saved.isOk()) return saved;
+                }
+                // Also handles a retry after committed save succeeded but unlink failed.
+                if (!proveAlias()) return Status::invalidArgument("published output changed before temp retirement");
+                if (::unlink(expectedTemp.c_str()) != 0)
+                    return Status::runtimeError("published temp retirement failed");
+            }
             skipped_ = true;
             identity_ = id;
             active_ = true;

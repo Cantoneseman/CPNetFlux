@@ -1,6 +1,7 @@
 # V3 Publication Reconciliation31
 
-Date:2026-11-10. Status: next task, not started. Priority: correctness prerequisite.
+Date:2026-11-10. Status: implementation in progress. Priority: correctness prerequisite.
+Exact input:df239afdb542f165f972865ba443541aa28fd4c7.
 Input:Audit30 final docs commit in evidence closure.json; runtime remains
 8a781d134b551d36385c4e6c6bd3e506768d2c1f. R1 sole writer, R2 fixed-commit peer.
 
@@ -26,6 +27,30 @@ a power-loss contract; overwrite/rename has a different state and cannot inherit
 hard-link proof by assumption. Record supported repair cases and remaining gaps.
 
 ## Required Development Order
+
+### Frozen Implementation Scope
+
+Edit src/core/io/persistent_tree_transfer.cpp, new tests/unit/publication_recovery_test.cpp,
+new tools/test/run_cpnetflux_publication_resume_smoke.py, CMakeLists.txt and this
+task/result/route/navigation docs. Use a separate Linux unit executable for local
+rename/unlink/fsync fault injection; no production failpoint or environment knob.
+Evidence:/home/Su/experiments/CPNetFlux/2026-11-10-v3-publication-reconcile-31.
+
+New repair scope: non-overwrite, CRC32C, transferring checkpoint, complete
+verified coverage and proved expected temp/output hard-link identity. Failed/
+created checkpoints, no-checksum and overwrite/rename crash states are not newly
+promoted. Download retains its existing validated stored-local transfer-ID mapping;
+upload still requires the incoming transfer ID. Recheck descriptor/path metadata
+around validation and save. Save committed atomically before success, then unlink
+only the proven alias; committed-with-alias retries must finish interrupted
+cleanup. Reapply requested file/directory sync where appropriate, without claiming
+a power-loss durability contract absent from the existing manifest writer.
+
+Acceptance: red then green actual V3 recovery regressions; fault/conflict and
+existing whole/range/overwrite recovery tests; faithful small CLI state-restore
+smoke in both directions, unchanged content/inode and zero retry payload; exact
+commit GitHub backup, matching R2 build/tests/binary hashes, cleaned owned fixtures
+and verified local mirror. No performance samples or throughput acceptance.
 
 1. Freeze scope/non-goals/acceptance/edit files before code. Start with a failing
    regression for the staged upload/download gap; preserve before-link and
