@@ -158,10 +158,14 @@ def observe(proc, state):
                 filtered+=lines[max(0,i-1):min(len(lines),i+2)]
         if filtered:state['tcp_snapshots'].append(filtered)
 
-def run_guarded(argv, log, timeout=120):
+def run_guarded(argv, log, timeout=120, summary_path=None):
     state=resource_state();started=time.monotonic()
+    env=environment()
+    if summary_path is not None:
+        assert summary_path in ('original','cached')
+        env['CPNETFLUX_SUMMARY_PATH']=summary_path
     with log.open('x') as f:
-        proc=subprocess.Popen(argv,stdout=f,stderr=subprocess.STDOUT,env=environment(),start_new_session=True)
+        proc=subprocess.Popen(argv,stdout=f,stderr=subprocess.STDOUT,env=env,start_new_session=True)
         try:
             while proc.poll() is None:
                 observe(proc,state)
@@ -280,7 +284,7 @@ def check_manifests(slot, count, size):
     return {'committed_member_manifests':len(member),'completed_tree_manifests':len(trees),
             'member_example':member[0].read_text()}
 
-def client_sample(args, name, expected, window, timing, port):
+def client_sample(args, name, expected, window, timing, port, summary_path=None):
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
     folder=args.evidence/'samples';folder.mkdir(exist_ok=True)
     summary=folder/(name+'.summary.json');log=folder/(name+'.client.log')
@@ -296,9 +300,14 @@ def client_sample(args, name, expected, window, timing, port):
     row={'name':name,'window_request':window,'phase_timing':timing,'expected':expected,'command':command,
          'before':snapshot(),'result':'fail'}
     try:
-        resources=run_guarded(command,log)
+        resources=run_guarded(command,log,summary_path=summary_path)
         row['resource']=resources;assert resources['exit_code']==0,log.read_text()[-4000:]
         value=json.loads(summary.read_text())
+        if summary_path is not None:
+            row['summary_path_request']=summary_path
+            assert value['summary_path_requested']==summary_path
+            effective='not_used' if value['summary_tree_hash_source']=='verified_chunks' else summary_path
+            assert value['summary_path_effective']==effective
         assert value['actual_transport']=='v3' and value['completed_files']==args.count
         assert value['failed_files']==value['changed_files']==0
         # A fresh download selects before it has the remote manifest: auto is 2.

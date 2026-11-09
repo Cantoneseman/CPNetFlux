@@ -972,6 +972,7 @@ void addRdmaTransportStats(RdmaTransportStats* target,
 }
 
 struct TreeRunStats {
+    core::tree::TreeHashPathMode summaryPathMode = core::tree::TreeHashPathMode::Original;
     std::atomic<std::uint64_t> completedThisRun{0};
     std::atomic<std::uint64_t> skippedFiles{0};
     std::atomic<std::uint64_t> transferredBytes{0};
@@ -1078,12 +1079,6 @@ struct TreeSummary {
     std::uint64_t changedFiles = 0;
 };
 
-std::string hex32(std::uint32_t value) {
-    std::ostringstream output;
-    output << std::hex << std::nouppercase << std::setw(8) << std::setfill('0') << value;
-    return output.str();
-}
-
 std::string jsonEscape(const std::string& value) {
     std::ostringstream output;
     for (const unsigned char ch : value) {
@@ -1162,94 +1157,9 @@ ChangedErrorDetails parseChangedError(const std::string& message) {
     return details;
 }
 
-common::Result<std::string> computeTreeVerificationHash(
-    const std::string& root, checksum::ChecksumBackend requestedBackend,
-    checksum::ChecksumBackend* actualBackend) {
-    std::error_code error;
-    const std::filesystem::path rootPath(root);
-    if (!std::filesystem::exists(rootPath, error) || error ||
-        !std::filesystem::is_directory(rootPath, error) || error) {
-        return common::Status::invalidArgument("tree hash root is not a directory");
-    }
-    std::vector<std::filesystem::path> files;
-    for (std::filesystem::recursive_directory_iterator iterator(
-             rootPath, std::filesystem::directory_options::none, error);
-         iterator != std::filesystem::recursive_directory_iterator(); iterator.increment(error)) {
-        if (error) {
-            return common::Status::systemError("tree hash scan failed: " + error.message(),
-                                               error.value());
-        }
-        const auto& entry = *iterator;
-        if (entry.is_symlink(error)) {
-            return common::Status::invalidArgument("tree hash rejects symlink");
-        }
-        if (error) {
-            return common::Status::systemError("tree hash entry failed: " + error.message(),
-                                               error.value());
-        }
-        if (entry.is_regular_file(error)) {
-            const std::filesystem::path relative =
-                std::filesystem::relative(entry.path(), rootPath, error);
-            if (error) {
-                return common::Status::systemError("tree hash relative failed: " + error.message(),
-                                                   error.value());
-            }
-            const std::string relativeText = relative.generic_string();
-            if (relativeText.find(".cpnetflux.") != std::string::npos ||
-                relativeText.find(".part.") != std::string::npos) {
-                continue;
-            }
-            files.push_back(entry.path());
-        } else if (!entry.is_directory(error)) {
-            return common::Status::invalidArgument("tree hash rejects non-regular file");
-        }
-    }
-    std::sort(files.begin(), files.end(), [&](const auto& left, const auto& right) {
-        return std::filesystem::relative(left, rootPath).generic_string() <
-               std::filesystem::relative(right, rootPath).generic_string();
-    });
-
-    checksum::ChecksumComputer computer(checksum::ChecksumAlgorithm::Crc32c, requestedBackend);
-    if (actualBackend != nullptr) {
-        *actualBackend = computer.backend();
-    }
-    std::vector<std::uint8_t> buffer(1024 * 1024);
-    for (const auto& path : files) {
-        const std::filesystem::path relative = std::filesystem::relative(path, rootPath, error);
-        if (error) {
-            return common::Status::systemError("tree hash relative failed: " + error.message(),
-                                               error.value());
-        }
-        const std::string relativeText = relative.generic_string();
-        const std::uint64_t size = std::filesystem::file_size(path, error);
-        if (error) {
-            return common::Status::systemError("tree hash file size failed: " + error.message(),
-                                               error.value());
-        }
-        const std::string sizeText = std::to_string(size);
-        computer.update(reinterpret_cast<const std::uint8_t*>(relativeText.data()),
-                        relativeText.size());
-        const std::uint8_t zero = 0;
-        computer.update(&zero, 1);
-        computer.update(reinterpret_cast<const std::uint8_t*>(sizeText.data()), sizeText.size());
-        computer.update(&zero, 1);
-        std::ifstream input(path, std::ios::binary);
-        if (!input) {
-            return common::Status::runtimeError("tree hash failed to open file: " + path.string());
-        }
-        while (input) {
-            input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
-            const std::streamsize read = input.gcount();
-            if (read > 0) {
-                computer.update(buffer.data(), static_cast<std::size_t>(read));
-            }
-        }
-        if (!input.eof()) {
-            return common::Status::runtimeError("tree hash read failed: " + path.string());
-        }
-        computer.update(&zero, 1);
-    }
-    return "crc32c:" + hex32(computer.finalize().value);
+common::Result<core::tree::TreeHashPathMode> summaryPathModeFromEnvironment() {
+    const auto* setting = std::getenv("CPNETFLUX_SUMMARY_PATH");
+    return core::tree::parseTreeHashPathMode(setting ? setting : "original");
 }
 
 common::Result<std::string> computeTreeVerificationHashFromChunks(
@@ -1433,8 +1343,8 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         if (hash.isOk()) summaryTreeHashSource = "verified_chunks";
     }
     if (!hash.isOk()) {
-        hash = computeTreeVerificationHash(hashRoot, options.checksumBackend,
-                                           &summaryTreeHashBackend);
+        hash = core::tree::treeHashFromFiles(hashRoot, stats.summaryPathMode,
+                                           options.checksumBackend, &summaryTreeHashBackend);
         summaryTreeHashSource = "filesystem_read";
     }
     const double summaryTreeHashSeconds =
@@ -1745,6 +1655,11 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
            << core::metrics::errorCodeName(core::metrics::classifyStatus(status)) << "\",\n";
     output << "  \"tree_hash\": \"" << jsonEscape(treeHash) << "\",\n";
     output << "  \"summary_tree_hash_seconds\": " << summaryTreeHashSeconds << ",\n";
+    output << "  \"summary_path_requested\": \""
+           << core::tree::treeHashPathModeName(stats.summaryPathMode) << "\",\n";
+    output << "  \"summary_path_effective\": \""
+           << (summaryTreeHashSource == "filesystem_read"
+                   ? core::tree::treeHashPathModeName(stats.summaryPathMode) : "not_used") << "\",\n";
     output << "  \"summary_tree_hash_backend\": \""
            << (hash.isOk() ? checksum::checksumBackendName(summaryTreeHashBackend) : "unavailable")
            << "\",\n";
@@ -3014,6 +2929,8 @@ common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOption
 
 common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptions) {
     const auto startedAt = std::chrono::steady_clock::now();
+    const auto summaryPath = summaryPathModeFromEnvironment();
+    if (!summaryPath.isOk()) return summaryPath.status();
     auto options = inputOptions;
     if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     if (options.transferTimeoutMs != 0)
@@ -3057,6 +2974,7 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
     }
 
     TreeRunStats persistentStats;
+    persistentStats.summaryPathMode = summaryPath.value();
     persistentStats.scanSeconds = scanSeconds;
     if (options.resume) {
         const auto preflight = preflightUploadResume(options, &manifest, manifestPath);
@@ -3105,6 +3023,8 @@ common::Status configureExperimentalDownloadWrite(config::TreeTransferOptions& o
 
 common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOptions) {
     const auto startedAt = std::chrono::steady_clock::now();
+    const auto summaryPath = summaryPathModeFromEnvironment();
+    if (!summaryPath.isOk()) return summaryPath.status();
     auto options = inputOptions;
     if (options.reconnectAttempts > 0 && options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     if (options.transferTimeoutMs != 0)
@@ -3112,6 +3032,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
     const std::string manifestPath = core::tree::treeManifestPathForDownload(options.destDir);
     core::tree::TreeManifest manifest;
     TreeRunStats stats;
+    stats.summaryPathMode = summaryPath.value();
     ControlClient control;
     config::TreeTransferOptions controlOptions = options;
     if (options.resume && persistentEligible(options)) controlOptions.connections = 1;

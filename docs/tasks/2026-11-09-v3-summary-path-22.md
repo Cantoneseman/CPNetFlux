@@ -1,9 +1,50 @@
 # S1 Summary Path22 Development Scope
 
-Date:2026-11-09. Status: approved-route follow-up, not implemented or benchmarked.
+Date:2026-11-09. Status: implementation in progress, no result yet.
 Input experiment/source `522fb68d7f65e08fc1c3359331d23ea702aee2c4`;
 start implementation from the pushed Baseline21 result commit and record its SHA.
 R770-1 sole serial writer; no agents/worktrees. R770-2 fixed-commit peer only.
+
+Execution input: `4f62a137faa0b6d48c3bcc7529204c6ebbf7ef0f`.
+The existing filesystem reader is private inside tree_transfer_client.cpp. Move
+it into the existing core/tree/tree_hash.{h,cpp} module so direct behavior tests
+can exercise symlink/FIFO rejection without a transfer. Keep the original reader
+as the control; cache validated names only in the candidate. Exact additional
+files: `tests/unit/tree_hash_test.cpp`,
+`tools/test/run_cpnetflux_summary_path_smoke.py`,
+`tools/perf/run_summary_path_ab.py`, `tools/test/run_summary_path_ab_test.py`.
+Use task-local `CPNETFLUX_SUMMARY_PATH=original|cached`; reject invalid values at
+upload/download entry, before connecting. Freeze mode per run and record requested/
+effective mode in JSON; reuse path reports not_used. Default stays original in
+this round, including after an opt-in candidate passes. Shared-default promotion
+requires the separate matched large-file regression gate, not assumed here.
+Tests: new smoke first against existing binary (expected missing-mode assertion),
+tree-hash unit cases and related summary/tree/V3 resume/conflict gates; then both
+nodes fixed source/build receipts before 40 formal samples (five pairs for each
+of three filesystem-read cases plus the16KiB x10K reuse negative control).
+No parallel writer/agent, production changes, or unrelated October14 docs edits.
+The shared traversal also propagates a terminal iterator error, checked with an
+unprivileged permission-denied directory test. Invalid mode fails before control
+connection; existing CLI parsing may create an empty download directory first,
+but no payload/checkpoint is created. Initial negative-test fixture errors
+(duplicate port and invalid remote absolute paths) were corrected and retained
+in test evidence; they were not transfer-runtime failures.
+
+## Execution Commands
+
+```sh
+cmake --build build -j 4 --target cpnetflux-gridftp-server cpnetflux-tree-download-client cpnetflux-tree-upload-client cpnetflux_unit_tests
+ctest --test-dir build --output-on-failure -R '^(TreeHash.*|cpnetflux_(small_file_baseline_driver_test|summary_path_ab_test|summary_path_smoke|tree_pending_window_smoke|tree_receiver_policy_smoke|tree_manifest_coalesce_smoke|v3_unified_executor_smoke|v3_interrupted_resume_smoke|v3_corrupt_partial_checkpoint_smoke|v3_target_conflict_idempotency_smoke|tree_edge_cases_smoke))$'
+CPNETFLUX_SUMMARY_PATH=cached ctest --test-dir build --output-on-failure -R '^cpnetflux_summary_crc_auto_smoke$'
+python3 tools/perf/run_summary_path_ab.py --commit FIXED_SHA \
+  --evidence /home/Su/experiments/CPNetFlux/2026-11-09-v3-summary-path-22/formal \
+  --payload-root /dev/shm/cpnetflux-s0-summary22
+```
+
+Record the pushed FIXED_SHA before transfer, then compare both build receipts.
+The16KiB x10K reuse negative control requires abs median change<=5%, both CV<=5%
+and descriptive p95 no worse. Its effective mode must be not_used. All40 samples
+must pass independent SHA/member manifest/tree terminal checks before cleanup.
 
 ## Mechanism, Scope And Non-Goals
 

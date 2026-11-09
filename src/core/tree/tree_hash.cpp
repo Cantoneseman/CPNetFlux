@@ -1,6 +1,8 @@
 #include "cpnetflux/core/tree/tree_hash.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <string_view>
 
@@ -26,6 +28,107 @@ std::string hex32(std::uint32_t value) {
 }
 
 }  // namespace
+
+common::Result<TreeHashPathMode> parseTreeHashPathMode(std::string_view value) {
+    if (value == "original") return TreeHashPathMode::Original;
+    if (value == "cached") return TreeHashPathMode::Cached;
+    return common::Status::invalidArgument("CPNETFLUX_SUMMARY_PATH must be original or cached");
+}
+
+const char* treeHashPathModeName(TreeHashPathMode mode) noexcept {
+    switch (mode) {
+        case TreeHashPathMode::Original: return "original";
+        case TreeHashPathMode::Cached: return "cached";
+    }
+    return "unknown";
+}
+
+common::Result<std::string> treeHashFromFiles(
+    const std::string& root, TreeHashPathMode mode, checksum::ChecksumBackend backend,
+    checksum::ChecksumBackend* actualBackend) {
+    if (mode != TreeHashPathMode::Original && mode != TreeHashPathMode::Cached)
+        return common::Status::invalidArgument("invalid tree hash path mode");
+    std::error_code error;
+    const std::filesystem::path rootPath(root);
+    if (!std::filesystem::exists(rootPath, error) || error ||
+        !std::filesystem::is_directory(rootPath, error) || error)
+        return common::Status::invalidArgument("tree hash root is not a directory");
+    struct Entry {
+        std::filesystem::path path;
+        std::string relative;
+    };
+    std::vector<Entry> files;
+    for (std::filesystem::recursive_directory_iterator iterator(
+             rootPath, std::filesystem::directory_options::none, error);
+         iterator != std::filesystem::recursive_directory_iterator(); iterator.increment(error)) {
+        if (error)
+            return common::Status::systemError("tree hash scan failed: " + error.message(), error.value());
+        const auto& entry = *iterator;
+        if (entry.is_symlink(error))
+            return common::Status::invalidArgument("tree hash rejects symlink");
+        if (error)
+            return common::Status::systemError("tree hash entry failed: " + error.message(), error.value());
+        if (entry.is_regular_file(error)) {
+            const auto relative = std::filesystem::relative(entry.path(), rootPath, error);
+            if (error)
+                return common::Status::systemError("tree hash relative failed: " + error.message(), error.value());
+            const std::string name = relative.generic_string();
+            if (name.find(".cpnetflux.") != std::string::npos || name.find(".part.") != std::string::npos)
+                continue;
+            files.push_back({entry.path(), mode == TreeHashPathMode::Cached ? name : std::string{}});
+        } else if (!entry.is_directory(error)) {
+            return common::Status::invalidArgument("tree hash rejects non-regular file");
+        }
+    }
+    if (error)
+        return common::Status::systemError("tree hash scan failed: " + error.message(), error.value());
+    if (mode == TreeHashPathMode::Cached) {
+        // Relative names were resolved and checked once during enumeration.
+        std::sort(files.begin(), files.end(), [](const auto& left, const auto& right) {
+            return left.relative < right.relative;
+        });
+    } else {
+        std::sort(files.begin(), files.end(), [&](const auto& left, const auto& right) {
+            return std::filesystem::relative(left.path, rootPath).generic_string() <
+                   std::filesystem::relative(right.path, rootPath).generic_string();
+        });
+    }
+    checksum::ChecksumComputer computer(checksum::ChecksumAlgorithm::Crc32c, backend);
+    if (actualBackend) *actualBackend = computer.backend();
+    std::vector<std::uint8_t> buffer(1024 * 1024);
+    for (const auto& entry : files) {
+        std::string relativeText;
+        if (mode == TreeHashPathMode::Cached) {
+            relativeText = entry.relative;
+        } else {
+            const auto relative = std::filesystem::relative(entry.path, rootPath, error);
+            if (error)
+                return common::Status::systemError("tree hash relative failed: " + error.message(), error.value());
+            relativeText = relative.generic_string();
+        }
+        const auto size = std::filesystem::file_size(entry.path, error);
+        if (error)
+            return common::Status::systemError("tree hash file size failed: " + error.message(), error.value());
+        const std::string sizeText = std::to_string(size);
+        computer.update(reinterpret_cast<const std::uint8_t*>(relativeText.data()), relativeText.size());
+        const std::uint8_t zero = 0;
+        computer.update(&zero, 1);
+        computer.update(reinterpret_cast<const std::uint8_t*>(sizeText.data()), sizeText.size());
+        computer.update(&zero, 1);
+        std::ifstream input(entry.path, std::ios::binary);
+        if (!input)
+            return common::Status::runtimeError("tree hash failed to open file: " + entry.path.string());
+        while (input) {
+            input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+            const auto read = input.gcount();
+            if (read > 0) computer.update(buffer.data(), static_cast<std::size_t>(read));
+        }
+        if (!input.eof())
+            return common::Status::runtimeError("tree hash read failed: " + entry.path.string());
+        computer.update(&zero, 1);
+    }
+    return "crc32c:" + hex32(computer.finalize().value);
+}
 
 common::Result<std::string> treeHashFromVerifiedChunks(
     std::vector<TreeHashFileCrc> files, checksum::ChecksumBackend prefixBackend,
