@@ -538,6 +538,9 @@ if(CPNETFLUX_BUILD_TESTS)
         add_test(NAME cpnetflux_summary_path_ab_test
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_summary_path_ab_test.py)
         set_tests_properties(cpnetflux_summary_path_ab_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_summary_default_gate_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_summary_default_gate_test.py)
+        set_tests_properties(cpnetflux_summary_default_gate_test PROPERTIES TIMEOUT 20)
         add_library(cpnetflux_source_read_fault_shim SHARED tools/test/source_read_fault_shim.cpp)
         target_link_libraries(cpnetflux_source_read_fault_shim PRIVATE ${CMAKE_DL_LIBS})
         target_link_libraries(cpnetflux_offset_write_fault_shim PRIVATE ${CMAKE_DL_LIBS})

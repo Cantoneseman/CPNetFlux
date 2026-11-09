@@ -1,8 +1,8 @@
 # S1B Summary Default Gate23
 
-Date:2026-11-09. Status: follow-up plan only, not executed.
+Date:2026-11-09. Status: implementation in progress; no gate result yet.
 Input experiment/source20aef478eda71764eb1876e8196518c1c60e87e1;
-start from pushed Summary Path22 result commit and record its SHA before edits.
+Input HEAD76cd3dd466dc055594b9fd12950d87be7221fb35 (pushed S1 result).
 S1 opt-in passed three filesystem-read cases and a reuse negative control;
 shared default remains original. See [result](2026-11-09-v3-summary-path-22-result.md).
 
@@ -19,7 +19,28 @@ exact reproducible commands; do not rely on old external helper assumptions.
 Expected files: this task/result, a bounded regression driver or the existing
 experiment helper, relevant selector/default tests and route docs. Only if the
 gate passes, a minimal client selector fallback change may propose default cached.
-Record precise additional files before implementation. No new protocol fields.
+Exact implementation files: tools/perf/run_summary_default_gate.py,
+tools/test/run_summary_default_gate_test.py, tools/perf/run_small_file_baseline.py
+(narrow explicit mapped-download option), CMakeLists.txt (analysis test), this
+task/result. Conditional promotion only: src/core/io/tree_transfer_client.cpp,
+tools/test/run_cpnetflux_summary_path_smoke.py, README.md,
+docs/RESEARCH_BASELINE.md and docs/PERFORMANCE_ROADMAP.md. Inspect each route
+document before editing. No new protocol fields.
+
+Use installed libc mincore through Python ctypes for read-only residency proof
+(fincore is absent); a private file mapping does not touch/prepopulate pages.
+Source is a fully materialized 8GiB file, one random8MiB block repeated1024,
+compression off. Seed/hash/residency are outside T_ready. Basic phase summaries
+remain enabled to check eight1GiB mmap ranges, 64MiB per-lane/256MiB concurrent
+window bounds and8192 verified chunks; detailed range/CPU timers remain off.
+Acceptance commands: new driver unit test, related CTest group on both peers,
+then fixed-commit run_summary_default_gate.py --action matrix. No sample retries.
+
+Preflight: 7 new checks pass. Initial related group18/19 passed; the unchanged
+mapped_lifecycle diagnostic failed at its collapse/pattern subcase with
+MADV_COLLAPSE ENOMEM. Collapse is not selected in S1B and its prior LF4 candidate
+was rejected. Record this host-sensitive diagnostic separately; do not weaken its
+test or change host memory policy. Normal mapped fault and unobserved tests pass.
 
 ## Regression Before Promotion
 
