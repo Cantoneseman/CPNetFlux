@@ -1,7 +1,7 @@
 # S2 Small-File Fixed Work24
 
-Date:2026-11-09. Status: next execution plan, not profiled or implemented yet.
-Input: pushed Gate23 result commit; record exact SHA at execution start.
+Date:2026-11-09. Status: implementation in progress, no profile results yet.
+Input: fa937c024206527ad40e9bab2022bfe39a4b6790, pushed Gate23 result.
 S1B default promotion is held by the preparation resource gate, not superseded.
 
 ## Scope And Acceptance
@@ -18,6 +18,24 @@ and tests. Existing process_probe_17.py has hard-coded roots and must not be
 imported/monkeypatched into this scope. sudo-n perf capability was checked on R2;
 check both peers and an owned PID/start/FIFO handshake before workload sampling.
 Do not sample production, use system-wide perf or change perf_event_paranoid.
+
+Exact files: new tools/perf/owned_process_profile.py (owned FIFO gate, perf and
+bounded thread snapshots), tools/perf/run_small_file_fixed_work.py (two-run
+orchestration/analysis), tools/test/run_owned_process_profile_test.py,
+tools/test/run_small_file_fixed_work_test.py, CMakeLists.txt and
+tools/perf/run_small_file_baseline.py (explicit optional runner callback only).
+Task/result and docs/ROADMAP.md, docs/README.md carry status/handoff. No C++
+runtime, protocol/default or system setting changes. R2 only syncs commits.
+Acceptance: driver unit tests, collector self-test with two workers created
+after ready/enable, matched builds, then one reference and one profiled transfer.
+Both arms use gated exec and phase-timing on; release-to-independent-exit defines
+this pair's T_ready, not the historical S1 spawn-to-exit denominator. Setup and
+profiling shutdown/hash checks are outside that clock. Perf199Hz cpu-clock,
+DWARF4096 user stacks, monotonic timestamps and<=32MiB/process. Sampled CPU stack
+weights and blocked-thread snapshot fractions are not removable wall-time budgets.
+No exact per-phase monotonic markers exist in the runtime; elapsed_seconds is
+captured before summary hashing. Use it and hash_seconds as intervals only, not
+an exact perf segmentation boundary. Preserve raw sample output for re-analysis.
 
 One unprofiled cached reference and at most one paired profiled run, same pushed
 commit/config/binaries, four TCP connections/pending2/queued pwrite, phase summary

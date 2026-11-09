@@ -296,7 +296,7 @@ def check_manifests(slot, count, size):
     return {'committed_member_manifests':len(member),'completed_tree_manifests':len(trees),
             'member_example':member[0].read_text()}
 
-def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False):
+def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None):
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
     folder=args.evidence/'samples';folder.mkdir(exist_ok=True)
     summary=folder/(name+'.summary.json');log=folder/(name+'.client.log')
@@ -312,7 +312,7 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
     row={'name':name,'window_request':window,'phase_timing':timing,'expected':expected,'command':command,
          'before':snapshot(),'result':'fail'}
     try:
-        resources=run_guarded(command,log,summary_path=summary_path,mapped_download=mapped_download)
+        resources=(runner or run_guarded)(command,log,summary_path=summary_path,mapped_download=mapped_download)
         row['resource']=resources;assert resources['exit_code']==0,log.read_text()[-4000:]
         value=json.loads(summary.read_text())
         if summary_path is not None:
