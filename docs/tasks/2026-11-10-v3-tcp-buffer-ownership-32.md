@@ -1,6 +1,7 @@
 # V3 TCP Buffer Ownership32
 
-Date:2026-11-10. Status: next task; design/diagnostic not implemented.
+Date:2026-11-10. Status: capability checked; bounded diagnostic in development.
+Exact input:06d50473d9808e9400b98cf84ba2125dd4d847a7.
 Runtime input:a0ae45728cb4223aec45c9a2f970d9001d8f8c01, after Publication31.
 Exact handoff/docs input is the Publication31 closure.json final_commit; record
 the actual HEAD before edits. R1 sole writer, R2 fixed-commit build/test peer.
@@ -41,6 +42,43 @@ tcp_frame_bench.cpp and its smoke. Record actual line anchors at the input commi
 Do not change existing direct-receive diagnostics or production publication code.
 
 ## Development Sequence And Acceptance
+
+### Frozen Implementation Scope
+
+Files:CMakeLists.txt, tools/perf/tcp_send_ownership.h,
+tools/perf/tcp_send_bench.cpp, tests/unit/tcp_send_ownership_test.cpp,
+tools/test/run_cpnetflux_tcp_send_bench_smoke.py,
+tools/test/tcp_send_fault_shim.cpp (isolated LD_PRELOAD smoke injection only),
+tools/perf/run_tcp_send_bench.py, this task/result and route/navigation docs.
+No production library changes. Evidence:
+/home/Su/experiments/CPNetFlux/2026-11-10-v3-tcp-buffer-ownership-32.
+
+Both hosts accept/get SO_ZEROCOPY=1, RLIMIT_MEMLOCK unlimited; R1/R2 kernels
+7.0.0-38/34-generic. Direct route uses eno17095np0; scatter-gather/TSO enabled.
+These capability checks do not prove actual copy avoidance.
+Input source anchors:FramedDataSocket::writeFrame ordinary sendmsg line165;
+persistent_tree_transfer.cpp:1769 owns vector,1810 pops it,1884 builds stack
+header,1900 writes spans,1934 recycles vector. Production ownership is unchanged.
+
+Diagnostic design:32 page-aligned69632-byte slots per lane (2.125MiB), fixed4096
+pending-call entries per lane. Each complete DATA header/CRC/payload stays in its
+slot. Successful positive send calls alone consume32-bit IDs; partial calls hold
+independent references to the same slot. A slot is free only after all bytes were
+accepted and all corresponding inclusive-range completions arrived. Check the
+whole completion range before mutating the ledger. Unknown/duplicate/unrelated
+notifications fail closed; ENOBUFS is explicit, no silent copy-mode fallback.
+Copied and unmarked completion counts remain separate. On terminal errors retain
+raw slot allocations until process exit. No timeout/shutdown-based early release.
+
+Use current V3 encoders, CRC and WorkExecutor on the receiver; a diagnostic-only
+fresh mapped sink provides equal receive work and external full SHA verification.
+It has no checkpoint/publication lifecycle and is not a complete file benchmark.
+Source is a real regular tmpfs file; both arms pread each slice into the same pool,
+calculate CRC and send identical framing/chunk boundaries. Service includes worker/
+pool preparation, read/CRC/send, completion drain and remote V3 result; connection
+and target open/resize are explicit setup outside service. Keep this distinction
+when assessing the full-task budget. Compare five1GiB pairs only after the small
+physical-NIC probe, then stop at the stated gates.
 
 1. Freeze a small ownership design and capability receipt. Check the two kernels,
    SO_ZEROCOPY availability, locked-memory limits and NIC route/features read-only.

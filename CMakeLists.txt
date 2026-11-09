@@ -378,6 +378,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(cpnetflux-mapped-cost-bench PRIVATE CPNetFlux::core)
     add_executable(cpnetflux-source-read-bench tools/perf/source_read_bench.cpp)
     target_link_libraries(cpnetflux-source-read-bench PRIVATE CPNetFlux::core)
+    add_executable(cpnetflux-tcp-send-bench tools/perf/tcp_send_bench.cpp)
+    target_link_libraries(cpnetflux-tcp-send-bench PRIVATE CPNetFlux::core)
 endif()
 
 add_executable(cpnetflux-gridftp-server
@@ -482,6 +484,15 @@ if(CPNETFLUX_BUILD_TESTS)
         target_link_options(cpnetflux_publication_tests PRIVATE
             "-Wl,--wrap=rename" "-Wl,--wrap=unlink" "-Wl,--wrap=fsync")
         gtest_discover_tests(cpnetflux_publication_tests PROPERTIES TIMEOUT 30)
+        add_executable(cpnetflux_tcp_send_ownership_tests tests/unit/tcp_send_ownership_test.cpp)
+        target_link_libraries(cpnetflux_tcp_send_ownership_tests PRIVATE GTest::gtest_main)
+        gtest_discover_tests(cpnetflux_tcp_send_ownership_tests PROPERTIES TIMEOUT 30)
+        add_library(cpnetflux_tcp_send_fault_shim SHARED tools/test/tcp_send_fault_shim.cpp)
+        target_link_libraries(cpnetflux_tcp_send_fault_shim PRIVATE dl)
+        add_test(NAME cpnetflux_tcp_send_bench_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tcp_send_bench_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_tcp_send_bench_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
     endif()
 
     add_test(NAME cpnetflux_checksum_combine_bench_smoke
