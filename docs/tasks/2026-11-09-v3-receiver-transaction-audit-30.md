@@ -1,11 +1,43 @@
 # S2G Receiver Transaction Work Audit30
 
-Date:2026-11-09. Status: next task, not started.
+Date:2026-11-09. Started/completed:2026-11-10. Status: audit complete; performance branch paused.
+Exact input:8a781d134b551d36385c4e6c6bd3e506768d2c1f.
+Result:[Audit30](2026-11-10-v3-receiver-transaction-audit-30-result.md).
+No runtime edits or new performance runs.52 related CTests and bounded local
+publication-state controls checked. Concrete>=10% removable budget not established.
+Next:[Publication31](2026-11-10-v3-publication-reconcile-31.md), a separate
+correctness prerequisite for the reproduced link-before-committed-save gap.
 Input:Budget29 measured source987746820559b4203a85fd3132589a2a23d0bbaf plus
 result/route docs; final backup SHA is in Budget29 evidence closure.json.
 R1 sole writer; no agents/worktrees. R2 exact-commit build/test/source peer.
 
 ## Question And Limit
+
+### This Round Scope And Acceptance
+
+Trace the fresh4KiB x10K download contract at the exact input. Reuse Budget28/29
+evidence only for that same implementation/configuration; do not compare their
+task medians. Produce a source-line count/ownership/crash-boundary ledger and
+validate its save counts against existing raw observations and current related
+CTest cases. A candidate needs both a removable mechanism and a conservative
+>=10% complete-task budget. Otherwise close this one audit and pause the
+per-file attribution branch, without adding another profiler or runtime knob.
+
+Non-goals: removing required saves, changing ACK/format/durability/recovery,
+root-check security changes, thread/window/queue expansion, microbatch/runtime
+implementation, bypassing content checks/CRC-reuse threshold, system policy
+changes, native RDMA or new throughput claims. No two-node payload is needed
+unless a justified observer or candidate is actually developed.
+
+Affected files initially: this task, its result, docs/ROADMAP.md, docs/README.md.
+Audit closure also adds Publication31's focused repair handoff after reproducing
+the existing publication gap; no runtime implementation is included in Audit30.
+Any implementation/test edit must be selected and frozen after source inspection.
+Read-only evidence and verification scripts stay under
+/home/Su/experiments/CPNetFlux/2026-11-10-v3-receiver-transaction-audit-30.
+Acceptance: trace ledger, raw-evidence consistency and related CTests pass,
+record a go/pause decision, explicit commit/push/readback, exact-commit R2 sync,
+and verified local source/evidence recovery mirror. Preserve unrelated files.
 
 Budget28 measured receive begin/commit unions around22%/24% and30000 member
 checkpoint saves for10000 files. Budget29 proves queued-work window blocking,
