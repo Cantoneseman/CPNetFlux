@@ -58,7 +58,7 @@ snapshots pass. Digest is an additional check, not a substitute for byte equalit
 This synthetic fixture always contains10K records; it is not an exact replay of
 scope24's growing snapshot sizes/60.33MB total and cannot be a task-time denominator.
 
-Max measured RSS25,649,152 bytes (24.462MiB); minimum observed MemAvailable
+Max measured RSS25,649,152 bytes (24.461MiB); minimum observed MemAvailable
 30,714,667,008 bytes (28.605GiB). Verification RSS peaks below20MiB. All measured
 and verification owned VmSwap0, host pswpout delta0, below256MiB cap. No payload
 tree was created and no new network-performance evidence was collected.
@@ -72,10 +72,11 @@ to bb: and bad/id; short valid IDs have explicit compatibility coverage. An earl
 benchmark build used the wrong CRC update signature; corrected to the existing
 crc32cInitialState/Update/Finalize API before tests/measurement.
 
-R1 related CTest14/14 passed:12 TreeManifest/Writer tests, S0 runner ownership
+R1 and R2 each passed related CTest14/14:12 TreeManifest/Writer tests, S0 runner ownership
 test and new serializer test (8 checks). It covers existing finish barrier,
 concurrent writer generations, save failure, timer and atomic save/load behavior.
-R2 sync/build/test checks the final fixed commit; it does not add performance runs.
+R2 synced/built/tested f9d8df3 (same code as measured source); no added performance runs.
+Benchmark SHA-256 matches across peers: d7fd638f2bab7d10ce1939d2cf97c181efecc06afe7d6b398da2967069e645c8.
 No transfer-program changes or experimental default promotion occurred.
 
 Scope24 reference tree write0.422147s / task1.472798411s is a28.66% optimistic
