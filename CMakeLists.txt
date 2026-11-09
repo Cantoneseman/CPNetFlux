@@ -372,6 +372,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(cpnetflux-mapped-cost-bench tools/perf/cpnetflux_mapped_cost_bench.cpp
         tools/perf/mapped_window_lifecycle_bench.cpp)
     target_link_libraries(cpnetflux-mapped-cost-bench PRIVATE CPNetFlux::core)
+    add_executable(cpnetflux-source-read-bench tools/perf/source_read_bench.cpp)
+    target_link_libraries(cpnetflux-source-read-bench PRIVATE CPNetFlux::core)
 endif()
 
 add_executable(cpnetflux-gridftp-server
@@ -522,6 +524,13 @@ if(CPNETFLUX_BUILD_TESTS)
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_mapped_lifecycle_smoke.py
                 --build-dir ${CMAKE_BINARY_DIR})
         set_tests_properties(cpnetflux_mapped_lifecycle_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_source_read_bench_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_source_read_bench_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --fault-library $<TARGET_FILE:cpnetflux_source_read_fault_shim>)
+        set_tests_properties(cpnetflux_source_read_bench_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_library(cpnetflux_source_read_fault_shim SHARED tools/test/source_read_fault_shim.cpp)
+        target_link_libraries(cpnetflux_source_read_fault_shim PRIVATE ${CMAKE_DL_LIBS})
         target_link_libraries(cpnetflux_offset_write_fault_shim PRIVATE ${CMAKE_DL_LIBS})
         add_test(NAME cpnetflux_offset_write_bench_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_offset_write_bench_smoke.py
