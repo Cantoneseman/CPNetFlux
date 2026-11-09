@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- V3 三阶段工程已收口；大文件性能门未过。[Kernel Service17 结果](tasks/2026-11-09-v3-kernel-service-17-result.md)的无预算候选暂停仍有效；按[后续开发计划](tasks/2026-11-09-v3-large-file-next-plan.md)，先做一轮有界机制/收益预算核对，条件筛选 TCP 大负载帧及 CRC 拼接算子，再进入小文件固定开销基线。仅计划更新，尚无新实现或实验收益；RDMA 优化、线程/队列扩张继续暂停。
+- V3 三阶段工程已收口；大文件性能门未过。[Kernel Service17 结果](tasks/2026-11-09-v3-kernel-service-17-result.md)的无预算候选暂停仍有效；按[后续开发计划](tasks/2026-11-09-v3-large-file-next-plan.md)，先做一轮有界机制/收益预算核对，条件筛选 TCP 大负载帧及 CRC 拼接算子，随后分别研究接收页面管理和数据搬运，再进入小文件固定开销基线。[Byte Work18](tasks/2026-11-09-v3-byte-work-18.md)开始诊断开发，完整任务尚无新收益；RDMA 优化、线程/队列扩张继续暂停。
 - 最新同轮完整任务 baseline/profile 中位数为 **27.291/27.296 Gbps**（三对），仅验证采样开销，没有新吞吐收益；输入 `025c38a9`，运行时未改。内容、V3 终态和资源门通过，sample02 接收接口 `rx_missed_errors` 增加 94，网络计数门未清洁。
 - 上述成绩限定为 R770-2 → R770-1、单个 8 GiB 驻留 tmpfs 源及全新 tmpfs 目标、4 路 TCP、queued 发送/inline 实验 mmap 接收、CRC32C/verified_chunks、TLS off、commit_sync=none；不是默认、物理磁盘或持久化性能。
 - [Observation Audit16](tasks/2026-11-09-v3-observation-audit-16-result.md) 的 detail-off 中位数为 27.858 Gbps，计时合同与 scope17 不同，不能跨轮计算收益。scope13 之前的约 28–29 Gbps 数据还须结合[本地 V3 executor 修复](tasks/2026-11-09-v3-receiver-critical-13-result.md)解释。
@@ -38,10 +38,11 @@
 
 ## 下一项工作
 
-**LF0：大文件机制/关键路径预算核对，尚未执行。** 范围、源码事实、阶段依赖及停止条件见[详细开发计划](tasks/2026-11-09-v3-large-file-next-plan.md)与[路线决定](DECISIONS/2026-11-09-v3-large-file-candidate-screening.md)。本轮只有文档，不启动代码候选。
+**LF0 / Byte Work18：成本核对及诊断工具开发，执行中。** 范围、源码事实、阶段依赖及停止条件见[详细开发计划](tasks/2026-11-09-v3-large-file-next-plan.md)与[路线决定](DECISIONS/2026-11-09-v3-large-file-candidate-screening.md)。本轮先扩展CRC拼接与实际mmap写入的成本诊断；不修改运行时帧上限。
 
 1. 复用 scope16/17 证据，核对逐帧读写、状态推进及 CRC 拼接的实际成本；最多一轮针对性补测，补测优先 ≤1 GiB。旧 64 KiB V3 热 payload 诊断观察过约 88.5 Gbps（稳定性未过门），所以 139264 帧不是根因证明。没有完整文件关键路径预算就跳过候选。接口 +94 只读补连接关联证据，不直接改网络。
 2. LF1 仅在预算足够时开发 TCP 大负载帧诊断原型，256 KiB/1 MiB 逻辑 DATA 两尺寸有限筛选，保持 CRC、lane/depth 和总预算。局部服务率中位改善 ≥15%、CV ≤5%才进入 LF2；否则关闭，默认上限不变。
 3. LF2 先定稿 V3 能力协商、长度和内存所有权，再集成真实文件路径。固定提交双端同步后做五对新 8 GiB 完整任务，要求中位吞吐 ≥10%、CV ≤5%、至少 4/5 配对改善及完整性/资源/恢复门。局部或热 payload 成绩不能替代。
-4. LF3 仅在重新核算预算足够时研究 CRC 拼接算子；不重复已有幂矩阵缓存，不和大帧一起改。若大帧已通过，按新成本重估；若失败，先恢复已验收运行时。至多两个新机制，完成/关闭/跳过后不继续增加大文件参数搜索。
-5. S0 转入小文件固定开销基线，覆盖 4/16/64/256 KiB × 1K/10K 可行子集、总量 ≤1 GiB；tuned native 包含既有 pending-window auto。固定成本主导才设计成员微批，固定批相对 tuned native、adaptive 相对固定批分别要求完整 T_ready 中位下降 ≥20%，p95/恢复不恶化、大文件回退 ≤5%。小文件研究不替代大文件未过门结论。
+4. LF3 仅在重新核算预算足够时研究 CRC 拼接算子；不重复已有幂矩阵缓存，不和大帧一起改。若大帧已通过，按新成本重估；若失败，先恢复已验收运行时。本轮逐帧筛选至多两个机制；有独立收益再测组合。完成/关闭/跳过后不继续参数搜索，转入页面管理与搬运的独立机制门。
+5. LF4 先核对新目标文件的页面分配/映射和实际大页可行性；必要初始化计入任务，不改共享THP/mount。LF5 再核算逻辑复制与CRC扫描边界；TCP完成通知、注册内存及缓冲所有权有独立设计门，RDMA仍暂停。
+6. S0 小文件固定开销基线保留，覆盖 4/16/64/256 KiB × 1K/10K 可行子集、总量 ≤1 GiB；tuned native 包含既有 pending-window auto。固定成本主导才设计成员微批，固定批相对 tuned native、adaptive 相对固定批分别要求完整 T_ready 中位下降 ≥20%，p95/恢复不恶化、大文件回退 ≤5%。小文件研究不替代大文件未过门结论。
