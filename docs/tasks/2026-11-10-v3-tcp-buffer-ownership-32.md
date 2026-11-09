@@ -1,6 +1,11 @@
 # V3 TCP Buffer Ownership32
 
-Date:2026-11-10. Status: capability checked; bounded diagnostic in development.
+Date:2026-11-10. Status: diagnostic completed; local performance gate NO-GO.
+Implementation/measured:8b7f4fb6cea2a5fbdc7ef70a5cc9bec668586588, pushed/read back.
+Both nodes140/140 related tests pass; runtime and diagnostic binary hashes match.
+Five physical-NIC1GiB pairs show sender CPU reduction19.84%, median service
+time increase1.81%, copied CV5.39% (over5%). No production integration or new
+full-task throughput result. See [results and next boundary](2026-11-10-v3-tcp-buffer-ownership-32-result.md).
 Exact input:06d50473d9808e9400b98cf84ba2125dd4d847a7.
 Runtime input:a0ae45728cb4223aec45c9a2f970d9001d8f8c01, after Publication31.
 Exact handoff/docs input is the Publication31 closure.json final_commit; record
