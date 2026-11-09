@@ -1,7 +1,8 @@
 # V3 Small File Baseline21
 
 Date: 2026-11-09. Input `8c887f09aea2847e68fdd6fc494fd7b52667ca04`.
-Status: development. R770-1 is the sole serial writer; R770-2 is a fixed-commit peer.
+Status: complete; see [result](2026-11-09-v3-small-file-baseline-21-result.md).
+R770-1 is the sole serial writer; R770-2 is a fixed-commit peer.
 
 ## Scope And Non-Goals
 
@@ -11,7 +12,7 @@ runtime/protocol/defaults, increase queues/threads, reopen old candidates, chang
 THP/mount/network/NUMA, run GridFTP or resume RDMA optimization.
 No subagents, worktrees, desktop or production-service changes.
 
-Files: this task/result; `tools/perf/run_small_file_baseline.py`,
+Files: this task/result and Summary Path22 follow-up scope; `tools/perf/run_small_file_baseline.py`,
 `tools/test/run_small_file_baseline_test.py`, CMakeLists.txt;
 ROADMAP, large-file-next-plan and route decision status. Preserve October14 docs.
 
@@ -85,12 +86,13 @@ Run `python3 tools/test/run_small_file_baseline_test.py` and:
 ```sh
 ctest --test-dir build --output-on-failure -R '^cpnetflux_(small_file_baseline_driver_test|tree_pending_window_smoke|tree_receiver_policy_smoke|tree_manifest_coalesce_smoke|tree_control_reuse_smoke|v3_unified_executor_smoke|v3_interrupted_resume_smoke|v3_corrupt_partial_checkpoint_smoke|tree_edge_cases_smoke)$'
 python3 tools/perf/run_small_file_baseline.py --action matrix \
-  --evidence /home/Su/experiments/CPNetFlux/2026-11-09-v3-small-file-baseline-21 \
-  --payload-root /dev/shm/cpnetflux-s0-20261109-21 --commit FIXED_SHA
+  --evidence /home/Su/experiments/CPNetFlux/2026-11-09-v3-small-file-baseline-21/revision1 \
+  --payload-root /dev/shm/cpnetflux-s0-20261109-21-r1 --commit 522fb68d7f65e08fc1c3359331d23ea702aee2c4
 ```
 
-Replace FIXED_SHA with the pushed source commit, compare both receipt actions
-before matrix. A 32-file plumbing smoke may precede the matrix and is excluded
+The fixed SHA is the pushed formal source commit; compare both receipt actions
+before matrix. These completed evidence names must not be reused for a new run.
+A 32-file plumbing smoke may precede the matrix and is excluded
 from performance samples. Driver exceptions preserve receipts; inspect owned
 supervisor PID/start and marked children before explicit cleanup/retry. Never
 reuse a failed sample name or silently discard its evidence. Final result records

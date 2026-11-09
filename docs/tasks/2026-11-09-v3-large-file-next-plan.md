@@ -1,7 +1,7 @@
 # CPNetFlux 大文件后续开发计划
 
 日期：2026-11-09。输入提交 `7dbaa06fcc8d70dd5e1f9cdfc9df9e5dca727ea1`。
-状态：Byte Work18、Mapped Collapse19、Source Read20诊断已完成；当前LF4 seed+collapse及LF5只读源窗口不晋级，下一项S0小文件固定开销基线。大帧/CRC运行时预算未证实。历史计划不作为性能结果。
+状态：Byte Work18、Mapped Collapse19、Source Read20诊断及S0 Baseline21已完成；当前LF4 seed+collapse及LF5只读源窗口不晋级，下一项S1摘要相对路径缓存。大帧/CRC运行时预算未证实。历史计划不作为性能结果。
 依据：[当前路线](../ROADMAP.md)、[scope17结果](2026-11-09-v3-kernel-service-17-result.md)、
 [本轮路线决定](../DECISIONS/2026-11-09-v3-large-file-candidate-screening.md)。
 
@@ -201,8 +201,10 @@ CRC32C、字节数相同，map/首次PTE/CRC/close计入必要服务边界，源
 ## S0及后续：小文件固定开销，独立研究目标
 
 逐帧筛选及页面/搬运阶段按各自门完成或跳过后，进入小文件基线；不靠无限参数搜索续测。
-本项目已有显式pending-window auto（密集小文件选8，默认仍2），它是tuned native的一部分，
-不等于成员聚合。不能仅拿窗口1作为新微批对照，也不把旧39–41%的窗口收益冒称本轮成果。
+本项目已有显式pending-window auto，默认仍2；S0已修正此前“密集小文件必选8”的假设：
+全新下载选择时清单为空，auto实际为2，有清单时才应用≥10K/平均≤64KiB规则。
+auto与显式8都要如实记录，不等于成员聚合。不能仅拿窗口1作为新微批对照，
+也不把旧39–41%的窗口收益冒称本轮成果。
 
 先测4/16/64/256KiB和1K/10K的可行子集，总量<=1GiB，记录cold setup、完整T_ready、
 open、成员校验、manifest/checkpoint、commit/发布成本。只有固定成本主导才另立成员微批设计，
@@ -210,6 +212,15 @@ open、成员校验、manifest/checkpoint、commit/发布成本。只有固定�
 成员路径/长度/CRC、失败隔离、成员级恢复和原子发布必须保留。
 目标T_ready中位下降>=20%，p95/恢复不恶化、大文件回退<=5%；各项单独报告。
 旧manifest/coalescing候选不能换名重开；新设计需要新的机制与成本证据。
+
+[Baseline21结果](2026-11-09-v3-small-file-baseline-21-result.md)完成33次正式测量，
+源码522fb68，两端同配置/二进制，全部SHA/manifest/资源门通过且清理自有payload。
+4KiB×10K的T_ready中位2.59057s，摘要树哈希1.57989s；旧elapsed在摘要前停止。
+源码排序比较器反复filesystem::relative，下一项先执行
+[Summary Path22](2026-11-09-v3-summary-path-22.md)：缓存已校验的相对路径，纯字符串排序，
+保持原有内容读取/CRC流。先单机制五对完整任务验收，再评估剩余固定成本及微批预算。
+显式8相对auto2在三组10K中位收益为-2.11%/+2.00%/+2.31%，不晋级默认策略；
+修正auto的远端统计语义另立行为门，不混入S1收益。大文件27.3Gbps/100G缺口不变。
 
 ## 统一资源、验证与交付规则
 
