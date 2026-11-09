@@ -1,6 +1,8 @@
 # S1B Summary Default Gate23
 
-Date:2026-11-09. Status: implementation in progress; no gate result yet.
+Date:2026-11-09. Status: driver implemented; preparation resource gate blocked.
+No performance samples and no default promotion. See
+[result](2026-11-09-v3-summary-default-gate-23-result.md).
 Input experiment/source20aef478eda71764eb1876e8196518c1c60e87e1;
 Input HEAD76cd3dd466dc055594b9fd12950d87be7221fb35 (pushed S1 result).
 S1 opt-in passed three filesystem-read cases and a reuse negative control;
@@ -48,6 +50,13 @@ on both nodes. The old combined assertion did not distinguish memory/swap.
 Add persistent seed diagnostics and allow one bounded preparation recheck on
 the corrected driver; keep the failed launch/evidence. Never lower resource gates
 or retry completed performance samples to chase CV.
+
+Corrected preparation067fd29 aborted at5,217,714,176 materialized bytes:
+MemAvailable minimum25,059,221,504, owned VmSwap0, host pswpout delta1 page.
+Both launches stopped before transfer, all owned roots removed. Default stays
+original; cached remains opt-in. Add a seed-abort evidence regression test.
+Next scoped handoff is docs/tasks/2026-11-09-v3-small-file-fixed-work-24.md;
+it can collect independent small-file attribution while promotion remains held.
 
 ## Regression Before Promotion
 

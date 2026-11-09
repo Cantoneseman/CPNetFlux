@@ -3,9 +3,12 @@
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'perf'))
+import run_summary_default_gate as gate
 from run_summary_default_gate import evaluate, residency, verify_chunks, verify_ranges
 
 
@@ -65,6 +68,20 @@ class DefaultGateTest(unittest.TestCase):
             r=residency(p)
             self.assertEqual(r['pages'],2);self.assertEqual(r['resident_pages'],2)
             self.assertEqual(p.read_bytes(),b'x'*8192)
+
+    def test_seed_swap_abort_retains_diagnostics_before_cleanup(self):
+        import json
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-s0-gate-test-',dir='/dev/shm') as d:
+            root=Path(d);(root/gate.base.MARKER).write_text(gate.base.TOKEN)
+            args=SimpleNamespace(commit='test',payload_root=root,evidence=root/'evidence')
+            with patch.object(gate.base,'receipt'),patch.object(gate.base,'node',return_value=2), \
+                 patch.object(gate.base,'mem',return_value=32*1024**3), \
+                 patch.object(gate.base,'pswpout',side_effect=[10,11,11]), \
+                 patch.object(gate.shutil,'disk_usage',return_value=SimpleNamespace(free=16*1024**3)):
+                with self.assertRaisesRegex(AssertionError,'seed host swap-out changed'):gate.seed(args)
+            r=json.loads((args.evidence/'peer/seed-resource.json').read_text())
+            self.assertEqual(r['pswpout_delta'],1)
+            self.assertEqual(r['materialized_bytes'],8*1024**2)
 
 
 if __name__=='__main__':unittest.main()
