@@ -3,7 +3,7 @@
 日期：2026-11-11
 输入提交：8831f8973afa32fb60f1b44b764d56102dea89de
 分支：codex/V3-GRIDFTP-OPTIMIZED-RERUN-01
-状态：合同已定；先实现驱动与测试，再固定最终提交进行双端构建和诊断。
+状态：**ABORTED / NETWORK COUNTER GATE；无性能结论。** 驱动与测试已在代码提交 `82784e540c11b8ac444be0414467e1c488b22342` 完成；帧尺寸矩阵第6个样本触发 `rx_missed_errors` 增量门后停止，receive-buffer矩阵未启动。详见[结果](2026-11-11-v3-receiver-profile-diagnostic-45-result.md)。
 
 ## 背景和范围
 

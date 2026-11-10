@@ -9,6 +9,7 @@
 **M1已在8GiB完整V3 TCP任务中跨过30Gbps；下一阶段以该固定配置为基线，选择一个有阶段证据支撑的机制推进40–50Gbps。**
 完整V3 TCP 256KiB DATA与有界接收buffer已完成1GiB同提交对照，见[Milestone35结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)。[定向网络归因36](tasks/2026-11-10-v3-receive-network-36-result.md)和[诊断40](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)的固定路径采样均未复现缺缓冲事件；[1MiB DATA候选37](tasks/2026-11-10-v3-data-frame-1m-37-result.md)和[queued mmap接收候选38](tasks/2026-11-10-v3-receiver-pipeline-38-result.md)均NO-GO。Diagnostic39在R770-2一次8GiB源准备中验证全页驻留、零pswpout、零进程/叶cgroup swap。M1-41驱动已实现，但唯一矩阵在首个control任务的资源门中止，没有完整传输样本；详见[M1-41结果](tasks/2026-11-11-v3-large-file-m1-41-result.md)。新一轮[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)完成五对8GiB交错对照，组合配置中位34.159Gbps，通过正式M1门。
 诊断40的固定256KiB DATA/1MiB接收buffer采样未复现RX缺缓冲事件；M1-41也未形成可比较吞吐，不能据此推断网络或候选收益。[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)已补全失败swap状态与客户端receipt；[任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)在两端120秒空载观察中未复现host变化，M1-41单页事件仍未归因。[M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)在10个完整任务中均满足资源、内容、接口计数与清理门；两端host pswpout增量为0。当前只报告受限TCP/tmpfs实验成绩。Entry锁内CRC combine不再开发：实测成本约为采样接收CPU的0.013%。不得增加接收线程、队列深度或网卡系统调优。
+M1-45 profile诊断已按接口计数停止门执行：[结果](tasks/2026-11-11-v3-receiver-profile-diagnostic-45-result.md)记录6/10个frame矩阵样本完整、最后一个样本 `rx_missed_errors` +405；receive-buffer矩阵未运行。该诊断没有性能结论，下一步先只读审查计数归属、观测开销和时间关联；未形成新合同前不启动传输实验。
 R770-1单人串行、同一时刻一个写入者；R770-2只接收固定提交。
 
 ## 已验证成果与当前性能边界
@@ -37,7 +38,8 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | DONE / NO-GO | Entry锁内CRC combine | [Diagnostic39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)：256KiB combine约0.1084ms/GiB，相对约0.85 receiver CPU秒/GiB仅约0.013%；不改运行时 |
 | SOURCE PREP PASS | 8GiB源驻留与换出 | [Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)的失败 count gap由[Diagnostic39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)补齐一次：同进程/cgroup下全页驻留、pswpout及swap为0；仅为源准备诊断 |
 | ATTEMPT ABORTED / NO PERFORMANCE DATA | 8GiB旧M1尝试 | [M1-41](tasks/2026-11-11-v3-large-file-m1-41-result.md)：首个control任务在host swap资源门中止，零完整样本；不重跑。失败证据见[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)，空载归因见[任务43](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md) |
-| PASS | 8GiB正式M1验收 | [M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)：34.159Gbps combined中位、CV 3.24%、5/5配对改善；DATA帧中位139,264→32,768，接收端CPU采样下界7.99→6.77s。[M1-45合同](tasks/2026-11-11-v3-receiver-profile-diagnostic-45.md)已固定范围：先保留逐range payload/CPU profile，再各跑一次1GiB帧尺寸与接收buffer归因矩阵；profile吞吐不作成绩。40–50Gbps目标仍开放 |
+| PASS | 8GiB正式M1验收 | [M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)：34.159Gbps combined中位、CV 3.24%、5/5配对改善；DATA帧中位139,264→32,768，接收端CPU采样下界7.99→6.77s。40–50Gbps目标仍开放 |
+| ABORTED / NO PERFORMANCE RESULT | M1-45接收端profile诊断 | [结果](tasks/2026-11-11-v3-receiver-profile-diagnostic-45-result.md)：frame矩阵在6/10样本后因单个样本 `rx_missed_errors` +405停止；receive-buffer矩阵未运行。先只读审查现有计数和观测开销，再决定是否建立新合同 |
 | DONE / NOT REPRODUCED | host `pswpout`归因诊断 | [任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端120秒无payload观察均稳定，未定位M1-41单页增量；M1-44已通过独立host swap-out门，但这不改变M1-41旧结果；不重跑M1-41 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
 | DEFERRED | 小文件固定/自适应成员微批 | 独立完成时间目标；利用S0/S1及S2证据，后续设计成员恢复/事务，不包装已有pending-window为新微批 |
