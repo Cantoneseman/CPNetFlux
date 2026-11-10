@@ -155,7 +155,7 @@ common::Status TransferStages::preflight(std::uint32_t lanes, std::uint32_t fram
     return created.isOk() ? common::Status::ok() : created.status();
 }
 common::Result<std::shared_ptr<TransferStages>> TransferStages::create(std::uint32_t lanes,std::uint32_t depth,bool receiver,std::uint32_t frameCapacity) {
-    if (frameCapacity != 65536 && frameCapacity != 262148)
+    if (frameCapacity != 65536 && frameCapacity != 262148 && frameCapacity != 1048580)
         return common::Status::invalidArgument("unsupported stage frame capacity");
     if (!lanes || lanes>64 || !depth || depth>64)
         return common::Status::invalidArgument("stage lanes and depth must be 1..64");
