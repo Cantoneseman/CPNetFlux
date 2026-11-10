@@ -1,7 +1,7 @@
 # V3 接收队列 page-pool 计数分析47结果
 
 日期：2026-11-11
-代码提交：待记录
+代码提交：26677952feea67588b6ed040a354c24f85f824d4
 输入提交：2df98f5d1f2ba093cc2d474ec0f27f8481b7e897
 合同：Task47（2026-11-11-v3-rx-page-pool-counter-analysis-47.md）
 状态：DONE / DIAGNOSTIC ONLY；无传输样本、无性能结论。
@@ -20,7 +20,10 @@
 - python3 tools/test/run_receive_network_test.py：7/7通过。
 - python3 tools/test/run_small_file_baseline_test.py：12/12通过；tools/test/run_large_data_ab_test.py：14/14通过。
 - 两份Python文件 py_compile 通过；git diff --check 通过。
-- 未运行CMake/CTest：仅改动Python诊断器和文档，不触及C++运行时。
+- R1/R2均在该提交运行 cmake --build build -j2，均为ninja no work；两端 ctest --test-dir build -R cpnetflux_large_data --output-on-failure 均5/5通过。
+- R1/R2的CMakeCache SHA-256一致：2e124b8f117ab8c1577df7044b7c425fa402440a1a358218fcd1bb8c82dcfd04。
+- 两端运行时二进制SHA-256一致：server 22a2b8cc3dea1ca5fbf6c0871f4ccf7c5907642ddad9fad398ccaff4189d98b7；download client 20f600140276a636740b43deb172d5ecb8bab81f593733452b7e22a91c76c30c；upload client b6c9e9c53360ca0dd0ef8a071518834dd80208ac66a3c1fe38af365fb3fb76b0。
+- R1/R2 Python相关测试均通过：receive_network 7/7、small_file_baseline 12/12、large_data_ab 14/14。
 
 ## Task46快照复算
 
