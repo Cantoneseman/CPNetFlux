@@ -2,7 +2,7 @@
 
 日期：2026-11-11
 输入提交：`e04d1c0fe972f0e407229857c52365c99ca835d9`
-状态：计划已定；只读采样，不运行CPNetFlux传输。
+状态：完成；两端均未复现host计数变化，根因仍未定位。详见[结果](2026-11-11-v3-host-pswpout-attribution-43-result.md)。
 
 ## 范围
 
@@ -20,4 +20,4 @@
 
 两端均完成至少1000次host计数采样和100次进程/cgroup快照；JSON包含单调时钟范围、host计数、MemAvailable低水位、SwapFree范围、进程VmSwap变化和CPNetFlux进程身份；结束时核对没有新建传输进程且计数结果可复读。若计数变化，报告同一窗口内的可见进程/cgroup变化；若没有变化，结论只能为本次观察未复现。
 
-本任务只更新此计划、`docs/ROADMAP.md`和`docs/README.md`；实验JSON放在experiments目录，不提交到Git。结果文档记录采样完整度、计数变化、可归属候选、局限和下一步。保留host `pswpout`增量为零的正式M1门槛。
+本任务只更新此计划、结果、`README.md`、`docs/ROADMAP.md`和`docs/README.md`；实验JSON放在experiments目录，不提交到Git。结果记录采样完整度、计数变化、可归属候选、局限和下一步。保留host `pswpout`增量为零的正式M1门槛。
