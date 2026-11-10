@@ -1,14 +1,14 @@
 # CPNetFlux 性能路线图
 
 更新：2026-11-11。当前决定：[按性能里程碑推进](DECISIONS/2026-11-10-v3-performance-milestones.md)。
-最近交付：[8 GiB大文件M1验收41结果](tasks/2026-11-11-v3-large-file-m1-41-result.md)。
+最近交付：[8 GiB大文件M1验收44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)。
 历史结果保留原提交、负载与结论；本页规定下一步，不产生新的性能成绩。
 
 ## 当前主线
 
-**在固定完整性语义和测试条件下，让完整V3大文件任务跨过30Gbps，并验证向40–50Gbps扩展的机制。**
-完整V3 TCP 256KiB DATA与有界接收buffer已完成1GiB同提交对照，见[Milestone35结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)。[定向网络归因36](tasks/2026-11-10-v3-receive-network-36-result.md)和[诊断40](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)的固定路径采样均未复现缺缓冲事件；[1MiB DATA候选37](tasks/2026-11-10-v3-data-frame-1m-37-result.md)和[queued mmap接收候选38](tasks/2026-11-10-v3-receiver-pipeline-38-result.md)均NO-GO。Diagnostic39在R770-2一次8GiB源准备中验证全页驻留、零pswpout、零进程/叶cgroup swap。M1-41驱动已实现，但唯一矩阵在首个control任务的资源门中止，没有完整传输样本；详见[M1-41结果](tasks/2026-11-11-v3-large-file-m1-41-result.md)。
-诊断40的固定256KiB DATA/1MiB接收buffer采样未复现RX缺缓冲事件；M1-41也未形成可比较吞吐，不能据此推断网络或候选收益。[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)已补全失败swap状态与客户端receipt；[任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)在两端120秒空载观察中未复现host变化，M1-41单页事件仍未归因。新一轮由[M1-44计划](tasks/2026-11-11-v3-large-file-m1-44.md)限定为单次8GiB矩阵；运行前双端代码/测试/资源门必须通过，失败不重试。Entry锁内CRC combine不再开发：实测成本约为采样接收CPU的0.013%。不得增加接收线程、队列深度或网卡系统调优。
+**M1已在8GiB完整V3 TCP任务中跨过30Gbps；下一阶段以该固定配置为基线，选择一个有阶段证据支撑的机制推进40–50Gbps。**
+完整V3 TCP 256KiB DATA与有界接收buffer已完成1GiB同提交对照，见[Milestone35结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)。[定向网络归因36](tasks/2026-11-10-v3-receive-network-36-result.md)和[诊断40](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)的固定路径采样均未复现缺缓冲事件；[1MiB DATA候选37](tasks/2026-11-10-v3-data-frame-1m-37-result.md)和[queued mmap接收候选38](tasks/2026-11-10-v3-receiver-pipeline-38-result.md)均NO-GO。Diagnostic39在R770-2一次8GiB源准备中验证全页驻留、零pswpout、零进程/叶cgroup swap。M1-41驱动已实现，但唯一矩阵在首个control任务的资源门中止，没有完整传输样本；详见[M1-41结果](tasks/2026-11-11-v3-large-file-m1-41-result.md)。新一轮[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)完成五对8GiB交错对照，组合配置中位34.159Gbps，通过正式M1门。
+诊断40的固定256KiB DATA/1MiB接收buffer采样未复现RX缺缓冲事件；M1-41也未形成可比较吞吐，不能据此推断网络或候选收益。[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)已补全失败swap状态与客户端receipt；[任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)在两端120秒空载观察中未复现host变化，M1-41单页事件仍未归因。[M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)在10个完整任务中均满足资源、内容、接口计数与清理门；两端host pswpout增量为0。当前只报告受限TCP/tmpfs实验成绩。Entry锁内CRC combine不再开发：实测成本约为采样接收CPU的0.013%。不得增加接收线程、队列深度或网卡系统调优。
 R770-1单人串行、同一时刻一个写入者；R770-2只接收固定提交。
 
 ## 已验证成果与当前性能边界
@@ -16,7 +16,7 @@ R770-1单人串行、同一时刻一个写入者；R770-2只接收固定提交�
 | 类别 | 已有事实 | 仍未完成 |
 |---|---|---|
 | 三阶段/可靠性工程 | V3三阶段工程收口；[Publication31](tasks/2026-11-10-v3-publication-reconcile-31-result.md)修复可证明自有hard-link发布后的CRC32C恢复窗口 | 不是所有发布方式/掉电恢复保证，不代表性能达标 |
-| 大文件 | [Milestone35](tasks/2026-11-10-v3-large-file-milestone-35-result.md)1GiB：大帧27.331→35.821Gbps；独立buffer对照34.111→36.952Gbps；38在固定提交上inline 35.758、queued 30.877Gbps，queued五对全退化并撤回；旧scope17仍为27.291Gbps/8GiB | [M1-41](tasks/2026-11-11-v3-large-file-m1-41-result.md)首个任务因资源门中止、无有效吞吐样本；8GiB验收仍未通过。40–50、70–85、100Gbps未验收，不能跨负载/提交算累计收益 |
+| 大文件 | [Milestone35](tasks/2026-11-10-v3-large-file-milestone-35-result.md)1GiB候选数据；[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)同提交8GiB：default 28.126、combined 34.159Gbps，配对中位提升21.45%，5/5改善 | 40–50、70–85、100Gbps仍未验收；M1组合效应未在8GiB拆成单项归因，不能跨负载/提交累加收益 |
 | 小文件 | [S1摘要缓存22](tasks/2026-11-09-v3-summary-path-22-result.md)三组受测任务T_ready下降44.7%/54.5%/41.5%，显式cached可复现 | 默认original；S1B默认晋级仍受环境门阻塞；不是payload加速或自适应微批 |
 | 机制资产 | [TCP所有权32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)诊断发送CPU下降19.84%，完成通知/有界池通过对应测试 | 墙钟无可信改善，不集成默认；可作未来有新依据的组合资产 |
 
@@ -36,11 +36,12 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | DONE / NO-GO | queued mmap接收交接 | [38结果](tasks/2026-11-10-v3-receiver-pipeline-38-result.md)：固定depth2队列，五对1GiB全退化，吞吐-13.65%、采样接收CPU+47%；候选已撤回，不再扫描队列深度或唤醒策略 |
 | DONE / NO-GO | Entry锁内CRC combine | [Diagnostic39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)：256KiB combine约0.1084ms/GiB，相对约0.85 receiver CPU秒/GiB仅约0.013%；不改运行时 |
 | SOURCE PREP PASS | 8GiB源驻留与换出 | [Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)的失败 count gap由[Diagnostic39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)补齐一次：同进程/cgroup下全页驻留、pswpout及swap为0；仅为源准备诊断 |
-| ATTEMPT ABORTED / NO PERFORMANCE DATA | 8GiB正式M1 | [M1-41](tasks/2026-11-11-v3-large-file-m1-41-result.md)：首个control任务在host swap资源门中止，零完整样本；两端payload根已清理。失败证据已由[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)补全，空载归因见[任务43](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)；新一轮另见[M1-44计划](tasks/2026-11-11-v3-large-file-m1-44.md)，M1-41不重跑 |
-| DONE / NOT REPRODUCED | host `pswpout`归因诊断 | [任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端120秒无payload观察均稳定，未定位M1-41单页增量；后续尝试由[M1-44计划](tasks/2026-11-11-v3-large-file-m1-44.md)单独定义，M1-41不重跑 |
+| ATTEMPT ABORTED / NO PERFORMANCE DATA | 8GiB旧M1尝试 | [M1-41](tasks/2026-11-11-v3-large-file-m1-41-result.md)：首个control任务在host swap资源门中止，零完整样本；不重跑。失败证据见[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)，空载归因见[任务43](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md) |
+| PASS | 8GiB正式M1验收 | [M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)：34.159Gbps combined中位、CV 3.24%、5/5配对改善；DATA帧中位139,264→32,768，接收端CPU采样下界7.99→6.77s。下一步先完善profile证据保留，再用≤1GiB诊断记录逻辑copy/CRC/线程CPU并选定一个机制；profile吞吐不作成绩。40–50Gbps目标仍开放 |
+| DONE / NOT REPRODUCED | host `pswpout`归因诊断 | [任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端120秒无payload观察均稳定，未定位M1-41单页增量；M1-44已通过独立host swap-out门，但这不改变M1-41旧结果；不重跑M1-41 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
 | DEFERRED | 小文件固定/自适应成员微批 | 独立完成时间目标；利用S0/S1及S2证据，后续设计成员恢复/事务，不包装已有pending-window为新微批 |
-| DIAGNOSTIC DONE / CAUSE OPEN | 网络稳定性与原生RDMA | 诊断40当前固定路径一次未复现；37历史候选总 `rx_missed_errors` +2,169、256KiB对照+36仍无队列/流级归因。任务43的host swap事件观察未复现且不能解释M1-41单页变化；下一轮门控实验见[M1-44计划](tasks/2026-11-11-v3-large-file-m1-44.md)，原生RDMA运行时优化继续暂停 |
+| DIAGNOSTIC DONE / CAUSE OPEN | 网络稳定性与原生RDMA | 诊断40当前固定路径一次未复现；37历史候选总 `rx_missed_errors` +2,169、256KiB对照+36仍无队列/流级归因。任务43的host swap事件观察未复现且不能解释M1-41单页变化；M1-44的10个TCP样本均无rx_missed_errors增量；旧网络因果仍开放，原生RDMA运行时优化继续暂停 |
 
 ### 已结束候选的处置
 
@@ -48,7 +49,7 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 - [S2C序列化26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)完整任务慢2.50%，保留original默认。
   “保存更快→全量快照更多”的证据用于未来保存机制设计；不删必要checkpoint/ACK。
 - TCP零拷贝32保留独立诊断及CPU效率证据，不自动集成、不重复调参求通过。
-- 256KiB逻辑DATA路径保留；1MiB DATA尺寸扩展、queued mmap接收和当前Entry锁内CRC combine候选均NO-GO。CRC算法与校验语义不变；诊断40未复现RX错误，不再重复同类采样；M1-41因资源门中止，先查host swap事件，不重跑该矩阵。
+- 256KiB逻辑DATA路径保留；1MiB DATA尺寸扩展、queued mmap接收和当前Entry锁内CRC combine候选均NO-GO。CRC算法与校验语义不变；诊断40未复现RX错误，不再重复同类采样；M1-41仍不重跑；M1-44两端资源门通过，旧单页事件不因此视为已归因。
 - scope33“不再自动追加通用profiler”的止损原则保留；其“先证明≥10%才可开发”的前置限制失效。
 - 不修改这些历史任务的实验数值与原判定；旧“下一项”按本页和里程碑35执行。
 
