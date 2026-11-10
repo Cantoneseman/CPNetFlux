@@ -2176,15 +2176,14 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         const auto& options = context->policy.options;
         const auto* direct = std::getenv("CPNETFLUX_RANGE_DIRECT_WRITE");
         if (!download || channelCount != 4 || socket->transport() != DataTransport::Tcp || socket->tlsEnabled() ||
-            (!receiverInline.value() && stages->depth != 2) || receiverWriteBatch.value() != 1 ||
-            receiverWake.value() != ProducerWakePolicy::AvailableCapacity || receiveBufferMode != "off" ||
+            !receiverInline.value() || receiverWriteBatch.value() != 1 ||
             stages->readConcurrency || stages->writeConcurrency || stages->writerPool ||
             options.fileIo.backend != storage::FileIoBackendKind::Posix ||
             options.fileIo.posixWriteStrategy != storage::PosixWriteStrategy::Direct ||
             options.fileIo.bufferSize || options.preallocateMode != storage::PreallocateMode::Off ||
             options.commitSyncPolicy != session::CommitSyncPolicy::None ||
             (direct && std::string_view(direct) != "parallel"))
-            return Status::invalidArgument("experimental download write requires four TCP POSIX direct ranges with inline or depth-2 queued receive, no workers, batches, extra buffers, preallocation or sync");
+            return Status::invalidArgument("experimental download write requires four inline TCP POSIX direct ranges without workers, buffers, preallocation or sync");
     }
     detail::PersistentTransferLifetime lifetime(socket, context->policy.limits);
     if (auto bounded = lifetime.status(); !bounded.isOk()) return bounded;

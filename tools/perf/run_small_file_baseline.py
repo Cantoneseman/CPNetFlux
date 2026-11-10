@@ -161,16 +161,14 @@ def observe(proc, state):
 
 def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False, tree_manifest_serializer=None,
                 tree_manifest_profile=None, member_work_profile=None, tcp_receive_buffer_bytes=None,
-                receiver_payload_execution=None, process_observer=None):
+                process_observer=None):
     state=resource_state();started=time.monotonic()
     env=environment()
     if tcp_receive_buffer_bytes is not None:
         assert tcp_receive_buffer_bytes in ('off','1048576')
         env['CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES']=tcp_receive_buffer_bytes
     if mapped_download:
-        execution=receiver_payload_execution or 'inline'
-        assert execution in ('inline','queued')
-        env['CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION']=execution
+        env['CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION']='inline'
         env['CPNETFLUX_EXPERIMENTAL_DOWNLOAD_WRITE']='mmap'
     if summary_path is not None:
         assert summary_path in ('original','cached')
@@ -321,8 +319,7 @@ def check_manifests(slot, count, size):
             'member_example':member[0].read_text()}
 
 def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None,
-                  tree_manifest_serializer=None, data_frame_bytes=None, tcp_receive_buffer_bytes=None,
-                  receiver_payload_execution=None):
+                  tree_manifest_serializer=None, data_frame_bytes=None, tcp_receive_buffer_bytes=None):
     if data_frame_bytes is not None:
         assert data_frame_bytes in (65532,262144)
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
@@ -345,8 +342,6 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
         run_options=dict(summary_path=summary_path,mapped_download=mapped_download)
         if tcp_receive_buffer_bytes is not None:
             run_options['tcp_receive_buffer_bytes']=tcp_receive_buffer_bytes
-        if receiver_payload_execution is not None:
-            run_options['receiver_payload_execution']=receiver_payload_execution
         if tree_manifest_serializer is not None:
             run_options['tree_manifest_serializer']=tree_manifest_serializer
         resources=(runner or run_guarded)(command,log,**run_options)
