@@ -82,14 +82,20 @@ def own_peer(args,action):
     return json.loads(result.stdout)
 
 
-def mapped_checks(args,name,size):
+def mapped_checks(args,name,size,receiver_execution):
     with gzip.open(args.evidence/'samples'/(name+'.summary.json.gz'),'rt') as f:data=json.load(f)
     rows=data['file_timings'];assert len(rows)==8
     frames=0
     for index,row in enumerate(sorted(rows,key=lambda r:r['offset'])):
         assert row['offset']==index*SIZE//8 and row['length']==SIZE//8
-        assert row['receiver_payload_execution']=='inline' and not row['range_observation_enabled']
+        assert row['receiver_payload_execution']==receiver_execution and not row['range_observation_enabled']
         assert row['receiver_write_backend']=='mmap_experimental'
+        if receiver_execution == 'queued':
+            assert row['payload_pipeline_depth']==2
+            assert row['pipeline_budget_bytes']==262148*2
+            assert 0 < row['pipeline_high_watermark_bytes'] <= row['pipeline_budget_bytes']
+        else:
+            assert row['payload_pipeline_depth']==0 and row['pipeline_budget_bytes']==0
         mapped=row['mapped_write']
         expected=128*(17 if size==65532 else 4)
         assert mapped['write_calls']==expected and mapped['written_bytes']==SIZE//8
@@ -131,19 +137,26 @@ def matrix(args):
         expected=own_peer(args,'seed')
         base.peer(args,'start',name='large-data',port=49335,data_base=61000);started=True;ready(49335)
         for rep in range(1,6):
-            labels=('65532','262144') if args.mechanism=='frame' else ('off','1048576')
+            if args.mechanism=='frame':
+                labels=('65532','262144')
+            elif args.mechanism=='receive-buffer':
+                labels=('off','1048576')
+            else:
+                labels=('inline','queued')
             for label in (labels if rep%2 else labels[::-1]):
                 size=int(label) if args.mechanism=='frame' else 262144
-                receive_buffer='off' if args.mechanism=='frame' else label
+                receive_buffer=label if args.mechanism=='receive-buffer' else 'off'
+                receiver_execution=label if args.mechanism=='receiver-pipeline' else 'inline'
                 name=f'1g-{args.mechanism}-{label}-r{rep}'
                 resident=own_peer(args,'residency');base.save(args.evidence/'samples'/(name+'.source.json'),resident)
                 assert resident['all_resident'] and resident['host_pswpout_delta_since_seed']==0,'source residency/swap gate'
                 assert resident['mem_available_bytes']>=12*base.GIB and resident['process']['swap_bytes']==0
                 row=base.client_sample(args,name,expected,'2','on',49335,mapped_download=True,data_frame_bytes=size,
-                    tcp_receive_buffer_bytes=receive_buffer)
-                row.update(rep=rep,frame_bytes=size,arm=label,receive_buffer=receive_buffer,source_residency=resident)
+                    tcp_receive_buffer_bytes=receive_buffer,receiver_payload_execution=receiver_execution)
+                row.update(rep=rep,frame_bytes=size,arm=label,receive_buffer=receive_buffer,
+                    receiver_payload_execution=receiver_execution,source_residency=resident)
                 row['verified_chunks']=verify_chunks(row['manifest_checks']['member_example'],SIZE)
-                row['mechanism']=mapped_checks(args,name,size)
+                row['mechanism']=mapped_checks(args,name,size,receiver_execution)
                 if receive_buffer!='off':
                     assert all(1048576<=lane['tcp_receive_buffer_bytes']<=2097152
                                for lane in row['summary']['lane_endpoints'])
@@ -174,7 +187,7 @@ if __name__=='__main__':
     parser.add_argument('--evidence',required=True,type=Path)
     parser.add_argument('--payload-root',required=True,type=Path)
     parser.add_argument('--commit',required=True)
-    parser.add_argument('--mechanism',choices=('frame','receive-buffer'),default='frame')
+    parser.add_argument('--mechanism',choices=('frame','receive-buffer','receiver-pipeline'),default='frame')
     args=parser.parse_args();args.evidence.mkdir(parents=True,exist_ok=True)
     if args.action=='matrix':matrix(args)
     elif args.action=='cleanup':

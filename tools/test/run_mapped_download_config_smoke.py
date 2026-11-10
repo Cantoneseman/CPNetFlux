@@ -22,7 +22,11 @@ def main():
                      ("mmap", ["--connections", "4", "--control-reuse", "worker",
                                "--file-parallelism", "4", "--posix-write-strategy", "direct"],
                       {"CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION": "inline",
-                       "CPNETFLUX_STAGE_WRITE_CONCURRENCY": "1"})]
+                       "CPNETFLUX_STAGE_WRITE_CONCURRENCY": "1"}),
+                     ("mmap", ["--connections", "4", "--control-reuse", "worker",
+                               "--file-parallelism", "4", "--posix-write-strategy", "direct"],
+                      {"CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION": "queued",
+                       "CPNETFLUX_PAYLOAD_PIPELINE_DEPTH": "4"})]
             for backend, args, overrides in cases:
                 env = {k: v for k, v in os.environ.items() if not k.startswith("CPNETFLUX_")}
                 env.update(overrides)
@@ -32,7 +36,7 @@ def main():
                     backend, args, result.returncode, result.stderr)
             # Existing option parsing may create an empty destination directory.
             assert not any(pathlib.Path(root, "out").rglob("*"))
-    print("mapped download configuration rejection: 4 passed")
+    print("mapped download configuration rejection: 5 passed")
 
 
 if __name__ == "__main__":

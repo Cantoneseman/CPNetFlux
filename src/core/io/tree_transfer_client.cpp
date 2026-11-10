@@ -3161,6 +3161,8 @@ common::Status configureExperimentalDownloadWrite(config::TreeTransferOptions& o
         const auto* value = std::getenv(key);
         return value ? std::string_view(value) == expected : !required;
     };
+    const bool inlineReceive = setting("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", "inline", true);
+    const bool queuedReceive = setting("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", "queued", true);
     if (options.connections != 4 || options.fileParallelism != 4 || options.linkSetLinks != 1 ||
         options.controlReuseMode != config::ControlReuseMode::Worker || !options.reuseDataSession ||
         options.dataTransport != DataTransport::Tcp || options.dataTlsMode != DataTlsMode::Off ||
@@ -3170,12 +3172,15 @@ common::Status configureExperimentalDownloadWrite(config::TreeTransferOptions& o
         options.fileIo.posixWriteStrategy != storage::PosixWriteStrategy::Direct || options.fileIo.bufferSize ||
         options.preallocateMode != storage::PreallocateMode::Off ||
         options.commitSyncPolicy != session::CommitSyncPolicy::None ||
-        !setting("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", "inline", true) ||
+        (!inlineReceive && !queuedReceive) ||
+        (queuedReceive && (!setting("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH", "2") ||
+                           !setting("CPNETFLUX_RECEIVER_PIPELINE_WAKE", "available") ||
+                           !setting("CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES", "off"))) ||
         !setting("CPNETFLUX_STAGE_READ_CONCURRENCY", "0") ||
         !setting("CPNETFLUX_STAGE_WRITE_CONCURRENCY", "0") ||
         !setting("CPNETFLUX_RECEIVER_WRITE_BATCH", "1") ||
         !setting("CPNETFLUX_RANGE_DIRECT_WRITE", "parallel"))
-        return common::Status::invalidArgument("experimental download write requires four inline TCP POSIX direct lanes, worker control reuse, CRC32C, no stage workers, buffers, compression, preallocation or sync");
+        return common::Status::invalidArgument("experimental download write requires four TCP POSIX direct lanes with inline or depth-2 queued receive, worker control reuse, CRC32C, no stage workers, batches, extra buffers, compression, preallocation or sync");
 #ifndef __linux__
     return common::Status::invalidArgument("experimental download write requires Linux");
 #else

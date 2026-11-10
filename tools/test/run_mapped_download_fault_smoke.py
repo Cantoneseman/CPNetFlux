@@ -60,54 +60,64 @@ def main():
                 stdout=output, stderr=subprocess.STDOUT, env=env)
         try:
             wait_for_control(port)
-            for mode in ("fail", "truncate"):
-                destination = root / mode
-                summary = root / (mode + ".json")
-                command = [str(build / "cpnetflux-tree-download-client"), "--host", "127.0.0.1",
-                    "--local-bind-address", "127.0.0.1", "--port", str(port),
-                    "--source-dir", "payload", "--dest-dir", str(destination),
-                    "--connections", "4", "--file-parallelism", "4", "--control-reuse", "worker",
-                    "--data-session-reuse", "tree", "--posix-write-strategy", "direct",
-                    "--file-io-buffer-size", "0", "--checksum", "crc32c", "--buffer-size", "262144",
-                    "--range-checkpoint-batch-chunks", "16", "--final-verify-policy", "verified_chunks",
-                    "--phase-timing", "on", "--transfer-timeout-ms", "15000", "--json-summary", str(summary)]
-                faulty = env | {"LD_PRELOAD": str(args.fault_library.resolve()),
-                                "CPNETFLUX_MAPPED_FAULT_ROOT": str(destination) + "/",
-                                "CPNETFLUX_MAPPED_FAULT": mode}
-                result = subprocess.run(command, env=faulty, capture_output=True, text=True, timeout=25)
-                assert result.returncode == (1 if mode == "fail" else -signal.SIGBUS), (mode, result)
-                if mode == "fail":
-                    assert "cpnetflux-test: injected mmap ENOMEM" in result.stderr, result.stderr
-                assert not (destination / "payload.bin").exists(), mode
-                if summary.exists():
-                    assert json.loads(summary.read_text())["result"] == "fail"
-                deadline = time.monotonic() + 5
-                while established_connections(server.pid) and time.monotonic() < deadline:
-                    time.sleep(0.05)
-                assert not established_connections(server.pid), "peer sockets did not exit after EOF"
-                manifests = list(destination.rglob("*manifest*"))
-                retained = [p for p in manifests if p.is_file() and "verified_chunks=" in p.read_text()]
-                assert retained, (mode, result.stderr, summary.read_text() if summary.exists() else "no summary",
-                                  list(root.rglob("*")))
-                if mode == "truncate":
-                    assert any("verified_chunks=\n" not in p.read_text() for p in retained)
-                resumed = subprocess.run(command + ["--resume"], env=env, capture_output=True, text=True, timeout=25)
-                assert resumed.returncode == 0, (mode, resumed.stderr)
-                receipt = json.loads(summary.read_text())
-                assert receipt["result"] == "pass" and receipt["actual_transport"] == "v3", receipt
-                assert file_sha256(destination / "payload.bin") == expected
-                timings = receipt["file_timings"]
-                assert timings and all(t["receiver_write_backend"] == "mmap_experimental" for t in timings)
-                assert all(t["mapped_write"]["active_mapped_bytes"] == 0 for t in timings)
-                if mode == "truncate":
-                    assert receipt["resume_skipped_bytes"] > 0, receipt
-                reports.append({"fault": mode, "exit": result.returncode,
-                                "resume": "pass", "peer_established_after_eof": 0,
-                                "skipped_bytes": receipt["resume_skipped_bytes"]})
-                # Only this test's private directory and files are removed.
-                for path in sorted(destination.rglob("*"), reverse=True):
-                    path.unlink() if path.is_file() else path.rmdir()
-                destination.rmdir()
+            for execution in ("inline", "queued"):
+                execution_env = env | {"CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION": execution,
+                                       "CPNETFLUX_PAYLOAD_PIPELINE_DEPTH": "2"}
+                for mode in ("fail", "truncate"):
+                    name = execution + "-" + mode
+                    destination = root / name
+                    summary = root / (name + ".json")
+                    command = [str(build / "cpnetflux-tree-download-client"), "--host", "127.0.0.1",
+                        "--local-bind-address", "127.0.0.1", "--port", str(port),
+                        "--source-dir", "payload", "--dest-dir", str(destination),
+                        "--connections", "4", "--file-parallelism", "4", "--control-reuse", "worker",
+                        "--data-session-reuse", "tree", "--posix-write-strategy", "direct",
+                        "--file-io-buffer-size", "0", "--checksum", "crc32c", "--buffer-size", "262144",
+                        "--range-checkpoint-batch-chunks", "16", "--final-verify-policy", "verified_chunks",
+                        "--phase-timing", "on", "--transfer-timeout-ms", "15000", "--json-summary", str(summary)]
+                    faulty = execution_env | {"LD_PRELOAD": str(args.fault_library.resolve()),
+                                              "CPNETFLUX_MAPPED_FAULT_ROOT": str(destination) + "/",
+                                              "CPNETFLUX_MAPPED_FAULT": mode}
+                    result = subprocess.run(command, env=faulty, capture_output=True, text=True, timeout=25)
+                    assert result.returncode == (1 if mode == "fail" else -signal.SIGBUS), (name, result)
+                    if mode == "fail":
+                        assert "cpnetflux-test: injected mmap ENOMEM" in result.stderr, result.stderr
+                    assert not (destination / "payload.bin").exists(), name
+                    if summary.exists():
+                        assert json.loads(summary.read_text())["result"] == "fail"
+                    deadline = time.monotonic() + 5
+                    while established_connections(server.pid) and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                    assert not established_connections(server.pid), "peer sockets did not exit after EOF"
+                    manifests = list(destination.rglob("*manifest*"))
+                    retained = [p for p in manifests if p.is_file() and "verified_chunks=" in p.read_text()]
+                    assert retained, (name, result.stderr, summary.read_text() if summary.exists() else "no summary",
+                                      list(root.rglob("*")))
+                    if mode == "truncate":
+                        assert any("verified_chunks=\n" not in p.read_text() for p in retained)
+                    resumed = subprocess.run(command + ["--resume"], env=execution_env,
+                                              capture_output=True, text=True, timeout=25)
+                    assert resumed.returncode == 0, (name, resumed.stderr)
+                    receipt = json.loads(summary.read_text())
+                    assert receipt["result"] == "pass" and receipt["actual_transport"] == "v3", receipt
+                    assert file_sha256(destination / "payload.bin") == expected
+                    timings = receipt["file_timings"]
+                    assert timings and all(t["receiver_write_backend"] == "mmap_experimental" for t in timings)
+                    assert all(t["receiver_payload_execution"] == execution for t in timings), receipt
+                    assert all(t["mapped_write"]["active_mapped_bytes"] == 0 for t in timings)
+                    if execution == "queued":
+                        assert all(t["payload_pipeline_depth"] == 2 for t in timings), receipt
+                        assert all(0 < t["pipeline_high_watermark_bytes"] <= t["pipeline_budget_bytes"]
+                                   for t in timings), receipt
+                    if mode == "truncate":
+                        assert receipt["resume_skipped_bytes"] > 0, receipt
+                    reports.append({"execution": execution, "fault": mode, "exit": result.returncode,
+                                    "resume": "pass", "peer_established_after_eof": 0,
+                                    "skipped_bytes": receipt["resume_skipped_bytes"]})
+                    # Only this test's private directory and files are removed.
+                    for path in sorted(destination.rglob("*"), reverse=True):
+                        path.unlink() if path.is_file() else path.rmdir()
+                    destination.rmdir()
         finally:
             stop_server(server, log)
     print(json.dumps({"result": "pass", "faults": reports, "payload_cleaned": True}))
