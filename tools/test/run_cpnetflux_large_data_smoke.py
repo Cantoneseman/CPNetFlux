@@ -60,14 +60,11 @@ def run(build, receive_buffer):
                 base = "XCPNETFLUX V3 WINDOW=1 CHANNELS=4 CHECKSUM=crc32c DATA_TLS=off DATA_TRANSPORT=tcp"
                 good = reply(base + " DATA_BYTES=262144")
                 assert good.startswith("200") and "data_bytes=262144 max_data_bytes=262144" in good, good
-                good = reply(base + " DATA_BYTES=1048576")
-                assert good.startswith("200") and "data_bytes=1048576 max_data_bytes=1048576" in good, good
-                for suffix in (" DATA_BYTES=262148", " DATA_BYTES=1048580",
-                               " DATA_BYTES=1048576 DATA_BYTES=1048576", " DATA_BYTES=0",
-                               " DATA_BYTES=1048576 DATA_TLS=required"):
+                for suffix in (" DATA_BYTES=262148", " DATA_BYTES=262144 DATA_BYTES=262144",
+                               " DATA_BYTES=0", " DATA_BYTES=262144 DATA_TLS=required"):
                     assert reply(base + suffix).startswith("504")
             rows = []
-            for size in (65532, 262144, 1048576):
+            for size in (65532, 262144):
                 for execution in ("queued", "inline"):
                     remote = f"received-{size}-{execution}"
                     for direction in ("upload", "download"):
@@ -94,12 +91,12 @@ def run(build, receive_buffer):
                         frames = (sum(f["stage_execution"]["read_calls"] for f in data["file_timings"])
                                   if direction == "upload" else
                                   sum(f["stage_execution"]["write_calls"] for f in data["file_timings"]))
-                        expected_frames = (16 * (17 if size == 65532 else 4 if size == 262144 else 1) + 1 +
-                                           (5 if size == 65532 else 2 if size == 262144 else 1))
+                        expected_frames = (16 * (17 if size == 65532 else 4) + 1 +
+                                           (5 if size == 65532 else 2))
                         assert frames == expected_frames, (size, direction, frames, expected_frames)
                         rows.append(dict(size=size, direction=direction, execution=execution, frames=frames))
             # Unsupported combinations must fail locally before any connection/payload.
-            base_cmd = command(build, "upload", 1, source, "unused", root / "reject.json", 1048576)
+            base_cmd = command(build, "upload", 1, source, "unused", root / "reject.json", 262144)
             for extra in (["--checksum", "none"], ["--chunk-size", "2097152"],
                           ["--compression", "auto"], ["--data-transport", "rdma"],
                           ["--tls-mode", "required"]):
@@ -133,7 +130,7 @@ def run(build, receive_buffer):
                     except Exception as error: errors.append(str(error))
                 worker = threading.Thread(target=old_peer, daemon=True); worker.start()
                 # Use one lane so only one fake control connection is required.
-                cmd = command(build, "upload", old_port, source, "unsupported", root / "old.json", 1048576)
+                cmd = command(build, "upload", old_port, source, "unsupported", root / "old.json", 262144)
                 cmd += ["--connections", "1", "--file-parallelism", "1", "--link-set-links", "1"]
                 done = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
                 worker.join(timeout=6)

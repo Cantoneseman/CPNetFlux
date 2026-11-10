@@ -221,7 +221,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--evidence-dir", type=Path, required=True)
-    parser.add_argument("--data-frame-bytes", type=int, choices=(65532,262144,1048576), default=65532)
+    parser.add_argument("--data-frame-bytes", type=int, choices=(65532,262144), default=65532)
     args = parser.parse_args()
     DATA_FRAME_BYTES = args.data_frame_bytes
     run(args.build_dir.resolve(), args.evidence_dir.resolve())

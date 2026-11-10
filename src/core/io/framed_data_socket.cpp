@@ -51,9 +51,8 @@ bool FramedDataSocket::valid() const noexcept {
 bool FramedDataSocket::tlsEnabled() const noexcept { return tlsMode_; }
 
 common::Status FramedDataSocket::configureDataFrameBytes(std::uint32_t logicalBytes) {
-    if (dataLimitConfigured_ || (logicalBytes != 65532 && logicalBytes != 262144 &&
-                                 logicalBytes != 1048576) ||
-        (logicalBytes > 65532 && (tlsEnabled() || transport() != DataTransport::Tcp)))
+    if (dataLimitConfigured_ || (logicalBytes != 65532 && logicalBytes != 262144) ||
+        (logicalBytes == 262144 && (tlsEnabled() || transport() != DataTransport::Tcp)))
         return common::Status::invalidArgument("unsupported or changed V3 DATA limit");
     dataPayloadLimit_ = logicalBytes + 4;
     dataLimitConfigured_ = true;

@@ -28,23 +28,6 @@ TEST(TreeTransferOptionsTest, DownloadReceiverDefaultsMatchPersistentPolicy) {
     EXPECT_EQ(options.rangeCheckpointBatchChunks, runtime.rangeCheckpointBatchChunks);
 }
 
-TEST(TreeTransferOptionsTest, AcceptsOneMiBDataFrameOnlyAsExplicitSupportedSize) {
-    const char* valid[] = {"cpnetflux-tree-upload-client", "--auth-probe",
-        "--control-reuse", "worker", "--data-session-reuse", "tree",
-        "--checksum", "crc32c", "--data-frame-bytes", "1048576"};
-    auto parsed = cpnetflux::config::parseTreeTransferOptions(
-        static_cast<int>(std::size(valid)), valid, cpnetflux::config::TreeTransferRole::Upload);
-    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
-    EXPECT_EQ(parsed.value().dataFrameBytes, 1048576U);
-
-    const char* invalid[] = {"cpnetflux-tree-upload-client", "--auth-probe",
-        "--control-reuse", "worker", "--data-session-reuse", "tree",
-        "--checksum", "crc32c", "--data-frame-bytes", "2097152"};
-    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
-        static_cast<int>(std::size(invalid)), invalid,
-        cpnetflux::config::TreeTransferRole::Upload).isOk());
-}
-
 TEST(TreeTransferOptionsTest, ParsesDownloadReceiverPolicies) {
     const char* argv[]{"cpnetflux-tree-download-client", "--auth-probe",
         "--final-verify-policy", "verified_chunks", "--manifest-flush-policy", "final_only",

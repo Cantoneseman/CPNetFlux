@@ -145,10 +145,9 @@ common::Status PersistentDataSession::acceptData(const protocol::FrameHeader& he
     }
     const std::uint64_t rangeEnd = current_.rangeId == 0 ? current_.totalSize :
         current_.rangeOffset + current_.rangeLength;
-    if ((dataPayloadLimit_ != kMaxPayload && dataPayloadLimit_ != 262148 &&
-         dataPayloadLimit_ != 1048580) ||
+    if ((dataPayloadLimit_ != kMaxPayload && dataPayloadLimit_ != 262148) ||
         !protocol::validateFrameHeader(header, dataPayloadLimit_).isOk() ||
-        (dataPayloadLimit_ > kMaxPayload && (logicalBytes > dataPayloadLimit_ - 4 ||
+        (dataPayloadLimit_ > kMaxPayload && (logicalBytes > 262144 ||
             current_.chunkSize == 0 || logicalBytes > current_.chunkSize - header.offset % current_.chunkSize)) ||
         header.type != protocol::FrameType::Data || (header.flags & ~protocol::kDataCompressed) != 0 ||
         header.statusCode != protocol::FrameStatusCode::Ok ||

@@ -321,7 +321,7 @@ def check_manifests(slot, count, size):
 def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None,
                   tree_manifest_serializer=None, data_frame_bytes=None, tcp_receive_buffer_bytes=None):
     if data_frame_bytes is not None:
-        assert data_frame_bytes in (65532,262144,1048576)
+        assert data_frame_bytes in (65532,262144)
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
     folder=args.evidence/'samples';folder.mkdir(exist_ok=True)
     summary=folder/(name+'.summary.json');log=folder/(name+'.client.log')

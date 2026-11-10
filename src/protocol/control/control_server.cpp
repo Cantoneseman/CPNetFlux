@@ -1445,9 +1445,9 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         valid = parsed.isOk();
                         if (valid) requestedDataTls = parsed.value();
                     } else if (key == "DATA_BYTES") {
-                        valid = !hasDataBytes && (value == "262144" || value == "1048576");
+                        valid = !hasDataBytes && value == "262144";
                         hasDataBytes = true;
-                        if (valid) requestedDataBytes = value == "262144" ? 262144U : 1048576U;
+                        if (valid) requestedDataBytes = 262144;
                     } else if (key == "DATA_TRANSPORT") {
                         auto parsed = core::io::parseDataTransport(value);
                         valid = parsed.isOk();
@@ -1462,7 +1462,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         !control.tlsEnabled() && requestedDataTransport == core::io::DataTransport::Tcp &&
                         checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c &&
                         options.chunkSize == 1048576 &&
-                        core::io::TransferStages::preflight(requestedChannels,requestedDataBytes+4).isOk())) &&
+                        core::io::TransferStages::preflight(requestedChannels,262148).isOk())) &&
                     requestedDataTls == options.dataTlsMode &&
                     requestedDataTransport == options.dataTransport &&
                     (requestedDataTransport != core::io::DataTransport::Rdma ||
@@ -1486,8 +1486,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     " resume=" + std::string(requestedResume ? "1" : "0") +
                     " data_tls=" + core::io::dataTlsModeName(requestedDataTls) +
                     " data_transport=" + core::io::dataTransportName(requestedDataTransport) +
-                    (hasDataBytes ? " data_bytes=" + std::to_string(requestedDataBytes) +
-                        " max_data_bytes=" + std::to_string(requestedDataBytes) : "") +
+                    (hasDataBytes ? " data_bytes=262144 max_data_bytes=262144" : "") +
                     (linkSetRequested ? " links=" + std::to_string(requestedLinks) +
                         " link_caps=" + std::to_string(requestedLinkCaps) : "") +
                     (requestedDynamic ? " scheduling=dynamic" : "");

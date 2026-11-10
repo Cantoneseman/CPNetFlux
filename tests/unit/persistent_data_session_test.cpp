@@ -117,56 +117,6 @@ TEST(PersistentSessionTest, NegotiatedLargeDataRoundTripsIncludingCrcAndTail) {
     EXPECT_FALSE(PersistentDataSession::writeData(&pair.sender,id,1048575,payload.data(),2).isOk());
 }
 
-TEST(PersistentSessionTest, OneMiBDataRoundTripsWithCrcAndChunkTail) {
-    constexpr std::uint32_t logical = 1048576;
-    constexpr std::uint32_t wire = logical + 4;
-    SocketPair pair;
-    ASSERT_TRUE(pair.sender.configureDataFrameBytes(logical).isOk());
-    ASSERT_TRUE(pair.receiver.configureDataFrameBytes(logical).isOk());
-    PersistentFileIdentity id{1,1,logical+31,"one-mib.bin","one-mib",logical,0,
-        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
-    std::vector<std::uint8_t> payload(logical,0x5a);
-    auto writing=std::async(std::launch::async,[&]{
-        auto status=PersistentDataSession::writeData(&pair.sender,id,0,payload.data(),payload.size());
-        if (!status.isOk()) return status;
-        return PersistentDataSession::writeData(&pair.sender,id,logical,payload.data(),31);
-    });
-    auto full=PersistentDataSession::readNext(&pair.receiver,wire);
-    ASSERT_TRUE(full.isOk()) << full.status().message();
-    ASSERT_EQ(full.value().payload.size(),wire);
-    EXPECT_TRUE(std::equal(payload.begin(),payload.end(),full.value().payload.begin()+4));
-    auto tail=PersistentDataSession::readNext(&pair.receiver,wire);
-    ASSERT_TRUE(tail.isOk()) << tail.status().message();
-    EXPECT_EQ(tail.value().header.offset,logical);
-    EXPECT_EQ(tail.value().payload.size(),35U);
-    EXPECT_TRUE(writing.get().isOk());
-}
-
-TEST(PersistentSessionTest, OneMiBDataKeepsControlFramesAtLegacyLimit) {
-    SocketPair pair;
-    ASSERT_TRUE(pair.receiver.configureDataFrameBytes(1048576).isOk());
-    auto header=beginHeader(1048576);header.type=FrameType::FileBegin;header.payloadSize=1048580;
-    const auto encoded=encodeFrameHeader(header);
-    ASSERT_TRUE(pair.sender.writeAll(encoded.data(),encoded.size()).isOk());
-    EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver,1048580).isOk());
-}
-
-TEST(PersistentSessionTest, OneMiBDataRejectsTruncatedFrameAndClearsPayload) {
-    constexpr std::uint32_t wire=1048580;
-    SocketPair pair;
-    ASSERT_TRUE(pair.receiver.configureDataFrameBytes(1048576).isOk());
-    auto header=beginHeader(1048576);header.type=FrameType::Data;
-    header.flags=kDataChecksum;header.payloadSize=wire;
-    const auto encoded=encodeFrameHeader(header);
-    ASSERT_TRUE(pair.sender.writeAll(encoded.data(),encoded.size()).isOk());
-    const std::uint8_t partial[]{0,1};
-    ASSERT_TRUE(pair.sender.writeAll(partial,sizeof(partial)).isOk());
-    pair.sender.close();
-    PersistentFrame frame;
-    EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver,wire,&frame).isOk());
-    EXPECT_TRUE(frame.payload.empty());
-}
-
 TEST(PersistentSessionTest, TcpReceiveBufferIsExplicitBoundedAndReported) {
     LoopbackTcpPair pair;
     EXPECT_FALSE(pair.receiver.configureTcpReceiveBuffer(2097152).isOk());
@@ -220,21 +170,6 @@ TEST(PersistentSessionTest, LargeDataRejectsCrossChunkWithoutAdvancingState) {
     EXPECT_FALSE(state.data(data,2,bytes.data()).isOk());EXPECT_EQ(state.receivedBytes(),1048575U);
 }
 
-TEST(PersistentSessionTest, OneMiBDataRejectsCrossChunkWithoutAdvancingState) {
-    constexpr std::size_t logical=1048576;
-    PersistentDataSession state(false,logical+4);
-    PersistentFileIdentity id{1,1,2*logical,"a","one-mib",logical,0,
-        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
-    ASSERT_TRUE(state.begin(beginHeader(id.totalSize),id).isOk());
-    std::vector<std::uint8_t> bytes(logical,'x');
-    auto data=beginHeader(id.totalSize);data.type=FrameType::Data;
-    data.flags=0;data.payloadSize=logical-1;
-    ASSERT_TRUE(state.data(data,logical-1,bytes.data()).isOk());
-    data.offset=logical-1;data.payloadSize=2;
-    EXPECT_FALSE(state.data(data,2,bytes.data()).isOk());
-    EXPECT_EQ(state.receivedBytes(),logical-1);
-}
-
 TEST(PersistentSessionTest, CorruptLargeDataCannotCertifyOrPublishChunk) {
     SocketPair pair;TempRoot source,destination;
     ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
@@ -242,33 +177,6 @@ TEST(PersistentSessionTest, CorruptLargeDataCannotCertifyOrPublishChunk) {
     std::ofstream(source.path/"bad.bin")<<std::string(1048576,'A');
     struct stat st{};ASSERT_EQ(::stat((source.path/"bad.bin").c_str(),&st),0);
     PersistentFileIdentity id{1,7,1048576,"bad.bin","large-bad-checksum",1048576,st.st_mtim.tv_sec,
-        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
-    cpnetflux::config::FileTransferOptions options;
-    options.path=(source.path/"bad.bin").string();options.hasCorruptChunk=true;options.corruptChunk=0;
-    PersistentTreeStats received,sent;cpnetflux::common::Status result;
-    PersistentTransferPolicy policy;
-    policy.options.finalVerifyPolicy=cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks;
-    auto context=makePersistentTransferContext(policy);
-    std::jthread receiver([&]{
-        result=receivePersistentTree(&pair.receiver,destination.path.string(),false,"",&received,
-            {},1,0,1,kUnknownPersistentFileCount,false,false,context);
-        pair.receiver.shutdown();
-    });
-    auto status=sendPersistentTree(&pair.sender,source.path.string(),{id},&sent,{},1,0,1,nullptr,&options);
-    receiver.join();EXPECT_FALSE(status.isOk());EXPECT_FALSE(result.isOk());
-    auto checkpoint=cpnetflux::checkpoint::ManifestStore::load(
-        cpnetflux::checkpoint::manifestPathForOutput((destination.path/"bad.bin").string()));
-    ASSERT_TRUE(checkpoint.isOk());EXPECT_TRUE(checkpoint.value().verifiedChunks.empty());
-    EXPECT_FALSE(std::filesystem::exists(destination.path/"bad.bin"));
-}
-
-TEST(PersistentSessionTest, CorruptOneMiBDataCannotCertifyOrPublishChunk) {
-    SocketPair pair;TempRoot source,destination;
-    ASSERT_TRUE(pair.sender.configureDataFrameBytes(1048576).isOk());
-    ASSERT_TRUE(pair.receiver.configureDataFrameBytes(1048576).isOk());
-    std::ofstream(source.path/"bad.bin")<<std::string(1048576,'A');
-    struct stat st{};ASSERT_EQ(::stat((source.path/"bad.bin").c_str(),&st),0);
-    PersistentFileIdentity id{1,7,1048576,"bad.bin","one-mib-bad-checksum",1048576,st.st_mtim.tv_sec,
         cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
     cpnetflux::config::FileTransferOptions options;
     options.path=(source.path/"bad.bin").string();options.hasCorruptChunk=true;options.corruptChunk=0;

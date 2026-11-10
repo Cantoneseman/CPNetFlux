@@ -91,7 +91,7 @@ def mapped_checks(args,name,size):
         assert row['receiver_payload_execution']=='inline' and not row['range_observation_enabled']
         assert row['receiver_write_backend']=='mmap_experimental'
         mapped=row['mapped_write']
-        expected=128*(17 if size==65532 else 4 if size==262144 else 1)
+        expected=128*(17 if size==65532 else 4)
         assert mapped['write_calls']==expected and mapped['written_bytes']==SIZE//8
         assert mapped['map_calls']==mapped['unmap_calls']==2 and mapped['active_mapped_bytes']==0
         assert mapped['window_bound_bytes']==64*base.MiB and mapped['concurrent_window_bound_bytes']==256*base.MiB
@@ -131,12 +131,10 @@ def matrix(args):
         expected=own_peer(args,'seed')
         base.peer(args,'start',name='large-data',port=49335,data_base=61000);started=True;ready(49335)
         for rep in range(1,6):
-            labels=(('65532','262144') if args.mechanism=='frame' else
-                    ('262144','1048576') if args.mechanism=='frame-1m' else
-                    ('off','1048576'))
+            labels=('65532','262144') if args.mechanism=='frame' else ('off','1048576')
             for label in (labels if rep%2 else labels[::-1]):
-                size=int(label) if args.mechanism in ('frame','frame-1m') else 262144
-                receive_buffer='off' if args.mechanism in ('frame','frame-1m') else label
+                size=int(label) if args.mechanism=='frame' else 262144
+                receive_buffer='off' if args.mechanism=='frame' else label
                 name=f'1g-{args.mechanism}-{label}-r{rep}'
                 resident=own_peer(args,'residency');base.save(args.evidence/'samples'/(name+'.source.json'),resident)
                 assert resident['all_resident'] and resident['host_pswpout_delta_since_seed']==0,'source residency/swap gate'
@@ -176,7 +174,7 @@ if __name__=='__main__':
     parser.add_argument('--evidence',required=True,type=Path)
     parser.add_argument('--payload-root',required=True,type=Path)
     parser.add_argument('--commit',required=True)
-    parser.add_argument('--mechanism',choices=('frame','frame-1m','receive-buffer'),default='frame')
+    parser.add_argument('--mechanism',choices=('frame','receive-buffer'),default='frame')
     args=parser.parse_args();args.evidence.mkdir(parents=True,exist_ok=True)
     if args.action=='matrix':matrix(args)
     elif args.action=='cleanup':

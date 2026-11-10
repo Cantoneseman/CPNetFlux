@@ -349,7 +349,7 @@ class ControlClient {
                 bool selected = false, maximum = false;
                 while (fields >> field) {
                     if (field == "data_bytes=" + std::to_string(dataBytes)) selected = true;
-                    if (field == "max_data_bytes=" + std::to_string(dataBytes)) maximum = true;
+                    if (field == "max_data_bytes=262144") maximum = true;
                 }
                 if (!selected || !maximum) return false;
             }
@@ -2086,8 +2086,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
     }
     const std::uint32_t channelCount = std::max(options.fileParallelism, options.linkSetLinks);
     if (options.dataFrameBytes != 65532 &&
-        ((options.dataFrameBytes != 262144 && options.dataFrameBytes != 1048576) ||
-         options.dataTransport != DataTransport::Tcp ||
+        (options.dataFrameBytes != 262144 || options.dataTransport != DataTransport::Tcp ||
          options.tls.mode != TlsMode::Off || options.dataTlsMode != DataTlsMode::Off ||
          options.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
          options.chunkSize != 1048576 || options.compressionMode != config::CompressionMode::Off ||

@@ -20,16 +20,6 @@ TEST(TransferStagesTest, LargeFramesAccountAllOwnersAndRejectBudgetOrShapeDrift)
  EXPECT_FALSE(TransferStages::create(64,64,false,262148).isOk());
  EXPECT_FALSE(TransferStages::create(4,2,false,262144).isOk());
 }
-TEST(TransferStagesTest, OneMiBFrameFitsFourLanesWithinExistingBudget) {
- constexpr std::uint32_t frame=1048580;
- auto stages=TransferStages::create(4,2,false,frame);
- ASSERT_TRUE(stages.isOk());
- EXPECT_EQ(stages.value()->ownershipBoundBytes,4ULL*8*frame);
- EXPECT_EQ(stages.value()->bufferBudgetBytes,64ULL*1024*1024);
- setenv("CPNETFLUX_STAGE_BUFFER_BYTES","33554432",1);
- EXPECT_FALSE(TransferStages::create(4,2,false,frame).isOk());
- unsetenv("CPNETFLUX_STAGE_BUFFER_BYTES");
-}
 TEST(TransferStagesTest, OneWriterBlocksSecondUntilItsPermitLeaves) {
  StageGate gate(1);auto first=gate.acquire();ASSERT_TRUE(first.isOk());
  std::promise<void> started;auto pending=std::async(std::launch::async,[&]{started.set_value();return gate.acquire();});started.get_future().wait();
