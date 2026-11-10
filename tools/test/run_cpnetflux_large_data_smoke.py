@@ -24,7 +24,7 @@ def command(build, direction, port, source, dest, summary, size):
             "--transfer-timeout-ms", "15000", "--json-summary", str(summary)]
 
 
-def run(build):
+def run(build, receive_buffer):
     with tempfile.TemporaryDirectory(prefix="cpnetflux-large-data-") as tmp:
         root = Path(tmp)
         source, peer = root / "source", root / "peer"
@@ -44,7 +44,8 @@ def run(build):
                 "--data-port-base", str(clamp_passive_data_port_base(free_port())),
                 "--connections", "4", "--link-set-max-links", "4", "--checksum", "crc32c",
                 "--chunk-size", "1048576"], stdout=output, stderr=subprocess.STDOUT,
-                env=dict(os.environ, CPNETFLUX_RANGE_TIMING="on"))
+                env=dict(os.environ, CPNETFLUX_RANGE_TIMING="on",
+                         CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES=receive_buffer))
         try:
             wait_for_control(port)
             with socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
@@ -74,6 +75,7 @@ def run(build):
                                       source if direction == "upload" else remote,
                                       remote if direction == "upload" else target, summary, size)
                         env = dict(os.environ, CPNETFLUX_RANGE_TIMING="on",
+                                   CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES=receive_buffer,
                                    CPNETFLUX_PAYLOAD_PIPELINE_DEPTH="2",
                                    CPNETFLUX_SENDER_PAYLOAD_EXECUTION=execution,
                                    CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION=execution)
@@ -83,6 +85,9 @@ def run(build):
                         data = json.loads(summary.read_text())
                         assert data["result"] == "pass" and data["actual_transport"] == "v3"
                         assert data["data_frame_logical_bytes"] == size
+                        if direction == "download" and receive_buffer != "off":
+                            assert all(1048576 <= lane['tcp_receive_buffer_bytes'] <= 2097152
+                                       for lane in data['lane_endpoints']), data['lane_endpoints']
                         frames = (sum(f["stage_execution"]["read_calls"] for f in data["file_timings"])
                                   if direction == "upload" else
                                   sum(f["stage_execution"]["write_calls"] for f in data["file_timings"]))
@@ -139,4 +144,6 @@ def run(build):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", required=True, type=Path)
-    run(parser.parse_args().build_dir.resolve())
+    parser.add_argument("--receive-buffer", choices=("off", "1048576"), default="off")
+    args = parser.parse_args()
+    run(args.build_dir.resolve(), args.receive_buffer)

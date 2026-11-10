@@ -63,6 +63,30 @@ DataTransport FramedDataSocket::transport() const noexcept {
     return rdmaMode_ ? DataTransport::Rdma : DataTransport::Tcp;
 }
 
+common::Status FramedDataSocket::configureTcpReceiveBuffer(std::uint32_t requestedBytes) {
+    if (requestedBytes != 0 && requestedBytes != 1048576)
+        return common::Status::invalidArgument("TCP receive buffer must be off or 1048576");
+    if (tlsEnabled() || transport() != DataTransport::Tcp) {
+        if (requestedBytes != 0)
+            return common::Status::invalidArgument("TCP receive buffer requires plain TCP data");
+        return common::Status::ok();
+    }
+    if (requestedBytes != 0) {
+        const int value = static_cast<int>(requestedBytes);
+        if (::setsockopt(fd(), SOL_SOCKET, SO_RCVBUF, &value, sizeof(value)) != 0)
+            return systemStatus("setsockopt(SO_RCVBUF)",errno);
+    }
+    int effective = 0;
+    socklen_t length = sizeof(effective);
+    if (::getsockopt(fd(), SOL_SOCKET, SO_RCVBUF, &effective, &length) != 0)
+        return systemStatus("getsockopt(SO_RCVBUF)",errno);
+    if (requestedBytes != 0 && (effective < static_cast<int>(requestedBytes) ||
+        effective > static_cast<int>(2*requestedBytes)))
+        return common::Status::invalidArgument("TCP receive buffer outside bounded kernel capacity");
+    tcpReceiveBufferBytes_ = static_cast<std::uint32_t>(effective);
+    return common::Status::ok();
+}
+
 RdmaTransportStats FramedDataSocket::rdmaStats() const noexcept {
     return rdmaMode_ ? rdma_.stats() : RdmaTransportStats{};
 }

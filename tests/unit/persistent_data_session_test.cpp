@@ -117,6 +117,18 @@ TEST(PersistentSessionTest, NegotiatedLargeDataRoundTripsIncludingCrcAndTail) {
     EXPECT_FALSE(PersistentDataSession::writeData(&pair.sender,id,1048575,payload.data(),2).isOk());
 }
 
+TEST(PersistentSessionTest, TcpReceiveBufferIsExplicitBoundedAndReported) {
+    LoopbackTcpPair pair;
+    EXPECT_FALSE(pair.receiver.configureTcpReceiveBuffer(2097152).isOk());
+    ASSERT_TRUE(pair.receiver.configureTcpReceiveBuffer(0).isOk());
+    EXPECT_GT(pair.receiver.tcpReceiveBufferBytes(),0U);
+    ASSERT_TRUE(pair.receiver.configureTcpReceiveBuffer(1048576).isOk());
+    EXPECT_GE(pair.receiver.tcpReceiveBufferBytes(),1048576U);
+    EXPECT_LE(pair.receiver.tcpReceiveBufferBytes(),2097152U);
+    FramedDataSocket invalid;
+    EXPECT_FALSE(invalid.configureTcpReceiveBuffer(1048576).isOk());
+}
+
 TEST(PersistentSessionTest, LargeDataDoesNotEnlargeControlsOrAcceptUnnegotiatedData) {
     for (const auto type : {FrameType::FileBegin,FrameType::Data}) {
         SocketPair pair;

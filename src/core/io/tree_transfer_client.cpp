@@ -942,6 +942,7 @@ common::Result<core::scheduler::SchedulerMetricsPaths> schedulerMetricsPaths(
 struct LaneEndpoint {
     std::uint32_t channelIndex = 0, laneIndex = 0, dataConnections = 0;
     std::string controlPeer, dataPeer, controlLocal, dataLocal;
+    std::uint32_t tcpReceiveBufferBytes = 0;
 };
 
 void addRdmaTransportStats(RdmaTransportStats* target,
@@ -1607,7 +1608,8 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
                << "\",\"data_peer_address\":\"" << jsonEscape(endpoint.dataPeer)
                << "\",\"control_local_address\":\"" << jsonEscape(endpoint.controlLocal)
                << "\",\"data_local_address\":\"" << jsonEscape(endpoint.dataLocal)
-               << "\",\"data_connections\":" << endpoint.dataConnections << "}";
+               << "\",\"data_connections\":" << endpoint.dataConnections
+               << ",\"tcp_receive_buffer_bytes\":" << endpoint.tcpReceiveBufferBytes << "}";
     }
     output << "],\n";
     if (stats.persistentData) {
@@ -2763,6 +2765,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 {
                     std::lock_guard<std::mutex> lock(channel.dataMutex);
                     addRdmaTransportStats(&channel.rdmaTransport, channel.data.rdmaStats());
+                    channel.endpoint.tcpReceiveBufferBytes = channel.data.tcpReceiveBufferBytes();
                     channel.data = FramedDataSocket{};
                 }
                 const auto waiting = std::chrono::steady_clock::now();

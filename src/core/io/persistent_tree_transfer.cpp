@@ -2143,6 +2143,14 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     if (!receiverWriteBatch.isOk()) return receiverWriteBatch.status();
     const auto receiverInline = diagnosticReceiverInlinePayload();
     if (!receiverInline.isOk()) return receiverInline.status();
+    const char* receiveBuffer = std::getenv("CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES");
+    const std::string_view receiveBufferMode = receiveBuffer ? receiveBuffer : "off";
+    if (receiveBufferMode != "off" && receiveBufferMode != "1048576")
+        return Status::invalidArgument("CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES must be off or 1048576");
+    if (receiveBufferMode != "off" && channelCount > 4)
+        return Status::invalidArgument("bounded TCP receive buffer supports at most four lanes");
+    const auto buffered = socket->configureTcpReceiveBuffer(receiveBufferMode == "off" ? 0 : 1048576);
+    if (!buffered.isOk()) return buffered;
     stats->pendingWindow = pendingWindow; // Receiver stays serial; report negotiated sender credit.
     const std::uint64_t filesAtConnectionStart = stats->files;
     auto status = PersistentDataSession::setTimeout(socket, 30);

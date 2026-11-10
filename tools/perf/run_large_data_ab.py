@@ -102,16 +102,18 @@ def mapped_checks(args,name,size):
 
 def evaluate(rows):
     result={'scope':'1GiB complete real-file task; not 8GiB M1', 'arms':{}, 'm1_pass':False}
-    for size in (65532,262144):
-        arm=[r for r in rows if r['frame_bytes']==size]
+    arms=list(dict.fromkeys(r['arm'] for r in rows))
+    assert len(arms)==2
+    for label in arms:
+        arm=[r for r in rows if r['arm']==label]
         times=[r['t_ready_seconds'] for r in arm];median=statistics.median(times)
-        result['arms'][str(size)]=dict(seconds=times,median_seconds=median,
+        result['arms'][label]=dict(seconds=times,median_seconds=median,
             median_gbps=SIZE*8/median/1e9,cv=statistics.pstdev(times)/statistics.mean(times),
             sampled_receiver_cpu_seconds=[r['resource']['cpu_seconds_sampled_lower_bound'] for r in arm],
             rss_peak_bytes=max(r['resource']['rss_peak_bytes'] for r in arm))
-    result['paired_improvements']=[1-next(r for r in rows if r['rep']==rep and r['frame_bytes']==262144)['t_ready_seconds']/
-        next(r for r in rows if r['rep']==rep and r['frame_bytes']==65532)['t_ready_seconds'] for rep in range(1,6)]
-    result['median_task_rate_change']=result['arms']['262144']['median_gbps']/result['arms']['65532']['median_gbps']-1
+    result['paired_improvements']=[1-next(r for r in rows if r['rep']==rep and r['arm']==arms[1])['t_ready_seconds']/
+        next(r for r in rows if r['rep']==rep and r['arm']==arms[0])['t_ready_seconds'] for rep in range(1,6)]
+    result['median_task_rate_change']=result['arms'][arms[1]]['median_gbps']/result['arms'][arms[0]]['median_gbps']-1
     result['improved_pairs']=sum(x>0 for x in result['paired_improvements'])
     return result
 
@@ -129,15 +131,22 @@ def matrix(args):
         expected=own_peer(args,'seed')
         base.peer(args,'start',name='large-data',port=49335,data_base=61000);started=True;ready(49335)
         for rep in range(1,6):
-            for size in ((65532,262144) if rep%2 else (262144,65532)):
-                name=f'1g-{size}-r{rep}'
+            labels=('65532','262144') if args.mechanism=='frame' else ('off','1048576')
+            for label in (labels if rep%2 else labels[::-1]):
+                size=int(label) if args.mechanism=='frame' else 262144
+                receive_buffer='off' if args.mechanism=='frame' else label
+                name=f'1g-{args.mechanism}-{label}-r{rep}'
                 resident=own_peer(args,'residency');base.save(args.evidence/'samples'/(name+'.source.json'),resident)
                 assert resident['all_resident'] and resident['host_pswpout_delta_since_seed']==0,'source residency/swap gate'
                 assert resident['mem_available_bytes']>=12*base.GIB and resident['process']['swap_bytes']==0
-                row=base.client_sample(args,name,expected,'2','on',49335,mapped_download=True,data_frame_bytes=size)
-                row.update(rep=rep,frame_bytes=size,source_residency=resident)
+                row=base.client_sample(args,name,expected,'2','on',49335,mapped_download=True,data_frame_bytes=size,
+                    tcp_receive_buffer_bytes=receive_buffer)
+                row.update(rep=rep,frame_bytes=size,arm=label,receive_buffer=receive_buffer,source_residency=resident)
                 row['verified_chunks']=verify_chunks(row['manifest_checks']['member_example'],SIZE)
                 row['mechanism']=mapped_checks(args,name,size)
+                if receive_buffer!='off':
+                    assert all(1048576<=lane['tcp_receive_buffer_bytes']<=2097152
+                               for lane in row['summary']['lane_endpoints'])
                 rows.append(row);base.save(args.evidence/'results.json',rows)
                 print(json.dumps(dict(sample=name,gbps=row['whole_task_gbps'],frames=row['mechanism']['actual_data_frames'])),flush=True)
         assert base.peer(args,'source-check')=={k:expected[k] for k in ('sha256','files','bytes')}
@@ -165,6 +174,7 @@ if __name__=='__main__':
     parser.add_argument('--evidence',required=True,type=Path)
     parser.add_argument('--payload-root',required=True,type=Path)
     parser.add_argument('--commit',required=True)
+    parser.add_argument('--mechanism',choices=('frame','receive-buffer'),default='frame')
     args=parser.parse_args();args.evidence.mkdir(parents=True,exist_ok=True)
     if args.action=='matrix':matrix(args)
     elif args.action=='cleanup':

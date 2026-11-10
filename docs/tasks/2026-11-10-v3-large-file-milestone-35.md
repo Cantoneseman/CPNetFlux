@@ -82,6 +82,34 @@ tools/test的新真实V3大帧smoke及对应CMake注册；本计划和已有路�
 保留。8范围各128MiB、4 lanes、原64MiB映射窗口/256MiB总上限；不跑8GiB、不作为M1。
 增加公共client_sample可选data_frame_bytes参数，旧调用不变；不复制资源控制框架。
 
+交付2结果（73d77c9，同版本两端）：1GiB五对交错中位27.331→35.821Gbps（+31.06%），
+5/5配对改善；帧数17408→4096，接收CPU采样下界中位1.01→0.85s/GiB。
+候选CV=5.176%（对照4.408%），未通过5%稳定门；候选r2/r5各增加rx_missed_errors
+206/367，不丢弃样本，不归因于软件或网络故障根因。host swap-out和owned swap均0，
+SHA/checkpoint/驻留通过；两端payload根已清理。原始证据data-ab，汇总prototype-analysis.json。
+源写/SHA进程PID1285270，session-26037.scope及祖先memory.max/high均max，
+本scope swap0且host swap-out0，1GiB生命周期驻留正常；不证明8GiB条件恢复。
+
+### 交付3选择：数据接收socket的有界背压缓冲
+
+交付2现存ss快照显示多个发送数据连接rwnd_limited约96%–99%，接收窗口约64–126KiB，
+故优先验证接收服务间隙与TCP窗口背压，而非先改CRC算子/缺页路径。
+这不是证明丢包根因；候选若仅提高CPU/内存而无可信任务收益则撤出默认候选。
+范围：显式`CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES=1048576`，默认off保留内核autotuning；
+仅plain TCP数据接收连接、最大4 lanes，单socket kernel返回SO_RCVBUF上限2MiB，
+总kernel receive buffer上限8MiB，独立于64MiB用户payload预算。仅在接收开始且payload前
+配置；不改sysctl/网卡/控制socket，不扫描大小。报告实际getsockopt值，拒绝不支持组合。
+文件：framed_data_socket.h/cpp、persistent_tree_transfer.cpp、tree_transfer_client.cpp、
+persistent_data_session_test.cpp、既有large-data smoke和run_large_data_ab.py及本计划。
+验收：setter拒绝/读回、旧行为回归、大帧与中断恢复；同提交固定大帧off/1MiB五对1GiB。
+所有样本与接口事件保留。比较task_rate/CPU/RSS/窗口；原型一轮加至多一次定向修正，
+不因CV偏高重复补样筛选。8GiB M1继续BLOCKED_ENV；RDMA未解禁。
+
+交付3实现：plain TCP接收入口显式设置并getsockopt读回，实际值写lane_endpoints，
+默认off不设置SO_RCVBUF（保留内核autotuning）。初测统计在socket释放后取值为0，
+已在关闭前保存到lane记录；不改变payload行为。R1同相关命令152/152通过17.78s，
+含新buffer smoke与setter单测；红灯为旧程序缺少读回字段。性能对照待固定提交后执行。
+
 已批准开发这个有界原型；scope18/33“缺少保守≥10%预算而不得写运行时”的前置限制失效。
 首个实验规格采用256KiB逻辑DATA，另留现有65532B逻辑DATA对照。保持1MiB checkpoint chunk；
 理论对齐chunk由17帧变4帧，wire payload须额外容纳4字节CRC。先不扫描1MiB规格、lane数或队列深度。
