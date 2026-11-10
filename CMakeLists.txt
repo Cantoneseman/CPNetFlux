@@ -998,6 +998,8 @@ if(CPNETFLUX_BUILD_TESTS)
     set_tests_properties(cpnetflux_v3_interrupted_resume_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
     add_test(NAME cpnetflux_large_data_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_large_data_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    add_test(NAME cpnetflux_receive_network_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_receive_network_test.py)
     add_test(NAME cpnetflux_large_data_interrupted_resume_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_interrupted_resume_smoke.py
             --build-dir ${CMAKE_BINARY_DIR} --data-frame-bytes 262144

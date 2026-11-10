@@ -160,7 +160,8 @@ def observe(proc, state):
         if filtered:state['tcp_snapshots'].append(filtered)
 
 def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False, tree_manifest_serializer=None,
-                tree_manifest_profile=None, member_work_profile=None, tcp_receive_buffer_bytes=None):
+                tree_manifest_profile=None, member_work_profile=None, tcp_receive_buffer_bytes=None,
+                process_observer=None):
     state=resource_state();started=time.monotonic()
     env=environment()
     if tcp_receive_buffer_bytes is not None:
@@ -192,6 +193,7 @@ def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False
         waiter.start()
         try:
             while not exited.is_set():
+                if process_observer is not None:process_observer(proc,state)
                 observe(proc,state)
                 assert time.monotonic()-started<timeout, 'owned process timeout'
                 exited.wait(.01)

@@ -13,6 +13,18 @@ s0 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(s0)
 
 class BaselineTest(unittest.TestCase):
+    def test_observer_failure_still_reaps_the_owned_child(self):
+        seen=[]
+        def observer(proc,state):
+            seen.append(proc.pid)
+            raise RuntimeError('diagnostic failed')
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-observer-test-') as directory:
+            with self.assertRaisesRegex(RuntimeError,'diagnostic failed'):
+                s0.run_guarded([sys.executable,'-c','import time;time.sleep(10)'],
+                    Path(directory)/'child.log',process_observer=observer)
+        self.assertEqual(len(seen),1)
+        with self.assertRaises(FileNotFoundError):s0.proc_info(seen[0])
+
     def test_timeout_reaps_only_its_owned_child(self):
         seen=[]
         original=s0.observe
