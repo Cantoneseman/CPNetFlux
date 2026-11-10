@@ -17,7 +17,7 @@
 
 | 主题 | 任务 / 结果 |
 |---|---|
-| 最近大文件候选评估 | [queued mmap接收38结果](tasks/2026-11-10-v3-receiver-pipeline-38-result.md)：五对1GiB全退化，吞吐中位下降13.65%、接收CPU增加，已撤回；下一项评估共享Entry锁内CRC combine |
+| 最近大文件候选评估 | [source residency 39结果](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)：当前256 KiB路径CRC combine约占采样接收CPU 0.013%，不开发锁内原型；一次8 GiB源准备驻留/换出门通过，但未互传；下一步定向关联RX missed与队列/IRQ服务 |
 | 1MiB帧候选 | [DATA帧37结果](tasks/2026-11-10-v3-data-frame-1m-37-result.md)：五对1GiB吞吐未改善，接收miss计数增加，候选撤回；不再扫描帧尺寸 |
 | 最新网络事件定向归因 | [接收网络36结果](tasks/2026-11-10-v3-receive-network-36-result.md)：硬件RQ缺缓冲层已定位，本轮未复现、根因OPEN；后续接收消费路径保持256KiB上限 |
 | 最新大文件基线与归因 | [内核服务17](tasks/2026-11-09-v3-kernel-service-17-result.md)、[观测开销16](tasks/2026-11-09-v3-observation-audit-16-result.md)、[本地 V3 executor 修复13](tasks/2026-11-09-v3-receiver-critical-13-result.md) |
@@ -26,13 +26,13 @@
 | 小文件 | [逐文件基线01](tasks/2026-11-08-v3-small-file-microbatch-01.md)、[清单候选02](tasks/2026-11-08-v3-small-file-microbatch-02.md)、[pending-window03](tasks/2026-11-08-v3-protocol-microbatch-03.md) |
 | 最近的小文件优化与待办 | [S0基线21](tasks/2026-11-09-v3-small-file-baseline-21-result.md)、[S1摘要缓存22](tasks/2026-11-09-v3-summary-path-22-result.md)、[S1B默认门23](tasks/2026-11-09-v3-summary-default-gate-23-result.md)、[S2归因24](tasks/2026-11-09-v3-small-file-fixed-work-24-result.md)、[S2B序列化25结果](tasks/2026-11-09-v3-tree-serialization-25-result.md)、[S2C运行时26结果](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)（NO-GO）、[S2D清单预算27结果](tasks/2026-11-09-v3-tree-state-budget-27-result.md)（直接同步预算不足）、[S2E逐文件预算28结果](tasks/2026-11-09-v3-per-file-budget-28-result.md)、[S2F发送端窗口预算29结果](tasks/2026-11-09-v3-sender-credit-budget-29-result.md)、[S2G事务审计30结果](tasks/2026-11-10-v3-receiver-transaction-audit-30-result.md)（逐文件性能归因暂停） |
 | 最新正确性修复与大文件诊断 | [Publication31结果](tasks/2026-11-10-v3-publication-reconcile-31-result.md)（有界发布恢复修复）、[TCP Buffer Ownership32结果](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)（五对诊断CPU下降19.84%，墙钟未过门，不集成）、[Receiver Service Budget33结果](tasks/2026-11-10-v3-receiver-service-budget-33-result.md)（既有证据/源码审计完成，锁内CRC关键路径预算仍未知，当前接收端候选分支暂停） |
-| S1B最新资源复核 | [Summary Default Recheck34结果](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)（两端空闲窗口通过，唯一8GiB准备后驻留失败、主机换出，零性能样本；修复准备/SHA/驻留跨阶段资源证据，默认仍original，不自动重试） |
+| S1B资源与大文件源驻留 | [Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)记录原8 GiB驻留失败；[Diagnostic39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)在同进程/cgroup完成一次源准备，2,097,152页全部驻留、host pswpout和进程swap增量为0。没有性能样本，不自动重试或晋级S1B默认 |
 | 历史三阶段 / RDMA | [三阶段工程收口](tasks/2026-11-07-v3-stage-decoupling-01-result.md)、[RDMA 基线](tasks/2026-11-04-r770-rdma-e2e-baseline-01-result.md)、[result 生命周期](tasks/2026-11-05-v3-result-lifetime-01-result.md)、[冷建连](tasks/2026-11-06-v3-rdma-startup-01-result.md) |
 | 其余记录与宏观设计 | [全部任务](tasks/)、[历史实验](experiments/)、[原分阶段计划](tasks/2026-11-04-performance-roadmap.md)（执行优先级以当前路线图为准） |
 
 ## 决策与历史规则
 
-- 2026-11-10起执行[性能里程碑决定](DECISIONS/2026-11-10-v3-performance-milestones.md)。上表scope18–34等历史结果保留原判定，但其“下一项”不覆盖当前路线；256KiB DATA保留，1MiB帧和queued mmap接收候选均已撤回，8GiB环境阻塞单独管理。
+- 2026-11-10起执行[性能里程碑决定](DECISIONS/2026-11-10-v3-performance-milestones.md)。上表scope18–34等历史结果保留原判定；scope39将Entry锁内CRC combine列为NO-GO，并仅验证单次源驻留，未替代8GiB完整任务门。256KiB DATA保留，1MiB帧和queued mmap接收候选均已撤回。
 
 - 当前开发环境遵循 [R770 主开发决定](DECISIONS/2026-10-30-r770-primary.md)；[性能路线决定](DECISIONS/2026-11-04-performance-route.md)和[流水线优先决定](DECISIONS/2026-11-07-v3-pipeline-priority.md)按当前路线图理解。
 - 深圳/上海主开发、旧协作角色、强制 worktree、旧路径和 SSH 命令均为历史材料，不覆盖当前开发规则。

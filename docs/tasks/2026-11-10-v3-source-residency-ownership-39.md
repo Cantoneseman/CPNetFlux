@@ -1,8 +1,10 @@
 # Source Residency Ownership Diagnostic 39
 
-Date: 2026-11-10. Status: scoped; diagnostic not yet run.
+Date: 2026-11-10. Status: complete; one bounded source-residency diagnostic passed.
 Input: `1d1d5bf099b44b1f3c2ba6626b4814af5e22579c`.
+Implementation: `48eba5bbe660781bdcc098a1ab80e725417db008` (pushed and SHA-verified).
 R770-1 is the sole writer; R770-2 receives a fixed commit.
+Result: [source residency ownership diagnostic 39](2026-11-10-v3-source-residency-ownership-39-result.md).
 
 ## Scope
 
