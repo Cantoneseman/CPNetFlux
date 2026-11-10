@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('s0', Path(__file__).resolve().parents[1]/'perf/run_small_file_baseline.py')
 s0 = importlib.util.module_from_spec(spec)
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'perf'))
 spec.loader.exec_module(s0)
 
 class BaselineTest(unittest.TestCase):
@@ -185,12 +186,58 @@ class BaselineTest(unittest.TestCase):
         }):
             normal=s0.environment()
             diagnostic=s0.environment(receiver_profile=True)
+            matched_control=s0.environment(receiver_profile=False,range_timing=True)
         self.assertEqual(normal['CPNETFLUX_RECEIVER_PROFILE'],'0')
         self.assertEqual(normal['CPNETFLUX_RECEIVER_CPU_PROFILE'],'0')
         self.assertEqual(normal['CPNETFLUX_RANGE_TIMING'],'off')
         self.assertEqual(diagnostic['CPNETFLUX_RECEIVER_PROFILE'],'1')
         self.assertEqual(diagnostic['CPNETFLUX_RECEIVER_CPU_PROFILE'],'1')
         self.assertEqual(diagnostic['CPNETFLUX_RANGE_TIMING'],'on')
+        self.assertEqual(matched_control['CPNETFLUX_RECEIVER_PROFILE'],'0')
+        self.assertEqual(matched_control['CPNETFLUX_RECEIVER_CPU_PROFILE'],'0')
+        self.assertEqual(matched_control['CPNETFLUX_RANGE_TIMING'],'on')
+
+    def test_receiver_network_snapshots_bracket_the_child_before_local_hash(self):
+        events=[]
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-s0-network-window-',dir='/dev/shm') as directory:
+            root=Path(directory);(root/s0.MARKER).write_text(s0.TOKEN)
+            evidence=root/'evidence';evidence.mkdir()
+            source=root/'expected';source.mkdir();(source/'f000000.bin').write_bytes(b'xyz')
+            expected=s0.tree(source)
+            args=SimpleNamespace(payload_root=root,evidence=evidence,size=3,count=1)
+            def network_snapshot(full=True):
+                events.append('before' if events==[] else 'after')
+                return {'started_monotonic':1,'ended_monotonic':2,'collection_seconds':1}
+            def runner(command,log,**options):
+                events.append('child')
+                self.assertTrue(options['range_timing'])
+                target=Path(command[command.index('--dest-dir')+1]);target.mkdir()
+                (target/'f000000.bin').write_bytes(b'xyz')
+                slot=target.parent
+                (slot/'member.manifest').write_text(
+                    'total_size=3\nstate=committed\nchecksum_algorithm=crc32c\n'
+                    'completed_ranges=1\nverified_chunks=1\n')
+                (slot/'tree.manifest').write_text(
+                    'mode=download\nchecksum_algorithm=crc32c\n'
+                    'files=f000000.bin:3:a:b:completed:z\n')
+                summary=Path(command[command.index('--json-summary')+1])
+                summary.write_text(json.dumps({'actual_transport':'v3','completed_files':1,
+                    'failed_files':0,'changed_files':0,'data_pending_window':2,
+                    'data_pending_window_policy':'fixed','data_pending_high_watermark':0}))
+                log.write_text('')
+                return {'exit_code':0,'wall_seconds':.25}
+            netdev={'rx_missed_errors':0,'rx_dropped':0}
+            with patch.object(s0,'snapshot',return_value={'net':netdev}), \
+                 patch.object(s0.receive_network,'snapshot',side_effect=network_snapshot), \
+                 patch.object(s0.receive_network,'analyze',return_value={
+                     'rx_missed_errors_delta':0,'rx_out_of_buffer_delta':0}):
+                row=s0.client_sample(args,'one',expected,'2','on',49335,
+                    mapped_download=True,runner=runner,receiver_profile=False,
+                    range_timing=True,network_profile=True)
+        self.assertEqual(events,['before','child','after'])
+        self.assertIn('analysis',row['receiver_network_window'])
+        self.assertEqual(row['t_ready_seconds'],.25)
+        self.assertTrue(row['output_slot_removed'])
 
     def test_phase_aggregation_preserves_overlap_and_quantiles(self):
         rows=[{'wall_seconds':2.,'read_seconds':.2,'finalize_seconds':None},

@@ -38,6 +38,41 @@ def m1_rows(candidate_times=None, misses=None):
     return rows
 
 
+def profile_overhead_rows():
+    off_times=[.300,.310,.290,.300,.305]
+    on_times=[.320,.330,.310,.320,.325]
+    rows=[]
+    for rep in range(1,6):
+        times={'off':off_times[rep-1],'on':on_times[rep-1]}
+        for arm in experiment.matrix_labels('profile-overhead',rep):
+            expected={'sha256':'same-tree','files':1,'bytes':experiment.base.GIB}
+            row={
+                'arm':arm,'rep':rep,'result':'pass','output_slot_removed':True,
+                't_ready_seconds':times[arm],'frame_bytes':262144,'receive_buffer':'off',
+                'profile_enabled':arm=='on','range_timing_requested':True,
+                'expected':expected,'actual_tree':dict(expected),
+                'verified_chunks':1024,
+                'resource':{'exit_code':0,'owned_swap_peak_bytes':0,'pswpout_delta':0,
+                            'mem_available_min_bytes':16*experiment.base.GIB},
+                'source_residency':{'all_resident':True,'bytes':experiment.base.GIB,
+                                    'process':{'swap_bytes':0},
+                                    'host_pswpout_delta_since_seed':0},
+                'mechanism':{'ranges':8,'actual_data_frames':4096},
+                'transfer_network_counter_deltas':{
+                    'rx_missed_errors':0,'rx_out_of_buffer':0},
+                'post_process_network_counter_deltas':{'rx_missed_errors':0},
+                'receiver_network_window':{'before':{},'after_transfer':{},
+                    'analysis':{'rx_missed_errors_delta':0,'rx_out_of_buffer_delta':0}},
+            }
+            if arm=='on':
+                row['receiver_phases']={'receiver_profile':{
+                    'payload':{'totals':{'data_frame_count':4096}},'cpu':{'totals':{}}}}
+            else:
+                row['receiver_phases']={'count':8}
+            rows.append(row)
+    return rows
+
+
 class LargeFileExperimentTest(unittest.TestCase):
     def test_arm_order_is_interleaved_ab_ba(self):
         self.assertEqual(experiment.matrix_labels('m1',1),('default','combined'))
@@ -48,6 +83,15 @@ class LargeFileExperimentTest(unittest.TestCase):
         self.assertEqual(experiment.arm_options('receive-buffer','1048576'),(262144,'1048576'))
         self.assertEqual(experiment.arm_options('m1','default'),(None,'off'))
         self.assertEqual(experiment.arm_options('m1','combined'),(262144,'1048576'))
+
+    def test_profile_overhead_matrix_keeps_the_transfer_configuration_fixed(self):
+        self.assertEqual(experiment.matrix_labels('profile-overhead',1),('off','on'))
+        self.assertEqual(experiment.matrix_labels('profile-overhead',2),('on','off'))
+        self.assertEqual(experiment.arm_options('profile-overhead','off'),(262144,'off'))
+        self.assertEqual(experiment.arm_options('profile-overhead','on'),(262144,'off'))
+        experiment.validate_receiver_profile_request('matrix','profile-overhead',1,False)
+        with self.assertRaisesRegex(ValueError,'profile-overhead'):
+            experiment.validate_receiver_profile_request('matrix','profile-overhead',8,False)
 
     def test_mapping_work_counts_scale_from_one_to_eight_gib(self):
         one=experiment.base.GIB
@@ -95,6 +139,9 @@ class LargeFileExperimentTest(unittest.TestCase):
             experiment.validate_profile_frame_count(profile,511)
         with self.assertRaisesRegex(AssertionError,'range timing'):
             experiment.validate_profile_rows([{'range_observation_enabled':False}],True)
+        no_profile=[{'range_observation_enabled':True,'receiver_payload_observation':None,
+                     'receiver_cpu_observation':None}]
+        experiment.validate_profile_rows(no_profile,False,range_timing=True)
 
     def test_profile_analysis_is_explicitly_non_performance_evidence(self):
         report=experiment.annotate_profile_analysis({'arms':{}},True)
@@ -102,6 +149,19 @@ class LargeFileExperimentTest(unittest.TestCase):
         self.assertFalse(report['throughput_is_performance_evidence'])
         normal=experiment.annotate_profile_analysis({'arms':{}},False)
         self.assertNotIn('receiver_profile_enabled',normal)
+
+    def test_profile_overhead_reports_paired_instrumentation_effect_only(self):
+        result=experiment.evaluate_profile_overhead(profile_overhead_rows(),experiment.base.GIB)
+        self.assertEqual(len(result['paired_slowdown_fractions']),5)
+        self.assertGreaterEqual(result['median_paired_slowdown_fraction'],.05)
+        self.assertTrue(result['repeatable_profile_perturbation'])
+        self.assertFalse(result['throughput_is_performance_evidence'])
+
+    def test_profile_overhead_rejects_transfer_window_receive_counter_events(self):
+        rows=profile_overhead_rows()
+        rows[0]['transfer_network_counter_deltas']['rx_out_of_buffer']=1
+        with self.assertRaisesRegex(AssertionError,'profile overhead network gate'):
+            experiment.evaluate_profile_overhead(rows,experiment.base.GIB)
 
     def test_m1_passes_only_with_rate_stability_pairs_and_network_gates(self):
         result=experiment.evaluate(m1_rows(),8*experiment.base.GIB)

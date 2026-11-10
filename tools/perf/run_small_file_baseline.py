@@ -18,6 +18,8 @@ import sys
 import threading
 import time
 
+import receive_network
+
 PROJECT = Path(__file__).resolve().parents[2]
 SCRIPT = Path(__file__).resolve()
 MARKER = '.cpnetflux-s0-owned'
@@ -167,15 +169,16 @@ def receipt(commit):
     return {'commit':commit,'configuration':configuration(),
             'binaries':{n:sha(PROJECT/'build'/n) for n in BINARIES},'project':str(PROJECT)}
 
-def environment(receiver_profile=False):
+def environment(receiver_profile=False, range_timing=None):
     env=os.environ.copy()
     # Freeze task-local knobs; never inherit another experiment's runtime policy.
     for key in list(env):
         if key.startswith('CPNETFLUX_'):env.pop(key)
+    if range_timing is None:range_timing=receiver_profile
     env.update(CPNETFLUX_STAGE_READ_CONCURRENCY='0',CPNETFLUX_STAGE_WRITE_CONCURRENCY='0',
                CPNETFLUX_STAGE_BUFFER_BYTES=str(64*MiB),CPNETFLUX_PAYLOAD_PIPELINE_DEPTH='2',
                CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION='queued',CPNETFLUX_SENDER_PAYLOAD_EXECUTION='queued',
-               CPNETFLUX_RANGE_TIMING='on' if receiver_profile else 'off',
+               CPNETFLUX_RANGE_TIMING='on' if range_timing else 'off',
                CPNETFLUX_RECEIVER_PROFILE='1' if receiver_profile else '0',
                CPNETFLUX_SENDER_PROFILE='0',
                CPNETFLUX_RECEIVER_CPU_PROFILE='1' if receiver_profile else '0',
@@ -209,9 +212,9 @@ def observe(proc, state):
 
 def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False, tree_manifest_serializer=None,
                 tree_manifest_profile=None, member_work_profile=None, tcp_receive_buffer_bytes=None,
-                process_observer=None, receiver_profile=False):
+                process_observer=None, receiver_profile=False, range_timing=None):
     state=resource_state();started=time.monotonic()
-    env=environment(receiver_profile=receiver_profile)
+    env=environment(receiver_profile=receiver_profile,range_timing=range_timing)
     if tcp_receive_buffer_bytes is not None:
         assert tcp_receive_buffer_bytes in ('off','1048576')
         env['CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES']=tcp_receive_buffer_bytes
@@ -383,7 +386,9 @@ def check_manifests(slot, count, size):
 
 def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None,
                   tree_manifest_serializer=None, data_frame_bytes=None, tcp_receive_buffer_bytes=None,
-                  receiver_profile=False):
+                  receiver_profile=False, range_timing=None, network_profile=False):
+    if network_profile:
+        assert timing == 'on' and range_timing is True
     if data_frame_bytes is not None:
         assert data_frame_bytes in (65532,262144)
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
@@ -403,7 +408,12 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
     row={'name':name,'window_request':window,'phase_timing':timing,'expected':expected,'command':command,
          'before':snapshot(),'result':'fail'}
     if receiver_profile:row['receiver_profile_requested']=True
+    if range_timing is not None:row['range_timing_requested']=range_timing
+    if network_profile:row['receiver_network_window']={}
     try:
+        network_window=row.get('receiver_network_window')
+        if network_window is not None:
+            network_window['before']=receive_network.snapshot(full=True)
         run_options=dict(summary_path=summary_path,mapped_download=mapped_download)
         if tcp_receive_buffer_bytes is not None:
             run_options['tcp_receive_buffer_bytes']=tcp_receive_buffer_bytes
@@ -411,7 +421,15 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
             run_options['tree_manifest_serializer']=tree_manifest_serializer
         if receiver_profile:
             run_options['receiver_profile']=True
-        resources=(runner or run_guarded)(command,log,**run_options)
+        if range_timing is not None:
+            run_options['range_timing']=range_timing
+        try:
+            resources=(runner or run_guarded)(command,log,**run_options)
+        finally:
+            if network_window is not None:
+                after_transfer=receive_network.snapshot(full=True)
+                network_window['after_transfer']=after_transfer
+                network_window['analysis']=receive_network.analyze(network_window['before'],after_transfer)
         row['resource']=resources;assert resources['exit_code']==0,log.read_text()[-4000:]
         value=json.loads(summary.read_text())
         if tree_manifest_serializer is not None:

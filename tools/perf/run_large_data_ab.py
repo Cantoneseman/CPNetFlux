@@ -21,6 +21,7 @@ def matrix_labels(mechanism, rep):
     labels = {
         'frame': ('65532','262144'),
         'receive-buffer': ('off','1048576'),
+        'profile-overhead': ('off','on'),
         'm1': ('default','combined'),
     }[mechanism]
     return labels if rep % 2 else labels[::-1]
@@ -31,19 +32,26 @@ def arm_options(mechanism, label):
         return int(label), 'off'
     if mechanism == 'receive-buffer':
         return 262144, label
+    if mechanism == 'profile-overhead':
+        return 262144, 'off'
     if mechanism == 'm1':
         return (None, 'off') if label == 'default' else (262144, '1048576')
     raise ValueError(f'unknown mechanism: {mechanism}')
 
 
 def validate_receiver_profile_request(action, mechanism, size_gib, enabled):
+    if mechanism == 'profile-overhead':
+        if action != 'matrix' or size_gib != 1 or enabled:
+            raise ValueError('profile-overhead requires its dedicated 1 GiB matrix without --receiver-profile')
+        return
     if enabled and (action != 'matrix' or size_gib != 1 or mechanism not in ('frame','receive-buffer')):
         raise ValueError('receiver profile is limited to 1 GiB frame/receive-buffer matrix diagnostics')
 
 
-def validate_profile_rows(file_rows, enabled):
+def validate_profile_rows(file_rows, enabled, range_timing=None):
+    if range_timing is None:range_timing=enabled
     for row in file_rows:
-        assert bool(row.get('range_observation_enabled')) == bool(enabled), 'range timing mode mismatch'
+        assert bool(row.get('range_observation_enabled')) == bool(range_timing), 'range timing mode mismatch'
         payload=row.get('receiver_payload_observation')
         cpu=row.get('receiver_cpu_observation')
         if enabled:
@@ -153,8 +161,10 @@ def own_peer(args,action):
     return json.loads(result.stdout)
 
 
-def mapped_checks(args,name,size):
+def mapped_checks(args,name,size,receiver_profile=None,range_timing=None):
     size = 65532 if size is None else size
+    if receiver_profile is None:receiver_profile=args.receiver_profile
+    if range_timing is None:range_timing=receiver_profile
     with gzip.open(args.evidence/'samples'/(name+'.summary.json.gz'),'rt') as f:data=json.load(f)
     rows=data['file_timings'];assert len(rows)==8
     frames=0
@@ -168,7 +178,7 @@ def mapped_checks(args,name,size):
         assert mapped['map_calls']==mapped['unmap_calls']==SIZE//(512*base.MiB) and mapped['active_mapped_bytes']==0
         assert mapped['window_bound_bytes']==64*base.MiB and mapped['concurrent_window_bound_bytes']==256*base.MiB
         frames+=mapped['write_calls']
-    validate_profile_rows(rows,args.receiver_profile)
+    validate_profile_rows(rows,receiver_profile,range_timing)
     assert data['data_frame_logical_bytes']==size
     return dict(ranges=8,actual_data_frames=frames,mapped_window_bytes=64*base.MiB)
 
@@ -191,6 +201,69 @@ def evaluate(rows, size_bytes=SIZE):
     result['median_task_rate_change']=result['arms'][arms[1]]['median_gbps']/result['arms'][arms[0]]['median_gbps']-1
     result['improved_pairs']=sum(x>0 for x in result['paired_improvements'])
     return result
+
+
+def evaluate_profile_overhead(rows,size_bytes):
+    assert size_bytes==base.GIB and len(rows)==10, 'requires ten 1 GiB profile-overhead tasks'
+    order=[(rep,arm) for rep in range(1,6) for arm in matrix_labels('profile-overhead',rep)]
+    assert [(row['rep'],row['arm']) for row in rows]==order, 'requires profile off/on AB/BA interleaving'
+    groups={'off':[],'on':[]}
+    expected_frames=8*expected_write_calls(size_bytes,262144)
+    for row in rows:
+        arm=row['arm']
+        assert row['frame_bytes']==262144 and row['receive_buffer']=='off', 'profile-overhead config changed'
+        assert row['profile_enabled']==(arm=='on') and row['range_timing_requested'] is True
+        assert row['expected']['bytes']==size_bytes and row['expected']['files']==1
+        assert row['result']=='pass' and row['output_slot_removed']
+        assert row['verified_chunks']==size_bytes//base.MiB
+        assert row['actual_tree']=={k:row['expected'][k] for k in ('sha256','files','bytes')}
+        assert row['resource']['exit_code']==0
+        assert row['resource']['owned_swap_peak_bytes']==row['resource']['pswpout_delta']==0
+        assert row['resource']['mem_available_min_bytes']>=12*base.GIB
+        assert row['source_residency']['all_resident']
+        assert row['source_residency']['bytes']==size_bytes
+        assert row['source_residency']['process']['swap_bytes']==0
+        assert row['source_residency']['host_pswpout_delta_since_seed']==0
+        assert row['mechanism']['ranges']==8 and row['mechanism']['actual_data_frames']==expected_frames
+        network=row['transfer_network_counter_deltas']
+        assert network['rx_missed_errors']==0 and network['rx_out_of_buffer']==0, 'profile overhead network gate'
+        window=row['receiver_network_window']
+        assert 'before' in window and 'after_transfer' in window and 'analysis' in window
+        assert window['analysis']['rx_missed_errors_delta']==network['rx_missed_errors']
+        assert window['analysis']['rx_out_of_buffer_delta']==network['rx_out_of_buffer']
+        if arm=='on':
+            profile=row['receiver_phases']['receiver_profile']
+            assert profile['payload']['totals']['data_frame_count']==expected_frames
+            assert profile['cpu'] is not None
+        else:
+            assert row['receiver_phases'].get('receiver_profile') is None
+        groups[arm].append(row)
+    for arm in groups.values():
+        assert len(arm)==5 and [row['rep'] for row in arm]==list(range(1,6))
+
+    cv={arm:statistics.pstdev([r['t_ready_seconds'] for r in rows_arm]) /
+                statistics.mean([r['t_ready_seconds'] for r in rows_arm])
+         for arm,rows_arm in groups.items()}
+    paired=[next(r for r in groups['on'] if r['rep']==rep)['t_ready_seconds'] /
+            next(r for r in groups['off'] if r['rep']==rep)['t_ready_seconds']-1
+            for rep in range(1,6)]
+    median=statistics.median(paired)
+    stable=max(cv.values())<=.05
+    return {
+        'scope':'1 GiB matched V3 TCP profile perturbation diagnostic; not a performance result',
+        'arms':{arm:{'seconds':[r['t_ready_seconds'] for r in values],
+                     'median_seconds':statistics.median([r['t_ready_seconds'] for r in values]),
+                     'cv':cv[arm]} for arm,values in groups.items()},
+        'paired_slowdown_fractions':paired,
+        'median_paired_slowdown_fraction':median,
+        'profile_on_slower_pairs':sum(value>0 for value in paired),
+        'profile_effect_resolved':stable,
+        'repeatable_profile_perturbation':stable and median>=.05 and sum(value>0 for value in paired)>=4,
+        'transfer_network_gate_pass':True,
+        'post_process_rx_missed_errors_deltas':[r['post_process_network_counter_deltas']['rx_missed_errors']
+                                                for r in rows],
+        'throughput_is_performance_evidence':False,
+    }
 
 
 def evaluate_m1(rows, size_bytes):
@@ -259,7 +332,8 @@ def evaluate_m1(rows, size_bytes):
 
 def matrix(args):
     assert base.node()==1
-    assert (args.size_gib, args.mechanism) in ((1,'frame'),(1,'receive-buffer'),(8,'m1'))
+    assert (args.size_gib, args.mechanism) in ((1,'frame'),(1,'receive-buffer'),
+                                                (1,'profile-overhead'),(8,'m1'))
     size_bytes = args.size_gib * base.GIB
     args.size,args.count=size_bytes,1
     local=base.receipt(args.commit);peer=base.peer(args,'receipt');assert local==peer
@@ -282,15 +356,30 @@ def matrix(args):
                 assert resident['all_resident'] and resident['host_pswpout_delta_since_seed']==0,'source residency/swap gate'
                 assert resident['mem_available_bytes']>=12*base.GIB and resident['process']['swap_bytes']==0
                 assert base.mem()>=12*base.GIB and shutil.disk_usage('/dev/shm').free>size_bytes+base.GIB
+                profile_overhead=args.mechanism=='profile-overhead'
+                sample_profile=(label=='on') if profile_overhead else args.receiver_profile
                 row=base.client_sample(args,name,expected,'2','on',49335,mapped_download=True,
                     data_frame_bytes=data_frame_bytes,tcp_receive_buffer_bytes=receive_buffer,
-                    receiver_profile=args.receiver_profile)
+                    receiver_profile=sample_profile,
+                    range_timing=True if profile_overhead else None,
+                    network_profile=profile_overhead)
                 row.update(rep=rep,frame_bytes=frame_bytes,arm=label,receive_buffer=receive_buffer,
-                           source_residency=resident)
+                           source_residency=resident,profile_enabled=sample_profile)
                 row['network_counter_deltas']=network_counter_deltas(row['before']['net'],row['after']['net'])
                 row['verified_chunks']=verify_chunks(row['manifest_checks']['member_example'],size_bytes)
-                row['mechanism']=mapped_checks(args,name,data_frame_bytes)
-                if args.receiver_profile:
+                row['mechanism']=mapped_checks(args,name,data_frame_bytes,
+                    receiver_profile=sample_profile,
+                    range_timing=True if profile_overhead else None)
+                if profile_overhead:
+                    window=row['receiver_network_window']
+                    analysis=window['analysis']
+                    row['transfer_network_counter_deltas']={
+                        'rx_missed_errors':analysis['rx_missed_errors_delta'],
+                        'rx_out_of_buffer':analysis['rx_out_of_buffer_delta'],
+                    }
+                    row['post_process_network_counter_deltas']=network_counter_deltas(
+                        window['after_transfer']['netdev'],row['after']['net'])
+                if sample_profile:
                     validate_profile_frame_count(row['receiver_phases']['receiver_profile'],
                                                  row['mechanism']['actual_data_frames'])
                 if receive_buffer!='off':
@@ -299,8 +388,13 @@ def matrix(args):
                 rows.append(row);base.save(args.evidence/'results.json',rows)
                 misses=row['network_counter_deltas']['rx_missed_errors']
                 print(json.dumps(dict(sample=name,gbps=row['whole_task_gbps'],
-                    frames=row['mechanism']['actual_data_frames'],rx_missed_errors=misses)),flush=True)
-                if args.receiver_profile:
+                    frames=row['mechanism']['actual_data_frames'],rx_missed_errors=misses,
+                    transfer_rx_missed_errors=row.get('transfer_network_counter_deltas',{}).get('rx_missed_errors'))),flush=True)
+                if profile_overhead:
+                    transfer=row['transfer_network_counter_deltas']
+                    assert transfer['rx_missed_errors']==0 and transfer['rx_out_of_buffer']==0, \
+                        'profile overhead transfer network counter gate'
+                elif args.receiver_profile:
                     assert misses==0, 'receiver profile diagnostic rx_missed_errors gate'
         assert base.peer(args,'source-check')=={k:expected[k] for k in ('sha256','files','bytes')}
     except BaseException as error:
@@ -322,7 +416,10 @@ def matrix(args):
             cleanup['local_root_removed']=not args.payload_root.exists()
             base.save(args.evidence/'cleanup.json',cleanup)
             assert cleanup['local_root_removed']
-    report=annotate_profile_analysis(evaluate(rows,size_bytes),args.receiver_profile)
+    if args.mechanism=='profile-overhead':
+        report=evaluate_profile_overhead(rows,size_bytes)
+    else:
+        report=annotate_profile_analysis(evaluate(rows,size_bytes),args.receiver_profile)
     report['cleanup_gate_pass']=(cleanup.get('peer_source',{}).get('source_removed') is True
                                  and cleanup.get('peer_root',{}).get('removed') is True
                                  and cleanup.get('local_root_removed') is True)
@@ -338,7 +435,7 @@ if __name__=='__main__':
     parser.add_argument('--evidence',required=True,type=Path)
     parser.add_argument('--payload-root',required=True,type=Path)
     parser.add_argument('--commit',required=True)
-    parser.add_argument('--mechanism',choices=('frame','receive-buffer','m1'),default='frame')
+    parser.add_argument('--mechanism',choices=('frame','receive-buffer','profile-overhead','m1'),default='frame')
     parser.add_argument('--size-gib',type=int,choices=(1,8),default=1)
     parser.add_argument('--receiver-profile',action='store_true',
                         help='enable receiver CPU/payload profiling for bounded 1 GiB diagnostics')

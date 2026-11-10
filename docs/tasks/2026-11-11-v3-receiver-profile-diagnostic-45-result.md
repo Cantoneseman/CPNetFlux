@@ -45,9 +45,13 @@ R770-1与R770-2均在固定代码提交 `82784e540c11b8ac444be0414467e1c488b2234
 - `cleanup.json`记录本地payload根、R2源文件和R2 payload根均已移除；R1/R2的两个精确 `/dev/shm/cpnetflux-s0-receiver-profile-45-*` 根当前均不存在。
 - 不运行同一矩阵的重试；不启动receive-buffer矩阵；不更改默认值、NIC、路由、swap或系统配置。
 
-## 下一步
+## 后续只读审查结论
 
-先对这次已有receipt、接口计数采样位置和profile计时代码做只读审查，确认事件来自哪一端/哪一接口、profile是否增加了足以影响诊断的观测开销，以及现有证据能否把单次增量与传输阶段关联。单个计数样本不足以归因。只有形成清楚的新假设、资源门和停止条件后，才另立有界合同；在此之前不启动新传输实验，不将帧尺寸候选标记为GO或NO-GO。
+计数采样位置已核实：R1客户端 `before` 在启动下载子进程前，`after` 在子进程结束、接收树哈希及manifest检查之后；所以 +405 只属于该宽窗口，现有receipt不能证明它发生在传输中。接收方向是 R2→R1，R2发送端整轮 `rx_missed_errors` 增量为0；R1其余通用接收错误计数也未增加。诊断36曾将该接口计数映射到 mlx5 接收队列缺buffer层，但45没有同时采集 `rx_out_of_buffer`，不能确定45事件的具体触发原因、队列或流。
+
+profile扰动也尚无实测对照。按45保存的profile计数与 `OptionalThreadCpuTimer` 实现，65,532 B样本约有139,272个计时wrapper（约278,544次线程CPU时钟边界调用），262,144 B样本约有32,776个wrapper（约65,552次边界调用）；另有墙钟和range观察。它们只说明有测量扰动的理由，不代表可按调用数推算任务耗时。
+
+因此后续采用[Task46合同](2026-11-11-v3-profile-overhead-counter-correlation-46.md)：固定1 GiB、256 KiB DATA及其他传输参数，profile off/on五对AB/BA；两臂都保留range timing，并在客户端子进程正前/正后采集接收网络计数，另保留后续本地校验后的宽窗口快照。任一传输窗口 `rx_missed_errors` 或 `rx_out_of_buffer` 增量非零即停止，不重试。此任务仅量化该路径下的观察扰动和计数时间关联，不产生吞吐晋级结论。
 
 ## 证据
 
