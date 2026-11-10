@@ -34,13 +34,13 @@ R770-1与R770-2均在固定代码提交 `82784e540c11b8ac444be0414467e1c488b2234
 
 | 二进制 | 两端共同SHA-256 |
 |---|---|
-| `cpnetflux-tree-server` | `125db9bf5e21cf98de5ef674d097b894cdcaabe9ed5dbadebdf3c586570e45a5` |
+| `cpnetflux-gridftp-server` | `125db9bf5e21cf98de5ef674d097b894cdcaabe9ed5dbadebdf3c586570e45a5` |
 | `cpnetflux-tree-download-client` | `20f600140276a636740b43deb172d5ecb8bab81f593733452b7e22a91c76c30c` |
 | `cpnetflux-tree-upload-client` | `b6c9e9c53360ca0dd0ef8a071518834dd80208ac66a3c1fe38af365fb3fb76b0` |
 
 ## 资源、清理与中止
 
-- 六个样本中最低 `MemAvailable` 为29,477,138,432 B（约27.5 GiB）；owned swap峰值为0，R1 host `pswpout` 增量为0。
+- 六个样本两端监测到的最低 `MemAvailable` 为29,055,492,096 B（约27.1 GiB）；owned swap峰值为0，host `pswpout` 增量为0。
 - 每个样本的传输和内容校验完成；第6个样本在接口计数增量检查后触发 `AssertionError('receiver profile diagnostic rx_missed_errors gate')`，`failure.json`记录 `completed_samples=6`。
 - `cleanup.json`记录本地payload根、R2源文件和R2 payload根均已移除；R1/R2的两个精确 `/dev/shm/cpnetflux-s0-receiver-profile-45-*` 根当前均不存在。
 - 不运行同一矩阵的重试；不启动receive-buffer矩阵；不更改默认值、NIC、路由、swap或系统配置。
