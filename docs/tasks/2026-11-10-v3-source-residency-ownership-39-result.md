@@ -78,9 +78,25 @@ enabled, and the same fixed commit. Three runtime binary SHA-256 values matched:
 - download client: `20f600140276a636740b43deb172d5ecb8bab81f593733452b7e22a91c76c30c`
 - upload client: `b6c9e9c53360ca0dd0ef8a071518834dd80208ac66a3c1fe38af365fb3fb76b0`
 
-The diagnostic command was run once on R770-2 with commit
-`48eba5bbe660781bdcc098a1ab80e725417db008`; no retry was made. The marked source root was
-removed, and /dev/shm free space returned exactly to its pre-run value.
+The diagnostic action ran once on R770-2 at commit `48eba5bbe660781bdcc098a1ab80e725417db008`;
+no retry was made. The marked source root was removed, and /dev/shm free space returned exactly
+to its pre-run value.
+
+The exact diagnostic command was:
+```sh
+python3 tools/perf/run_summary_default_gate.py --action resource-diagnostic \
+  --evidence /home/Su/experiments/CPNetFlux/2026-11-10-v3-source-residency-ownership-39 \
+  --payload-root /dev/shm/cpnetflux-s0-source-residency-ownership-39 \
+  --commit 48eba5bbe660781bdcc098a1ab80e725417db008
+```
+
+These verification commands ran on both fixed peers at the implementation commit:
+```sh
+python3 -m py_compile tools/perf/run_summary_default_gate.py tools/test/run_summary_default_gate_test.py
+python3 tools/test/run_summary_default_gate_test.py
+cmake --build build -j4
+ctest --test-dir build -R 'cpnetflux_summary_default_gate_test|cpnetflux_owned_process_profile_test' --output-on-failure
+```
 
 ## Next
 
