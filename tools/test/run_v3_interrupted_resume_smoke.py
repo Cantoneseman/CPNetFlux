@@ -19,6 +19,7 @@ from gridftp_port_window import clamp_passive_data_port_base
 
 FILE_SIZE = 512 * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
+DATA_FRAME_BYTES = 65532
 
 
 def sha256_file(path: Path) -> str:
@@ -72,6 +73,7 @@ def client_command(build_dir: Path, direction: str, port: int, source: str,
         "--source-dir", source, "--dest-dir", destination,
         "--connections", "1", "--file-parallelism", "1",
         "--chunk-size", str(CHUNK_SIZE), "--buffer-size", "65536",
+        "--data-frame-bytes", str(DATA_FRAME_BYTES),
         "--checksum", "crc32c", "--compression", "off",
         "--data-session-reuse", "tree", "--file-scheduling", "dynamic",
         "--control-reuse", "worker", "--transfer-timeout-ms", "120000",
@@ -215,10 +217,13 @@ def run(build_dir: Path, evidence_dir: Path) -> dict:
 
 
 def main() -> int:
+    global DATA_FRAME_BYTES
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--evidence-dir", type=Path, required=True)
+    parser.add_argument("--data-frame-bytes", type=int, choices=(65532,262144), default=65532)
     args = parser.parse_args()
+    DATA_FRAME_BYTES = args.data_frame_bytes
     run(args.build_dir.resolve(), args.evidence_dir.resolve())
     return 0
 

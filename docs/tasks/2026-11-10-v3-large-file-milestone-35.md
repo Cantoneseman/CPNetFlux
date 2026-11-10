@@ -46,6 +46,42 @@ R770-1 `/home/Su/projects/CPNetFlux` 为唯一写入目录；保留两份 Octobe
 
 ## 交付2：完整V3 TCP大负载DATA
 
+### 接手实现合同（输入6c153352，开发为唯一写入者）
+
+交付2进行中。显式CLI `--data-frame-bytes 65532|262144`，默认65532；
+控制请求 `XCPNETFLUX V3 ... DATA_BYTES=262144`，仅新模式发字段，响应必须
+精确包含 `data_bytes=262144` 和 `max_data_bytes=262144` 独立token，否则拒绝。
+每次重连重新协商；数据连接在交出运行时前固定逻辑大小，DATA上限=逻辑+4，
+其他帧仍65536且FILE_BEGIN仍8192；分配前按类型校验。新模式仅TCP、control/data
+TLS关闭、压缩关闭、CRC32C、1MiB chunk、V3 worker复用；不支持组合payload前拒绝。
+低层显式大DATA状态机也拒绝跨chunk，恢复mask/attempt仍原校验。
+总所有权按lanes*(depth+6)*(logical+4)估算（旧模式保持65536）：queue depth、
+producer/consumer/recycled/incoming/decoded/compressed或故障duplicate；新模式无压缩，
+仍保守预留。队列shared阶段配置包含帧容量，切换拒绝。超预算在协商/数据accept前
+预检，并在实际runtime重查。4 lanes/depth2候选约8MiB，不提高64MiB预算。
+映射窗口仍64MiB/lane/256MiB总计；metadata、CRC索引和transport另行统计，不算payload。
+
+精确文件：include/src core/io framed_data_socket、persistent_data_session、
+transfer_stages、dynamic_file_queue；src/core/io/persistent_tree_transfer.cpp、
+tree_transfer_client.cpp；include/cpnetflux/config/tree_transfer_options.h、
+src/config/tree_transfer_options.cpp；src/protocol/control/control_server.cpp；
+tests/unit/persistent_data_session_test.cpp、transfer_stages_test.cpp；
+tools/test的新真实V3大帧smoke及对应CMake注册；本计划和已有路线/结果。
+验收先相关CMake/CTest和小fixture：旧模式、新DATA/控制限额、缺协商拒绝、
+截断/CRC/边界、上传下载/恢复与预算；再固定提交双机<=1GiB同合同对照。
+交付3/4尚未完成，不以交付2部分实现声称总验收。
+
+2026-11-10 原型实现验收：R1 RelWithDebInfo/RDMA=ON 构建成功；
+`ctest --test-dir build --output-on-failure -j4 -R '(PersistentSessionTest|TransferStagesTest|TreeTransferOptions|PersistentRangeWrite|cpnetflux_large_data|cpnetflux_v3_interrupted_resume_smoke|cpnetflux_publication_resume_smoke|cpnetflux_receiver_inline_smoke|cpnetflux_range_observability_smoke|cpnetflux_tree_mode_smoke|FramedDataSocket|cpnetflux_gridftp_.*tls_smoke)'`
+150/150 通过，16.96s。新协议旧二进制红灯为504协商拒绝；新实现真实双向、queued/inline、
+尾帧/帧数、旧peer拒绝、控制限额、跨chunk、截断、坏CRC不认证、512MiB中断恢复均已覆盖。
+证据位于既定实验目录 `{large-data-red,related-tests-r1,build}.log`。
+`tools/perf/run_large_data_ab.py` 复用现有资源/进程/清理与计时；固定1GiB、
+五对交错65532/262144；源准备进程自身记录cgroup及各祖先的memory限制/事件，
+写入/SHA/驻留和每次任务继续执行原门。实际帧数由mmap写调用核对，SHA/checkpoint完整性
+保留。8范围各128MiB、4 lanes、原64MiB映射窗口/256MiB总上限；不跑8GiB、不作为M1。
+增加公共client_sample可选data_frame_bytes参数，旧调用不变；不复制资源控制框架。
+
 已批准开发这个有界原型；scope18/33“缺少保守≥10%预算而不得写运行时”的前置限制失效。
 首个实验规格采用256KiB逻辑DATA，另留现有65532B逻辑DATA对照。保持1MiB checkpoint chunk；
 理论对齐chunk由17帧变4帧，wire payload须额外容纳4字节CRC。先不扫描1MiB规格、lane数或队列深度。

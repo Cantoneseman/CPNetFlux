@@ -37,6 +37,7 @@
 #include "cpnetflux/core/io/file_transfer_server.h"
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
 #include "cpnetflux/core/io/persistent_directory_batch.h"
+#include "cpnetflux/core/io/transfer_stages.h"
 #include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/core/session/transfer_session_config.h"
 #include "cpnetflux/core/metrics/event_log.h"
@@ -1083,7 +1084,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     PassiveListener* passive, const ControlServerOptions& options, bool upload,
     const std::string& requested, std::uint32_t pendingWindow, std::uint32_t channelIndex,
     std::uint32_t channelCount, std::uint32_t requestedTotalFiles, const std::string& batchId = {},
-    bool resume = false) {
+    bool resume = false, std::uint32_t dataBytes = 65532) {
     namespace fs = std::filesystem;
     if (channelCount == 0 || channelCount > core::io::kPersistentTreeMaxChannels ||
         channelIndex >= channelCount)
@@ -1186,6 +1187,8 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     session->clearPassiveReady();
     if (!acceptedData.isOk()) return acceptedData.status();
     data = std::move(acceptedData.value());
+    status = data.configureDataFrameBytes(dataBytes);
+    if (!status.isOk()) return status;
     if (guard.directory) {
         guard.directory->batch->bind(channelIndex, control->fd(), data.fd(), true,
             [&data] { data.shutdown(); });
@@ -1306,6 +1309,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     std::uint32_t persistentChannels = 1;
     bool persistentDynamic = false;
     bool persistentResume = false;
+    std::uint32_t persistentDataBytes = 65532;
     core::io::DataTransport sessionDataTransport = core::io::DataTransport::Tcp;
     AsyncTransferRegistry asyncTransfers(logger, control.fd());
 
@@ -1385,6 +1389,8 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 bool requestedResume = false;
                 auto requestedDataTls = core::io::DataTlsMode::Off;
                 auto requestedDataTransport = core::io::DataTransport::Tcp;
+                std::uint32_t requestedDataBytes = 65532;
+                bool hasDataBytes = false;
                 std::istringstream request(line.value().substr(std::string("XCPNETFLUX V3").size()));
                 std::string token;
                 bool valid = true;
@@ -1438,6 +1444,10 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         auto parsed = core::io::parseDataTlsMode(value);
                         valid = parsed.isOk();
                         if (valid) requestedDataTls = parsed.value();
+                    } else if (key == "DATA_BYTES") {
+                        valid = !hasDataBytes && value == "262144";
+                        hasDataBytes = true;
+                        if (valid) requestedDataBytes = 262144;
                     } else if (key == "DATA_TRANSPORT") {
                         auto parsed = core::io::parseDataTransport(value);
                         valid = parsed.isOk();
@@ -1448,6 +1458,11 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     if (!valid) break;
                 }
                 persistentNegotiated = valid && checksumAlgorithm == options.checksumAlgorithm &&
+                    (!hasDataBytes || (requestedDataTls == core::io::DataTlsMode::Off &&
+                        !control.tlsEnabled() && requestedDataTransport == core::io::DataTransport::Tcp &&
+                        checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c &&
+                        options.chunkSize == 1048576 &&
+                        core::io::TransferStages::preflight(requestedChannels,262148).isOk())) &&
                     requestedDataTls == options.dataTlsMode &&
                     requestedDataTransport == options.dataTransport &&
                     (requestedDataTransport != core::io::DataTransport::Rdma ||
@@ -1462,6 +1477,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     persistentChannels = requestedChannels;
                     persistentDynamic = requestedDynamic;
                     persistentResume = requestedResume;
+                    persistentDataBytes = requestedDataBytes;
                     sessionDataTransport = requestedDataTransport;
                 }
                 const std::string accepted = "CPNetFlux V3 file-transactions/1 window=" +
@@ -1470,6 +1486,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     " resume=" + std::string(requestedResume ? "1" : "0") +
                     " data_tls=" + core::io::dataTlsModeName(requestedDataTls) +
                     " data_transport=" + core::io::dataTransportName(requestedDataTransport) +
+                    (hasDataBytes ? " data_bytes=262144 max_data_bytes=262144" : "") +
                     (linkSetRequested ? " links=" + std::to_string(requestedLinks) +
                         " link_caps=" + std::to_string(requestedLinkCaps) : "") +
                     (requestedDynamic ? " scheduling=dynamic" : "");
@@ -1520,7 +1537,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             }
             auto status = runPersistentDirectory(&control, &session, &passive, options,
                 upload, requested, persistentWindow, channelIndex, channelCount, totalFiles, batchId,
-                persistentResume);
+                persistentResume, persistentDataBytes);
             if (!status.isOk()) return;
             continue;
         }

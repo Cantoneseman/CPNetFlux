@@ -346,6 +346,11 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                     "--chunk-size must be in range 1..1099511627776");
             }
             options.chunkSize = parsed.value();
+        } else if (option == "--data-frame-bytes") {
+            auto parsed = parseUnsigned(value, "--data-frame-bytes");
+            if (!parsed.isOk() || (parsed.value() != 65532 && parsed.value() != 262144))
+                return common::Status::invalidArgument("--data-frame-bytes must be 65532 or 262144");
+            options.dataFrameBytes = static_cast<std::uint32_t>(parsed.value());
         } else if (option == "--buffer-size") {
             auto parsed = parseUnsigned(value, "--buffer-size");
             if (!parsed.isOk()) {
@@ -583,6 +588,13 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         index += 2;
     }
 
+    if (options.dataFrameBytes != 65532 &&
+        (options.dataTransport != core::io::DataTransport::Tcp ||
+         options.dataTlsMode != core::io::DataTlsMode::Off || options.tls.mode != core::io::TlsMode::Off ||
+         options.compressionMode != CompressionMode::Off || options.hotPathCompression.enabled ||
+         options.chunkSize != 1048576 || options.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
+         !options.reuseDataSession || options.controlReuseMode != ControlReuseMode::Worker))
+        return common::Status::invalidArgument("large DATA requires V3 worker reuse, TCP, TLS/compression off, CRC32C and 1MiB chunks");
     const auto fileIoStatus = storage::validateFileIoConfig(options.fileIo);
     if (!fileIoStatus.isOk()) return fileIoStatus;
     if (!options.authProbe && !hasSourceDir) {
@@ -715,7 +727,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            " --host <server-ip> --port <port> --source-dir " + sourceText + " --dest-dir " +
            destText +
            " [--connections <N>] [--file-parallelism <N>] [--chunk-size <bytes>] "
-           "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
+           "[--buffer-size <bytes>] [--data-frame-bytes 65532|262144] [--checksum <crc32c|none>] "
            "[--checksum-backend <auto|software|hardware>] [--reconnect-attempts 0..10] [--transfer-timeout-ms N] [--resume] "
            "[--auth-probe] [--local-bind-address <numeric-ip>] [--local-bind-addresses <ip,ip,...>] [--peer-addresses <ip,ip,...>] "
            "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window auto|1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] [--planner-preset <name>] "

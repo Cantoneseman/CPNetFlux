@@ -145,7 +145,10 @@ common::Status PersistentDataSession::acceptData(const protocol::FrameHeader& he
     }
     const std::uint64_t rangeEnd = current_.rangeId == 0 ? current_.totalSize :
         current_.rangeOffset + current_.rangeLength;
-    if (!protocol::validateFrameHeader(header, kMaxPayload).isOk() ||
+    if ((dataPayloadLimit_ != kMaxPayload && dataPayloadLimit_ != 262148) ||
+        !protocol::validateFrameHeader(header, dataPayloadLimit_).isOk() ||
+        (dataPayloadLimit_ > kMaxPayload && (logicalBytes > 262144 ||
+            current_.chunkSize == 0 || logicalBytes > current_.chunkSize - header.offset % current_.chunkSize)) ||
         header.type != protocol::FrameType::Data || (header.flags & ~protocol::kDataCompressed) != 0 ||
         header.statusCode != protocol::FrameStatusCode::Ok ||
         header.offset != receivedBytes_ || logicalBytes == 0 || (header.flags == 0 && logicalBytes != header.payloadSize) ||
@@ -241,7 +244,15 @@ common::Status readHeader(FramedDataSocket* socket, protocol::FrameHeader* heade
     if (!status.isOk()) return status;
     auto decoded = protocol::decodeFrameHeader(encoded);
     if (!decoded.isOk()) return decoded.status();
-    status = protocol::validateFrameHeader(decoded.value(), maxPayloadSize);
+    auto limit = decoded.value().type == protocol::FrameType::Data
+        ? std::min(maxPayloadSize, socket->dataPayloadLimit())
+        : std::min(maxPayloadSize, PersistentDataSession::kMaxPayload);
+    if (decoded.value().type == protocol::FrameType::FileBegin) limit = std::min(limit,8192U);
+    status = protocol::validateFrameHeader(decoded.value(), limit);
+    if (status.isOk() && socket->dataPayloadLimit() > PersistentDataSession::kMaxPayload &&
+        decoded.value().type == protocol::FrameType::Data &&
+        decoded.value().flags != protocol::kDataChecksum)
+        return common::Status::invalidArgument("large DATA requires uncompressed CRC32C");
     if (!status.isOk()) return status;
     *header = decoded.value();
     return common::Status::ok();
@@ -261,14 +272,16 @@ common::Status PersistentDataSession::writeFrame(FramedDataSocket* socket,
                                                   std::size_t prefixLength,
                                                   const std::uint8_t* payload,
                                                   std::size_t length) {
-    if (socket == nullptr || !socket->valid() || prefixLength > kMaxPayload ||
-        length > kMaxPayload - prefixLength ||
+    const auto limit = socket && header.type == protocol::FrameType::Data
+        ? socket->dataPayloadLimit() : kMaxPayload;
+    if (socket == nullptr || !socket->valid() || prefixLength > limit ||
+        length > limit - prefixLength ||
         (prefixLength != 0 && prefix == nullptr) ||
         (length != 0 && payload == nullptr)) {
         return common::Status::invalidArgument("invalid persistent frame output");
     }
     header.payloadSize = static_cast<std::uint32_t>(prefixLength + length);
-    auto valid = protocol::validateFrameHeader(header, kMaxPayload);
+    auto valid = protocol::validateFrameHeader(header, limit);
     if (!valid.isOk()) return valid;
     const auto encoded = protocol::encodeFrameHeader(header);
     if (prefixLength == 0 && socket->tlsEnabled()) {
@@ -325,7 +338,11 @@ common::Status PersistentDataSession::writeData(FramedDataSocket* socket,
                                                  const std::uint8_t* payload,
                                                  std::size_t length) {
     if (identity.fileId == 0 || identity.generation == 0 || (payload == nullptr && length != 0) ||
-        length == 0 || length > kMaxPayload ||
+        length == 0 || !socket || length > socket->dataPayloadLimit() -
+            (identity.checksumAlgorithm == checksum::ChecksumAlgorithm::None ? 0 : 4) ||
+        (socket->dataPayloadLimit() > kMaxPayload &&
+            (identity.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
+             identity.chunkSize != 1048576 || length > identity.chunkSize - offset % identity.chunkSize)) ||
         (identity.rangeId != 0 && (identity.rangeLength == 0 || offset < identity.rangeOffset ||
             offset > identity.rangeOffset + identity.rangeLength ||
             length > identity.rangeOffset + identity.rangeLength - offset)) ||
@@ -498,7 +515,7 @@ common::Status PersistentDataSession::readNext(FramedDataSocket* socket,
         frame->payload.clear();
         return status;
     };
-    if (!socket || !socket->valid() || maxPayloadSize > kMaxPayload)
+    if (!socket || !socket->valid() || maxPayloadSize > socket->dataPayloadLimit())
         return fail(common::Status::invalidArgument("invalid persistent input"));
     protocol::FrameHeader header;
     auto status = readHeader(socket, &header, maxPayloadSize);

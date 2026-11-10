@@ -1081,10 +1081,10 @@ common::Result<std::vector<WorkItem>> bindScheduledPlans(
 }  // namespace cpnetflux::core::io
 
 namespace cpnetflux::core::io {
-common::Result<std::shared_ptr<TransferStages>> DynamicFileQueue::transferStages(std::uint32_t lanes,std::uint32_t depth) {
+common::Result<std::shared_ptr<TransferStages>> DynamicFileQueue::transferStages(std::uint32_t lanes,std::uint32_t depth,std::uint32_t frameCapacity) {
     std::lock_guard lock(mutex_);
-    if (!stages_) { auto created=TransferStages::create(lanes,depth); if (!created.isOk()) return created.status(); stages_=created.value(); }
-    if (stages_->networkLanes!=lanes || stages_->depth!=depth)
+    if (!stages_) { auto created=TransferStages::create(lanes,depth,false,frameCapacity); if (!created.isOk()) return created.status(); stages_=created.value(); }
+    if (stages_->networkLanes!=lanes || stages_->depth!=depth || stages_->frameCapacityBytes!=frameCapacity)
         return common::Status::invalidArgument("V3 batch stage configuration changed");
     return stages_;
 }

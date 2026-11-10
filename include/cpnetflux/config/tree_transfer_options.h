@@ -60,6 +60,7 @@ struct TreeTransferOptions {
     ControlReuseMode controlReuseMode = ControlReuseMode::Off;
     std::uint64_t chunkSize = 1048576;
     std::uint32_t bufferSize = 65536;
+    std::uint32_t dataFrameBytes = 65532;
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;
     checksum::ChecksumBackend checksumBackend = checksum::ChecksumBackend::Auto;
     // Local download receiver only; upload receiver policy belongs to the server.

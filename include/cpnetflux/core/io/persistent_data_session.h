@@ -38,7 +38,8 @@ struct PersistentFrame {
 
 class PersistentDataSession {
    public:
-    explicit PersistentDataSession(bool unordered = false) : unordered_(unordered) {}
+    explicit PersistentDataSession(bool unordered = false, std::uint32_t dataPayloadLimit = 65536)
+        : unordered_(unordered), dataPayloadLimit_(dataPayloadLimit) {}
     static constexpr std::uint32_t kMaxPayload = 65536;
     [[nodiscard]] common::Status begin(const protocol::FrameHeader& header,
                                        const std::string& relativePath,
@@ -111,6 +112,7 @@ class PersistentDataSession {
                                                    std::size_t length);
 
     bool unordered_ = false;
+    const std::uint32_t dataPayloadLimit_;
     std::unordered_set<std::uint32_t> seenFiles_;
     std::unordered_set<std::uint64_t> seenGenerations_;
     std::unordered_set<std::string> seenRangeIdentities_;

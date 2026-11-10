@@ -996,6 +996,14 @@ if(CPNETFLUX_BUILD_TESTS)
             --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-v3-interrupted-resume-evidence
     )
     set_tests_properties(cpnetflux_v3_interrupted_resume_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_large_data_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_large_data_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    add_test(NAME cpnetflux_large_data_interrupted_resume_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_interrupted_resume_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR} --data-frame-bytes 262144
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-large-data-interrupted-resume-evidence)
+    set_tests_properties(cpnetflux_large_data_smoke cpnetflux_large_data_interrupted_resume_smoke
+        PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_v3_service_restart_resume_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_service_restart_resume_smoke.py

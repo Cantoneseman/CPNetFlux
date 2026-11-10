@@ -30,6 +30,9 @@ class FramedDataSocket {
     [[nodiscard]] bool tlsEnabled() const noexcept;
     [[nodiscard]] DataTransport transport() const noexcept;
     [[nodiscard]] RdmaTransportStats rdmaStats() const noexcept;
+    // Install the control-negotiated V3 limit once, before handing off to IO.
+    [[nodiscard]] common::Status configureDataFrameBytes(std::uint32_t logicalBytes);
+    [[nodiscard]] std::uint32_t dataPayloadLimit() const noexcept { return dataPayloadLimit_; }
     void shutdown() noexcept;
     void close() noexcept;
     [[nodiscard]] common::Status writeAll(const std::uint8_t* data, std::size_t length);
@@ -57,6 +60,8 @@ class FramedDataSocket {
                                                     const std::uint8_t* payload,
                                                     std::size_t payloadLength);
    private:
+    std::uint32_t dataPayloadLimit_ = 65536;
+    bool dataLimitConfigured_ = false;
     bool tlsMode_ = false;
     bool rdmaMode_ = false;
     UniqueFd fd_;

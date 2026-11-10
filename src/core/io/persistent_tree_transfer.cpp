@@ -1426,8 +1426,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     if (!pipelineDepth.isOk()) return pipelineDepth.status();
     const auto senderInline = diagnosticSenderInlinePayload();
     if (!senderInline.isOk()) return senderInline.status();
-    auto stageResult = ready ? ready->transferStages(channelCount,pipelineDepth.value())
-                             : TransferStages::create(channelCount,pipelineDepth.value());
+    if (socket->dataPayloadLimit() > PersistentDataSession::kMaxPayload &&
+        transferOptions && transferOptions->hotPathCompression.enabled)
+        return Status::invalidArgument("large DATA rejects compression");
+    auto stageResult = ready ? ready->transferStages(channelCount,pipelineDepth.value(),socket->dataPayloadLimit())
+                             : TransferStages::create(channelCount,pipelineDepth.value(),false,socket->dataPayloadLimit());
     if (!stageResult.isOk()) return stageResult.status();
     auto stages = stageResult.value();
     stats->pendingWindow = pendingWindow;
@@ -1692,8 +1695,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         auto advice = storage::applyFileIoAdvice(file,options.fileIo.advice,0,id.totalSize);
         if (!advice.isOk()) { failWriter(advice); break; }
         checksum::ChecksumComputer checksumComputer(id.checksumAlgorithm,options.checksumBackend);
-        const auto pipelineChunkBytes = std::min<std::size_t>(
-            std::max<std::size_t>(options.bufferSize, 1), PersistentDataSession::kMaxPayload - 4);
+        const auto pipelineChunkBytes = socket->dataPayloadLimit() > PersistentDataSession::kMaxPayload
+            ? std::size_t(socket->dataPayloadLimit() - 4)
+            : std::min<std::size_t>(std::max<std::size_t>(options.bufferSize, 1), PersistentDataSession::kMaxPayload - 4);
         const auto kPipelineChunks = pipelineDepth.value();
         timing.rangeObservationEnabled = observeRanges(*stats);
         auto& senderCpu = timing.senderCpuObservation;
@@ -2150,12 +2154,13 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     {
         std::lock_guard lock(context->mutex);
         if (!context->stages) {
-            auto created=TransferStages::create(channelCount,stageDepth.value(),true);
+            auto created=TransferStages::create(channelCount,stageDepth.value(),true,socket->dataPayloadLimit());
             if (!created.isOk()) return created.status();
             context->stages=created.value();
         }
         stages=context->stages;
-        if (stages->networkLanes!=channelCount || stages->depth!=stageDepth.value())
+        if (stages->networkLanes!=channelCount || stages->depth!=stageDepth.value() ||
+            stages->frameCapacityBytes!=socket->dataPayloadLimit())
             return Status::invalidArgument("V3 receiver stage configuration changed");
     }
 
@@ -2174,7 +2179,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     }
     detail::PersistentTransferLifetime lifetime(socket, context->policy.limits);
     if (auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
-    PersistentDataSession state(dynamic);
+    PersistentDataSession state(dynamic,socket->dataPayloadLimit());
     PersistentFrame incoming; // One owner per connection; all writes below are synchronous.
     std::optional<WorkExecutor> executor;
     if (ready) {
@@ -2209,7 +2214,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     for (;;) {
         tracePersistentProtocol("receiver", "next_frame_read_begin", channelIndex,
             nullptr, stats->files - filesAtConnectionStart);
-        status = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload, &incoming);
+        status = PersistentDataSession::readNext(socket, socket->dataPayloadLimit(), &incoming);
         const auto& frame = incoming;
         if (!status.isOk()) {
             tracePersistentProtocol("receiver", "next_frame_read_error", channelIndex,
@@ -2232,6 +2237,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         auto decoded = PersistentDataSession::decodeBegin(frame);
         if (!decoded.isOk()) return decoded.status();
         const auto id = decoded.value();
+        if (socket->dataPayloadLimit() > PersistentDataSession::kMaxPayload &&
+            (id.chunkSize != 1048576 || id.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c))
+            return Status::invalidArgument("large DATA requires 1 MiB chunks and CRC32C");
         tracePersistentProtocol("receiver", "file_begin_read", channelIndex, &id);
         std::optional<WorkLease> lease;
         struct IncomingLeaseGuard {
@@ -2381,7 +2389,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             receiverIo.backend == storage::FileIoBackendKind::Posix &&
             storage::effectivePosixWriteStrategy(receiverIo) == storage::PosixWriteStrategy::Direct
             ? static_cast<std::uint32_t>(receiverWriteBatch.value()) : 1;
-        const std::size_t receiverPipelineChunkBytes = PersistentDataSession::kMaxPayload;
+        const std::size_t receiverPipelineChunkBytes = socket->dataPayloadLimit();
         BoundedPayloadPipeline receiverPipeline(receiverPipelineChunkBytes * receiverDepth.value(),
             receiverDepth.value(), timing.rangeObservationEnabled, receiverWake.value());
         Status writerTerminal = Status::ok();
@@ -2528,7 +2536,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             const auto previousCapacity = incoming.payload.capacity();
             OptionalThreadCpuTimer socketCpu(receiverCpu.enabled ? &receiverCpu.socketReadCpuSeconds : nullptr);
             if (receiverCpu.enabled) ++receiverCpu.socketReadCalls;
-            status = PersistentDataSession::readNext(socket, PersistentDataSession::kMaxPayload, &incoming);
+            status = PersistentDataSession::readNext(socket, socket->dataPayloadLimit(), &incoming);
             socketCpu.stop();
             const auto& data = incoming;
             if (!status.isOk()) {

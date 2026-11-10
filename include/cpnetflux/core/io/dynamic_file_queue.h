@@ -30,7 +30,7 @@ class DynamicFileQueue {
                      bool staticChannelAffinity = false,
                      std::vector<std::string> workerLinkIds = {},
                      bool rangeAffinity = false);
-    [[nodiscard]] common::Result<std::shared_ptr<TransferStages>> transferStages(std::uint32_t lanes, std::uint32_t depth);
+    [[nodiscard]] common::Result<std::shared_ptr<TransferStages>> transferStages(std::uint32_t lanes, std::uint32_t depth, std::uint32_t frameCapacity = 65536);
     [[nodiscard]] common::Status attachScheduler(scheduler::GlobalScheduler* scheduler);
     [[nodiscard]] common::Status setConnectionEpoch(ConnectionEpoch epoch);
     // Prevent future claims while existing leases remain valid for teardown/finalization.

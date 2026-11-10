@@ -148,16 +148,26 @@ common::Result<std::uint64_t> setting(const char* key, std::uint64_t fallback, s
     return parsed;
 }
 }
-common::Result<std::shared_ptr<TransferStages>> TransferStages::create(std::uint32_t lanes,std::uint32_t depth,bool receiver) {
+common::Status TransferStages::preflight(std::uint32_t lanes, std::uint32_t frameCapacity) {
+    auto depth=setting("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH",2,64);
+    if (!depth.isOk()) return depth.status();
+    auto created=create(lanes,depth.value(),false,frameCapacity);
+    return created.isOk() ? common::Status::ok() : created.status();
+}
+common::Result<std::shared_ptr<TransferStages>> TransferStages::create(std::uint32_t lanes,std::uint32_t depth,bool receiver,std::uint32_t frameCapacity) {
+    if (frameCapacity != 65536 && frameCapacity != 262148)
+        return common::Status::invalidArgument("unsupported stage frame capacity");
     if (!lanes || lanes>64 || !depth || depth>64)
         return common::Status::invalidArgument("stage lanes and depth must be 1..64");
     auto read=setting("CPNETFLUX_STAGE_READ_CONCURRENCY",0,64);
     auto write=setting("CPNETFLUX_STAGE_WRITE_CONCURRENCY",0,64);
     auto budget=setting("CPNETFLUX_STAGE_BUFFER_BYTES",64ULL*1024*1024,256ULL*1024*1024);
     if (!read.isOk()) return read.status(); if (!write.isOk()) return write.status(); if (!budget.isOk()) return budget.status();
+    if (frameCapacity > 65536 && budget.value() > 64ULL*1024*1024)
+        return common::Status::invalidArgument("large DATA payload budget must not exceed 64 MiB");
     // Queue + producer/consumer + recycled/decoded/compressed owners. Excludes
     // transport pools, metadata/statistics and tmpfs, which are measured separately.
-    const std::uint64_t bound=std::uint64_t(lanes)*(depth+6)*65536;
+    const std::uint64_t bound=std::uint64_t(lanes)*(depth+6)*frameCapacity;
     if (budget.value()<bound) return common::Status::invalidArgument("stage payload ownership exceeds total buffer budget");
     const char* selected=std::getenv("CPNETFLUX_STAGE_WRITE_EXECUTOR");
     const std::string_view executor=selected ? selected : "pool";
@@ -165,6 +175,7 @@ common::Result<std::shared_ptr<TransferStages>> TransferStages::create(std::uint
         return common::Status::invalidArgument("CPNETFLUX_STAGE_WRITE_EXECUTOR must be pool or admission");
     auto stages=std::make_shared<TransferStages>(read.value(),write.value(),lanes,receiver && executor=="pool");
     stages->networkLanes=lanes; stages->depth=depth; stages->bufferBudgetBytes=budget.value(); stages->ownershipBoundBytes=bound;
+    stages->frameCapacityBytes=frameCapacity;
     return stages;
 }
 }

@@ -94,6 +94,97 @@ static FrameHeader beginHeader(std::uint64_t size) {
     return h;
 }
 
+TEST(PersistentSessionTest, NegotiatedLargeDataRoundTripsIncludingCrcAndTail) {
+    SocketPair pair;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.receiver.configureDataFrameBytes(262144).isOk());
+    EXPECT_FALSE(pair.sender.configureDataFrameBytes(65532).isOk());
+    PersistentFileIdentity id{1,1,262161,"large.bin","large",1048576,0,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    std::vector<std::uint8_t> payload(262144,0xa5);
+    auto writing=std::async(std::launch::async,[&]{
+        auto status=PersistentDataSession::writeData(&pair.sender,id,0,payload.data(),payload.size());
+        if (!status.isOk()) return status;
+        return PersistentDataSession::writeData(&pair.sender,id,262144,payload.data(),17);
+    });
+    auto full=PersistentDataSession::readNext(&pair.receiver,262148);
+    ASSERT_TRUE(full.isOk()) << full.status().message();
+    EXPECT_EQ(full.value().payload.size(),262148U);
+    EXPECT_TRUE(std::equal(payload.begin(),payload.end(),full.value().payload.begin()+4));
+    auto tail=PersistentDataSession::readNext(&pair.receiver,262148);
+    ASSERT_TRUE(tail.isOk());EXPECT_EQ(tail.value().header.offset,262144U);
+    EXPECT_EQ(tail.value().payload.size(),21U);EXPECT_TRUE(writing.get().isOk());
+    EXPECT_FALSE(PersistentDataSession::writeData(&pair.sender,id,1048575,payload.data(),2).isOk());
+}
+
+TEST(PersistentSessionTest, LargeDataDoesNotEnlargeControlsOrAcceptUnnegotiatedData) {
+    for (const auto type : {FrameType::FileBegin,FrameType::Data}) {
+        SocketPair pair;
+        if (type==FrameType::FileBegin) ASSERT_TRUE(pair.receiver.configureDataFrameBytes(262144).isOk());
+        auto h=beginHeader(1048576);h.type=type;h.payloadSize=262148;h.flags=type==FrameType::Data?kDataChecksum:0;
+        const auto wire=encodeFrameHeader(h);
+        ASSERT_TRUE(pair.sender.writeAll(wire.data(),wire.size()).isOk());
+        // No payload or EOF is sent: rejection must happen before allocation/read.
+        EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver,pair.receiver.dataPayloadLimit()).isOk());
+    }
+}
+
+TEST(PersistentSessionTest, LargeDataRejectsMissingChecksumAndTruncation) {
+    for (bool truncated : {false,true}) {
+        SocketPair pair;ASSERT_TRUE(pair.receiver.configureDataFrameBytes(262144).isOk());
+        auto h=beginHeader(1048576);h.type=FrameType::Data;h.payloadSize=262148;
+        h.flags=truncated?kDataChecksum:0;
+        const auto wire=encodeFrameHeader(h);
+        ASSERT_TRUE(pair.sender.writeAll(wire.data(),wire.size()).isOk());
+        if (truncated) { const std::uint8_t bytes[]{0,1};
+            ASSERT_TRUE(pair.sender.writeAll(bytes,sizeof(bytes)).isOk());pair.sender.close(); }
+        PersistentFrame frame;EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver,262148,&frame).isOk());
+        EXPECT_TRUE(frame.payload.empty());
+    }
+}
+
+TEST(PersistentSessionTest, LargeDataRejectsCrossChunkWithoutAdvancingState) {
+    PersistentDataSession state(false,262148);
+    PersistentFileIdentity id{1,1,2097152,"a","chunk",1048576,0,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    ASSERT_TRUE(state.begin(beginHeader(id.totalSize),id).isOk());
+    std::vector<std::uint8_t> bytes(262144,'x');
+    auto data=beginHeader(id.totalSize);data.type=FrameType::Data;data.payloadSize=262144;
+    for (unsigned i=0;i<3;++i) {data.offset=i*262144;
+        ASSERT_TRUE(state.data(data,bytes.size(),bytes.data()).isOk());}
+    data.offset=786432;data.payloadSize=262143;
+    ASSERT_TRUE(state.data(data,262143,bytes.data()).isOk());
+    data.offset=1048575;data.payloadSize=2;
+    EXPECT_FALSE(state.data(data,2,bytes.data()).isOk());EXPECT_EQ(state.receivedBytes(),1048575U);
+}
+
+TEST(PersistentSessionTest, CorruptLargeDataCannotCertifyOrPublishChunk) {
+    SocketPair pair;TempRoot source,destination;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.receiver.configureDataFrameBytes(262144).isOk());
+    std::ofstream(source.path/"bad.bin")<<std::string(1048576,'A');
+    struct stat st{};ASSERT_EQ(::stat((source.path/"bad.bin").c_str(),&st),0);
+    PersistentFileIdentity id{1,7,1048576,"bad.bin","large-bad-checksum",1048576,st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    cpnetflux::config::FileTransferOptions options;
+    options.path=(source.path/"bad.bin").string();options.hasCorruptChunk=true;options.corruptChunk=0;
+    PersistentTreeStats received,sent;cpnetflux::common::Status result;
+    PersistentTransferPolicy policy;
+    policy.options.finalVerifyPolicy=cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks;
+    auto context=makePersistentTransferContext(policy);
+    std::jthread receiver([&]{
+        result=receivePersistentTree(&pair.receiver,destination.path.string(),false,"",&received,
+            {},1,0,1,kUnknownPersistentFileCount,false,false,context);
+        pair.receiver.shutdown();
+    });
+    auto status=sendPersistentTree(&pair.sender,source.path.string(),{id},&sent,{},1,0,1,nullptr,&options);
+    receiver.join();EXPECT_FALSE(status.isOk());EXPECT_FALSE(result.isOk());
+    auto checkpoint=cpnetflux::checkpoint::ManifestStore::load(
+        cpnetflux::checkpoint::manifestPathForOutput((destination.path/"bad.bin").string()));
+    ASSERT_TRUE(checkpoint.isOk());EXPECT_TRUE(checkpoint.value().verifiedChunks.empty());
+    EXPECT_FALSE(std::filesystem::exists(destination.path/"bad.bin"));
+}
+
 TEST(PersistentSessionTest, RejectsWrongDataOffsetWithoutAdvancing) {
     PersistentDataSession session;
     ASSERT_TRUE(session.begin(beginHeader(3), "a").isOk());

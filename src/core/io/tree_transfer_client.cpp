@@ -1,5 +1,6 @@
 #include "cpnetflux/core/io/tree_transfer_client.h"
 #include "cpnetflux/core/io/tree_pipeline_identity.h"
+#include "cpnetflux/core/io/transfer_stages.h"
 
 #include <fcntl.h>
 #include <netdb.h>
@@ -307,7 +308,7 @@ class ControlClient {
         bool resume, DataTlsMode dataTlsMode, std::uint32_t* actualWindow,
         std::uint32_t* actualChannels, bool dynamic = false,
         std::uint32_t requestedLinks = 1, std::uint64_t requestedLinkCapabilities = 0,
-        DataTransport dataTransport = DataTransport::Tcp) {
+        DataTransport dataTransport = DataTransport::Tcp, std::uint32_t dataBytes = 65532) {
         if (requestedWindow == 0 || requestedWindow > 16 ||
             requestedChannels == 0 || requestedChannels > kPersistentTreeMaxChannels ||
             requestedLinks == 0 || requestedLinks > core::scheduler::LinkSet::kMaxLinks ||
@@ -331,6 +332,7 @@ class ControlClient {
         request += " RESUME=" + std::string(resume ? "1" : "0");
         request += " DATA_TLS=" + std::string(dataTlsModeName(dataTlsMode));
         request += " DATA_TRANSPORT=" + std::string(dataTransportName(dataTransport));
+        if (dataBytes != 65532) request += " DATA_BYTES=" + std::to_string(dataBytes);
         const bool linkSetRequested = requestedLinks != 1 || requestedLinkCapabilities != 0;
         if (linkSetRequested) {
             request += " " + core::scheduler::encodeLinkSetControlFields(
@@ -341,6 +343,16 @@ class ControlClient {
         if (!reply.isOk()) return reply.status();
         if (reply.value().code == 200) {
             const std::string replyText = joined(reply.value());
+            if (dataBytes != 65532) {
+                std::istringstream fields(replyText);
+                std::string field;
+                bool selected = false, maximum = false;
+                while (fields >> field) {
+                    if (field == "data_bytes=" + std::to_string(dataBytes)) selected = true;
+                    if (field == "max_data_bytes=262144") maximum = true;
+                }
+                if (!selected || !maximum) return false;
+            }
             const std::string checksumToken = "checksum=" +
                 std::string(checksum::checksumAlgorithmName(checksumAlgorithm));
             const std::string resumeToken = "resume=" + std::string(resume ? "1" : "0");
@@ -818,7 +830,7 @@ TreeAuthProbeResult runTreeAuthProbeInternal(const config::TreeTransferOptions& 
     auto negotiated = control.negotiatePersistent(
         1, 1, options.checksumAlgorithm, false, options.dataTlsMode,
         &actualWindow, &actualChannels, false, options.linkSetLinks,
-        options.linkSetCapabilityBits, options.dataTransport);
+        options.linkSetCapabilityBits, options.dataTransport, options.dataFrameBytes);
     if (!negotiated.isOk()) {
         result.capabilities = "failed";
         result.error = negotiated.status().message();
@@ -1517,6 +1529,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"lane_local_recovery_count\": " << stats.laneLocalRecoveryCount.load() << ",\n";
     output << "  \"data_transfer_count\": " << stats.dataTransferCount.load() << ",\n";
     output << "  \"actual_transport\": \"v3\",\n";
+    output << "  \"data_frame_logical_bytes\": " << options.dataFrameBytes << ",\n";
     output << "  \"control_tls_verified\": "
            << ((status.isOk() && options.tls.mode == TlsMode::Required) ? "true" : "false") << ",\n";
     output << "  \"data_tls_verified\": "
@@ -2070,6 +2083,15 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             std::to_string(kPersistentTreeMaxChannels) + "-channel limit");
     }
     const std::uint32_t channelCount = std::max(options.fileParallelism, options.linkSetLinks);
+    if (options.dataFrameBytes != 65532 &&
+        (options.dataFrameBytes != 262144 || options.dataTransport != DataTransport::Tcp ||
+         options.tls.mode != TlsMode::Off || options.dataTlsMode != DataTlsMode::Off ||
+         options.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
+         options.chunkSize != 1048576 || options.compressionMode != config::CompressionMode::Off ||
+         options.hotPathCompression.enabled))
+        return common::Status::invalidArgument("unsupported large DATA configuration");
+    auto payloadBudget = TransferStages::preflight(channelCount, options.dataFrameBytes + 4);
+    if (!payloadBudget.isOk()) return payloadBudget;
     std::vector<std::string> laneLinkIds;
     laneLinkIds.reserve(channelCount);
     for (std::uint32_t index = 0; index < channelCount; ++index) {
@@ -2294,7 +2316,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             auto capability = channel.control->negotiatePersistent(
                 dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
                 options.dataTlsMode, &actualWindow, &actualChannels, options.dynamicFileScheduling,
-                options.linkSetLinks, options.linkSetCapabilityBits, options.dataTransport);
+                options.linkSetLinks, options.linkSetCapabilityBits, options.dataTransport,
+                options.dataFrameBytes);
             if (!capability.isOk()) {
                 channel.status = capability.status();
                 recordFailure(channel.status);
@@ -2371,6 +2394,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             channel.connectSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now()-connecting).count();
             if (!data.isOk()) {
                 channel.status = data.status();
+                recordFailure(channel.status);
+                return;
+            }
+            channel.status = data.value().configureDataFrameBytes(options.dataFrameBytes);
+            if (!channel.status.isOk()) {
                 recordFailure(channel.status);
                 return;
             }
@@ -2663,7 +2691,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                         dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
                         options.dataTlsMode, &actualWindow, &actualChannels,
                         options.dynamicFileScheduling, options.linkSetLinks,
-                        options.linkSetCapabilityBits, options.dataTransport);
+                        options.linkSetCapabilityBits, options.dataTransport, options.dataFrameBytes);
                     if (!capability.isOk()) return capability.status();
                     if (!capability.value() || actualWindow != dispatchWindow ||
                         actualChannels != channelCount) {
@@ -2687,6 +2715,8 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 channel.connectSeconds += std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - connecting).count();
                 if (!data.isOk()) return data.status();
+                const auto configured = data.value().configureDataFrameBytes(options.dataFrameBytes);
+                if (!configured.isOk()) return configured;
                 {
                     std::lock_guard<std::mutex> lock(channel.dataMutex);
                     channel.data = std::move(data.value());

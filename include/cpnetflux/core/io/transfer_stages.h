@@ -47,6 +47,7 @@ class ReadyIoExecutor {
 struct TransferStages {
     std::uint32_t readConcurrency = 0, writeConcurrency = 0, networkLanes = 0, depth = 0;
     std::uint64_t bufferBudgetBytes = 0, ownershipBoundBytes = 0;
+    std::uint32_t frameCapacityBytes = 65536;
     StageGate reads, writes;
     std::shared_ptr<ReadyIoExecutor> writerPool;
     // A lane owns at most one producer and writer. Caps at or above the lane
@@ -58,6 +59,7 @@ struct TransferStages {
           }
     bool readAdmissionRequired() const { return readConcurrency && readConcurrency < networkLanes; }
     bool writeAdmissionRequired() const { return writeConcurrency && writeConcurrency < networkLanes; }
-    static common::Result<std::shared_ptr<TransferStages>> create(std::uint32_t lanes, std::uint32_t depth, bool receiver = false);
+    static common::Result<std::shared_ptr<TransferStages>> create(std::uint32_t lanes, std::uint32_t depth, bool receiver = false, std::uint32_t frameCapacity = 65536);
+    static common::Status preflight(std::uint32_t lanes, std::uint32_t frameCapacity);
 };
 }

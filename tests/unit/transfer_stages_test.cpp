@@ -8,6 +8,18 @@
 #include <cstdlib>
 using namespace cpnetflux::core::io;
 using namespace std::chrono_literals;
+TEST(TransferStagesTest, LargeFramesAccountAllOwnersAndRejectBudgetOrShapeDrift) {
+ auto stages=TransferStages::create(4,2,false,262148);
+ ASSERT_TRUE(stages.isOk());EXPECT_EQ(stages.value()->ownershipBoundBytes,4ULL*8*262148);
+ DynamicFileQueue queue(std::vector<PersistentFileIdentity>{},4,1,8);
+ ASSERT_TRUE(queue.transferStages(4,2,262148).isOk());
+ EXPECT_FALSE(queue.transferStages(4,2,65536).isOk());
+ setenv("CPNETFLUX_STAGE_BUFFER_BYTES","8388608",1);
+ EXPECT_FALSE(TransferStages::preflight(4,262148).isOk());
+ unsetenv("CPNETFLUX_STAGE_BUFFER_BYTES");
+ EXPECT_FALSE(TransferStages::create(64,64,false,262148).isOk());
+ EXPECT_FALSE(TransferStages::create(4,2,false,262144).isOk());
+}
 TEST(TransferStagesTest, OneWriterBlocksSecondUntilItsPermitLeaves) {
  StageGate gate(1);auto first=gate.acquire();ASSERT_TRUE(first.isOk());
  std::promise<void> started;auto pending=std::async(std::launch::async,[&]{started.set_value();return gate.acquire();});started.get_future().wait();

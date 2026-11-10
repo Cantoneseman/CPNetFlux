@@ -314,7 +314,9 @@ def check_manifests(slot, count, size):
             'member_example':member[0].read_text()}
 
 def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None,
-                  tree_manifest_serializer=None):
+                  tree_manifest_serializer=None, data_frame_bytes=None):
+    if data_frame_bytes is not None:
+        assert data_frame_bytes in (65532,262144)
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
     folder=args.evidence/'samples';folder.mkdir(exist_ok=True)
     summary=folder/(name+'.summary.json');log=folder/(name+'.client.log')
@@ -327,6 +329,8 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
              '--manifest-flush-policy','every_n_chunks','--manifest-flush-interval-chunks','16',
              '--range-checkpoint-batch-chunks','16','--posix-write-strategy','direct',
              '--file-io-buffer-size','0','--compression','off','--phase-timing',timing,'--json-summary',str(summary)]
+    if data_frame_bytes is not None:
+        command+=['--data-frame-bytes',str(data_frame_bytes)]
     row={'name':name,'window_request':window,'phase_timing':timing,'expected':expected,'command':command,
          'before':snapshot(),'result':'fail'}
     try:
