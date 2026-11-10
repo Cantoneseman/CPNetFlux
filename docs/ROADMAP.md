@@ -37,7 +37,7 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | DONE / NO-GO | Entry锁内CRC combine | [Diagnostic39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)：256KiB combine约0.1084ms/GiB，相对约0.85 receiver CPU秒/GiB仅约0.013%；不改运行时 |
 | SOURCE PREP PASS | 8GiB源驻留与换出 | [Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)的失败 count gap由[Diagnostic39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)补齐一次：同进程/cgroup下全页驻留、pswpout及swap为0；仅为源准备诊断 |
 | ATTEMPT ABORTED / NO PERFORMANCE DATA | 8GiB旧M1尝试 | [M1-41](tasks/2026-11-11-v3-large-file-m1-41-result.md)：首个control任务在host swap资源门中止，零完整样本；不重跑。失败证据见[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)，空载归因见[任务43](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md) |
-| PASS | 8GiB正式M1验收 | [M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)：34.159Gbps combined中位、CV 3.24%、5/5配对改善；DATA帧中位139,264→32,768，接收端CPU采样下界7.99→6.77s。下一步先完善profile证据保留，再用≤1GiB诊断记录逻辑copy/CRC/线程CPU并选定一个机制；profile吞吐不作成绩。40–50Gbps目标仍开放 |
+| PASS | 8GiB正式M1验收 | [M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)：34.159Gbps combined中位、CV 3.24%、5/5配对改善；DATA帧中位139,264→32,768，接收端CPU采样下界7.99→6.77s。[M1-45合同](tasks/2026-11-11-v3-receiver-profile-diagnostic-45.md)已固定范围：先保留逐range payload/CPU profile，再各跑一次1GiB帧尺寸与接收buffer归因矩阵；profile吞吐不作成绩。40–50Gbps目标仍开放 |
 | DONE / NOT REPRODUCED | host `pswpout`归因诊断 | [任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端120秒无payload观察均稳定，未定位M1-41单页增量；M1-44已通过独立host swap-out门，但这不改变M1-41旧结果；不重跑M1-41 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
 | DEFERRED | 小文件固定/自适应成员微批 | 独立完成时间目标；利用S0/S1及S2证据，后续设计成员恢复/事务，不包装已有pending-window为新微批 |
