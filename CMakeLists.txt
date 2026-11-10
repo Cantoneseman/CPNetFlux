@@ -1008,6 +1008,12 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_large_data_smoke.py
             --build-dir ${CMAKE_BINARY_DIR} --receive-buffer 1048576)
     set_tests_properties(cpnetflux_large_data_receive_buffer_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_large_data_receive_buffer_resume_smoke
+        COMMAND ${CMAKE_COMMAND} -E env CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES=1048576
+            python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_interrupted_resume_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR} --data-frame-bytes 262144
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-large-data-buffer-resume-evidence)
+    set_tests_properties(cpnetflux_large_data_receive_buffer_resume_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_v3_service_restart_resume_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_service_restart_resume_smoke.py

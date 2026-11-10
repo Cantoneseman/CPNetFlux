@@ -7,7 +7,7 @@
 ## 当前主线
 
 **在固定完整性语义和测试条件下，让完整V3大文件任务跨过30Gbps，并验证向40–50Gbps扩展的机制。**
-接下来开发完整V3 TCP大负载DATA原型。用户已批准有界实现，不再要求先证明≥10%完整任务收益才能写原型。
+完整V3 TCP 256KiB DATA与有界接收buffer已实现并完成1GiB同提交对照，见[Milestone35结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)。8GiB正式门仍BLOCKED_ENV，下一步闭环网络事件/受载资源条件，再正式验收；不重复同前提盲测。
 优先级：完整机制原型 → 同提交真实文件对照 → 选择一个下一核心机制 → 集成验收。
 单人串行、同一时刻一个写入者；交付1由当前整理者完成，剩余交付由既有“开发”聊天负责。
 
@@ -16,7 +16,7 @@
 | 类别 | 已有事实 | 仍未完成 |
 |---|---|---|
 | 三阶段/可靠性工程 | V3三阶段工程收口；[Publication31](tasks/2026-11-10-v3-publication-reconcile-31-result.md)修复可证明自有hard-link发布后的CRC32C恢复窗口 | 不是所有发布方式/掉电恢复保证，不代表性能达标 |
-| 大文件 | [scope17](tasks/2026-11-09-v3-kernel-service-17-result.md)同轮baseline/profile中位27.291/27.296Gbps，8GiB约2.52s；输入025c38a9 | 当前代码无新同合同成绩；30、40–50、70–85及100Gbps未验收 |
+| 大文件 | [Milestone35](tasks/2026-11-10-v3-large-file-milestone-35-result.md)1GiB：大帧27.331→35.821Gbps；独立buffer对照34.111→36.952Gbps，组合候选CV4.714%/4对改善；旧scope17仍为27.291Gbps/8GiB | 新机制显式实验；8GiB M1仍阻塞，网络错误开放；40–50、70–85、100Gbps未验收，不能跨负载/提交算累计收益 |
 | 小文件 | [S1摘要缓存22](tasks/2026-11-09-v3-summary-path-22-result.md)三组受测任务T_ready下降44.7%/54.5%/41.5%，显式cached可复现 | 默认original；S1B默认晋级仍受环境门阻塞；不是payload加速或自适应微批 |
 | 机制资产 | [TCP所有权32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)诊断发送CPU下降19.84%，完成通知/有界池通过对应测试 | 墙钟无可信改善，不集成默认；可作未来有新依据的组合资产 |
 
@@ -29,10 +29,10 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 
 | 顺序/状态 | 工作 | 交付与进入条件 |
 |---|---|---|
-| P0 READY | 完整V3大负载DATA原型 | 首个规格256KiB逻辑DATA+4B CRC；对照现有65532B；能力确认、分类型限额和预算先定稿后实现，不再以预算未证实暂停 |
-| P0 NEXT | 同提交完整任务A/B | 正确性后先≤1GiB真实文件验证；受控8GiB条件恢复后正式里程碑对照；不把小负载当8GiB成绩 |
-| P0 NEXT | 一个下一核心机制 | 按原型实际结果选择接收端服务/状态更新/搬运等一项；写清机制、可观察指标和接口后实现；最多一轮定向补测 |
-| P0 NEXT | 集成验收与40–50Gbps路线 | 冻结保留机制、报告累计收益及相关回退；明确RDMA重新评估节点，不承诺未测吞吐 |
+| DONE EXPLICIT | 完整V3大负载DATA原型 | 256KiB逻辑DATA+4B CRC，能力/控制限额/预算/恢复通过；保持65532B默认 |
+| DONE 1GiB | 同提交完整任务A/B | 两机制分别五对交错完整任务，全SHA/checkpoint通过；1GiB结果不能替代8GiB M1 |
+| DONE EXPLICIT | 一个下一核心机制 | 按ss背压证据实现1MiB请求的接收buffer，实际2MiB/socket、4 lanes上限；显式、默认off |
+| PARTIAL / NEXT | 集成验收与40–50Gbps路线 | 受测组合/默认/TLS/恢复冻结；网络事件与8GiB正式门未通过，先闭环后验收，RDMA重启条件见结果 |
 | BLOCKED_ENV | 8GiB源驻留与换出 | [Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)在payload前失败；先解释受载进程/cgroup和条件变化，不凭空闲快照重试；不阻塞较小合规任务开发 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
 | DEFERRED | 小文件固定/自适应成员微批 | 独立完成时间目标；利用S0/S1及S2证据，后续设计成员恢复/事务，不包装已有pending-window为新微批 |
