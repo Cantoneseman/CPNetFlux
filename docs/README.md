@@ -10,9 +10,9 @@
 | 当前状态、配置、未过门与下一项 | [性能路线图](ROADMAP.md) |
 | 当前批准主线与串行交接 | [里程碑35计划](tasks/2026-11-10-v3-large-file-milestone-35.md)、[实现/1GiB结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)、[M1-41计划](tasks/2026-11-11-v3-large-file-m1-41.md)、[M1-41结果：资源门中止、无吞吐样本](tasks/2026-11-11-v3-large-file-m1-41-result.md)、[M1-44计划](tasks/2026-11-11-v3-large-file-m1-44.md)、[M1-44结果：8GiB正式门通过](tasks/2026-11-11-v3-large-file-m1-44-result.md)、[M1-45接收端profile诊断](tasks/2026-11-11-v3-receiver-profile-diagnostic-45.md)、[Task46合同与结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46.md)、[Task46中止结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)、[资源失败证据补全42结果](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)、[host pswpout诊断43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)、[分层准入与路线决定](DECISIONS/2026-11-10-v3-performance-milestones.md) |
 | 近期诊断结果 | [无payload host pswpout归因43](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端均未复现，M1-41单页事件仍未定位 |
-| 最新执行结果 | [Task47结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md)：Task46离线复算显示rx13/rx16 page-pool empty/slow +8/+10；全局 rx_out_of_buffer 仍无队列/流归因，无性能新样本 |
+| 最新执行结果 | [Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)：精确mlx5源码确认rx_out_of_buffer是聚合qcnt，不提供逐RQ归属；无新性能样本 |
 | 执行方式和缓冲所有权 | [三阶段指南](V3_TRANSFER_STAGES.md)、[映射下载边界](tasks/2026-11-08-v3-mapped-download-08-result.md) |
-| 接收队列计数归因 | [Task47合同](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47.md)、[Task47结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md) |
+| 接收队列计数归因 | [Task47合同](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47.md)、[Task47结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md)、[Task48计划](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48.md)、[Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md) |
 | 设计、协议与工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md)、[目录传输](DIRECTORY_TRANSFER.md) |
 | 安全、发布与证据边界 | [安全](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md)、[历史研究基线](RESEARCH_BASELINE.md) |
 
@@ -20,7 +20,7 @@
 
 | 主题 | 任务 / 结果 |
 |---|---|
-| 最近大文件候选评估 | [M1-41结果](tasks/2026-11-11-v3-large-file-m1-41-result.md)：首个control任务因host swap资源门中止，零完整样本；[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)已补齐失败资源证据；[任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)未复现host事件；[M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)以34.159Gbps中位速率通过门槛；[M1-45/Task46](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)记录接口计数边界诊断：Task46首样本观察窗口`rx_out_of_buffer` +237后停止，profile对照未完成；接下来先解析接收队列计数与流的关联，M1-41仍不重跑。网络诊断40和CRC combine/8 GiB源准备边界见[40](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)、[39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md) |
+| 最近大文件候选评估 | [M1-41结果](tasks/2026-11-11-v3-large-file-m1-41-result.md)：首个control任务因host swap资源门中止，零完整样本；[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)已补齐失败资源证据；[任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)未复现host事件；[M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)以34.159Gbps中位速率通过门槛；[M1-45/Task46](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)记录rx_out_of_buffer +237后中止；[Task47/48](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)确认该计数没有逐队列归属；M1-41仍不重跑。网络诊断40和CRC combine/8 GiB源驻留边界见[40](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)、[39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md) |
 | 1MiB帧候选 | [DATA帧37结果](tasks/2026-11-10-v3-data-frame-1m-37-result.md)：五对1GiB吞吐未改善，接收miss计数增加，候选撤回；不再扫描帧尺寸 |
 | 网络事件定向归因 | [诊断40结果](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)：当前固定路径未复现；[诊断36](tasks/2026-11-10-v3-receive-network-36-result.md)给出硬件RQ缺缓冲层级，但历史触发机制和流级因果仍OPEN |
 | 最新大文件基线与归因 | [内核服务17](tasks/2026-11-09-v3-kernel-service-17-result.md)、[观测开销16](tasks/2026-11-09-v3-observation-audit-16-result.md)、[本地 V3 executor 修复13](tasks/2026-11-09-v3-receiver-critical-13-result.md) |
