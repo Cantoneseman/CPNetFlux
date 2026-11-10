@@ -153,14 +153,148 @@ class DefaultGateTest(unittest.TestCase):
             root=Path(d);(root/gate.base.MARKER).write_text(gate.base.TOKEN)
             (root/'source').mkdir();(root/'source/f000000.bin').write_bytes(b'x'*8192)
             evidence=root/'evidence';(evidence/'peer').mkdir(parents=True)
-            (evidence/'peer/seed-resource.json').write_text(json.dumps({'pswpout_before':10}))
+            owner={'process':{'pid':123,'start_ticks':456},'membership':'0::/user.slice/session-test.scope',
+                   'leaf':'/user.slice/session-test.scope','leaf_present':True,'ancestors':[]}
+            (evidence/'peer/seed-resource.json').write_text(json.dumps({'pswpout_before':10,'owner_final':owner}))
             args=SimpleNamespace(payload_root=root,evidence=evidence)
             probe=getattr(gate,'source_residency',None)
             self.assertTrue(callable(probe),'source probe must carry the original seed baseline')
-            with patch.object(gate.base,'pswpout',return_value=11):r=probe(args)
+            with patch.object(gate.base,'pswpout',return_value=11), \
+                 patch.object(gate.base,'proc_info',return_value={'swap_bytes':0}), \
+                 patch.object(gate,'cgroup_owner',return_value=owner), \
+                 patch.object(gate,'cgroup_snapshot',return_value={'leaf':'/user.slice/session-test.scope','leaf_present':True}):
+                r=probe(args)
             self.assertTrue(r['all_resident'])
             self.assertEqual(r['host_pswpout'],11)
             self.assertEqual(r['host_pswpout_delta_since_seed'],1)
+            self.assertTrue(r['same_preparation_process'])
+            self.assertTrue(r['same_preparation_cgroup'])
+
+
+class SourceOwnershipDiagnosticTest(unittest.TestCase):
+    def test_cgroup_snapshot_parses_leaf_and_ancestor_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);leaf=root/'user.slice/session-7.scope';leaf.mkdir(parents=True)
+            parent=root/'user.slice'
+            for path,current,swap,events,stat in (
+                (parent,'4096','0','low 0\nhigh 0\n','shmem 2048\nfile 4096\n'),
+                (leaf,'2048','1024','low 0\nhigh 2\n','shmem 1024\nfile 2048\n')):
+                (path/'memory.current').write_text(current+'\n')
+                (path/'memory.swap.current').write_text(swap+'\n')
+                (path/'memory.swap.max').write_text('max\n')
+                (path/'memory.events').write_text(events)
+                (path/'memory.stat').write_text(stat)
+                (path/'memory.pressure').write_text('some avg10=0.00 avg60=0.00 total=7\n')
+            snapshot_fn=getattr(gate,'cgroup_snapshot',None)
+            self.assertTrue(callable(snapshot_fn),'source cgroup snapshots must be supported')
+            result=snapshot_fn('0::/user.slice/session-7.scope\n',cgroup_root=root)
+            self.assertEqual(result['leaf'],'/user.slice/session-7.scope')
+            self.assertTrue(result['leaf_present'])
+            groups={item['path']:item['fields'] for item in result['ancestors']}
+            self.assertEqual(groups[str(leaf)]['memory.swap.current'],'1024')
+            self.assertEqual(groups[str(leaf)]['memory.events']['high'],2)
+            self.assertEqual(groups[str(leaf)]['memory.stat']['shmem'],1024)
+            self.assertIn('total=7',groups[str(leaf)]['memory.pressure'])
+            self.assertEqual(groups[str(parent)]['memory.swap.current'],'0')
+            missing=snapshot_fn('0::/user.slice/expired.scope\n',cgroup_root=root)
+            self.assertFalse(missing['leaf_present'])
+            missing_groups={item['path']:item['fields'] for item in missing['ancestors']}
+            self.assertEqual(missing_groups[str(parent)]['memory.swap.current'],'0')
+
+    def test_seed_records_same_owner_across_write_hash_and_mincore(self):
+        import json
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-s0-gate-test-',dir='/dev/shm') as d:
+            root=Path(d);(root/gate.base.MARKER).write_text(gate.base.TOKEN)
+            args=SimpleNamespace(commit='test',payload_root=root,evidence=root/'evidence')
+            owner={'process':{'pid':123,'start_ticks':456,'swap_bytes':0},'membership':'0::/user.slice/session-test.scope',
+                   'leaf':'/user.slice/session-test.scope','ancestors':[]}
+            with patch.object(gate.base,'receipt'),patch.object(gate.base,'node',return_value=2), \
+                 patch.object(gate.base,'mem',return_value=32*1024**3), \
+                 patch.object(gate.base,'pswpout',return_value=10), \
+                 patch.object(gate.base,'proc_info',return_value={'swap_bytes':0,'rss_bytes':1024,'cpu_seconds':0}), \
+                 patch.object(gate.base,'tree',return_value={'sha256':'fixture','files':1,'bytes':1024}), \
+                 patch.object(gate,'residency',return_value={'bytes':1024,'pages':1,'resident_pages':1,'all_resident':True}), \
+                 patch.object(gate,'cgroup_owner',return_value=owner), \
+                 patch.object(gate.os,'urandom',return_value=b'x'), \
+                 patch.object(gate.shutil,'disk_usage',return_value=SimpleNamespace(free=16*1024**3)), \
+                 patch.object(gate,'SIZE',1024):
+                gate.seed(args)
+            state=json.loads((args.evidence/'peer/seed-resource.json').read_text())
+            phases=[item['phase'] for item in state['cgroup_snapshots']]
+            self.assertEqual(phases,['before_write','after_write','after_sha','after_mincore'])
+            identities={(item['owner']['process']['pid'],item['owner']['process']['start_ticks'],
+                         item['owner']['membership']) for item in state['cgroup_snapshots']}
+            self.assertEqual(identities,{(123,456,'0::/user.slice/session-test.scope')})
+
+    def test_seed_persists_phase_and_resource_evidence_when_guard_fails(self):
+        import json
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-s0-gate-test-',dir='/dev/shm') as d:
+            root=Path(d);(root/gate.base.MARKER).write_text(gate.base.TOKEN)
+            args=SimpleNamespace(commit='test',payload_root=root,evidence=root/'evidence')
+            owner={'process':{'pid':123,'start_ticks':456,'swap_bytes':0},'membership':'0::/user.slice/session-test.scope',
+                   'leaf':'/user.slice/session-test.scope','leaf_present':True,'ancestors':[]}
+            with patch.object(gate.base,'receipt'),patch.object(gate.base,'node',return_value=2), \
+                 patch.object(gate.base,'mem',side_effect=[32*1024**3,11*1024**3]), \
+                 patch.object(gate.base,'pswpout',return_value=10), \
+                 patch.object(gate.base,'proc_info',return_value={'swap_bytes':0,'rss_bytes':1024,'cpu_seconds':0}), \
+                 patch.object(gate,'cgroup_owner',return_value=owner), \
+                 patch.object(gate.os,'urandom',return_value=b'x'), \
+                 patch.object(gate.shutil,'disk_usage',return_value=SimpleNamespace(free=16*1024**3)), \
+                 patch.object(gate,'SIZE',1024):
+                with self.assertRaisesRegex(AssertionError,'seed memory threshold'):
+                    gate.seed(args)
+            state=json.loads((args.evidence/'peer/seed-resource.json').read_text())
+            self.assertEqual(state['phase'],'source_write')
+            self.assertEqual(state['error'],"AssertionError('seed memory threshold')")
+            self.assertEqual(state['materialized_bytes'],1)
+            self.assertEqual(state['pswpout_delta'],0)
+            self.assertEqual([x['phase'] for x in state['cgroup_snapshots']],['before_write'])
+
+    def test_resource_diagnostic_blocks_preexisting_process_swap_without_preparing(self):
+        import os
+        root=Path('/dev/shm')/f'cpnetflux-s0-preflight-test-{os.getpid()}'
+        self.assertFalse(root.exists())
+        with tempfile.TemporaryDirectory() as d:
+            args=SimpleNamespace(commit='test',payload_root=root,evidence=Path(d))
+            owner={'process':{'pid':123,'start_ticks':456,'swap_bytes':4096},'membership':'0::/user.slice/test.scope'}
+            with patch.object(gate.base,'receipt'),patch.object(gate.base,'node',return_value=2), \
+                 patch.object(gate.base,'mem',return_value=32*1024**3), \
+                 patch.object(gate.base,'pswpout',return_value=10), \
+                 patch.object(gate,'cgroup_owner',return_value=owner), \
+                 patch.object(gate.shutil,'disk_usage',return_value=SimpleNamespace(free=16*1024**3)):
+                report=gate.resource_diagnostic(args)
+            self.assertEqual(report['source_preparations'],0)
+            self.assertIn('diagnostic process already has swap',report['preflight_block_reasons'])
+            self.assertFalse(report['payload_server_started'])
+            self.assertFalse(report['data_transfer_started'])
+            self.assertFalse(root.exists())
+
+    def test_resource_diagnostic_retains_failed_residency_and_cleans_root(self):
+        import json, os
+        root=Path('/dev/shm')/f'cpnetflux-s0-diagnostic-test-{os.getpid()}'
+        self.assertFalse(root.exists())
+        with tempfile.TemporaryDirectory() as d:
+            evidence=Path(d);args=SimpleNamespace(commit='test',payload_root=root,evidence=evidence)
+            failure={'phase':'source_residency','source_residency':
+                     {'pages':2048,'resident_pages':1900,'all_resident':False}}
+            def failed_seed(args):
+                (args.evidence/'peer').mkdir(parents=True,exist_ok=True)
+                (args.evidence/'peer/seed-resource.json').write_text(json.dumps(failure))
+                raise AssertionError('source residency')
+            with patch.object(gate.base,'receipt'),patch.object(gate.base,'node',return_value=2), \
+                 patch.object(gate.base,'mem',return_value=32*1024**3), \
+                 patch.object(gate.base,'pswpout',return_value=10), \
+                 patch.object(gate,'cgroup_owner',return_value={'process':{'swap_bytes':0}}), \
+                 patch.object(gate.shutil,'disk_usage',return_value=SimpleNamespace(free=16*1024**3)), \
+                 patch.object(gate,'seed',side_effect=failed_seed):
+                with self.assertRaisesRegex(AssertionError,'source residency'):
+                    gate.resource_diagnostic(args)
+            saved=json.loads((evidence/'resource-diagnostic.json').read_text())
+            self.assertEqual(saved['seed_resource'],failure)
+            self.assertEqual(saved['source_preparations'],1)
+            self.assertEqual(saved['outcome'],'preparation_failed')
+            self.assertTrue(saved['cleanup_pass'])
+            self.assertFalse(root.exists())
 
 
 if __name__=='__main__':unittest.main()
