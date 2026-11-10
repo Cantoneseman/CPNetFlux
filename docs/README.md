@@ -17,7 +17,8 @@
 
 | 主题 | 任务 / 结果 |
 |---|---|
-| 最新网络事件定向归因与下一开发项 | [接收网络36结果](tasks/2026-11-10-v3-receive-network-36-result.md)：硬件RQ缺缓冲层已定位，本轮未复现、根因OPEN；接收消费背压证据，下一项显式1MiB DATA |
+| 最近大文件候选评估 | [1MiB DATA候选37结果](tasks/2026-11-10-v3-data-frame-1m-37-result.md)：五对1GiB吞吐未改善，接收miss计数增加，候选撤回；下一步回到256KiB接收服务交接 |
+| 最新网络事件定向归因与下一开发项 | [接收网络36结果](tasks/2026-11-10-v3-receive-network-36-result.md)：硬件RQ缺缓冲层已定位，本轮未复现、根因OPEN；后续接收消费路径需在256KiB上限内验证 |
 | 最新大文件基线与归因 | [内核服务17](tasks/2026-11-09-v3-kernel-service-17-result.md)、[观测开销16](tasks/2026-11-09-v3-observation-audit-16-result.md)、[本地 V3 executor 修复13](tasks/2026-11-09-v3-receiver-critical-13-result.md) |
 | 写入路径与集成 | [lane/storage06](tasks/2026-11-08-v3-lane-storage-06.md)、[写后端07](tasks/2026-11-08-v3-write-backend-07.md)、[映射下载08](tasks/2026-11-08-v3-mapped-download-08-result.md)、[映射成本14](tasks/2026-11-09-v3-mapped-cost-14-result.md) |
 | 已关闭候选与负结果 | [流水线交接](tasks/2026-11-07-v3-path-isolation-01-result.md)、[population10](tasks/2026-11-08-v3-mapped-populate-10-result.md)、[发送inline12](tasks/2026-11-08-v3-sender-service-12-result.md)、[直接接收15](tasks/2026-11-09-v3-direct-receive-15-result.md) |
@@ -30,7 +31,7 @@
 
 ## 决策与历史规则
 
-- 2026-11-10起执行[性能里程碑决定](DECISIONS/2026-11-10-v3-performance-milestones.md)。上表scope18–34等历史结果保留原判定，但其“下一项”不覆盖当前路线；大帧完整原型已恢复，8GiB环境阻塞单独管理。
+- 2026-11-10起执行[性能里程碑决定](DECISIONS/2026-11-10-v3-performance-milestones.md)。上表scope18–34等历史结果保留原判定，但其“下一项”不覆盖当前路线；256KiB大帧路径保留，1MiB候选已因无吞吐收益且接收miss计数增加而撤回，8GiB环境阻塞单独管理。
 
 - 当前开发环境遵循 [R770 主开发决定](DECISIONS/2026-10-30-r770-primary.md)；[性能路线决定](DECISIONS/2026-11-04-performance-route.md)和[流水线优先决定](DECISIONS/2026-11-07-v3-pipeline-priority.md)按当前路线图理解。
 - 深圳/上海主开发、旧协作角色、强制 worktree、旧路径和 SSH 命令均为历史材料，不覆盖当前开发规则。
