@@ -1,5 +1,7 @@
 # CPNetFlux 大文件后续开发计划
 
+> 历史执行计划：2026-11-10起按[新决定](../DECISIONS/2026-11-10-v3-performance-milestones.md)与[里程碑35](2026-11-10-v3-large-file-milestone-35.md)执行。下文的收益预算前置、局部15%晋级、所有候选统一10%门及历史下一项已失效；不改写已有实验结论。
+
 日期：2026-11-09。输入提交 `7dbaa06fcc8d70dd5e1f9cdfc9df9e5dca727ea1`。
 状态：Byte Work18、Mapped Collapse19、Source Read20诊断、S0及S1显式摘要缓存验收已完成；当前LF4 seed+collapse及LF5只读源窗口不晋级，下一项S1B大文件回归/默认门。大帧/CRC运行时预算未证实。历史计划不作为性能结果。
 依据：[当前路线](../ROADMAP.md)、[scope17结果](2026-11-09-v3-kernel-service-17-result.md)、
