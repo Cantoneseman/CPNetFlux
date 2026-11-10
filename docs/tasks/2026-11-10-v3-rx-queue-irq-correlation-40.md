@@ -2,7 +2,8 @@
 
 Date: 2026-11-10
 Input commit: `fce5859a60a3f8683e0a29847bca772169d99c08`
-Status: planned, not yet run.
+Execution commit: `a1d429157492b6b403273d890d2d0ed881ae5449`
+Status: executed 2026-11-11; see [result](2026-11-11-v3-rx-queue-irq-correlation-40-result.md).
 
 ## Scope
 

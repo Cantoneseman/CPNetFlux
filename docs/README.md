@@ -17,9 +17,9 @@
 
 | 主题 | 任务 / 结果 |
 |---|---|
-| 最近大文件候选评估 | [source residency 39结果](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)：当前256 KiB路径CRC combine约占采样接收CPU 0.013%，不开发锁内原型；一次8 GiB源准备驻留/换出门通过，但未互传；下一步定向关联RX missed与队列/IRQ服务 |
+| 最近大文件候选评估 | [RX队列/IRQ诊断40结果](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)：当前256 KiB固定路径一次1 GiB诊断未复现miss计数，不作流级归因；下一步正式8 GiB M1五对交错验收。CRC combine成本与8 GiB源准备边界见[source residency 39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md) |
 | 1MiB帧候选 | [DATA帧37结果](tasks/2026-11-10-v3-data-frame-1m-37-result.md)：五对1GiB吞吐未改善，接收miss计数增加，候选撤回；不再扫描帧尺寸 |
-| 最新网络事件定向归因 | [接收网络36结果](tasks/2026-11-10-v3-receive-network-36-result.md)：硬件RQ缺缓冲层已定位，本轮未复现、根因OPEN；后续接收消费路径保持256KiB上限 |
+| 网络事件定向归因 | [诊断40结果](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)：当前固定路径未复现；[诊断36](tasks/2026-11-10-v3-receive-network-36-result.md)给出硬件RQ缺缓冲层级，但历史触发机制和流级因果仍OPEN |
 | 最新大文件基线与归因 | [内核服务17](tasks/2026-11-09-v3-kernel-service-17-result.md)、[观测开销16](tasks/2026-11-09-v3-observation-audit-16-result.md)、[本地 V3 executor 修复13](tasks/2026-11-09-v3-receiver-critical-13-result.md) |
 | 写入路径与集成 | [lane/storage06](tasks/2026-11-08-v3-lane-storage-06.md)、[写后端07](tasks/2026-11-08-v3-write-backend-07.md)、[映射下载08](tasks/2026-11-08-v3-mapped-download-08-result.md)、[映射成本14](tasks/2026-11-09-v3-mapped-cost-14-result.md) |
 | 已关闭候选与负结果 | [流水线交接](tasks/2026-11-07-v3-path-isolation-01-result.md)、[population10](tasks/2026-11-08-v3-mapped-populate-10-result.md)、[发送inline12](tasks/2026-11-08-v3-sender-service-12-result.md)、[直接接收15](tasks/2026-11-09-v3-direct-receive-15-result.md) |
@@ -32,7 +32,7 @@
 
 ## 决策与历史规则
 
-- 2026-11-10起执行[性能里程碑决定](DECISIONS/2026-11-10-v3-performance-milestones.md)。上表scope18–34等历史结果保留原判定；scope39将Entry锁内CRC combine列为NO-GO，并仅验证单次源驻留，未替代8GiB完整任务门。256KiB DATA保留，1MiB帧和queued mmap接收候选均已撤回。
+- 2026-11-10起执行[性能里程碑决定](DECISIONS/2026-11-10-v3-performance-milestones.md)。历史候选结果保留原判定；scope39的Entry锁内CRC combine为NO-GO，源准备通过未替代8GiB完整任务门。诊断40在当前路径未复现RX miss，不再追加网络采样；256KiB DATA保留，1MiB帧和queued mmap接收候选均已撤回。
 
 - 当前开发环境遵循 [R770 主开发决定](DECISIONS/2026-10-30-r770-primary.md)；[性能路线决定](DECISIONS/2026-11-04-performance-route.md)和[流水线优先决定](DECISIONS/2026-11-07-v3-pipeline-priority.md)按当前路线图理解。
 - 深圳/上海主开发、旧协作角色、强制 worktree、旧路径和 SSH 命令均为历史材料，不覆盖当前开发规则。
