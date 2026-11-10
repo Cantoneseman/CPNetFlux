@@ -1,22 +1,22 @@
 # CPNetFlux 性能路线图
 
 更新：2026-11-10。当前决定：[按性能里程碑推进](DECISIONS/2026-11-10-v3-performance-milestones.md)。
-最近交付：[里程碑37 1MiB DATA 候选结果](tasks/2026-11-10-v3-data-frame-1m-37-result.md)。
+最近交付：[里程碑38 queued mmap接收候选结果](tasks/2026-11-10-v3-receiver-pipeline-38-result.md)。
 历史结果保留原提交、负载与结论；本页规定下一步，不产生新的性能成绩。
 
 ## 当前主线
 
 **在固定完整性语义和测试条件下，让完整V3大文件任务跨过30Gbps，并验证向40–50Gbps扩展的机制。**
-完整V3 TCP 256KiB DATA与有界接收buffer已实现并完成1GiB同提交对照，见[Milestone35结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)。[定向网络归因36](tasks/2026-11-10-v3-receive-network-36-result.md)未复现缺缓冲事件，根因仍OPEN；实际接收消费背压在[1MiB DATA候选37](tasks/2026-11-10-v3-data-frame-1m-37-result.md)中进一步表现为更高 `rx_missed_errors`。1MiB帧候选已NO-GO并撤回，吞吐中位数34.44→34.23Gbps、仅2/5配对更快。8GiB正式门仍BLOCKED_ENV，不重复同前提盲测。
-下一项：在256KiB上限内定义一个不同于已测inline/direct-receive的接收端socket-drain、CRC、mmap交接机制；预先设置完整任务吞吐、接收错误、恢复与内存预算门。不能提出可区分的机制时，不增加并发或改系统网络参数。
-单人串行、同一时刻一个写入者；交付1由当前整理者完成，剩余交付由既有“开发”聊天负责。
+完整V3 TCP 256KiB DATA与有界接收buffer已实现并完成1GiB同提交对照，见[Milestone35结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)。[定向网络归因36](tasks/2026-11-10-v3-receive-network-36-result.md)未复现缺缓冲事件，根因仍OPEN；[1MiB DATA候选37](tasks/2026-11-10-v3-data-frame-1m-37-result.md)和[queued mmap接收候选38](tasks/2026-11-10-v3-receiver-pipeline-38-result.md)均NO-GO并撤回。38的1GiB完整任务吞吐35.758→30.877Gbps，五对全部退化，接收CPU采样中位0.85→1.25秒/GiB。8GiB正式门仍BLOCKED_ENV，不重复同前提盲测。
+下一项：评估在range slot保持写入占用期间，把现有CRC32C chunk combine移出共享`RangeFileCoordinator::Entry`锁；先用正确性测试证明失败重试、checkpoint与恢复状态不变，再决定是否实施。不得增加接收线程、队列深度或网卡系统调优。
+R770-1单人串行、同一时刻一个写入者；R770-2只接收固定提交。
 
 ## 已验证成果与当前性能边界
 
 | 类别 | 已有事实 | 仍未完成 |
 |---|---|---|
 | 三阶段/可靠性工程 | V3三阶段工程收口；[Publication31](tasks/2026-11-10-v3-publication-reconcile-31-result.md)修复可证明自有hard-link发布后的CRC32C恢复窗口 | 不是所有发布方式/掉电恢复保证，不代表性能达标 |
-| 大文件 | [Milestone35](tasks/2026-11-10-v3-large-file-milestone-35-result.md)1GiB：大帧27.331→35.821Gbps；独立buffer对照34.111→36.952Gbps，组合候选CV4.714%/4对改善；旧scope17仍为27.291Gbps/8GiB | 新机制显式实验；8GiB M1仍阻塞，网络错误开放；40–50、70–85、100Gbps未验收，不能跨负载/提交算累计收益 |
+| 大文件 | [Milestone35](tasks/2026-11-10-v3-large-file-milestone-35-result.md)1GiB：大帧27.331→35.821Gbps；独立buffer对照34.111→36.952Gbps；38在固定提交上inline 35.758、queued 30.877Gbps，queued五对全退化并撤回；旧scope17仍为27.291Gbps/8GiB | 8GiB M1仍阻塞，网络错误开放；40–50、70–85、100Gbps未验收，不能跨负载/提交算累计收益 |
 | 小文件 | [S1摘要缓存22](tasks/2026-11-09-v3-summary-path-22-result.md)三组受测任务T_ready下降44.7%/54.5%/41.5%，显式cached可复现 | 默认original；S1B默认晋级仍受环境门阻塞；不是payload加速或自适应微批 |
 | 机制资产 | [TCP所有权32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)诊断发送CPU下降19.84%，完成通知/有界池通过对应测试 | 墙钟无可信改善，不集成默认；可作未来有新依据的组合资产 |
 
@@ -33,7 +33,8 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | DONE 1GiB | 同提交完整任务A/B | 两机制分别五对交错完整任务，全SHA/checkpoint通过；1GiB结果不能替代8GiB M1 |
 | DONE EXPLICIT | 一个下一核心机制 | 按ss背压证据实现1MiB请求的接收buffer，实际2MiB/socket、4 lanes上限；显式、默认off |
 | DONE / NO-GO | 1MiB DATA帧扩展 | [37结果](tasks/2026-11-10-v3-data-frame-1m-37-result.md)：五对1GiB吞吐未改善，候选CV 9.21%，与接收接口miss计数增加相伴；运行时选项已撤回，不再做帧大小扫描 |
-| NEXT SCOPING | 256KiB接收服务交接优化 | 先提出socket drain、CRC与mmap写入之间可测且未重复的单一软件机制；保持TCP网络系统设置、64MiB payload与256MiB mmap预算不变，设置吞吐/错误/恢复门后再开发 |
+| DONE / NO-GO | queued mmap接收交接 | [38结果](tasks/2026-11-10-v3-receiver-pipeline-38-result.md)：固定depth2队列，五对1GiB全退化，吞吐-13.65%、采样接收CPU+47%；候选已撤回，不再扫描队列深度或唤醒策略 |
+| NEXT SCOPING | Entry锁内CRC combine | 先证明单range slot pin可保证校验状态独占，再以失败测试覆盖写入错误、重试、checkpoint和恢复；若无安全的锁外计算方案或成本依据不足，则冻结接收端软件候选并回到8GiB环境门诊断 |
 | BLOCKED_ENV | 8GiB源驻留与换出 | [Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)在payload前失败；先解释受载进程/cgroup和条件变化，不凭空闲快照重试；不阻塞较小合规任务开发 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
 | DEFERRED | 小文件固定/自适应成员微批 | 独立完成时间目标；利用S0/S1及S2证据，后续设计成员恢复/事务，不包装已有pending-window为新微批 |
@@ -45,7 +46,7 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 - [S2C序列化26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)完整任务慢2.50%，保留original默认。
   “保存更快→全量快照更多”的证据用于未来保存机制设计；不删必要checkpoint/ACK。
 - TCP零拷贝32保留独立诊断及CPU效率证据，不自动集成、不重复调参求通过。
-- 大帧/CRC此前属于“运行时未验证”，不是机制已被否定；本决定明确恢复大帧完整原型，CRC独立评估。
+- 256KiB逻辑DATA路径保留；1MiB DATA尺寸扩展和queued mmap接收均已NO-GO。CRC算法与校验语义保持不变，下一候选只评估combine状态更新与Entry锁的交互。
 - scope33“不再自动追加通用profiler”的止损原则保留；其“先证明≥10%才可开发”的前置限制失效。
 - 不修改这些历史任务的实验数值与原判定；旧“下一项”按本页和里程碑35执行。
 

@@ -2,6 +2,7 @@
 
 Date: 2026-11-10. Input commit: `70c3d65182c45ccd079bb9a2c3c7b7f757f8ac14`.
 R770-1 is the sole writer; R770-2 accepts only a fixed commit.
+Status: queued mmap candidate was tested on five 1 GiB pairs, rejected for a 13.65% median throughput loss and higher receiver CPU, then reverted. See `2026-11-10-v3-receiver-pipeline-38-result.md`.
 
 ## Scope
 
