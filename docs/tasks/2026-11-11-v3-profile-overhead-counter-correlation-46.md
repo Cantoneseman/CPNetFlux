@@ -3,7 +3,7 @@
 日期：2026-11-11
 输入提交：`bd05af69a53f45f66f19ddead3bea2a5d560ddb7`
 前序结果：[诊断45](2026-11-11-v3-receiver-profile-diagnostic-45-result.md)
-状态：合同与诊断工具已实现；R770-1 两个相关 Python 测试文件 26/26 通过。待固定提交、双端同提交构建及二进制核验后，才运行有界矩阵。
+状态：**ABORTED / NETWORK COUNTER GATE**。实现提交 `6f1bbf94bc4704d35ff8c3e10997b02bbe34b111`；首个 profile-off 样本的接收窗口 `rx_out_of_buffer` 增量非零，按合同停止。结果见[Task46结果](2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)。
 
 ## 背景与工作假设
 

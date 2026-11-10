@@ -51,7 +51,7 @@ R770-1与R770-2均在固定代码提交 `82784e540c11b8ac444be0414467e1c488b2234
 
 profile扰动也尚无实测对照。按45保存的profile计数与 `OptionalThreadCpuTimer` 实现，65,532 B样本约有139,272个计时wrapper（约278,544次线程CPU时钟边界调用），262,144 B样本约有32,776个wrapper（约65,552次边界调用）；另有墙钟和range观察。它们只说明有测量扰动的理由，不代表可按调用数推算任务耗时。
 
-因此后续采用[Task46合同](2026-11-11-v3-profile-overhead-counter-correlation-46.md)：固定1 GiB、256 KiB DATA及其他传输参数，profile off/on五对AB/BA；两臂都保留range timing，并在客户端子进程正前/正后采集接收网络计数，另保留后续本地校验后的宽窗口快照。任一传输窗口 `rx_missed_errors` 或 `rx_out_of_buffer` 增量非零即停止，不重试。此任务仅量化该路径下的观察扰动和计数时间关联，不产生吞吐晋级结论。
+因此建立了[Task46合同](2026-11-11-v3-profile-overhead-counter-correlation-46.md)。首个 profile-off 样本在接收观察窗口记录到 `rx_out_of_buffer` +237，按停止门中止；profile-on样本未运行，profile扰动没有结论。详细证据与后续处置见[Task46结果](2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)。
 
 ## 证据
 
