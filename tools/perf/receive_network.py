@@ -71,7 +71,7 @@ def thread_snapshot(pid):
             result[thread.name]=dict(name=raw.split('(',1)[1].rsplit(')',1)[0],
                 user_ticks=int(fields[11]),system_ticks=int(fields[12]),last_cpu=int(fields[36]),
                 start_ticks=int(fields[19]),state=fields[0])
-        except FileNotFoundError:continue
+        except (FileNotFoundError,ProcessLookupError):continue
     return result
 
 

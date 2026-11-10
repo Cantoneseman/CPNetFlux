@@ -3,12 +3,26 @@
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'perf'))
 import receive_network as net
 
 
 class ReceiveNetworkTest(unittest.TestCase):
+    def test_thread_exit_during_stat_read_is_expected_but_other_errors_propagate(self):
+        root=MagicMock();thread=MagicMock()
+        root.__truediv__.return_value=root
+        root.glob.return_value=[thread]
+        stat=thread.__truediv__.return_value
+        for error in (FileNotFoundError(),ProcessLookupError()):
+            stat.read_text.side_effect=error
+            with patch.object(net,'Path',return_value=root):
+                self.assertEqual(net.thread_snapshot(123),{})
+        stat.read_text.side_effect=PermissionError('permission')
+        with patch.object(net,'Path',return_value=root):
+            with self.assertRaises(PermissionError):net.thread_snapshot(123)
+
     def test_ethtool_parser_and_regression_are_explicit(self):
         values=net.parse_ethtool('NIC statistics:\n     rx3_packets: 123\n     rx_out_of_buffer: 7\n')
         self.assertEqual(values,{'rx3_packets':123,'rx_out_of_buffer':7})
