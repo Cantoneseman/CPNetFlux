@@ -6,7 +6,7 @@ Source commit on both nodes: a811f0b54c4075a5c13a3208cf14015e378d3963.
 
 ## Preflight
 
-- R1 branch: codex/V3-GRIDFTP-OPTIMIZED-RERUN-01; origin is git@github.com:Cantoneseman/CPNetFlux.git. Remote SHA matches source commit. Two pre-existing unrelated untracked R1 documents were preserved. R2 was clean at the source commit (detached HEAD), with the same GitHub repository over HTTPS.
+- R1 branch: codex/V3-GRIDFTP-OPTIMIZED-RERUN-01; origin is git@github.com:Cantoneseman/CPNetFlux.git. Remote SHA matched the source commit before documentation publication. Two pre-existing unrelated untracked R1 documents were preserved. R2 was clean at the source commit (detached HEAD), with the same GitHub repository over HTTPS.
 - Both CMake configurations match: RelWithDebInfo; RDMA, IO_URING, ISAL and TLS ON. No build or binary hash comparison was run after the auth stop gate.
 - Both machines: Intel Xeon 6515P, 32 logical CPUs; MemAvailable approximately 28.6/28.2 GiB; /dev/shm tmpfs 16 GiB free. Root filesystem 90%/91% used, so all experiment data must remain on tmpfs. No payload was generated.
 - Reverse routes for .1/.2 select eno17095np0. Link UP at 100000 Mb/s, MTU 1500. No route changes. Management IPs are 192.168.1.109/.102.
@@ -25,6 +25,6 @@ No rebuild/hash gate, GridFTP tuning screen, formal workload, transfer timing, N
 
 ## Publication
 
-The plan, result and analysis were committed on R770-1 and pushed to origin, then the exact commit was checked out on R770-2. Commit and remote branch SHA: 6df27d11320ecb0be0f7ca9a942400ce1145803c. R1 and R2 HEAD match this SHA. Two pre-existing unrelated untracked documents remain preserved on both nodes.
+The plan, result and analysis were first committed/pushed at 6df27d11320ecb0be0f7ca9a942400ce1145803c. A follow-up publication-metadata commit 9348bc8927730e631ee0ced11401a55e2a51f4d1 was also pushed and synchronized to R770-2. The final document revision and remote SHA are recorded in the experiment directory completion.md. The two pre-existing unrelated untracked documents remain preserved.
 
 Resume when an existing secure proxy refresh procedure or managed credential/proxy path is provided. Never send credential contents in chat.
