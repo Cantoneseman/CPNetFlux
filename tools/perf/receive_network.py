@@ -107,6 +107,19 @@ def inventory():
     return result
 
 
+RX_QUEUE_COUNTER_RE=re.compile(
+    r'rx(\d+)_(packets|wqe_err|buff_alloc_err|pp_alloc_(?:fast|slow|slow_high_order|empty|refill))')
+
+def rx_queue_counter_deltas(counters):
+    queues={}
+    for key,value in counters.items():
+        match=RX_QUEUE_COUNTER_RE.fullmatch(key)
+        if match:queues.setdefault(match[1],{})[match[2]]=value
+    return {queue:dict(sorted(values.items()))
+            for queue,values in sorted(queues.items(),key=lambda item:int(item[0]))
+            if any(values.values())}
+
+
 def analyze(before,after):
     for side in (before,after):
         if 'rx_out_of_buffer' not in side.get('ethtool',{}) or 'rx_missed_errors' not in side.get('netdev',{}):
@@ -122,6 +135,7 @@ def analyze(before,after):
     tcp=delta({k:v for k,v in before['tcp'].items() if k not in gauge},after['tcp'])
     active={match[1]:value for key,value in eth.items()
             if value and (match:=re.fullmatch(r'rx(\d+)_packets',key))}
+    queue_deltas=rx_queue_counter_deltas(eth)
     result=dict(layer='hardware_receive_queue_no_buffer' if eth['rx_out_of_buffer']>0 else 'not_reproduced',
         rx_out_of_buffer_delta=eth['rx_out_of_buffer'],rx_missed_errors_delta=dev['rx_missed_errors'],
         active_rx_queues=active,flow_cause_proven=False,allocation_failure_proven=any(v>0 for k,v in eth.items() if k.endswith('buff_alloc_err')),
@@ -129,6 +143,8 @@ def analyze(before,after):
         tcp_changed={k:v for k,v in tcp.items() if v and any(x in k for x in ('Drop','Prun','Retrans','Timeout','MemoryPressure'))},
         ethtool_changed={k:v for k,v in eth.items() if v and any(x in k for x in ('err','drop','discard','out_of_buffer','congst','recover'))},
         scope='interface/host boundary deltas; no per-flow causality; asynchronous driver refresh may shift sample boundaries')
+    result['rx_queue_counter_deltas']=queue_deltas
+    result['rx_out_of_buffer_queue_attribution']='unavailable_interface_aggregate_only'
     cpu=[]
     for key,old in before.get('cpu',{}).items():
         diffs=[a-b for a,b in zip(after['cpu'][key],old)];total=sum(diffs)

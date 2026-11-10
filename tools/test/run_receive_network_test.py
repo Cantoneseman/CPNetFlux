@@ -67,5 +67,34 @@ class ReceiveNetworkTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'missing'):
             net.analyze(dict(ethtool={},netdev={},softnet={},tcp={}),snap(1,1))
 
+    def test_queue_page_pool_deltas_remain_separate_from_global_oob(self):
+        def snap(oob, q13, q16):
+            ethtool={'rx_out_of_buffer':oob}
+            for queue,values in (('13',q13),('16',q16)):
+                ethtool.update({f'rx{queue}_{key}':value for key,value in values.items()})
+            return dict(ethtool=ethtool,netdev={'rx_missed_errors':0},
+                        softnet={'0':dict(processed=0,dropped=0,time_squeeze=0)},tcp={})
+
+        before=snap(100,dict(packets=20,pp_alloc_fast=100,pp_alloc_slow=2,
+                             pp_alloc_empty=2,pp_alloc_refill=10,buff_alloc_err=0,wqe_err=0),
+                    dict(packets=30,pp_alloc_fast=200,pp_alloc_slow=5,
+                         pp_alloc_empty=5,pp_alloc_refill=20,buff_alloc_err=0,wqe_err=0))
+        after=snap(337,dict(packets=120,pp_alloc_fast=300,pp_alloc_slow=10,
+                            pp_alloc_empty=10,pp_alloc_refill=398,buff_alloc_err=0,wqe_err=0),
+                   dict(packets=130,pp_alloc_fast=400,pp_alloc_slow=15,
+                        pp_alloc_empty=15,pp_alloc_refill=433,buff_alloc_err=0,wqe_err=0))
+
+        result=net.analyze(before,after)
+        self.assertEqual(result['rx_out_of_buffer_delta'],237)
+        self.assertEqual(result['rx_queue_counter_deltas']['13'],
+                         dict(packets=100,pp_alloc_fast=200,pp_alloc_slow=8,
+                              pp_alloc_empty=8,pp_alloc_refill=388,buff_alloc_err=0,wqe_err=0))
+        self.assertEqual(result['rx_queue_counter_deltas']['16'],
+                         dict(packets=100,pp_alloc_fast=200,pp_alloc_slow=10,
+                              pp_alloc_empty=10,pp_alloc_refill=413,buff_alloc_err=0,wqe_err=0))
+        self.assertEqual(result['rx_out_of_buffer_queue_attribution'],
+                         'unavailable_interface_aggregate_only')
+        self.assertFalse(result['flow_cause_proven'])
+        self.assertFalse(result['allocation_failure_proven'])
 
 if __name__=='__main__':unittest.main()

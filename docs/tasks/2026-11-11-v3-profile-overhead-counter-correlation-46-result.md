@@ -32,7 +32,20 @@
 | 子进程结束至后续本地校验后 `rx_missed_errors` | **+237** | 本地哈希/manifest后的快照读到增加；与mlx5值相同，但计数刷新时序未定 |
 | 完整旧式before-to-after `rx_missed_errors` | **+237** | 包含进程与后续校验，不能独立做传输归因 |
 
-观察器记录到`rx5/rx13/rx16/rx29_packets`分别增加185,929、185,773、185,895、185,775；该信息只说明多队列上有流量，不能说明`rx_out_of_buffer`来自哪一队列或哪条lane。后续只读网卡盘点为32个combined队列、RSS indirection 0–31、RX/TX ring 1024（上限8192）、adaptive coalescing及RX 8 us/128 frames。没有更改NIC、路由、IRQ、RPS或ring配置。
+主流量队列 rx5/rx13/rx16/rx29 的 packet delta 分别为 185,929、185,773、185,895、185,775；其它观察队列 rx7/rx12/rx17/rx31 各增加12个packet。
+
+Task47 对保存的before/after快照离线复算，队列计数如下：
+
+| RX队列 | packets | pp_alloc_fast | pp_alloc_slow | pp_alloc_empty | pp_alloc_refill | buff_alloc_err | wqe_err |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 5 | 185,929 | 92,427 | 0 | 0 | 501 | 0 | 0 |
+| 13 | 185,773 | 92,532 | 8 | 8 | 388 | 0 | 0 |
+| 16 | 185,895 | 92,633 | 10 | 10 | 413 | 0 | 0 |
+| 29 | 185,775 | 92,552 | 0 | 0 | 376 | 0 | 0 |
+
+rx13/rx16 的 page-pool empty/slow 同增共18次；page-pool文档将empty定义为pointer ring为空、从而强制slow path，slow为order-0慢路径分配计数（[Linux Page Pool API](https://docs.kernel.org/networking/page_pool.html)）。队列级 buff_alloc_err 与 wqe_err 均为0。它们是独立的队列分配活动计数，不能解释或分摊接口聚合的 rx_out_of_buffer +237，也不能证明由CPNetFlux流触发。
+
+后续只读网卡盘点为32个combined队列、RSS indirection 0–31、RX/TX ring 1024（上限8192）、adaptive coalescing及RX 8 us/128 frames。没有更改NIC、路由、IRQ、RPS或ring配置。
 
 ## 构建、测试与清理
 
@@ -52,4 +65,4 @@ R1/R2均使用代码提交`6f1bbf94bc4704d35ff8c3e10997b02bbe34b111`，CMake配�
 
 ## 下一步
 
-暂停profile扰动矩阵，不重跑M1-45或Task46。当前首要工作改为独立归因R1接收侧`rx_out_of_buffer`：检查mlx5计数语义与可用的队列级/RQ refill/IRQ证据，尝试把队列活动与具体TCP endpoints作时间关联，并明确现有接口聚合计数的因果边界。不得仅凭四个活跃RX队列、+237计数或单次34.887 Gbps调整系统参数或宣布软件瓶颈已定位。形成可证伪假设和新的停止门后，再决定是否恢复profile诊断或转入应用接收路径优化。
+暂停profile扰动矩阵，不重跑M1-45或Task46。Task47已把队列级packet/page-pool/WQE/buffer计数接入只读分析器，并复算确认rx13/rx16的page-pool empty/slow各有8/10次；但rx_out_of_buffer +237仍是接口聚合值，没有队列或流映射。R1当前kernel/驱动为7.0.0-38-generic；ethtool统计未暴露逐队列OOB字段。下一步核对该Ubuntu内核对应的mlx5源码和其它只读RQ归因接口；若找不到，再判断是否值得做一次有明确停止门的定向观察。不得凭page-pool慢路径或单次34.887 Gbps调系统参数、宣布根因已定位或恢复profile矩阵。
