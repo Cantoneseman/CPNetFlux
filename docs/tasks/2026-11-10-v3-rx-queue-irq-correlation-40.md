@@ -29,4 +29,4 @@ The diagnostic is complete if the single task either passes integrity and cleanu
 
 ## Files and evidence
 
-Pre-run change: this plan only. After the run, add a result record and update `docs/ROADMAP.md`, `docs/README.md`, and project `README.md` with the finding and next step; do not alter unrelated files. Raw evidence and task payload use `/home/Su/experiments/CPNetFlux/2026-11-10-v3-rx-queue-irq-correlation-40` and `/dev/shm/cpnetflux-rx-queue-irq-correlation-40`; the runner must remove the marked payload root and target/source payloads. Commit and push each completed stage explicitly, then verify the remote SHA.
+Pre-run change: this plan only. After the run, add a result record and update `docs/ROADMAP.md`, `docs/README.md`, and project `README.md` with the finding and next step; do not alter unrelated files. Raw evidence and task payload use `/home/Su/experiments/CPNetFlux/2026-11-10-v3-rx-queue-irq-correlation-40` and `/dev/shm/cpnetflux-s0-rx-queue-irq-correlation-40`; the runner must remove the marked payload root and target/source payloads. Commit and push each completed stage explicitly, then verify the remote SHA.
