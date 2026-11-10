@@ -17,6 +17,7 @@
 
 | 主题 | 任务 / 结果 |
 |---|---|
+| 最新网络事件定向归因与下一开发项 | [接收网络36结果](tasks/2026-11-10-v3-receive-network-36-result.md)：硬件RQ缺缓冲层已定位，本轮未复现、根因OPEN；接收消费背压证据，下一项显式1MiB DATA |
 | 最新大文件基线与归因 | [内核服务17](tasks/2026-11-09-v3-kernel-service-17-result.md)、[观测开销16](tasks/2026-11-09-v3-observation-audit-16-result.md)、[本地 V3 executor 修复13](tasks/2026-11-09-v3-receiver-critical-13-result.md) |
 | 写入路径与集成 | [lane/storage06](tasks/2026-11-08-v3-lane-storage-06.md)、[写后端07](tasks/2026-11-08-v3-write-backend-07.md)、[映射下载08](tasks/2026-11-08-v3-mapped-download-08-result.md)、[映射成本14](tasks/2026-11-09-v3-mapped-cost-14-result.md) |
 | 已关闭候选与负结果 | [流水线交接](tasks/2026-11-07-v3-path-isolation-01-result.md)、[population10](tasks/2026-11-08-v3-mapped-populate-10-result.md)、[发送inline12](tasks/2026-11-08-v3-sender-service-12-result.md)、[直接接收15](tasks/2026-11-09-v3-direct-receive-15-result.md) |

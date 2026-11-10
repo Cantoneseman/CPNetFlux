@@ -7,7 +7,7 @@
 ## 当前主线
 
 **在固定完整性语义和测试条件下，让完整V3大文件任务跨过30Gbps，并验证向40–50Gbps扩展的机制。**
-完整V3 TCP 256KiB DATA与有界接收buffer已实现并完成1GiB同提交对照，见[Milestone35结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)。8GiB正式门仍BLOCKED_ENV，下一步闭环网络事件/受载资源条件，再正式验收；不重复同前提盲测。
+完整V3 TCP 256KiB DATA与有界接收buffer已实现并完成1GiB同提交对照，见[Milestone35结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)。[定向网络归因36](tasks/2026-11-10-v3-receive-network-36-result.md)已完成一次有界采集，未复现缺缓冲事件，根因仍OPEN；实际接收消费背压支持继续减少每chunk处理次数，下一项开发显式1MiB DATA。8GiB正式门仍BLOCKED_ENV，不重复同前提盲测。
 优先级：完整机制原型 → 同提交真实文件对照 → 选择一个下一核心机制 → 集成验收。
 单人串行、同一时刻一个写入者；交付1由当前整理者完成，剩余交付由既有“开发”聊天负责。
 
@@ -32,11 +32,11 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | DONE EXPLICIT | 完整V3大负载DATA原型 | 256KiB逻辑DATA+4B CRC，能力/控制限额/预算/恢复通过；保持65532B默认 |
 | DONE 1GiB | 同提交完整任务A/B | 两机制分别五对交错完整任务，全SHA/checkpoint通过；1GiB结果不能替代8GiB M1 |
 | DONE EXPLICIT | 一个下一核心机制 | 按ss背压证据实现1MiB请求的接收buffer，实际2MiB/socket、4 lanes上限；显式、默认off |
-| PARTIAL / NEXT | 集成验收与40–50Gbps路线 | 受测组合/默认/TLS/恢复冻结；网络事件与8GiB正式门未通过，先闭环后验收，RDMA重启条件见结果 |
+| NEXT IMPLEMENTATION | 显式1MiB DATA与40–50Gbps路线 | 依照[36结果](tasks/2026-11-10-v3-receive-network-36-result.md)实现协商/预算/故障/恢复；同提交256KiB对1MiB完整任务对照；网络与8GiB门独立保留，不能冒称正式验收 |
 | BLOCKED_ENV | 8GiB源驻留与换出 | [Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)在payload前失败；先解释受载进程/cgroup和条件变化，不凭空闲快照重试；不阻塞较小合规任务开发 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
 | DEFERRED | 小文件固定/自适应成员微批 | 独立完成时间目标；利用S0/S1及S2证据，后续设计成员恢复/事务，不包装已有pending-window为新微批 |
-| OPEN | 网络稳定性与原生RDMA | scope17的rx_missed_errors +94归属未明；RDMA历史CQ/flush/peer-mapping门开放，运行时优化仍暂停，交付3结束必须给出恢复条件/建议 |
+| OPEN / BOUNDED DIAGNOSTIC DONE | 网络稳定性与原生RDMA | 36定位到mlx5接收RQ缺缓冲层，3次启动/2完整/1采集器失败，未复现；不再盲补采集，不声称根因闭环。RDMA历史CQ/flush/peer-mapping门开放，运行时优化仍暂停，重启条件见35结果 |
 
 ### 已结束候选的处置
 

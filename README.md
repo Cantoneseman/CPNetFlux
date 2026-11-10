@@ -10,6 +10,8 @@ CPNetFlux 面向超算中心节点间科学数据传输，提供分块校验、�
 
 当前主线是[完整 V3 大文件性能里程碑](docs/tasks/2026-11-10-v3-large-file-milestone-35.md)：256 KiB DATA与有界TCP接收缓冲已实现；[本轮1 GiB完整任务](docs/tasks/2026-11-10-v3-large-file-milestone-35-result.md)分别获得同提交中位27.33→35.82 Gbps、34.11→36.95 Gbps，保持显式实验选项。8 GiB正式M1仍受驻留环境阻塞，接口错误计数归属未闭环，RDMA优化仍暂停。三阶段工程已收口；磁盘持久化、生产及100 Gbps文件吞吐尚未验收。
 
+[接收网络定向归因36](docs/tasks/2026-11-10-v3-receive-network-36-result.md)已完成：未复现历史缺缓冲事件，稳定性门仍开放；实际任务存在接收消费背压。下一项开发显式1MiB DATA，验证减少每chunk处理次数的收益。
+
 ## 服务器与开发环境
 
 | 用途 | R770-1 | R770-2 |
