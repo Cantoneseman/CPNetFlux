@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Filesystem ownership and measurement-scope regression checks for S0 driver."""
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import sys
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('s0', Path(__file__).resolve().parents[1]/'perf/run_small_file_baseline.py')
@@ -19,11 +21,73 @@ class BaselineTest(unittest.TestCase):
             seen.append(proc.pid)
             raise RuntimeError('diagnostic failed')
         with tempfile.TemporaryDirectory(prefix='cpnetflux-observer-test-') as directory:
+            log=Path(directory)/'child.log'
             with self.assertRaisesRegex(RuntimeError,'diagnostic failed'):
-                s0.run_guarded([sys.executable,'-c','import time;time.sleep(10)'],
-                    Path(directory)/'child.log',process_observer=observer)
+                s0.run_guarded([sys.executable,'-c','import time;time.sleep(10)'],log,process_observer=observer)
+            failure=json.loads(log.with_name('child.resource-failure.json').read_text())
         self.assertEqual(len(seen),1)
         with self.assertRaises(FileNotFoundError):s0.proc_info(seen[0])
+        self.assertEqual(failure['failure'],"RuntimeError('diagnostic failed')")
+        self.assertIn('exit_code',failure)
+        self.assertIn('pswpout_before',failure)
+        self.assertIn('pswpout_after',failure)
+        self.assertIn('pswpout_delta',failure)
+        self.assertIn('samples',failure)
+
+    def test_resource_gate_failure_sidecar_keeps_final_sample(self):
+        seen=[]
+        def fail_swap_gate(proc,state):
+            seen.append(proc.pid)
+            state['owned_swap_current_bytes']=4096
+            state['owned_swap_peak_bytes']=4096
+            state['samples']+=1
+            raise AssertionError('swap gate')
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-resource-test-') as directory:
+            log=Path(directory)/'child.log'
+            with patch.object(s0,'observe',fail_swap_gate):
+                with self.assertRaisesRegex(AssertionError,'swap gate'):
+                    s0.run_guarded([sys.executable,'-c','import time;time.sleep(10)'],log)
+            failure=json.loads(log.with_name('child.resource-failure.json').read_text())
+        self.assertEqual(len(seen),1)
+        with self.assertRaises(FileNotFoundError):s0.proc_info(seen[0])
+        self.assertEqual(failure['owned_swap_current_bytes'],4096)
+        self.assertEqual(failure['owned_swap_peak_bytes'],4096)
+        self.assertEqual(failure['samples'],1)
+        self.assertEqual(failure['failure'],"AssertionError('swap gate')")
+        self.assertIn('exit_code',failure)
+        self.assertIn('pswpout_before',failure)
+        self.assertIn('pswpout_after',failure)
+        self.assertIn('pswpout_delta',failure)
+
+    def test_client_receipt_keeps_resource_failure_after_owned_cleanup(self):
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-s0-receipt-test-',dir='/dev/shm') as directory:
+            root=Path(directory)
+            (root/s0.MARKER).write_text(s0.TOKEN)
+            evidence=root/'evidence';evidence.mkdir()
+            args=SimpleNamespace(payload_root=root,evidence=evidence,size=1,count=1)
+            failure={'failure':"AssertionError('swap gate')",'owned_swap_peak_bytes':4096,
+                     'pswpout_before':10,'pswpout_after':10,'pswpout_delta':0,'samples':1}
+            def runner(command,log,**options):
+                log.write_text('controlled failure\n')
+                failure_path=log.with_name(log.stem+'.resource-failure.json')
+                s0.save(failure_path,failure)
+                error=AssertionError('swap gate')
+                error.resource_state=failure
+                error.resource_failure_path=str(failure_path)
+                raise error
+            with patch.object(s0,'snapshot',side_effect=[{'pswpout':10},{'pswpout':11}]), \
+                 patch.object(s0,'compact_log',return_value={}):
+                with self.assertRaisesRegex(AssertionError,'swap gate'):
+                    s0.client_sample(args,'failed-sample',{'sha256':'unused','files':1,'bytes':1},
+                                     'auto','off',49210,runner=runner)
+            receipt=json.loads((evidence/'samples'/'failed-sample.receipt.json').read_text())
+            self.assertEqual(receipt['result'],'fail')
+            self.assertEqual(receipt['error'],"AssertionError('swap gate')")
+            self.assertEqual(receipt['resource_failure'],failure)
+            self.assertEqual(receipt['before'],{'pswpout':10})
+            self.assertEqual(receipt['after_failure'],{'pswpout':11})
+            self.assertTrue(receipt['output_slot_removed'])
+            self.assertFalse((root/'failed-sample').exists())
 
     def test_timeout_reaps_only_its_owned_child(self):
         seen=[]

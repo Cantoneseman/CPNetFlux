@@ -8,7 +8,7 @@
 |---|---|
 | 项目、服务器与开发入口 | [项目 README](../README.md)、[开发规则](../AGENTS.md)、[R770 环境](coordination/ENVIRONMENT.md) |
 | 当前状态、配置、未过门与下一项 | [性能路线图](ROADMAP.md) |
-| 当前批准主线与串行交接 | [里程碑35计划](tasks/2026-11-10-v3-large-file-milestone-35.md)、[实现/1GiB结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)、[M1-41计划](tasks/2026-11-11-v3-large-file-m1-41.md)、[M1-41结果：资源门中止、无吞吐样本](tasks/2026-11-11-v3-large-file-m1-41-result.md)、[分层准入与路线决定](DECISIONS/2026-11-10-v3-performance-milestones.md) |
+| 当前批准主线与串行交接 | [里程碑35计划](tasks/2026-11-10-v3-large-file-milestone-35.md)、[实现/1GiB结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)、[M1-41计划](tasks/2026-11-11-v3-large-file-m1-41.md)、[M1-41结果：资源门中止、无吞吐样本](tasks/2026-11-11-v3-large-file-m1-41-result.md)、[资源失败证据补全42结果](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)、[分层准入与路线决定](DECISIONS/2026-11-10-v3-performance-milestones.md) |
 | 执行方式和缓冲所有权 | [三阶段指南](V3_TRANSFER_STAGES.md)、[映射下载边界](tasks/2026-11-08-v3-mapped-download-08-result.md) |
 | 设计、协议与工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md)、[目录传输](DIRECTORY_TRANSFER.md) |
 | 安全、发布与证据边界 | [安全](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md)、[历史研究基线](RESEARCH_BASELINE.md) |
@@ -17,7 +17,7 @@
 
 | 主题 | 任务 / 结果 |
 |---|---|
-| 最近大文件候选评估 | [M1-41结果](tasks/2026-11-11-v3-large-file-m1-41-result.md)：首个control任务因host swap资源门中止，零完整样本；先归因host `pswpout`并补齐失败资源证据，不重跑此任务。网络诊断40和CRC combine/8 GiB源准备边界见[40](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)、[39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md) |
+| 最近大文件候选评估 | [M1-41结果](tasks/2026-11-11-v3-large-file-m1-41-result.md)：首个control任务因host swap资源门中止，零完整样本；[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)已补齐失败资源证据，下一步归因host `pswpout`，不重跑M1-41。网络诊断40和CRC combine/8 GiB源准备边界见[40](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)、[39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md) |
 | 1MiB帧候选 | [DATA帧37结果](tasks/2026-11-10-v3-data-frame-1m-37-result.md)：五对1GiB吞吐未改善，接收miss计数增加，候选撤回；不再扫描帧尺寸 |
 | 网络事件定向归因 | [诊断40结果](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)：当前固定路径未复现；[诊断36](tasks/2026-11-10-v3-receive-network-36-result.md)给出硬件RQ缺缓冲层级，但历史触发机制和流级因果仍OPEN |
 | 最新大文件基线与归因 | [内核服务17](tasks/2026-11-09-v3-kernel-service-17-result.md)、[观测开销16](tasks/2026-11-09-v3-observation-audit-16-result.md)、[本地 V3 executor 修复13](tasks/2026-11-09-v3-receiver-critical-13-result.md) |
@@ -32,7 +32,7 @@
 
 ## 决策与历史规则
 
-- 2026-11-10起执行[性能里程碑决定](DECISIONS/2026-11-10-v3-performance-milestones.md)。历史候选结果保留原判定；scope39的Entry锁内CRC combine为NO-GO，源准备通过未替代8GiB完整任务门。诊断40未复现RX miss；M1-41因资源门中止、无性能数据，下一步先归因host swap事件并补充失败证据，256KiB DATA保留，1MiB帧和queued mmap接收候选已撤回。
+- 2026-11-10起执行[性能里程碑决定](DECISIONS/2026-11-10-v3-performance-milestones.md)。历史候选结果保留原判定；scope39的Entry锁内CRC combine为NO-GO，源准备通过未替代8GiB完整任务门。诊断40未复现RX miss；M1-41因资源门中止、无性能数据，[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)已完成失败证据补全，下一步为host `pswpout`归因，256KiB DATA保留，1MiB帧和queued mmap接收候选已撤回。
 
 - 当前开发环境遵循 [R770 主开发决定](DECISIONS/2026-10-30-r770-primary.md)；[性能路线决定](DECISIONS/2026-11-04-performance-route.md)和[流水线优先决定](DECISIONS/2026-11-07-v3-pipeline-priority.md)按当前路线图理解。
 - 深圳/上海主开发、旧协作角色、强制 worktree、旧路径和 SSH 命令均为历史材料，不覆盖当前开发规则。

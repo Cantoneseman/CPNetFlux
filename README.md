@@ -10,7 +10,7 @@ CPNetFlux 面向超算中心节点间科学数据传输，提供分块校验、�
 
 当前主线是[完整 V3 大文件性能里程碑](docs/tasks/2026-11-10-v3-large-file-milestone-35.md)：256 KiB DATA与有界TCP接收缓冲已实现；[Milestone35的1 GiB完整任务](docs/tasks/2026-11-10-v3-large-file-milestone-35-result.md)分别获得中位27.33→35.82 Gbps、34.11→36.95 Gbps，保持显式实验选项。[M1-41结果](docs/tasks/2026-11-11-v3-large-file-m1-41-result.md)记录8 GiB矩阵首个control任务因host swap资源门中止，没有完整吞吐样本；正式M1尚未验收。
 
-[接收网络定向归因36](docs/tasks/2026-11-10-v3-receive-network-36-result.md)将历史计数定位到mlx5接收队列缺缓冲层；[1MiB DATA候选37](docs/tasks/2026-11-10-v3-data-frame-1m-37-result.md)与[queued mmap接收候选38](docs/tasks/2026-11-10-v3-receiver-pipeline-38-result.md)均未通过完整任务对照并已撤回。[诊断40](docs/tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)在当前固定路径的一次1GiB任务中未复现计数，历史因果仍开放，不再重复抓数。下一项先补齐失败时资源证据并归因host `pswpout`，保持零增量门槛，不重跑M1-41；满足条件后另立M1任务。RDMA优化仍暂停；100 Gbps文件吞吐、磁盘持久化与生产readiness尚未验收。
+[接收网络定向归因36](docs/tasks/2026-11-10-v3-receive-network-36-result.md)将历史计数定位到mlx5接收队列缺缓冲层；[1MiB DATA候选37](docs/tasks/2026-11-10-v3-data-frame-1m-37-result.md)与[queued mmap接收候选38](docs/tasks/2026-11-10-v3-receiver-pipeline-38-result.md)均未通过完整任务对照并已撤回。[诊断40](docs/tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)在当前固定路径的一次1GiB任务中未复现计数，历史因果仍开放，不再重复抓数。[资源失败证据补全42](docs/tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)已通过驱动测试；下一项是在无payload条件下归因host `pswpout`，保持零增量门槛，不重跑M1-41。RDMA优化仍暂停；100 Gbps文件吞吐、磁盘持久化与生产readiness尚未验收。
 
 ## 服务器与开发环境
 

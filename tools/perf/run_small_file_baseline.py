@@ -137,13 +137,14 @@ def environment():
     return env
 
 def resource_state():
-    return {'mem_available_min_bytes':mem(),'owned_swap_peak_bytes':0,'rss_peak_bytes':0,
+    return {'mem_available_min_bytes':mem(),'owned_swap_peak_bytes':0,'owned_swap_current_bytes':None,'rss_peak_bytes':0,
             'cpu_seconds_sampled_lower_bound':0,'pswpout_before':pswpout(),'samples':0,'tcp_snapshots':[]}
 
 def observe(proc, state):
     state['mem_available_min_bytes']=min(state['mem_available_min_bytes'],mem())
     try:
         info=proc_info(proc.pid)
+        state['owned_swap_current_bytes']=info['swap_bytes']
         state['owned_swap_peak_bytes']=max(state['owned_swap_peak_bytes'],info['swap_bytes'])
         state['rss_peak_bytes']=max(state['rss_peak_bytes'],info['rss_bytes'])
         state['cpu_seconds_sampled_lower_bound']=max(state['cpu_seconds_sampled_lower_bound'],info['cpu_seconds'])
@@ -191,23 +192,38 @@ def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False
             exited.set()
         waiter=threading.Thread(target=wait_for_exit)
         waiter.start()
+        failure=None
         try:
             while not exited.is_set():
                 if process_observer is not None:process_observer(proc,state)
                 observe(proc,state)
                 assert time.monotonic()-started<timeout, 'owned process timeout'
                 exited.wait(.01)
-            state['exit_code']=exit_info['code']
+        except BaseException as error:
+            failure=error
         finally:
             if not exited.is_set():
                 proc.terminate()
                 if not exited.wait(5):proc.kill()
             waiter.join()
+    state['exit_code']=exit_info.get('code')
     state['wall_seconds']=exit_info['at']-started
     state['observer_wall_seconds']=time.monotonic()-started
     state['observer_seconds_after_exit']=state['observer_wall_seconds']-state['wall_seconds']
-    state['pswpout_delta']=pswpout()-state['pswpout_before']
-    assert state['pswpout_delta']==0
+    state['pswpout_after']=pswpout()
+    state['pswpout_delta']=state['pswpout_after']-state['pswpout_before']
+    if failure is None and state['pswpout_delta'] != 0:
+        failure=AssertionError('host pswpout gate')
+    if failure is not None:
+        state['failure']=repr(failure)
+        failure_path=log.with_name(log.stem+'.resource-failure.json')
+        save(failure_path,state)
+        try:
+            failure.resource_state=state
+            failure.resource_failure_path=str(failure_path)
+        except (AttributeError,TypeError):
+            pass
+        raise failure
     return state
 
 def compact_log(path):
@@ -373,13 +389,25 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
         row['result']='pass'
         with summary.open('rb') as src,gzip.open(str(summary)+'.gz','xb') as dst:shutil.copyfileobj(src,dst)
         summary.unlink()
+    except BaseException as error:
+        row['error']=repr(error)
+        resource_state=getattr(error,'resource_state',None)
+        resource_failure_path=getattr(error,'resource_failure_path',None)
+        if resource_failure_path is None:
+            candidate=log.with_name(log.stem+'.resource-failure.json')
+            if candidate.exists():resource_failure_path=str(candidate)
+        if resource_state is None and resource_failure_path is not None:
+            resource_state=json.loads(Path(resource_failure_path).read_text())
+        if resource_state is not None:row['resource_failure']=resource_state
+        if resource_failure_path is not None:row['resource_failure_path']=str(resource_failure_path)
+        try:row['after_failure']=snapshot()
+        except BaseException as snapshot_error:row['after_failure_error']=repr(snapshot_error)
+        raise
     finally:
         if log.exists():row['client_log_phases']=compact_log(log)
-        # Evidence is saved before exact owned-slot cleanup, including failed runs.
-        save(folder/(name+'.receipt.json'),row)
         remove_owned(args.payload_root,slot)
-    row['output_slot_removed']=not slot.exists()
-    save(folder/(name+'.receipt.json'),row)
+        row['output_slot_removed']=not slot.exists()
+        save(folder/(name+'.receipt.json'),row)
     return row
 
 def matrix(args):
