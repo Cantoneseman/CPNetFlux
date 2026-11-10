@@ -37,6 +37,7 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | DONE / NO-GO | Entry锁内CRC combine | [Diagnostic39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)：256KiB combine约0.1084ms/GiB，相对约0.85 receiver CPU秒/GiB仅约0.013%；不改运行时 |
 | SOURCE PREP PASS | 8GiB源驻留与换出 | [Recheck34](tasks/2026-11-10-v3-summary-default-recheck-34-result.md)的失败 count gap由[Diagnostic39](tasks/2026-11-10-v3-source-residency-ownership-39-result.md)补齐一次：同进程/cgroup下全页驻留、pswpout及swap为0；仅为源准备诊断 |
 | ATTEMPT ABORTED / NO PERFORMANCE DATA | 8GiB正式M1 | [M1-41](tasks/2026-11-11-v3-large-file-m1-41-result.md)：首个control任务在host swap资源门中止，零完整样本；两端payload根已清理。失败证据已由[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)补全；下一项归因host `pswpout`，M1-41不重跑 |
+| NEXT DIAGNOSTIC | host `pswpout`归因 | [任务43计划](tasks/2026-11-11-v3-host-pswpout-attribution-43.md)：两端同时做120秒无payload采样；未复现不等于根因解决 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
 | DEFERRED | 小文件固定/自适应成员微批 | 独立完成时间目标；利用S0/S1及S2证据，后续设计成员恢复/事务，不包装已有pending-window为新微批 |
 | DIAGNOSTIC DONE / CAUSE OPEN | 网络稳定性与原生RDMA | 诊断40当前固定路径一次未复现；37历史候选总 `rx_missed_errors` +2,169、256KiB对照+36仍无队列/流级归因。M1-41资源门失败不构成网络结论；先归因host swap事件，原生RDMA运行时优化继续暂停 |
