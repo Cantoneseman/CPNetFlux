@@ -64,6 +64,45 @@ class LargeFileExperimentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'regressed'):
             experiment.network_counter_deltas({'rx_missed_errors':7},{'rx_missed_errors':5})
 
+    def test_receiver_profile_is_limited_to_one_gib_diagnostic_matrices(self):
+        experiment.validate_receiver_profile_request('matrix','frame',1,True)
+        experiment.validate_receiver_profile_request('matrix','receive-buffer',1,True)
+        for args in (('matrix','m1',8),('matrix','frame',8),('seed','frame',1)):
+            with self.assertRaisesRegex(ValueError,'receiver profile'):
+                experiment.validate_receiver_profile_request(*args,True)
+        experiment.validate_receiver_profile_request('matrix','m1',8,False)
+
+    def test_profile_rows_require_payload_and_cpu_observations_for_every_range(self):
+        def profile_range():
+            payload={'schema':'cpnetflux_receiver_payload_observation_v2','scope':'payload scope'}
+            payload.update({key:0 for key in experiment.base.RECEIVER_PAYLOAD_PROFILE_FIELDS})
+            cpu={'schema':'cpnetflux_receiver_cpu_observation_v1','scope':'cpu scope','write_cpu_owner':'writer'}
+            cpu.update({key:0 for key in experiment.base.RECEIVER_CPU_PROFILE_FIELDS})
+            return {'range_observation_enabled':True,'receiver_payload_observation':payload,
+                    'receiver_cpu_observation':cpu}
+        complete=[profile_range() for _ in range(8)]
+        experiment.validate_profile_rows(complete,True)
+        with self.assertRaisesRegex(AssertionError,'profile observation'):
+            experiment.validate_profile_rows(complete[:-1]+[{'range_observation_enabled':True,
+                'receiver_payload_observation':None,'receiver_cpu_observation':{'schema':'cpnetflux_receiver_cpu_observation_v1'}}],True)
+        incomplete=profile_range()
+        del incomplete['receiver_payload_observation']['logical_copy_bytes']
+        with self.assertRaisesRegex(AssertionError,'profile fields missing'):
+            experiment.validate_profile_rows([incomplete],True)
+        profile={'payload':{'totals':{'data_frame_count':512}}}
+        experiment.validate_profile_frame_count(profile,512)
+        with self.assertRaisesRegex(AssertionError,'frame count mismatch'):
+            experiment.validate_profile_frame_count(profile,511)
+        with self.assertRaisesRegex(AssertionError,'range timing'):
+            experiment.validate_profile_rows([{'range_observation_enabled':False}],True)
+
+    def test_profile_analysis_is_explicitly_non_performance_evidence(self):
+        report=experiment.annotate_profile_analysis({'arms':{}},True)
+        self.assertTrue(report['receiver_profile_enabled'])
+        self.assertFalse(report['throughput_is_performance_evidence'])
+        normal=experiment.annotate_profile_analysis({'arms':{}},False)
+        self.assertNotIn('receiver_profile_enabled',normal)
+
     def test_m1_passes_only_with_rate_stability_pairs_and_network_gates(self):
         result=experiment.evaluate(m1_rows(),8*experiment.base.GIB)
         self.assertTrue(result['performance_gate_pass'])

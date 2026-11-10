@@ -147,6 +147,51 @@ class BaselineTest(unittest.TestCase):
             with self.assertRaises((ValueError, AssertionError)):
                 s0.remove_owned(root,root)
 
+    def test_receiver_profile_aggregation_keeps_counts_cpu_and_peak_capacity(self):
+        rows=[
+            {'receiver_payload_observation':{
+                'schema':'payload-v2','scope':'payload scope','data_frame_count':10,
+                'frame_payload_peak_capacity_bytes':4096,'logical_copy_bytes':1024,
+                'logical_copy_seconds':.01},
+             'receiver_cpu_observation':{
+                'schema':'cpu-v1','scope':'cpu scope','write_cpu_owner':'writer',
+                'physical_write_calls':12,'write_cpu_seconds':.02}},
+            {'receiver_payload_observation':{
+                'schema':'payload-v2','scope':'payload scope','data_frame_count':20,
+                'frame_payload_peak_capacity_bytes':8192,'logical_copy_bytes':2048,
+                'logical_copy_seconds':.02},
+             'receiver_cpu_observation':{
+                'schema':'cpu-v1','scope':'cpu scope','write_cpu_owner':'writer',
+                'physical_write_calls':18,'write_cpu_seconds':.03}},
+        ]
+        profile=s0.phases(rows)['receiver_profile']
+        self.assertEqual(profile['payload']['ranges'],2)
+        self.assertEqual(profile['cpu']['ranges'],2)
+        self.assertEqual(profile['payload']['schema'],'payload-v2')
+        self.assertEqual(profile['payload']['scope'],'payload scope')
+        self.assertEqual(profile['payload']['totals']['data_frame_count'],30)
+        self.assertEqual(profile['payload']['totals']['logical_copy_bytes'],3072)
+        self.assertAlmostEqual(profile['payload']['totals']['logical_copy_seconds'],.03)
+        self.assertEqual(profile['payload']['peak']['frame_payload_peak_capacity_bytes'],8192)
+        self.assertEqual(profile['cpu']['totals']['physical_write_calls'],30)
+        self.assertAlmostEqual(profile['cpu']['totals']['write_cpu_seconds'],.05)
+        self.assertEqual(profile['cpu']['write_cpu_owners'],['writer'])
+
+    def test_receiver_profile_environment_is_explicit_and_ignores_inherited_values(self):
+        with patch.dict(s0.os.environ, {
+            'CPNETFLUX_RECEIVER_PROFILE':'1',
+            'CPNETFLUX_RECEIVER_CPU_PROFILE':'1',
+            'CPNETFLUX_RANGE_TIMING':'on',
+        }):
+            normal=s0.environment()
+            diagnostic=s0.environment(receiver_profile=True)
+        self.assertEqual(normal['CPNETFLUX_RECEIVER_PROFILE'],'0')
+        self.assertEqual(normal['CPNETFLUX_RECEIVER_CPU_PROFILE'],'0')
+        self.assertEqual(normal['CPNETFLUX_RANGE_TIMING'],'off')
+        self.assertEqual(diagnostic['CPNETFLUX_RECEIVER_PROFILE'],'1')
+        self.assertEqual(diagnostic['CPNETFLUX_RECEIVER_CPU_PROFILE'],'1')
+        self.assertEqual(diagnostic['CPNETFLUX_RANGE_TIMING'],'on')
+
     def test_phase_aggregation_preserves_overlap_and_quantiles(self):
         rows=[{'wall_seconds':2.,'read_seconds':.2,'finalize_seconds':None},
               {'wall_seconds':4.,'read_seconds':.4,'finalize_seconds':None}]

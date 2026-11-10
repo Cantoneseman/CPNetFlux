@@ -36,6 +36,40 @@ def arm_options(mechanism, label):
     raise ValueError(f'unknown mechanism: {mechanism}')
 
 
+def validate_receiver_profile_request(action, mechanism, size_gib, enabled):
+    if enabled and (action != 'matrix' or size_gib != 1 or mechanism not in ('frame','receive-buffer')):
+        raise ValueError('receiver profile is limited to 1 GiB frame/receive-buffer matrix diagnostics')
+
+
+def validate_profile_rows(file_rows, enabled):
+    for row in file_rows:
+        assert bool(row.get('range_observation_enabled')) == bool(enabled), 'range timing mode mismatch'
+        payload=row.get('receiver_payload_observation')
+        cpu=row.get('receiver_cpu_observation')
+        if enabled:
+            assert isinstance(payload,dict) and isinstance(cpu,dict), 'profile observation missing'
+            assert payload.get('schema')=='cpnetflux_receiver_payload_observation_v2'
+            assert cpu.get('schema')=='cpnetflux_receiver_cpu_observation_v1'
+            missing_payload=set(base.RECEIVER_PAYLOAD_PROFILE_FIELDS)-payload.keys()
+            missing_cpu=set(base.RECEIVER_CPU_PROFILE_FIELDS)-cpu.keys()
+            assert not missing_payload and not missing_cpu, 'profile fields missing'
+            assert isinstance(cpu.get('write_cpu_owner'),str), 'profile CPU owner missing'
+        else:
+            assert payload is None and cpu is None, 'profile unexpectedly enabled'
+
+
+def validate_profile_frame_count(profile, actual_frames):
+    assert profile['payload']['totals'].get('data_frame_count') == actual_frames, 'profile frame count mismatch'
+
+
+def annotate_profile_analysis(report, enabled):
+    if enabled:
+        report['receiver_profile_enabled']=True
+        report['throughput_is_performance_evidence']=False
+        report['interpretation']='instrumented diagnostic; do not use throughput as a performance result'
+    return report
+
+
 def expected_write_calls(file_bytes, logical_frame_bytes):
     assert file_bytes % (8 * base.MiB) == 0
     chunks_per_range = (file_bytes // 8) // base.MiB
@@ -126,7 +160,7 @@ def mapped_checks(args,name,size):
     frames=0
     for index,row in enumerate(sorted(rows,key=lambda r:r['offset'])):
         assert row['offset']==index*SIZE//8 and row['length']==SIZE//8
-        assert row['receiver_payload_execution']=='inline' and not row['range_observation_enabled']
+        assert row['receiver_payload_execution']=='inline'
         assert row['receiver_write_backend']=='mmap_experimental'
         mapped=row['mapped_write']
         expected=expected_write_calls(SIZE, size)
@@ -134,6 +168,7 @@ def mapped_checks(args,name,size):
         assert mapped['map_calls']==mapped['unmap_calls']==SIZE//(512*base.MiB) and mapped['active_mapped_bytes']==0
         assert mapped['window_bound_bytes']==64*base.MiB and mapped['concurrent_window_bound_bytes']==256*base.MiB
         frames+=mapped['write_calls']
+    validate_profile_rows(rows,args.receiver_profile)
     assert data['data_frame_logical_bytes']==size
     return dict(ranges=8,actual_data_frames=frames,mapped_window_bytes=64*base.MiB)
 
@@ -248,19 +283,25 @@ def matrix(args):
                 assert resident['mem_available_bytes']>=12*base.GIB and resident['process']['swap_bytes']==0
                 assert base.mem()>=12*base.GIB and shutil.disk_usage('/dev/shm').free>size_bytes+base.GIB
                 row=base.client_sample(args,name,expected,'2','on',49335,mapped_download=True,
-                    data_frame_bytes=data_frame_bytes,tcp_receive_buffer_bytes=receive_buffer)
+                    data_frame_bytes=data_frame_bytes,tcp_receive_buffer_bytes=receive_buffer,
+                    receiver_profile=args.receiver_profile)
                 row.update(rep=rep,frame_bytes=frame_bytes,arm=label,receive_buffer=receive_buffer,
                            source_residency=resident)
                 row['network_counter_deltas']=network_counter_deltas(row['before']['net'],row['after']['net'])
                 row['verified_chunks']=verify_chunks(row['manifest_checks']['member_example'],size_bytes)
                 row['mechanism']=mapped_checks(args,name,data_frame_bytes)
+                if args.receiver_profile:
+                    validate_profile_frame_count(row['receiver_phases']['receiver_profile'],
+                                                 row['mechanism']['actual_data_frames'])
                 if receive_buffer!='off':
                     assert all(1048576<=lane['tcp_receive_buffer_bytes']<=2097152
                                for lane in row['summary']['lane_endpoints'])
                 rows.append(row);base.save(args.evidence/'results.json',rows)
+                misses=row['network_counter_deltas']['rx_missed_errors']
                 print(json.dumps(dict(sample=name,gbps=row['whole_task_gbps'],
-                    frames=row['mechanism']['actual_data_frames'],
-                    rx_missed_errors=row['network_counter_deltas']['rx_missed_errors'])),flush=True)
+                    frames=row['mechanism']['actual_data_frames'],rx_missed_errors=misses)),flush=True)
+                if args.receiver_profile:
+                    assert misses==0, 'receiver profile diagnostic rx_missed_errors gate'
         assert base.peer(args,'source-check')=={k:expected[k] for k in ('sha256','files','bytes')}
     except BaseException as error:
         base.save(args.evidence/'failure.json',dict(error=repr(error),completed_samples=len(rows)))
@@ -281,7 +322,7 @@ def matrix(args):
             cleanup['local_root_removed']=not args.payload_root.exists()
             base.save(args.evidence/'cleanup.json',cleanup)
             assert cleanup['local_root_removed']
-    report=evaluate(rows,size_bytes)
+    report=annotate_profile_analysis(evaluate(rows,size_bytes),args.receiver_profile)
     report['cleanup_gate_pass']=(cleanup.get('peer_source',{}).get('source_removed') is True
                                  and cleanup.get('peer_root',{}).get('removed') is True
                                  and cleanup.get('local_root_removed') is True)
@@ -299,7 +340,14 @@ if __name__=='__main__':
     parser.add_argument('--commit',required=True)
     parser.add_argument('--mechanism',choices=('frame','receive-buffer','m1'),default='frame')
     parser.add_argument('--size-gib',type=int,choices=(1,8),default=1)
-    args=parser.parse_args();args.evidence.mkdir(parents=True,exist_ok=True)
+    parser.add_argument('--receiver-profile',action='store_true',
+                        help='enable receiver CPU/payload profiling for bounded 1 GiB diagnostics')
+    args=parser.parse_args()
+    try:
+        validate_receiver_profile_request(args.action,args.mechanism,args.size_gib,args.receiver_profile)
+    except ValueError as error:
+        parser.error(str(error))
+    args.evidence.mkdir(parents=True,exist_ok=True)
     SIZE=args.size_gib*base.GIB
     if args.action=='matrix':matrix(args)
     elif args.action=='cleanup':

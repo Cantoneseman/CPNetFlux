@@ -24,6 +24,24 @@ MARKER = '.cpnetflux-s0-owned'
 TOKEN = 'cpnetflux-s0-v1\n'
 MiB = 1024**2
 GIB = 1024**3
+RECEIVER_PAYLOAD_PROFILE_FIELDS = (
+    'data_frame_count','frame_payload_allocations','frame_payload_reuses',
+    'frame_payload_allocated_capacity_bytes','frame_payload_peak_capacity_bytes',
+    'frame_payload_bytes','frame_payload_capacity_bytes','logical_buffer_allocations',
+    'logical_copy_bytes','logical_copy_seconds','prefix_shift_calls','prefix_shift_bytes',
+    'prefix_shift_seconds','decompression_calls','decompression_seconds','frame_crc_bytes',
+    'frame_crc_seconds','whole_file_write_at_all_calls','whole_file_write_at_all_bytes',
+    'whole_file_write_at_all_failures','whole_file_write_at_all_seconds',
+)
+RECEIVER_CPU_PROFILE_FIELDS = (
+    'socket_read_calls','crc_calls','crc_bytes','state_calls','lease_start_calls',
+    'lease_finish_calls','write_calls','write_logical_bytes','range_calls',
+    'physical_write_calls','physical_write_bytes','push_calls','pop_calls',
+    'socket_read_cpu_seconds','crc_cpu_seconds','state_cpu_seconds','lease_cpu_seconds',
+    'write_cpu_seconds','range_cpu_seconds','physical_write_cpu_seconds',
+    'push_cpu_seconds','pop_cpu_seconds',
+)
+RECEIVER_PROFILE_PEAK_FIELDS = {'frame_payload_peak_capacity_bytes'}
 BINARIES = ['cpnetflux-gridftp-server','cpnetflux-tree-download-client','cpnetflux-tree-upload-client']
 
 def save(path, value):
@@ -60,6 +78,28 @@ def percentile(values, fraction):
     low=int(at);high=min(low+1,len(values)-1)
     return values[low]+(values[high]-values[low])*(at-low)
 
+def summarize_profile(rows,key,fields):
+    observations=[row.get(key) for row in rows if isinstance(row.get(key),dict)]
+    if not observations:return None
+    schemas={item.get('schema') for item in observations}
+    scopes={item.get('scope') for item in observations}
+    assert len(schemas)==len(scopes)==1, f'inconsistent {key} schema or scope'
+    totals={};peaks={}
+    for field in fields:
+        values=[item[field] for item in observations
+                if isinstance(item.get(field),(int,float)) and not isinstance(item.get(field),bool)]
+        if not values:continue
+        target=peaks if field in RECEIVER_PROFILE_PEAK_FIELDS else totals
+        target[field]=max(values) if field in RECEIVER_PROFILE_PEAK_FIELDS else sum(values)
+    result={'ranges':len(observations),'schema':next(iter(schemas)),'scope':next(iter(scopes)),
+            'totals':totals}
+    if peaks:result['peak']=peaks
+    if key=='receiver_cpu_observation':
+        result['write_cpu_owners']=sorted({item['write_cpu_owner'] for item in observations
+                                           if isinstance(item.get('write_cpu_owner'),str)})
+    return result
+
+
 def phases(rows):
     result={'count':len(rows),'scope':'per-file intervals; sums overlap across workers and scopes, not task wall'}
     for key in ('wall_seconds','queue_wait_seconds','first_payload_seconds','read_seconds','write_seconds',
@@ -67,6 +107,10 @@ def phases(rows):
         values=[r[key] for r in rows if isinstance(r.get(key),(int,float))]
         if values:
             result[key]={'sum':sum(values),'median':statistics.median(values),'p95':percentile(values,.95)}
+    payload=summarize_profile(rows,'receiver_payload_observation',RECEIVER_PAYLOAD_PROFILE_FIELDS)
+    cpu=summarize_profile(rows,'receiver_cpu_observation',RECEIVER_CPU_PROFILE_FIELDS)
+    if payload is not None or cpu is not None:
+        result['receiver_profile']={'payload':payload,'cpu':cpu}
     result['examples']=rows[:2]
     return result
 
@@ -123,7 +167,7 @@ def receipt(commit):
     return {'commit':commit,'configuration':configuration(),
             'binaries':{n:sha(PROJECT/'build'/n) for n in BINARIES},'project':str(PROJECT)}
 
-def environment():
+def environment(receiver_profile=False):
     env=os.environ.copy()
     # Freeze task-local knobs; never inherit another experiment's runtime policy.
     for key in list(env):
@@ -131,8 +175,11 @@ def environment():
     env.update(CPNETFLUX_STAGE_READ_CONCURRENCY='0',CPNETFLUX_STAGE_WRITE_CONCURRENCY='0',
                CPNETFLUX_STAGE_BUFFER_BYTES=str(64*MiB),CPNETFLUX_PAYLOAD_PIPELINE_DEPTH='2',
                CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION='queued',CPNETFLUX_SENDER_PAYLOAD_EXECUTION='queued',
-               CPNETFLUX_RANGE_TIMING='off',CPNETFLUX_RECEIVER_PROFILE='0',CPNETFLUX_SENDER_PROFILE='0',
-               CPNETFLUX_RECEIVER_CPU_PROFILE='0',CPNETFLUX_MAPPED_WRITE_PROFILE='0',
+               CPNETFLUX_RANGE_TIMING='on' if receiver_profile else 'off',
+               CPNETFLUX_RECEIVER_PROFILE='1' if receiver_profile else '0',
+               CPNETFLUX_SENDER_PROFILE='0',
+               CPNETFLUX_RECEIVER_CPU_PROFILE='1' if receiver_profile else '0',
+               CPNETFLUX_MAPPED_WRITE_PROFILE='0',
                CPNETFLUX_RECEIVER_WRITE_BATCH='1',CPNETFLUX_RANGE_DIRECT_WRITE='parallel')
     return env
 
@@ -162,9 +209,9 @@ def observe(proc, state):
 
 def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False, tree_manifest_serializer=None,
                 tree_manifest_profile=None, member_work_profile=None, tcp_receive_buffer_bytes=None,
-                process_observer=None):
+                process_observer=None, receiver_profile=False):
     state=resource_state();started=time.monotonic()
-    env=environment()
+    env=environment(receiver_profile=receiver_profile)
     if tcp_receive_buffer_bytes is not None:
         assert tcp_receive_buffer_bytes in ('off','1048576')
         env['CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES']=tcp_receive_buffer_bytes
@@ -335,7 +382,8 @@ def check_manifests(slot, count, size):
             'member_example':member[0].read_text()}
 
 def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None,
-                  tree_manifest_serializer=None, data_frame_bytes=None, tcp_receive_buffer_bytes=None):
+                  tree_manifest_serializer=None, data_frame_bytes=None, tcp_receive_buffer_bytes=None,
+                  receiver_profile=False):
     if data_frame_bytes is not None:
         assert data_frame_bytes in (65532,262144)
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
@@ -354,12 +402,15 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
         command+=['--data-frame-bytes',str(data_frame_bytes)]
     row={'name':name,'window_request':window,'phase_timing':timing,'expected':expected,'command':command,
          'before':snapshot(),'result':'fail'}
+    if receiver_profile:row['receiver_profile_requested']=True
     try:
         run_options=dict(summary_path=summary_path,mapped_download=mapped_download)
         if tcp_receive_buffer_bytes is not None:
             run_options['tcp_receive_buffer_bytes']=tcp_receive_buffer_bytes
         if tree_manifest_serializer is not None:
             run_options['tree_manifest_serializer']=tree_manifest_serializer
+        if receiver_profile:
+            run_options['receiver_profile']=True
         resources=(runner or run_guarded)(command,log,**run_options)
         row['resource']=resources;assert resources['exit_code']==0,log.read_text()[-4000:]
         value=json.loads(summary.read_text())
@@ -383,6 +434,9 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
         assert actual=={k:expected[k] for k in ('sha256','files','bytes')},(actual,expected)
         row['manifest_checks']=check_manifests(slot,args.count,args.size)
         row['receiver_phases']=phases(value.pop('file_timings',[]))
+        if receiver_profile:
+            assert row['receiver_phases'].get('receiver_profile',{}).get('payload') is not None
+            assert row['receiver_phases'].get('receiver_profile',{}).get('cpu') is not None
         row['summary']=value;row['actual_tree']=actual;row['after']=snapshot()
         row['t_ready_seconds']=resources['wall_seconds']
         row['whole_task_gbps']=args.size*args.count*8/resources['wall_seconds']/1e9
