@@ -6,7 +6,7 @@ Source commit on both nodes: a811f0b54c4075a5c13a3208cf14015e378d3963.
 
 ## Preflight
 
-- R1 branch: codex/V3-GRIDFTP-OPTIMIZED-RERUN-01; origin is git@github.com:Cantoneseman/CPNetFlux.git. Remote SHA matches source commit. Two pre-existing unrelated untracked R1 documents were preserved. R2 is clean at the same commit (detached HEAD), with the same GitHub repository over HTTPS.
+- R1 branch: codex/V3-GRIDFTP-OPTIMIZED-RERUN-01; origin is git@github.com:Cantoneseman/CPNetFlux.git. Remote SHA matches source commit. Two pre-existing unrelated untracked R1 documents were preserved. R2 was clean at the source commit (detached HEAD), with the same GitHub repository over HTTPS.
 - Both CMake configurations match: RelWithDebInfo; RDMA, IO_URING, ISAL and TLS ON. No build or binary hash comparison was run after the auth stop gate.
 - Both machines: Intel Xeon 6515P, 32 logical CPUs; MemAvailable approximately 28.6/28.2 GiB; /dev/shm tmpfs 16 GiB free. Root filesystem 90%/91% used, so all experiment data must remain on tmpfs. No payload was generated.
 - Reverse routes for .1/.2 select eno17095np0. Link UP at 100000 Mb/s, MTU 1500. No route changes. Management IPs are 192.168.1.109/.102.
@@ -22,5 +22,9 @@ Source commit on both nodes: a811f0b54c4075a5c13a3208cf14015e378d3963.
 ## Not run
 
 No rebuild/hash gate, GridFTP tuning screen, formal workload, transfer timing, NIC/HCA delta, CPU/I/O sampling or external SHA was run. There are no performance samples. Old M1-44 and GridFTP results from other machines are excluded.
+
+## Publication
+
+The plan, result and analysis were committed on R770-1 and pushed to origin, then the exact commit was checked out on R770-2. Commit and remote branch SHA: 6df27d11320ecb0be0f7ca9a942400ce1145803c. R1 and R2 HEAD match this SHA. Two pre-existing unrelated untracked documents remain preserved on both nodes.
 
 Resume when an existing secure proxy refresh procedure or managed credential/proxy path is provided. Never send credential contents in chat.
