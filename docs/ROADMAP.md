@@ -1,7 +1,7 @@
 # CPNetFlux 性能路线图
 
 更新：2026-11-11。当前决定：[按性能里程碑推进](DECISIONS/2026-11-10-v3-performance-milestones.md)。
-最近交付：[8 GiB大文件M1验收44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)。
+最近交付：[有界lane诊断与停止门49结果](tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)；已验收大文件成绩见[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)。
 历史结果保留原提交、负载与结论；本页规定下一步，不产生新的性能成绩。
 
 ## 当前主线
@@ -9,7 +9,7 @@
 **M1已在8GiB完整V3 TCP任务中跨过30Gbps；下一阶段以该固定配置为基线，选择一个有阶段证据支撑的机制推进40–50Gbps。**
 完整V3 TCP 256KiB DATA与有界接收buffer已完成1GiB同提交对照，见[Milestone35结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)。[定向网络归因36](tasks/2026-11-10-v3-receive-network-36-result.md)和[诊断40](tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)的固定路径采样均未复现缺缓冲事件；[1MiB DATA候选37](tasks/2026-11-10-v3-data-frame-1m-37-result.md)和[queued mmap接收候选38](tasks/2026-11-10-v3-receiver-pipeline-38-result.md)均NO-GO。Diagnostic39在R770-2一次8GiB源准备中验证全页驻留、零pswpout、零进程/叶cgroup swap。M1-41驱动已实现，但唯一矩阵在首个control任务的资源门中止，没有完整传输样本；详见[M1-41结果](tasks/2026-11-11-v3-large-file-m1-41-result.md)。新一轮[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)完成五对8GiB交错对照，组合配置中位34.159Gbps，通过正式M1门。
 诊断40的固定256KiB DATA/1MiB接收buffer采样未复现RX缺缓冲事件；M1-41也未形成可比较吞吐，不能据此推断网络或候选收益。[任务42](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)已补全失败swap状态与客户端receipt；[任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)在两端120秒空载观察中未复现host变化，M1-41单页事件仍未归因。[M1-44结果](tasks/2026-11-11-v3-large-file-m1-44-result.md)在10个完整任务中均满足资源、内容、接口计数与清理门；两端host pswpout增量为0。当前只报告受限TCP/tmpfs实验成绩。Entry锁内CRC combine不再开发：实测成本约为采样接收CPU的0.013%。不得增加接收线程、队列深度或网卡系统调优。
-M1-45 profile诊断记录6/10个frame矩阵样本完整，最后一个宽窗口 rx_missed_errors +405；后续审查确认旧窗口跨传输和本地校验，无法归因。Task46首个off样本的窄窗口观测到 rx_out_of_buffer +237后按停止门中止，profile对照无结论。Task47复算发现rx13/rx16 page-pool empty/slow +8/+10，不能归因接口OOB；Task48核对精确mlx5源码，确认rx_out_of_buffer由shared-device Q counter聚合且没有RX队列ID，现有debugfs/tracepoint也未提供逐RQ归属，详见[Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)。新GridFTP加密诊断也在1GiB明文样本记录R2 missed/OOB +104，4GiB组因host swap中止，不能归为CPNetFlux mmap独有问题。[Task49计划](tasks/2026-11-11-v3-rx-lane-diagnostic-49.md)接回串行开发：修正旧网络driver的计数窗口/停止门，使用同一pwrite路径进行有资源门的1GiB 1/4-lane无profiler诊断。Task48原待办由此细化，不重试GridFTP正式矩阵或系统调优。
+M1-45 profile诊断记录6/10个frame矩阵样本完整，最后一个宽窗口 rx_missed_errors +405；后续审查确认旧窗口跨传输和本地校验，无法归因。Task46首个off样本的窄窗口观测到 rx_out_of_buffer +237后按停止门中止，profile对照无结论。Task47复算发现rx13/rx16 page-pool empty/slow +8/+10，不能归因接口OOB；Task48核对精确mlx5源码，确认rx_out_of_buffer由shared-device Q counter聚合且没有RX队列ID，现有debugfs/tracepoint也未提供逐RQ归属，详见[Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)。新GridFTP加密诊断也在1GiB明文样本记录R2 missed/OOB +104，4GiB组因host swap中止，不能归为CPNetFlux mmap独有问题。[Task49结果](tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)：driver窗口/停止门已修复；首个1GiB单路pwrite、无详细profiler样本记录R1 OOB/missed各+171，四路按门未运行，完整性/资源/清理通过，无有效性能结果。说明降到一路仍未避免现象，不提供流/RQ因果。下一交付转为发送端有界节奏控制可行性候选：先核对任务局部实现与实际生效，再做单一显式原型；不重复lane/profile/GridFTP矩阵、不改系统，M2稳定性门仍开放。
 R770-1单人串行、同一时刻一个写入者；R770-2只接收固定提交。
 
 ## 已验证成果与当前性能边界
@@ -43,7 +43,8 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | ABORTED / NO PROFILE OR PERFORMANCE RESULT | Task46 profile扰动与窄计数窗口 | [结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)：profile-off首个1GiB样本观察窗口记录 rx_out_of_buffer +237后停止；完整性/资源/清理通过。Task48源码核验确认该计数无逐RQ归属；按Task48合同仅进行1GiB 1-lane/4-lane无profiler复现，不重跑profile矩阵 |
 | DONE / DIAGNOSTIC ONLY | Task47 page-pool队列计数复算 | [合同](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47.md)与[结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md)：分析器输出RX packet/page-pool/WQE/buffer错误delta；Task46快照复算为rx13/rx16 empty/slow +8/+10，buff_alloc_err/wqe_err为0。Task48精确源码确认R1的rx_out_of_buffer没有逐队列归属；下一步限于有资源门的1GiB lane-count复现，无性能结论 |
 | DONE / SOURCE AUDIT ONLY | Task48 精确mlx5源码核验 | [计划](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48.md)与[结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)：精确Ubuntu tag确认rx_out_of_buffer是聚合qcnt字段，没有RQ归属；现有只读接口未找到逐RQ OOB；下一步为有界1GiB 1-lane/4-lane复现 |
-| IN PROGRESS | Task49 lane诊断与停止门 | [计划](tasks/2026-11-11-v3-rx-lane-diagnostic-49.md)：GridFTP也复现接口OOB后，补齐无profiler 1/4路pwrite有界采集；每臂最多一次1GiB，异常立即停后续，计数不提供流级因果 |
+| DONE / ABORTED FIRST SAMPLE | Task49 lane诊断与停止门 | [结果](tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)：1-lane pwrite首样本OOB/missed +171，4-lane未运行；SHA/资源/清理通过，无性能结果；停止门工程交付完成 |
+| NEXT / M2 STABILITY OPEN | 发送端有界节奏控制候选 | 核对任务局部发送pacing的实现/生效条件，选择单一显式原型；固定预算、语义与回退，机制/正确性通过才做有停止门1GiB可行性验证；不以降速换来的无事件冒充吞吐改善 |
 | DONE / NOT REPRODUCED | host `pswpout`归因诊断 | [任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端120秒无payload观察均稳定，未定位M1-41单页增量；M1-44已通过独立host swap-out门，但这不改变M1-41旧结果；不重跑M1-41 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
 | DEFERRED | 小文件固定/自适应成员微批 | 独立完成时间目标；利用S0/S1及S2证据，后续设计成员恢复/事务，不包装已有pending-window为新微批 |

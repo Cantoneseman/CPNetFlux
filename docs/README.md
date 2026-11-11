@@ -10,10 +10,10 @@
 | 当前状态、配置、未过门与下一项 | [性能路线图](ROADMAP.md) |
 | 当前批准主线与串行交接 | [里程碑35计划](tasks/2026-11-10-v3-large-file-milestone-35.md)、[实现/1GiB结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)、[M1-41计划](tasks/2026-11-11-v3-large-file-m1-41.md)、[M1-41结果：资源门中止、无吞吐样本](tasks/2026-11-11-v3-large-file-m1-41-result.md)、[M1-44计划](tasks/2026-11-11-v3-large-file-m1-44.md)、[M1-44结果：8GiB正式门通过](tasks/2026-11-11-v3-large-file-m1-44-result.md)、[M1-45接收端profile诊断](tasks/2026-11-11-v3-receiver-profile-diagnostic-45.md)、[Task46合同与结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46.md)、[Task46中止结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)、[资源失败证据补全42结果](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)、[host pswpout诊断43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)、[分层准入与路线决定](DECISIONS/2026-11-10-v3-performance-milestones.md) |
 | 近期诊断结果 | [无payload host pswpout归因43](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端均未复现，M1-41单页事件仍未定位 |
-| 最新执行结果 | [Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)：精确mlx5源码确认rx_out_of_buffer是聚合qcnt，不提供逐RQ归属；无新性能样本 |
+| 最新执行结果 | [Task49结果](tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)：网络driver与停止门修复；单路pwrite首样本OOB/missed +171，四路未运行，无性能结果；完整性/资源/清理通过 |
 | 执行方式和缓冲所有权 | [三阶段指南](V3_TRANSFER_STAGES.md)、[映射下载边界](tasks/2026-11-08-v3-mapped-download-08-result.md) |
 | 接收队列计数归因 | [Task47合同](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47.md)、[Task47结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md)、[Task48计划](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48.md)、[Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md) |
-| 当前开发 | [Task49计划](tasks/2026-11-11-v3-rx-lane-diagnostic-49.md)：同pwrite路径1/4路诊断、传输与刷新窗口和网络停止门；[GridFTP加密诊断结果](tasks/2026-11-11-data-encryption-ab-01-result.md)记录新资源阻塞 |
+| 当前开发 | [Task49收口与下一项](tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)：转向单一发送端有界节奏控制候选，先核对机制，不重复诊断矩阵；[GridFTP加密诊断结果](tasks/2026-11-11-data-encryption-ab-01-result.md)的资源/接口事件仍开放 |
 | 设计、协议与工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md)、[目录传输](DIRECTORY_TRANSFER.md) |
 | 安全、发布与证据边界 | [安全](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md)、[历史研究基线](RESEARCH_BASELINE.md) |
 
