@@ -106,7 +106,7 @@ class ReceiveNetworkTest(unittest.TestCase):
             root=Path(directory)
             root.rmdir()
             args=SimpleNamespace(payload_root=root,evidence=Path(evidence)/"evidence",
-                                 commit="test",size_gib=1)
+                                 commit="test")
             args.evidence.mkdir()
             expected={"sha256":"same","files":1,"bytes":driver.base.GIB}
             residency={"all_resident":True,"host_pswpout_delta_since_seed":0,
@@ -124,6 +124,7 @@ class ReceiveNetworkTest(unittest.TestCase):
                 if action=="stop":return {"resource":{"pswpout_delta":0},"before":{"net":{"rx_missed_errors":0}},"after":{"net":{"rx_missed_errors":0}}}
                 return {}
             def own_peer(_args,action):
+                self.assertEqual(_args.size_gib,1)
                 return expected if action=="seed" else residency if action=="residency" else {}
             quiet={"rx_out_of_buffer_delta":0,"rx_missed_errors_delta":0,"active_rx_queues":{}}
 

@@ -19,6 +19,7 @@ def receive_gate(analysis):
 
 def run(args):
     assert base.node()==1
+    args.size_gib=1
     args.size,args.count=large.SIZE,1
     assert args.size==base.GIB
     local=base.receipt(args.commit);remote=base.peer(args,'receipt');assert local==remote
