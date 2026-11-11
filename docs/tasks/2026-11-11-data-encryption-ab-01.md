@@ -1,6 +1,6 @@
 # CPNetFlux / GridFTP data encryption A/B 01
 
-Date: 2026-11-11. State: planned. Input source/report commit: fe0f78172ac3e85e8d83619d7dc7234d63fce093.
+Date: 2026-11-11. State: STOPPED_AT_RESOURCE_GATE; bounded observations reported, repeated comparison incomplete. Input source/report commit: fe0f78172ac3e85e8d83619d7dc7234d63fce093.
 
 ## Scope and hypothesis
 
@@ -36,3 +36,8 @@ Continuation: inspect precise stop reason if any; do not silently disable guards
 The four 8 MiB arms passed SHA/terminal/security checks. The first 4 GiB GridFTP-private transfer completed SHA and both CODE=226, but R1 pswpout increased by 1512 pages (~5.91 MiB at 4096 B/page), with task-owned swap=0, MemAvailable minimum=24.56 GiB, and no NIC error increment. This fails the unchanged global swap stop rule; the 4 GiB group is stopped and cannot provide accepted throughput. No swap/system setting is changed; global cause is unresolved. Initial smoke collector incorrectly required explicit DCAU A even though GSI defaults to authenticated data and need not resend that command. Preserve that collector stop separately; corrected smoke verifies explicit PROT P for private, default PROT C/no downgrade command for clear, GSI identity success, no DCAU N/-nodcau, plus both terminal records.
 
 A distinct 1 GiB diagnosis is now fixed to reduce resident payload demands while answering the user's encryption-cost question. Remove only the task's 4 GiB source/destination, record quiet counter baseline, materialize and SHA/mincore-verify a new 1 GiB random source, then run all four arms with the same frozen settings and three interleaved repetitions each. Keep every original resource gate including global pswpout; do not merge 4 GiB, smoke or prior screening records. If this 1 GiB group triggers any resource gate, stop it and report incomplete comparison. No further automatic downsizing or guard relaxation. This is short-file encryption diagnosis, not sustained bulk acceptance.
+
+
+## Execution outcome
+
+Initial execution revision 8746f129e720e3d79d021a46ed6d7a214fc64fd5, amended 1 GiB execution revision 1c9f858c39eab0cf9b05c4d1ae6ddc5ebd286e66; source and binary hashes unchanged. Four security-mode smokes passed; 4 GiB group stopped on global R1 swap; separate 1 GiB group stopped on R2 missed/OOB +104 during second GridFTP-clear sample. Six 1 GiB attempts, five accepted resource windows, no arm reached the required three accepted repetitions. Do not compute median/CV, silently relax guards, restart old matrix, or call either configuration sustained/bulk accepted. Four temporary services/payload were cleaned. Details in result and analysis; all exact commands/counter snapshots and peer evidence are in the experiment directory. Only small docs are published to GitHub.
