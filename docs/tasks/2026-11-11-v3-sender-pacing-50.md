@@ -42,3 +42,11 @@ MemAvailable≥12GiB、源全页驻留、owned swap/host pswpout增量0、每端
 不再延伸通用诊断。候选默认一轮原型+最多一轮有原因修正，异常门不绕过。
 
 证据：/home/Su/experiments/CPNetFlux/2026-11-11-v3-sender-pacing-50。
+
+## 2026-11-12交付A销项
+
+输入2f338eba0ef1a2868c966fec048892c3a8fe44fa；本次只补交接文档的逐项验收与A状态。
+范围文件：本计划、2026-11-11-performance-stage-closeout-handoff.md。
+非目标：不改代码/默认值、不新增候选、不重复互传、不启动B正式矩阵或RDMA。
+验收：直接相关pacing/driver测试、既有唯一样本证据复核、相对链接与diff检查、精确提交推送和远端SHA回读。
+证据写入原Task50目录a-acceptance-2026-11-12.json；工程完成不改变M2 OPEN。
