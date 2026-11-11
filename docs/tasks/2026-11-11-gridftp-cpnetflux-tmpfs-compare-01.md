@@ -1,7 +1,7 @@
 # CPNetFlux/GridFTP tmpfs compare 01
 
 Date: 2026-11-11
-State: BLOCKED at GSI credentials and trust-chain prerequisites.
+State: RUNNING; user authorized generation of task-scoped local GSI credentials on 2026-11-11.
 Input commit: a811f0b54c4075a5c13a3208cf14015e378d3963
 
 ## Scope
@@ -31,4 +31,4 @@ Before generating formal input, require a GSI proxy with at least one hour valid
 - docs/tasks/2026-11-11-gridftp-cpnetflux-tmpfs-compare-01-analysis.md
 - /home/Su/experiments/CPNetFlux/2026-11-11-gridftp-cpnetflux-tmpfs-compare-01/preflight.md
 
-Resume only with an existing approved secure credential refresh procedure or managed proxy path. Never send credential contents in chat.
+Credential amendment: generate an isolated SimpleCA, per-node user and host certificates, and 12-hour RFC3820 proxies under the experiment credentials directory. Trust and grid-mapfile are scoped by process environment; no /etc or institutional identities are modified. Both proxies must pass grid-proxy-init -verify and grid-proxy-info -exists -valid 1:00. This is a laboratory GSI/private comparison, not an institutional credential deployment. No credential contents enter Git or reports. Experiment-only orchestration and evidence live under the experiment directory; no production source changes.
