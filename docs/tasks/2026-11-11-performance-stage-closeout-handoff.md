@@ -30,6 +30,22 @@ A逐项验收证据：/home/Su/experiments/CPNetFlux/2026-11-11-v3-sender-pacing
 阶段总体仍为ENGINEERING CLOSED / M2 OPEN；原生RDMA继续暂停，新idea保持DEFERRED。
 以下“剩余交付”和事实快照保留原交接时的要求，当前完成状态以本补记及Task50结果为准。
 
+### 交付B判定交付（2026-11-12）
+
+**B的成绩复核和准入判定已交付：NO-GO / NOT ADMITTED；M2 OPEN。**
+这不是“正式矩阵验收通过”：A虽已完成工程交付，唯一1GiB为28.221Gbps，仍低于原合同40Gbps速率准入。
+不启动本候选的新8GiB五对矩阵，正式样本数为0；正式中位吞吐、CV、配对改善数和各矩阵验收项均为未测。
+这不是环境BLOCKED：既有可行性样本的机制/内容/资源/网络门通过，未通过的是速率准入。
+
+历史M1十个任务的成功实际字节、T_ready、SHA、verified chunks、资源/网络、提交及四份已记录hash已复核；
+8GiB combined中位34.159410Gbps/2.011729秒，对照28.125991Gbps/2.443273秒，中位吞吐之比提升21.4514%。
+原pair_improvements字段对应时间缩短，不是同数值的吞吐提升；逐对吞吐提升和两种CV定义见[Task50的B复核结果](2026-11-11-v3-sender-pacing-50-result.md)。
+旧数据仍属于506b63b；A的1GiB属于057159c，不能跨负载/提交计算pacer收益，也不是当前HEAD新成绩。
+
+本轮只做离线复核和文档交付，无新payload或运行时改动。
+可复现脚本与机器判定：/home/Su/experiments/CPNetFlux/2026-11-11-v3-sender-pacing-50/b-acceptance-2026-11-12.py/.json。
+后续若要重新进入B，需新的机制依据与改动，通过原有可行性准入后另行冻结同提交对照合同；不放宽旧门或重复扫描参数。
+
 ## 本轮文档交付范围
 
 范围：保存延后设计、明确当前阶段剩余交付和停止条件、更新导航，并提交备份后串行交接。

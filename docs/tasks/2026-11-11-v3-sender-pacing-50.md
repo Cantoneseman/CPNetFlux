@@ -50,3 +50,13 @@ MemAvailable≥12GiB、源全页驻留、owned swap/host pswpout增量0、每端
 非目标：不改代码/默认值、不新增候选、不重复互传、不启动B正式矩阵或RDMA。
 验收：直接相关pacing/driver测试、既有唯一样本证据复核、相对链接与diff检查、精确提交推送和远端SHA回读。
 证据写入原Task50目录a-acceptance-2026-11-12.json；工程完成不改变M2 OPEN。
+
+## 2026-11-12交付B判定
+
+输入a75dac30d68d3e3ba404afdaddc89e293ea4445a。范围：对历史M1十个完整任务与A唯一样本离线复算，正式记录B准入/NO-GO和M2状态。
+受影响文件：本计划、Task50结果、performance-stage-closeout-handoff、docs/ROADMAP.md、docs/README.md。
+非目标：不修改运行时/配置/默认值，不放宽既定40Gbps准入，不新增payload或正式矩阵，不改历史原始证据，不启动RDMA/新idea。
+验收：实际成功字节/T_ready重算、完整性/资源/提交及证据hash核对、配对时间与吞吐口径/CV定义、未运行门不计pass、链接/diff与精确提交推送回读。
+离线验收脚本/报告保存在原Task50证据根b-acceptance-2026-11-12.py/.json；其通过表示判定可复核，不表示M2通过。
+
+结果：历史十个M1完整任务与A唯一样本复算通过；B判定NO-GO / NOT ADMITTED，正式M2未运行，M2 OPEN。详见Task50结果的交付B离线复核；脚本退出0仅代表判定证据通过。
