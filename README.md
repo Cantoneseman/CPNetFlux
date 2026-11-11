@@ -10,7 +10,9 @@ CPNetFlux 面向超算中心节点间科学数据传输，提供分块校验、�
 
 当前主线是[完整 V3 大文件性能里程碑](docs/tasks/2026-11-10-v3-large-file-milestone-35.md)：256 KiB DATA与有界TCP接收缓冲已实现；[Milestone35的1 GiB完整任务](docs/tasks/2026-11-10-v3-large-file-milestone-35-result.md)分别获得中位27.33→35.82 Gbps、34.11→36.95 Gbps，保持显式实验选项。[M1-41结果](docs/tasks/2026-11-11-v3-large-file-m1-41-result.md)记录8 GiB矩阵首个control任务因host swap资源门中止，没有完整吞吐样本；8GiB正式门由[M1-44结果](docs/tasks/2026-11-11-v3-large-file-m1-44-result.md)通过：组合配置中位34.16Gbps；M1-41仍不重跑。
 
-[接收网络定向归因36](docs/tasks/2026-11-10-v3-receive-network-36-result.md)将历史计数定位到mlx5接收队列缺缓冲层；[1MiB DATA候选37](docs/tasks/2026-11-10-v3-data-frame-1m-37-result.md)与[queued mmap接收候选38](docs/tasks/2026-11-10-v3-receiver-pipeline-38-result.md)均未通过完整任务对照并已撤回。[诊断40](docs/tasks/2026-11-11-v3-rx-queue-irq-correlation-40-result.md)在当前固定路径的一次1GiB任务中未复现计数；任务45的宽窗口 `rx_missed_errors` +405无法定位到传输。[Task46结果](docs/tasks/2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)在profile-off首样本的接收观察窗口记录 `rx_out_of_buffer` +237后按门槛停止，profile对照未完成且没有性能结论。下一步先定位接收队列缺buffer事件的队列/流因果边界，不重跑同一矩阵或M1-41。RDMA优化仍暂停；100 Gbps文件吞吐、磁盘持久化与生产readiness尚未验收。
+[Task48源码核验](docs/tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)确认mlx5的rx_out_of_buffer为聚合计数，没有逐RQ/流归属；[Task49](docs/tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)的单路pwrite样本仍出现OOB/missed +171。[Task50与本阶段收尾](docs/tasks/2026-11-11-v3-sender-pacing-50-result.md)已完成显式、默认关闭的有界发送准入机制及回归。唯一1GiB四路TCP/tmpfs样本28.221Gbps，内容、资源和网络观察窗口通过，但未达40Gbps正式矩阵准入，未运行新8GiB矩阵；该单次结果不能与历史8GiB成绩直接算收益或退化。候选仅保留诊断能力，不作为性能推荐。
+
+本阶段状态为ENGINEERING CLOSED / M2 OPEN；40–50、70–85/100Gbps与长期稳定性仍未验收。原生RDMA优化继续暂停，仅完成重启价值、MR内存预算与数据所有权条件评估；统一工作单元/预算采样/策略记忆保持DEFERRED。冻结配置、精确版本、回归及下一步条件见[Task50结果](docs/tasks/2026-11-11-v3-sender-pacing-50-result.md)。
 
 ## 服务器与开发环境
 

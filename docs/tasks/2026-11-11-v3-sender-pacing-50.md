@@ -1,7 +1,7 @@
 # V3 发送节奏候选50与本阶段收尾
 
 输入：ea69f952d0f51518d55487a123c47ecc64332bbb；日期2026-11-11。
-状态：IN PROGRESS；唯一写入者为既有“开发”。统一工作单元idea仍DEFERRED。
+状态：ENGINEERING CLOSED / M2 OPEN；唯一写入者为既有“开发”。统一工作单元idea仍DEFERRED。
 
 范围：一个显式任务局部应用DATA提交pacer，CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND=off（默认）或1500000000。
 每路12Gbps应用帧上限，最多4路合计48Gbps；数据帧最大262212B，因此每次提交的有界突发不增大。
@@ -20,6 +20,7 @@
 src/core/io/persistent_tree_transfer.cpp、tests/unit/framed_data_socket_test.cpp、
 tools/perf/run_small_file_baseline.py、tools/perf/run_sender_pacing.py、
 tools/test/run_sender_pacing_test.py、CMakeLists.txt、本计划/结果/ROADMAP/README。
+收尾导航范围另含根README.md（清除已被Task48/49/50覆盖的下一步），只更新当前结论与结果入口。
 仅如检查需要调整直接相关测试；不混入历史两份未跟踪文档。
 
 验收：
