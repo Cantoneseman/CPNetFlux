@@ -386,9 +386,11 @@ def check_manifests(slot, count, size):
 
 def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None,
                   tree_manifest_serializer=None, data_frame_bytes=None, tcp_receive_buffer_bytes=None,
-                  receiver_profile=False, range_timing=None, network_profile=False):
-    if network_profile:
-        assert timing == 'on' and range_timing is True
+                  receiver_profile=False, range_timing=None, network_profile=False, connections=4,
+                  network_settle_seconds=0):
+    assert connections in (1,4), 'bounded client supports one or four lanes'
+    assert network_settle_seconds in (0,.5) and (network_profile or not network_settle_seconds)
+    assert not mapped_download or connections==4, 'mapped download requires four lanes'
     if data_frame_bytes is not None:
         assert data_frame_bytes in (65532,262144)
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
@@ -396,7 +398,7 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
     summary=folder/(name+'.summary.json');log=folder/(name+'.client.log')
     command=[str(PROJECT/'build/cpnetflux-tree-download-client'),'--host','192.168.100.2','--port',str(port),
              '--local-bind-address','192.168.100.1','--source-dir','source','--dest-dir',str(target),
-             '--connections','4','--file-parallelism','4','--control-reuse','worker','--data-session-reuse','tree',
+             '--connections',str(connections),'--file-parallelism',str(connections),'--control-reuse','worker','--data-session-reuse','tree',
              '--file-scheduling','dynamic','--data-pending-window',window,'--checksum','crc32c',
              '--chunk-size',str(MiB),'--buffer-size','65536','--data-transport','tcp',
              '--final-verify-policy','verified_chunks','--commit-sync-policy','none',
@@ -430,6 +432,13 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
                 after_transfer=receive_network.snapshot(full=True)
                 network_window['after_transfer']=after_transfer
                 network_window['analysis']=receive_network.analyze(network_window['before'],after_transfer)
+                if network_settle_seconds:
+                    # Still before local SHA. The refresh tail is separate from the process window.
+                    time.sleep(network_settle_seconds)
+                    after_settle=receive_network.snapshot(full=True)
+                    network_window['after_settle_before_sha']=after_settle
+                    network_window['refresh_tail_analysis']=receive_network.analyze(after_transfer,after_settle)
+                    network_window['settled_analysis']=receive_network.analyze(network_window['before'],after_settle)
         row['resource']=resources;assert resources['exit_code']==0,log.read_text()[-4000:]
         value=json.loads(summary.read_text())
         if tree_manifest_serializer is not None:

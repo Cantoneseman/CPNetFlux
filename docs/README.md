@@ -13,6 +13,7 @@
 | 最新执行结果 | [Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)：精确mlx5源码确认rx_out_of_buffer是聚合qcnt，不提供逐RQ归属；无新性能样本 |
 | 执行方式和缓冲所有权 | [三阶段指南](V3_TRANSFER_STAGES.md)、[映射下载边界](tasks/2026-11-08-v3-mapped-download-08-result.md) |
 | 接收队列计数归因 | [Task47合同](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47.md)、[Task47结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md)、[Task48计划](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48.md)、[Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md) |
+| 当前开发 | [Task49计划](tasks/2026-11-11-v3-rx-lane-diagnostic-49.md)：同pwrite路径1/4路诊断、传输与刷新窗口和网络停止门；[GridFTP加密诊断结果](tasks/2026-11-11-data-encryption-ab-01-result.md)记录新资源阻塞 |
 | 设计、协议与工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md)、[目录传输](DIRECTORY_TRANSFER.md) |
 | 安全、发布与证据边界 | [安全](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md)、[历史研究基线](RESEARCH_BASELINE.md) |
 

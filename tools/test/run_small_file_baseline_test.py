@@ -250,5 +250,44 @@ class BaselineTest(unittest.TestCase):
         self.assertNotIn('finalize_seconds',result)
         self.assertIn('overlap',result['scope'])
 
+    def test_settle_snapshot_and_lane_command_precede_external_hash(self):
+        events=[]
+        with tempfile.TemporaryDirectory(prefix='cpnetflux-s0-settle-',dir='/dev/shm') as directory:
+            root=Path(directory);(root/s0.MARKER).write_text(s0.TOKEN)
+            evidence=root/'evidence';evidence.mkdir()
+            args=SimpleNamespace(payload_root=root,evidence=evidence,size=3,count=1)
+            expected={'sha256':'same','files':1,'bytes':3}
+            def net_snapshot(full=True):
+                events.append('net')
+                return {'started_monotonic':len(events),'ended_monotonic':len(events)}
+            def runner(command,log,**options):
+                events.append('child')
+                self.assertEqual(command[command.index('--connections')+1],'1')
+                self.assertEqual(command[command.index('--file-parallelism')+1],'1')
+                self.assertFalse(options['mapped_download'])
+                self.assertFalse(options['range_timing'])
+                summary=Path(command[command.index('--json-summary')+1])
+                summary.write_text(json.dumps({'actual_transport':'v3','completed_files':1,
+                    'failed_files':0,'changed_files':0,'data_pending_window':2,
+                    'data_pending_window_policy':'fixed','data_pending_high_watermark':0}))
+                log.write_text('')
+                return {'exit_code':0,'wall_seconds':.25}
+            def tree(_):
+                events.append('sha')
+                return expected
+            with patch.object(s0,'snapshot',return_value={'net':{'rx_missed_errors':0}}), \
+                 patch.object(s0,'tree',side_effect=tree), \
+                 patch.object(s0,'check_manifests',return_value={}), \
+                 patch.object(s0.receive_network,'snapshot',side_effect=net_snapshot), \
+                 patch.object(s0.receive_network,'analyze',return_value={'rx_out_of_buffer_delta':0}), \
+                 patch.object(s0.time,'sleep',side_effect=lambda _:events.append('settle')):
+                row=s0.client_sample(args,'one',expected,'2','off',49335,
+                    runner=runner,range_timing=False,network_profile=True,connections=1,
+                    network_settle_seconds=.5)
+            self.assertEqual(events,['net','child','net','settle','net','sha'])
+            self.assertIn('refresh_tail_analysis',row['receiver_network_window'])
+            self.assertEqual(row['t_ready_seconds'],.25)
+            self.assertTrue(row['output_slot_removed'])
+
 if __name__=='__main__':
     unittest.main()

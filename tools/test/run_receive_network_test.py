@@ -3,10 +3,13 @@
 from pathlib import Path
 import sys
 import unittest
+import tempfile
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'perf'))
 import receive_network as net
+import run_receive_network as driver
 
 
 class ReceiveNetworkTest(unittest.TestCase):
@@ -96,5 +99,79 @@ class ReceiveNetworkTest(unittest.TestCase):
                          'unavailable_interface_aggregate_only')
         self.assertFalse(result['flow_cause_proven'])
         self.assertFalse(result['allocation_failure_proven'])
+
+    def exercise_driver(self,failed_lane,delayed=False):
+        with tempfile.TemporaryDirectory(prefix="cpnetflux-s0-lane-test-",dir="/dev/shm") as directory, \
+             tempfile.TemporaryDirectory(prefix="cpnetflux-lane-evidence-") as evidence:
+            root=Path(directory)
+            root.rmdir()
+            args=SimpleNamespace(payload_root=root,evidence=Path(evidence)/"evidence",
+                                 commit="test",size_gib=1)
+            args.evidence.mkdir()
+            expected={"sha256":"same","files":1,"bytes":driver.base.GIB}
+            residency={"all_resident":True,"host_pswpout_delta_since_seed":0,
+                       "mem_available_bytes":16*driver.base.GIB,"process":{"swap_bytes":0}}
+            failure={"rx_out_of_buffer_delta":1,"rx_missed_errors_delta":1,"active_rx_queues":{}}
+            row={"whole_task_gbps":1,"manifest_checks":{"member_example":"unused"},"summary":{"actual_transport":"v3","data_transport":"tcp",
+                 "connections":1,"data_frame_logical_bytes":262144,
+                 "lane_endpoints":[{"data_connections":1,"data_local_address":"192.168.100.1",
+                                    "data_peer_address":"192.168.100.2","tcp_receive_buffer_bytes":2097152}]},
+                 "receiver_phases":{},"receiver_network_window":{
+                    "analysis":failure,"settled_analysis":failure},
+                 "after":{"net":{"rx_missed_errors":1}},"before":{"net":{"rx_missed_errors":0}}}
+            def peer(_args,action,**kwargs):
+                if action=="source-check":return expected
+                if action=="stop":return {"resource":{"pswpout_delta":0},"before":{"net":{"rx_missed_errors":0}},"after":{"net":{"rx_missed_errors":0}}}
+                return {}
+            def own_peer(_args,action):
+                return expected if action=="seed" else residency if action=="residency" else {}
+            quiet={"rx_out_of_buffer_delta":0,"rx_missed_errors_delta":0,"active_rx_queues":{}}
+
+            def sample(*_args,**options):
+                import copy
+                result=copy.deepcopy(row)
+                lanes=options['connections']
+                result['summary']['connections']=lanes
+                result['summary']['lane_endpoints']*=lanes
+                if delayed:result['receiver_network_window']['analysis']=quiet
+                if failed_lane!=lanes:
+                    result['receiver_network_window']={"analysis":quiet,"settled_analysis":quiet}
+                    result['after']['net']['rx_missed_errors']=0
+                self.assertFalse(options['mapped_download'])
+                self.assertFalse(options['receiver_profile'])
+                self.assertFalse(options['range_timing'])
+                self.assertEqual(options['network_settle_seconds'],.5)
+                return result
+            with patch.object(driver.base,"node",return_value=1), \
+                 patch.object(driver.base,"receipt",return_value={}), \
+                 patch.object(driver.base,"peer",side_effect=peer), \
+                 patch.object(driver.large,"own_peer",side_effect=own_peer), \
+                 patch.object(driver,"ready"),patch.object(driver.time,"sleep"), \
+                 patch.object(driver.net,"inventory",return_value={}), \
+                 patch.object(driver.net,"snapshot",return_value={}), \
+                 patch.object(driver.net,"analyze",return_value=quiet), \
+                 patch.object(driver,"verify_chunks",return_value=1024), \
+                 patch.object(driver.base,"client_sample",side_effect=sample) as client:
+                if failed_lane:
+                    with self.assertRaisesRegex(AssertionError,"receive counter"):driver.run(args)
+                else:driver.run(args)
+            self.assertEqual(client.call_count,1 if failed_lane==1 else 2)
+            self.assertEqual([call.kwargs['connections'] for call in client.call_args_list],
+                             [1] if failed_lane==1 else [1,4])
+            self.assertFalse(root.exists())
+            self.assertTrue((args.evidence/"results.json").exists())
+            self.assertEqual((args.evidence/"failure.json").exists(),bool(failed_lane))
+
+    def test_first_oob_stops_before_next_lane_and_still_cleans_up(self):
+        self.exercise_driver(1)
+
+    def test_delayed_oob_stops_before_next_lane(self):
+        self.exercise_driver(1,delayed=True)
+
+    def test_four_lane_event_is_preserved_and_stops(self):
+        self.exercise_driver(4)
+
+    def test_two_clean_lanes_complete_without_profiler_or_mapped_write(self):
+        self.exercise_driver(None)
 
 if __name__=='__main__':unittest.main()
