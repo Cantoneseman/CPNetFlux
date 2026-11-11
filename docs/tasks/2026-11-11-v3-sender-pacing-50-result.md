@@ -145,7 +145,32 @@ publication恢复，4/4通过。Python警告作错误语法检查、git diff --c
 - 启用必须在实际sender进程；下载的sender是远端server，client本地设置不自动传播。
 - 关闭方法为unset CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND或值off，无协议迁移。
 
-可复现命令（新运行应使用新的证据/自有payload路径，不能覆盖本次唯一记录）：
+### 2026-11-12交付C销项与最终冻结
+
+**C完成；阶段状态为ENGINEERING CLOSED / M2 OPEN。**
+A工程验收为默认关闭诊断能力；B成绩/准入报告交付，正式M2未准入；C完成最终集成与边界收尾。
+本次新增[配置冻结清单](2026-11-11-v3-sender-pacing-50-freeze.json)，是可审查的配置/证据清单，程序不会自动加载它。
+清单固定默认值、显式M1参考和pacing诊断差异、运行时代码提交、三个二进制SHA、构建配置及src/include/tests/tools/CMake对象ID。
+
+| C要求 | 完成依据 |
+|---|---|
+| 最终代码与配置 | 运行时代码057159c；此后提交只改README/docs，src/include/tests/tools/CMake对象相同。当前两端构建配置和三个运行二进制SHA与原测试/样本一致 |
+| 相关回归 | 两端原日志各126/126、候选开启R1 4/4，已读取尾段并保存日志SHA；A销项7/7也已记录。复用同代码/同二进制证据，不将文档变更描述成新跑全套测试 |
+| 成绩、资源与正确性 | 上表和B复核区分历史8GiB与当前1GiB；Task50完整性/1024 chunks、CPU采样下界、内存/映射、三个计数窗口及整轮swap/清理证据已汇总，无新正式成绩 |
+| 现场清理复核 | 两端自有payload根缺席、49337未监听、/dev/shm各0B；原2121 PID/start身份与样本记录一致。本轮未启动互传或临时服务 |
+| 原生RDMA评估 | 既有MR池/完成处理已存在，尚有两端复制；源码公式每connection 2,206,400,512B，4 connections共8,825,602,048B/端数据池，未含CQ/元数据等。只交付预算/所有权/正确性和对照重启条件，继续暂停 |
+| 备份与交接 | 本次明确文件提交推送后读回GitHub SHA并同步R2；最终提交、两端构建/二进制及清单hash写入证据根c-delivery-2026-11-12.json，完成状态不替代M2或生产验收 |
+
+最终C验收证据为同目录c-acceptance-2026-11-12.json，包含两端运行时对象、二进制、
+原回归日志hash、现场清理和MR预算；最终交付提交以c-delivery-2026-11-12.json为准。
+当前HEAD只具有同运行时代码的回归/二进制一致证据，未运行新的8GiB性能矩阵。
+下一结构性选择仍是原生RDMA的MR预算与数据所有权审查；本次不启动它，所有DEFERRED项保持。
+
+回归命令和历史实验调用：
+
+前两条为同运行时代码的相关回归；第三条仅记录原实验实际调用，不是当前HEAD上的自动重跑入口。
+原实验要求HEAD为057159c；后续文档提交不能直接传入旧commit冒充同版本。若未来获准复现实验，
+须先按项目恢复规则保留当前改动、串行选定明确版本，两端同提交/配置/构建/SHA，再使用新的证据和marker自有payload路径；原路径不得覆盖。
 ```bash
 ctest --test-dir build -R 'FramedDataSocketTest|SenderPacerTest|.*(Cancel|Timeout|Deadline|Publication|Resume|Budget|large_data|publication_resume|v3_interrupted).*|cpnetflux_(sender_pacing_driver_test|small_file_baseline_driver_test|receive_network_test)$' --output-on-failure
 CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND=1500000000 ctest --test-dir build -R 'cpnetflux_(large_data_smoke|large_data_interrupted_resume_smoke|large_data_receive_buffer_resume_smoke|publication_resume_smoke)$' --output-on-failure

@@ -6,7 +6,7 @@
 范围：一个显式任务局部应用DATA提交pacer，CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND=off（默认）或1500000000。
 每路12Gbps应用帧上限，最多4路合计48Gbps；数据帧最大262212B，因此每次提交的有界突发不增大。
 使用单调时钟，实际提交时间重建下一deadline，暂停后不攒信用、不补发追赶；不增加线程/缓冲/内核socket容量。
-每DATA提交前等待，控制/结果帧不节流；发送线程最多1ms间隔检查既有失败/总deadline。
+每DATA提交前等待，控制/结果帧不节流；单次sleep请求不超过1ms，醒后检查既有失败/总deadline，不保证实际调度唤醒延迟。
 取消检查在获得WorkExecutor IO许可前；保持短写、错误、CRC、租约、checkpoint、恢复和发布语义。
 支持V3 persistent plain TCP sender的upload/download及1..4 lanes；TLS/RDMA/压缩显式拒绝，
 其它用户路径不自动启用。每lane独立上限，不承诺跨lane同步、公平带宽或线速包间隔。
@@ -60,3 +60,13 @@ MemAvailable≥12GiB、源全页驻留、owned swap/host pswpout增量0、每端
 离线验收脚本/报告保存在原Task50证据根b-acceptance-2026-11-12.py/.json；其通过表示判定可复核，不表示M2通过。
 
 结果：历史十个M1完整任务与A唯一样本复算通过；B判定NO-GO / NOT ADMITTED，正式M2未运行，M2 OPEN。详见Task50结果的交付B离线复核；脚本退出0仅代表判定证据通过。
+
+## 2026-11-12交付C收尾
+
+输入6e945293b23ceaed798f54e2308baa545b17caba；范围：冻结最终配置/证据清单，逐项完成C的集成、回归证据、边界及RDMA评估，正式记录阶段结束。
+受影响文件：本计划、Task50结果/新增freeze.json、performance-stage-closeout-handoff、docs/ROADMAP.md、docs/README.md。
+非目标：不改运行时/默认/协议，不新增互传或性能成绩，不改系统，不启动RDMA或新idea，不宣称M2/生产达标。
+验收：两端提交/配置/二进制SHA、运行时代码相同及既有126/126×2与候选4/4日志；冻结配置与复现边界；资源/完整性/计数/清理证据及现场自有目录缺席；源码MR预算/重启条件；链接/diff/JSON校验、精确提交推送回读。
+证据使用原Task50目录c-acceptance-2026-11-12.json及c-delivery-2026-11-12.json；状态ENGINEERING CLOSED / M2 OPEN。
+
+结果：C完成，阶段ENGINEERING CLOSED / M2 OPEN。配置冻结清单固定运行时/默认与实验边界；原126/126×2及候选4/4回归由相同代码/二进制和日志SHA复核，两端现场自有payload/临时端口已清理。原生RDMA仅评估预算和重启条件，不启动新实验。

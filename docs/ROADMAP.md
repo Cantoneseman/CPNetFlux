@@ -1,6 +1,6 @@
 # CPNetFlux 性能路线图
 
-更新：2026-11-11。当前决定：[按性能里程碑推进](DECISIONS/2026-11-10-v3-performance-milestones.md)。
+更新：2026-11-12。当前决定：[按性能里程碑推进](DECISIONS/2026-11-10-v3-performance-milestones.md)。
 最近交付：[发送节奏50与本阶段收尾结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：ENGINEERING CLOSED / M2 OPEN；已验收大文件成绩见[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)。
 历史结果保留原提交、负载与结论；本页规定下一步，不产生新的性能成绩。
 
@@ -8,6 +8,7 @@
 发送候选实现与回归通过，唯一1GiB可行性任务28.221Gbps，未达40Gbps正式矩阵准入；未运行新8GiB矩阵。
 工程交付、冻结配置与边界评估完成，M2和长期稳定性仍开放；停止追加同类诊断或参数扫描。
 2026-11-12已交付[B的离线成绩复核与NO-GO判定](tasks/2026-11-11-v3-sender-pacing-50-result.md)：A未达速率准入，新正式M2为0样本；历史M1原始hash与十个完整任务复算通过，未将未测项计为pass。
+2026-11-12交付C已完成：[最终冻结清单](tasks/2026-11-11-v3-sender-pacing-50-freeze.json)固定默认/实验/诊断配置、代码与二进制；回归证据及两端现场清理复核完成，阶段工程报告项收口，M2/稳定性未达标。
 用户新提出的[统一工作单元/预算采样/策略记忆](ideas/2026-11-11-unified-work-unit-and-budgeted-policy-memory.md)已存档为DEFERRED，本轮不开发；阶段结束后也需用户明确重启。
 
 ## 当前主线
