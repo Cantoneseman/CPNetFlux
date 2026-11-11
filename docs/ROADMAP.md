@@ -4,6 +4,10 @@
 最近交付：[有界lane诊断与停止门49结果](tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)；已验收大文件成绩见[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)。
 历史结果保留原提交、负载与结论；本页规定下一步，不产生新的性能成绩。
 
+本阶段剩余交付和结束条件见[收尾与串行交接](tasks/2026-11-11-performance-stage-closeout-handoff.md)：
+单一发送节奏候选→具备准入条件的完整任务验收→最终集成/边界报告；未达到M2或被环境阻塞须明确结论，不能无界追加诊断。
+用户新提出的[统一工作单元/预算采样/策略记忆](ideas/2026-11-11-unified-work-unit-and-budgeted-policy-memory.md)已存档为DEFERRED，本轮不开发；阶段结束后也需用户明确重启。
+
 ## 当前主线
 
 **M1已在8GiB完整V3 TCP任务中跨过30Gbps；下一阶段以该固定配置为基线，选择一个有阶段证据支撑的机制推进40–50Gbps。**
@@ -17,7 +21,7 @@ R770-1单人串行、同一时刻一个写入者；R770-2只接收固定提交�
 | 类别 | 已有事实 | 仍未完成 |
 |---|---|---|
 | 三阶段/可靠性工程 | V3三阶段工程收口；[Publication31](tasks/2026-11-10-v3-publication-reconcile-31-result.md)修复可证明自有hard-link发布后的CRC32C恢复窗口 | 不是所有发布方式/掉电恢复保证，不代表性能达标 |
-| 大文件 | [Milestone35](tasks/2026-11-10-v3-large-file-milestone-35-result.md)1GiB候选数据；[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)同提交8GiB：default 28.126、combined 34.159Gbps，配对中位提升21.45%，5/5改善 | 40–50、70–85、100Gbps仍未验收；M1组合效应未在8GiB拆成单项归因，不能跨负载/提交累加收益 |
+| 大文件 | [Milestone35](tasks/2026-11-10-v3-large-file-milestone-35-result.md)1GiB候选数据；[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)同提交8GiB：default 28.126、combined 34.159Gbps，两组中位速率之比提升21.45%，5/5改善 | 40–50、70–85、100Gbps仍未验收；M1组合效应未在8GiB拆成单项归因，不能跨负载/提交累加收益 |
 | 小文件 | [S1摘要缓存22](tasks/2026-11-09-v3-summary-path-22-result.md)三组受测任务T_ready下降44.7%/54.5%/41.5%，显式cached可复现 | 默认original；S1B默认晋级仍受环境门阻塞；不是payload加速或自适应微批 |
 | 机制资产 | [TCP所有权32](tasks/2026-11-10-v3-tcp-buffer-ownership-32-result.md)诊断发送CPU下降19.84%，完成通知/有界池通过对应测试 | 墙钟无可信改善，不集成默认；可作未来有新依据的组合资产 |
 
@@ -48,6 +52,7 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | DONE / NOT REPRODUCED | host `pswpout`归因诊断 | [任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端120秒无payload观察均稳定，未定位M1-41单页增量；M1-44已通过独立host swap-out门，但这不改变M1-41旧结果；不重跑M1-41 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
 | DEFERRED | 小文件固定/自适应成员微批 | 独立完成时间目标；利用S0/S1及S2证据，后续设计成员恢复/事务，不包装已有pending-window为新微批 |
+| DEFERRED / DESIGN ONLY | 统一工作单元与预算感知策略记忆 | [设计备忘](ideas/2026-11-11-unified-work-unit-and-budgeted-policy-memory.md)：大文件range/小文件聚合统一抽象，粒度选择与BACS-M思路扩展；当前仅存档，不实现、不替代M2 |
 | DIAGNOSTIC DONE / CAUSE OPEN | 网络稳定性与原生RDMA | 诊断40当前固定路径一次未复现；37历史候选总 `rx_missed_errors` +2,169、256KiB对照+36仍无队列/流级归因。任务43的host swap事件观察未复现且不能解释M1-41单页变化；M1-44的10个TCP样本均无rx_missed_errors增量；旧网络因果仍开放，原生RDMA运行时优化继续暂停 |
 
 ### 已结束候选的处置

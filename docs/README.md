@@ -8,6 +8,8 @@
 |---|---|
 | 项目、服务器与开发入口 | [项目 README](../README.md)、[开发规则](../AGENTS.md)、[R770 环境](coordination/ENVIRONMENT.md) |
 | 当前状态、配置、未过门与下一项 | [性能路线图](ROADMAP.md) |
+| 本阶段剩余交付与结束条件 | [收尾与串行交接](tasks/2026-11-11-performance-stage-closeout-handoff.md)：发送节奏候选→合规完整任务验收→最终集成/边界报告 |
+| 暂存研究 idea（本轮不开发） | [统一工作单元与预算感知策略记忆](ideas/2026-11-11-unified-work-unit-and-budgeted-policy-memory.md)：DEFERRED，需用户明确重启 |
 | 当前批准主线与串行交接 | [里程碑35计划](tasks/2026-11-10-v3-large-file-milestone-35.md)、[实现/1GiB结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)、[M1-41计划](tasks/2026-11-11-v3-large-file-m1-41.md)、[M1-41结果：资源门中止、无吞吐样本](tasks/2026-11-11-v3-large-file-m1-41-result.md)、[M1-44计划](tasks/2026-11-11-v3-large-file-m1-44.md)、[M1-44结果：8GiB正式门通过](tasks/2026-11-11-v3-large-file-m1-44-result.md)、[M1-45接收端profile诊断](tasks/2026-11-11-v3-receiver-profile-diagnostic-45.md)、[Task46合同与结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46.md)、[Task46中止结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)、[资源失败证据补全42结果](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)、[host pswpout诊断43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)、[分层准入与路线决定](DECISIONS/2026-11-10-v3-performance-milestones.md) |
 | 近期诊断结果 | [无payload host pswpout归因43](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端均未复现，M1-41单页事件仍未定位 |
 | 最新执行结果 | [Task49结果](tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)：网络driver与停止门修复；单路pwrite首样本OOB/missed +171，四路未运行，无性能结果；完整性/资源/清理通过 |
