@@ -705,3 +705,125 @@ TEST(FramedDataSocketTest, SmallSocketBufferHandlesRealBackpressure) {
     EXPECT_GT(script.sendmsgCalls, 1U);
     EXPECT_TRUE(script.noSignal);
 }
+
+namespace {
+struct SenderPacingSetting {
+    std::optional<std::string> previous;
+    explicit SenderPacingSetting(const char* value) {
+        if (const auto* old = std::getenv("CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND")) previous = old;
+        ::setenv("CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND", value, 1);
+    }
+    ~SenderPacingSetting() {
+        if (previous) ::setenv("CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND", previous->c_str(), 1);
+        else ::unsetenv("CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND");
+    }
+};
+}
+TEST(FramedDataSocketTest, SenderPacingRejectsInvalidSettingBeforeAnyProtocolWrite) {
+    SenderPacingSetting setting("1499999999");
+    SocketPair pair;
+    cpnetflux::core::io::PersistentTreeStats stats;
+    ::shutdown(pair.receiver.get(), SHUT_RDWR);
+    const auto result = cpnetflux::core::io::sendPersistentTree(&pair.sender, "/tmp", {}, &stats);
+    EXPECT_EQ(result.code(), StatusCode::InvalidArgument) << result.message();
+}
+
+#include "cpnetflux/core/io/detail/sender_pacing.h"
+
+TEST(SenderPacerTest, AdmissionSpacingAndNoCatchupAfterPause) {
+    using P = cpnetflux::core::io::detail::SenderPacer;
+    P pacer(P::kRate);
+    auto current = P::Clock::time_point{};
+    const auto now = [&] { return current; };
+    const auto sleep = [&](P::Clock::duration delay) { current += delay; };
+    const auto ok = [] { return Status::ok(); };
+    ASSERT_TRUE(pacer.beforeSend(262212, ok, now, sleep).isOk());
+    EXPECT_EQ(current, P::Clock::time_point{});
+    ASSERT_TRUE(pacer.beforeSend(262212, ok, now, sleep).isOk());
+    EXPECT_GE(current.time_since_epoch(), std::chrono::nanoseconds(174808));
+    current += std::chrono::seconds(1);
+    ASSERT_TRUE(pacer.beforeSend(262212, ok, now, sleep).isOk());
+    const auto afterPause = current;
+    ASSERT_TRUE(pacer.beforeSend(262212, ok, now, sleep).isOk());
+    EXPECT_GE(current-afterPause, std::chrono::nanoseconds(174808));
+    EXPECT_EQ(pacer.frames, 4U);
+    EXPECT_EQ(pacer.wireBytes, 4U*262212);
+    EXPECT_EQ(pacer.waits, 2U);
+    EXPECT_EQ(pacer.spacingViolations, 0U);
+}
+TEST(SenderPacerTest, CancellationDuringWaitDoesNotAdmitAnotherFrame) {
+    using P = cpnetflux::core::io::detail::SenderPacer;
+    P pacer(1024);
+    auto current = P::Clock::time_point{};
+    bool cancelled = false;
+    const auto status = [&] { return cancelled ? Status::runtimeError("cancelled") : Status::ok(); };
+    const auto now = [&] { return current; };
+    const auto sleep = [&](P::Clock::duration delay) {
+        EXPECT_LE(delay, std::chrono::milliseconds(1));
+        current += delay; cancelled = true;
+    };
+    ASSERT_TRUE(pacer.beforeSend(1024, status, now, sleep).isOk());
+    EXPECT_FALSE(pacer.beforeSend(1024, status, now, sleep).isOk());
+    EXPECT_EQ(pacer.frames, 1U);
+    EXPECT_EQ(pacer.wireBytes, 1024U);
+}
+TEST(SenderPacerTest, DefaultDoesNotReadClockWaitOrChangeCounters) {
+    cpnetflux::core::io::detail::SenderPacer pacer;
+    const auto status = pacer.beforeSend(262212,
+        [] { ADD_FAILURE(); return Status::ok(); },
+        [] { ADD_FAILURE(); return std::chrono::steady_clock::time_point{}; },
+        [](auto) { ADD_FAILURE(); });
+    EXPECT_TRUE(status.isOk());
+    EXPECT_EQ(pacer.frames, 0U);
+}
+TEST(FramedDataSocketTest, SenderPacingRejectsMoreThanFourLanesBeforeProtocol) {
+    SenderPacingSetting setting("1500000000");
+    SocketPair pair;
+    cpnetflux::core::io::PersistentTreeStats stats;
+    ::shutdown(pair.receiver.get(), SHUT_RDWR);
+    auto status = cpnetflux::core::io::sendPersistentTree(&pair.sender, "/tmp", {}, &stats,
+        {}, 1, 0, 5);
+    EXPECT_EQ(status.code(), StatusCode::InvalidArgument);
+}
+TEST(FramedDataSocketTest, PacedV3SenderPreservesContentAndEmitsAdmissionReceipt) {
+    using namespace cpnetflux::core::io;
+    SenderPacingSetting setting("1500000000");
+    struct Directory {
+        std::filesystem::path path;
+        Directory() {
+            char pattern[] = "/tmp/cpnetflux-pacing-unit-XXXXXX";
+            const auto* name = ::mkdtemp(pattern);
+            if (!name) throw std::runtime_error("mkdtemp");
+            path = name;
+        }
+        ~Directory() { std::error_code error; std::filesystem::remove_all(path, error); }
+    } source, destination;
+    const auto content = testBytes(4*1024*1024+37);
+    {
+        std::ofstream output(source.path/"paced.bin", std::ios::binary);
+        output.write(reinterpret_cast<const char*>(content.data()), content.size());
+    }
+    struct stat metadata{};
+    ASSERT_EQ(::stat((source.path/"paced.bin").c_str(), &metadata), 0);
+    PersistentFileIdentity id{1, 7, content.size(), "paced.bin", "pacing-content",
+        1048576, metadata.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    int sockets[2];
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, sockets),0);
+    FramedDataSocket sender{UniqueFd(sockets[0])}, receiver{UniqueFd(sockets[1])};
+    PersistentTreeStats sent, received;
+    Status receiveStatus;
+    std::jthread reader([&] { receiveStatus=receivePersistentTree(&receiver,destination.path.string(),false,"",&received); });
+    testing::internal::CaptureStderr();
+    const auto status=sendPersistentTree(&sender,source.path.string(),{id},&sent);
+    const auto receipt=testing::internal::GetCapturedStderr();
+    if (!status.isOk()) receiver.shutdown();
+    reader.join();
+    ASSERT_TRUE(status.isOk()) << status.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(sent.payloadBytes, content.size());
+    EXPECT_NE(receipt.find("CPNETFLUX_SENDER_PACING {"),std::string::npos);
+    EXPECT_NE(receipt.find("\"spacing_violations\":0"),std::string::npos);
+    std::ifstream file(destination.path/"paced.bin",std::ios::binary);
+    const std::vector<std::uint8_t> actual((std::istreambuf_iterator<char>(file)),{});
+    EXPECT_EQ(actual,content);
+}

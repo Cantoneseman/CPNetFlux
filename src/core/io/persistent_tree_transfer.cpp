@@ -7,6 +7,7 @@
 #include <span>
 #include "cpnetflux/core/io/work_executor.h"
 #include "cpnetflux/core/io/detail/persistent_transfer_lifetime.h"
+#include "cpnetflux/core/io/detail/sender_pacing.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -1422,6 +1423,31 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     if (channelCount == 0 || channelCount > kUnifiedFileMaxChannels ||
         channelIndex >= channelCount)
         return Status::invalidArgument("persistent channel index/count is invalid");
+    const char* pacingValue = std::getenv("CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND");
+    const std::string_view pacing = pacingValue ? pacingValue : "off";
+    if (pacing != "off" && pacing != "1500000000")
+        return Status::invalidArgument("CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND must be off or 1500000000");
+    const bool paced = pacing != "off";
+    if (paced && (socket->tlsEnabled() || socket->transport() != DataTransport::Tcp ||
+        channelCount > 4 || (transferOptions && transferOptions->hotPathCompression.enabled)))
+        return Status::invalidArgument("sender pacing requires plain uncompressed V3 TCP and at most four lanes");
+    detail::SenderPacer pacer(paced ? detail::SenderPacer::kRate : 0);
+    struct PacingReceipt {
+        bool enabled; std::uint32_t lane; detail::SenderPacer& p;
+        ~PacingReceipt() {
+            if (!enabled) return;
+            std::fprintf(stderr,
+                "CPNETFLUX_SENDER_PACING {\"lane\":%u,\"rate_bytes_per_second\":1500000000,"
+                "\"frames\":%llu,\"wire_bytes\":%llu,\"waits\":%llu,\"sleep_calls\":%llu,"
+                "\"wait_ns\":%llu,\"required_spacing_ns\":%llu,\"spacing_violations\":%llu,"
+                "\"first_admission_ns\":%lld,\"last_admission_ns\":%lld}\n",
+                lane, (unsigned long long)p.frames, (unsigned long long)p.wireBytes,
+                (unsigned long long)p.waits, (unsigned long long)p.sleepCalls,
+                (unsigned long long)p.waitNanoseconds, (unsigned long long)p.requiredSpacingNanoseconds,
+                (unsigned long long)p.spacingViolations,
+                (long long)p.firstAdmissionNanoseconds, (long long)p.lastAdmissionNanoseconds);
+        }
+    } pacingReceipt{paced, channelIndex, pacer};
     const auto pipelineDepth = diagnosticPipelineDepth();
     if (!pipelineDepth.isOk()) return pipelineDepth.status();
     const auto senderInline = diagnosticSenderInlinePayload();
@@ -1891,6 +1917,16 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             const auto payloadStarted = Clock::now();
             auto writePayload = [&](const std::uint8_t* payload, std::size_t size) {
                 const auto frameBytes = encoded.size() + checksumPrefixSize + size;
+                if (paced) {
+                    auto admission = pacer.beforeSend(frameBytes, [&] {
+                        const auto bounded = lifetime.status();
+                        if (!bounded.isOk()) return bounded;
+                        std::lock_guard<std::mutex> lock(mutex);
+                        return abort ? (readerStatus.isOk()
+                            ? Status::runtimeError("sender pacing cancelled") : readerStatus) : Status::ok();
+                    });
+                    if (!admission.isOk()) return admission;
+                }
                 if (ready) {
                     OptionalThreadCpuTimer leaseCpu(senderCpu.enabled ? &senderCpu.leaseCpuSeconds : nullptr);
                     if (senderCpu.enabled) ++senderCpu.leaseStartCalls;

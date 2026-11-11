@@ -1001,6 +1001,8 @@ if(CPNETFLUX_BUILD_TESTS)
     add_test(NAME cpnetflux_large_data_ab_test
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_large_data_ab_test.py)
     set_tests_properties(cpnetflux_large_data_ab_test PROPERTIES TIMEOUT 20)
+    add_test(NAME cpnetflux_sender_pacing_driver_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_sender_pacing_test.py)
     add_test(NAME cpnetflux_receive_network_test
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_receive_network_test.py)
     add_test(NAME cpnetflux_large_data_interrupted_resume_smoke
