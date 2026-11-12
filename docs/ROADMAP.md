@@ -1,6 +1,6 @@
 # CPNetFlux 性能路线图
 
-最新取证：[阶段71：TCP提交与RX补给](tasks/2026-11-12-tcp-rx-service-71-result.md)。取得真实RQ布局、驱动TX提交粒度及20871对补给调用；唯一1GiB仍OOB/missed各+8，失败诊断不计性能。下一步补TCP重传与NAPI poll证据，停止配置扫描；正式比较NO_GO、稳定性NOT_RUN、上机NOT_READY。前序[70绑核失败](tasks/2026-11-12-rx-cpu-isolation-70-result.md)和69分流失败保留。
+最新取证：[阶段72：TCP序列与NAPI](tasks/2026-11-12-tcp-napi-sequence-72-result.md)。一次有探针1GiB内容/资源/网络通过，双向序列从SYN到FIN覆盖完整、无观测重传；本次未复现OOB，不能宣布根因关闭或新性能。下一步串行重新做无探针五对CP/GridFTP，任一硬门失败停止；正式比较待验收、稳定性NOT_RUN、上机NOT_READY。前序69/70/71失败保留。
 
 最新开发补项：[阶段68：工作租约迁移恢复修复](tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。该阶段未新增性能成绩；其后1GiB验收已由阶段69执行并失败，下一步以页首为准。比较仍NO-GO、上机NOT_READY。
 
