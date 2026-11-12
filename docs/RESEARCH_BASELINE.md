@@ -1,6 +1,6 @@
 # CPNetFlux 现状研究基线
 
-最新验收：[阶段80](tasks/2026-11-13-field-trial-scenarios-80-result.md)固定内存五对CP30.80/GridFTP12.10Gbps，目录/反向通过；TLS/认证已通过。[阶段84](tasks/2026-11-13-field-trial-history-84-result.md)93个完整验收任务/725秒后因资源采集器退出ESRCH中止，未达到1800秒和100任务，F未跑；原FAIL/4251项证据已保留并备份。下一步[85](tasks/2026-11-13-field-trial-procfs-85.md)修复已确认退出子进程的精确procfs读取竞态及失败计时/根因顺序，10项新采样回归、6项实际失败路径测试及相关CTest通过，再重做完整C/F。运行二进制和性能配置不变，整体NOT_READY；不声称持续线速或100G。
+最新验收：[阶段80](tasks/2026-11-13-field-trial-scenarios-80-result.md)固定内存五对CP30.80/GridFTP12.10Gbps，目录/反向通过；[阶段85](tasks/2026-11-13-field-trial-procfs-85-result.md)完整234任务/1807.62秒C和六项跨机故障分别通过，中位31.08Gbps、首末十项+1.32%，不代表持续线速。最终重启后TLS因观测目录重名未运行，原整体FAIL保留；下一步[86](tasks/2026-11-13-field-trial-tls-closeout-86.md)按阶段隔离fixture并只补新窗口TLS重启验证，不重跑已通过的C/六F。运行二进制/性能配置不变；当前整体NOT_READY，尚不宣称100G或生产ready。
 
 更新时间：2026-09-17
 
