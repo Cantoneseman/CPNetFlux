@@ -371,6 +371,8 @@ add_executable(cpnetflux-tcp-frame-bench tools/perf/tcp_frame_bench.cpp)
 target_link_libraries(cpnetflux-tcp-frame-bench PRIVATE CPNetFlux::core)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(cpnetflux-private-tmpfs-launcher tools/perf/private_tmpfs_launcher.cpp)
+    target_compile_definitions(cpnetflux-private-tmpfs-launcher PRIVATE CPNETFLUX_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     add_executable(cpnetflux-offset-write-bench tools/perf/offset_write_bench.cpp)
     target_link_libraries(cpnetflux-offset-write-bench PRIVATE CPNetFlux::core)
     add_executable(cpnetflux-mapped-cost-bench tools/perf/cpnetflux_mapped_cost_bench.cpp
@@ -1012,6 +1014,11 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_kernel_tcp_pacing_smoke.py
             --build-dir ${CMAKE_BINARY_DIR})
     set_tests_properties(cpnetflux_tcp_kernel_pacing_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME cpnetflux_private_setup_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_setup_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_private_setup_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+    endif()
     add_test(NAME cpnetflux_private_tmpfs_driver_test
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_tmpfs_test.py)
     add_test(NAME cpnetflux_tcp_exact_read_driver_test

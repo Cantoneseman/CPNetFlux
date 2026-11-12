@@ -60,6 +60,8 @@ def run(args):
     mount=json.loads((args.evidence/'mount-ready.json').read_text())
     assert os.readlink('/proc/self/ns/mnt')==mount['private_namespace']
     assert os.path.ismount(args.payload_root) and 'huge=within_size' in mount['mount_options']
+    if args.native_setup:
+        assert mount.get('setup_strategy')=='native_syscalls' and mount.get('supervisor_euid')==0
     assert base.mem()>=12*base.GIB
     broad_before=net.snapshot(full=True)
     before=base.snapshot();base.save(args.evidence/'preflight-r1.json',before)
@@ -71,6 +73,7 @@ def run(args):
     init_attempt=False;start_attempt=False;row=None;expected=None;source=None;server=None;failures=[];cleanup={}
     gates=dict(network=False,resources=False,content=False,pages=False)
     if args.kernel_tcp_pacing:gates['kernel_pacing']=False
+    if args.native_setup:gates['native_setup']=True
     page=dict(samples=0,target_shmem_pmd_mapped_peak_bytes=0,actual_uid=os.getuid(),
               scope='sampled actual receiver target VMAs; peak is not total file coverage')
     def runner(command,log,**kw):
@@ -173,6 +176,7 @@ def run(args):
         failures.append(dict(stage='resources',error=repr(error)))
     report=dict(scope='one instrumented feasibility; no A/B, CV, M2 or stability claim',
         gates=gates,failures=failures,cleanup=cleanup,m2_pass=False,
+        setup_strategy=mount.get('setup_strategy','python_namespace'),
         pacing='off',exact_read='off',kernel_pacing='2000000000' if args.kernel_tcp_pacing else 'off',
         final_admission_pending_external_unmount=True)
     if row is not None:
@@ -195,6 +199,7 @@ def main():
     p.add_argument('--evidence',type=Path,required=True)
     p.add_argument('--payload-root',type=Path,required=True)
     p.add_argument('--kernel-tcp-pacing',action='store_true')
+    p.add_argument('--native-setup',action='store_true')
     p.add_argument('--commit',required=True)
     return run(p.parse_args())
 

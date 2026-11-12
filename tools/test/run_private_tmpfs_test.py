@@ -117,6 +117,29 @@ class PrivateTmpfsTests(unittest.TestCase):
                 self.assertEqual(self.m.launch(args),0)
             self.assertIn('--kernel-tcp-pacing',captured[0])
             self.assertFalse(args.payload_root.exists())
+    def test_native_setup_selects_fixed_helper_without_root_python_reexec(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import uuid
+        captured=[]
+        with tempfile.TemporaryDirectory() as folder:
+            args=SimpleNamespace(enable_private_tmpfs=True,
+                payload_root=Path('/dev/shm/cpnetflux-s0-private55-unit57-'+uuid.uuid4().hex),
+                evidence=Path(folder)/'evidence',mode='v3',commit='a'*40,
+                kernel_tcp_pacing=True,native_setup=True)
+            def child(command,*unused,**kwargs):
+                captured.append(command)
+                return dict(exit_code=0,reason='exit',reaped=True)
+            with patch.object(self.m,'validate_evidence',side_effect=lambda path:path), \
+                 patch.object(self.m,'run_child',side_effect=child):
+                self.assertEqual(self.m.launch(args),0)
+            command=captured[0]
+            self.assertEqual(command[:2],['sudo','-n'])
+            self.assertEqual(Path(command[2]).name,'cpnetflux-private-tmpfs-launcher')
+            self.assertNotIn(sys.executable,command)
+            self.assertIn('--kernel-tcp-pacing',command)
+            self.assertIn('--enable-private-tmpfs',command)
+            self.assertFalse(args.payload_root.exists())
     def test_no_target_page_proof_from_anonymous_mapping(self):
         text='1000-2000 rw-p 0000 00:00 0\nShmemPmdMapped: 2048 kB\n'
         self.assertEqual(self.m.target_pmd_bytes(text,Path('/target')),0)

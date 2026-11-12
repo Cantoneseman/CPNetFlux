@@ -1,5 +1,7 @@
 # CPNetFlux 性能路线图
 
+进行中：[Task57 必要目标准备](tasks/2026-11-12-v3-private-setup-57.md)。启动审计确认重复root Python成本；显式native supervisor已实现且本机生命周期/11项相关回归通过，保留原Python默认。固定五对初测减少约45ms；最终已有挂载防护补齐后重新固定输入验证，未启动新跨机payload。必要工作继续计时；Task56追加停止门不变。
+
 最新交付：[Task56 / 内核TCP pacing与交付C冻结](tasks/2026-11-12-v3-kernel-tcp-pacing-56-result.md)：默认关闭机制已实现，R2相关259项通过、R1失败修复后定向5项通过，两端候选恢复各2项通过。唯一1GiB完整目标任务35.388Gbps，网络/资源/内容/页型/清理通过，但未达40Gbps准入。四lane ceiling回读不等于实际整形；一次0错误不关闭OOB因果。停止追加本候选和8GiB矩阵，M2仍开放；[冻结清单](tasks/2026-11-12-v3-kernel-tcp-pacing-56-freeze.json)。
 
 前次交付：[Task55 / 私有tmpfs完整V3准入与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：默认关闭的有界后端与两端各18项相关回归通过。唯一1GiB样本计入必要目标准备后35.710Gbps，OOB/missed各+261，网络门失败；原始客户端窗口45.922Gbps不计为合格性能成绩。资源/内容/实际页型/清理通过，未运行新8GiB矩阵，M2仍开放；停止本候选的追加payload与扫描。冻结见[清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)。

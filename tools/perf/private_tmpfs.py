@@ -154,6 +154,13 @@ def namespace(args):
 
 def probe(args):
     assert os.getuid()==pwd.getpwnam('Su').pw_uid and os.geteuid()!=0
+    identity=dict(actual_uid=os.getuid(),actual_gid=os.getgid(),resuid=list(os.getresuid()),
+                  resgid=list(os.getresgid()),groups=os.getgroups(),
+                  no_new_privs=int(next(line.split()[1] for line in Path('/proc/self/status').read_text().splitlines() if line.startswith('NoNewPrivs:'))))
+    if args.mode=='setup-only':
+        assert not list(args.payload_root.iterdir())
+        save(args.evidence/'probe.json',dict(result='pass',bytes=0,**identity))
+        return
     path=args.payload_root/'probe.bin'
     with path.open('x+b') as f:
         f.truncate(64*1024**2)
@@ -167,6 +174,9 @@ def probe(args):
             with path.open('rb') as reader:
                 for _ in range(256):assert reader.read(len(block))==block
     path.unlink()
+    if args.mode=='smoke-descendant':
+        descendant=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],start_new_session=True)
+        save(args.evidence/'descendant.json',dict(pid=descendant.pid))
     if args.mode=='smoke-v3':
         project=Path(__file__).resolve().parents[2]
         env={k:v for k,v in os.environ.items() if not k.startswith('CPNETFLUX_')}
@@ -174,22 +184,26 @@ def probe(args):
         subprocess.run([sys.executable,str(project/'tools/test/run_cpnetflux_mapped_profile_smoke.py'),
                         '--build-dir',str(project/'build'),'--profile','0','--observation','off'],
                        env=env,check=True,timeout=180)
-    save(args.evidence/'probe.json',dict(result='pass',actual_uid=os.getuid(),bytes=64*1024**2,
+    save(args.evidence/'probe.json',dict(result='pass',bytes=64*1024**2,**identity,
                                        shmem_pmd_mapped_bytes=proof))
 
 def launch(args):
     require_enabled(args.enable_private_tmpfs)
     assert os.geteuid()!=0,'launch as Su'
     owner=pwd.getpwnam('Su');assert os.getuid()==owner.pw_uid
+    native=getattr(args,'native_setup',False)
+    helper=Path(__file__).resolve().parents[2]/'build/cpnetflux-private-tmpfs-launcher'
+    if native and not helper.is_file():raise ValueError('build the native private tmpfs launcher first')
     mp=validate_path(args.payload_root)
     args.evidence=validate_evidence(args.evidence)
     args.evidence.mkdir(parents=True,exist_ok=False)
     before=host_state();save(args.evidence/'host-before.json',before)
     setup_started=time.monotonic()
     mp.mkdir(mode=0o700);st=mp.stat()
-    command=['sudo','-n','unshare','--mount','--propagation','private','--fork',
-        sys.executable,str(Path(__file__).resolve()),'--action','namespace',
-        '--payload-root',str(mp),'--evidence',str(args.evidence),'--mode',args.mode,
+    command=(['sudo','-n',str(helper),'--enable-private-tmpfs'] if native else
+        ['sudo','-n','unshare','--mount','--propagation','private','--fork',
+         sys.executable,str(Path(__file__).resolve()),'--action','namespace'])
+    command+=['--payload-root',str(mp),'--evidence',str(args.evidence),'--mode',args.mode,
         '--uid',str(owner.pw_uid),'--gid',str(owner.pw_gid),'--inode',str(st.st_ino),
         '--host-namespace',before['namespace'],'--commit',args.commit,
         '--setup-started',str(setup_started)]
@@ -223,14 +237,17 @@ def main():
     p.add_argument('--enable-private-tmpfs',action='store_true')
     p.add_argument('--payload-root',type=Path,required=True)
     p.add_argument('--evidence',type=Path,required=True)
-    p.add_argument('--mode',choices=['v3','smoke','smoke-fail','smoke-timeout','smoke-cancel','smoke-v3'],default='v3')
+    p.add_argument('--mode',choices=['v3','smoke','smoke-fail','smoke-timeout','smoke-cancel','smoke-v3','setup-only','smoke-descendant'],default='v3')
     p.add_argument('--kernel-tcp-pacing',action='store_true')
+    p.add_argument('--native-setup',action='store_true')
     p.add_argument('--commit',default='')
     p.add_argument('--uid',type=int);p.add_argument('--gid',type=int);p.add_argument('--inode',type=int)
     p.add_argument('--host-namespace')
     p.add_argument('--setup-started',type=float)
     args=p.parse_args()
     if args.kernel_tcp_pacing and args.mode!='v3':p.error('kernel pacing requires V3 mode')
+    if args.mode=='smoke-descendant' and args.action=='launch' and not args.native_setup:p.error('descendant probe requires native supervisor')
+    if args.native_setup and args.action!='launch':p.error('native setup selects the launch path only')
     if args.action=='namespace':return namespace(args)
     if args.action=='probe':probe(args);return 0
     return launch(args)
