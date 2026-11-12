@@ -1,6 +1,6 @@
 # CPNetFlux 文档导航
 
-最新开发：[阶段78结果](tasks/2026-11-13-v3-directory-semantics-78-result.md)已补齐V3普通/空目录独立元数据、schema2完成事实、安全路径创建，并修复断连恢复的旧占用/重新派发竞争。双端同提交/同配置/四SHA，各完整回归825通过、3项原生RDMA环境跳过、0失败；最终无trace早期控制断连64/64通过。工程正确性阶段闭合，下一步是新版本受控GridFTP复测与稳定性验收；A/B/C和上机仍OPEN/NOT_READY，没有新吞吐成绩。
+最新开发：[阶段78结果](tasks/2026-11-13-v3-directory-semantics-78-result.md)已补齐V3普通/空目录独立元数据、schema2完成事实、安全路径创建，并修复断连恢复的旧占用/重新派发竞争。双端同提交/同配置/四SHA，各完整回归825通过、3项原生RDMA环境跳过、0失败；最终无trace早期控制断连64/64通过。工程正确性阶段闭合，下一步是新版本受控GridFTP复测与稳定性验收；A/B/C和上机仍OPEN/NOT_READY，没有新吞吐成绩。 [阶段79](tasks/2026-11-13-field-trial-scenarios-79-result.md)因实验输入缺失在payload前回滚，正式组均NOT_RUN；当前先闭合[80启动输入](tasks/2026-11-13-field-trial-inputs-80.md)，原始失败保留。
 
 历史实测：[阶段75](tasks/2026-11-12-field-trial-comparison-75-result.md)1GiB五对中位CP31.075/Grid12.352Gbps；[阶段77](tasks/2026-11-13-field-trial-continuation-77-result.md)dense各3次0.399/0.945秒、tiny各3次3.504/2.561秒，mixed文件全对但空目录丢失。上述为旧运行时成绩，不能搬到新二进制。临时RX4096已恢复1024，阶段77现场已清理；新窗口需重新准入，不启动吞吐参数扫描。
 
