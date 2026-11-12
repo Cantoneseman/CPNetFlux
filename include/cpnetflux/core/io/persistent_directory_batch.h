@@ -23,6 +23,10 @@ class PersistentDirectoryBatch {
     // committed ranges. The same channel may attach again to resume missing work.
     [[nodiscard]] common::Status failChannel(std::uint32_t channel, const common::Status& status);
     [[nodiscard]] common::Status waitReady(std::uint32_t channel, std::chrono::milliseconds timeout);
+    // Called only after old transport IO is quiescent, before queue redispatch.
+    // Removes this exact work identity without detaching a possibly reattaching lane.
+    [[nodiscard]] common::Status releaseFailedWork(std::uint32_t channel,
+        const PersistentFileIdentity& id);
     [[nodiscard]] common::Status fileEvent(std::uint32_t channel, const PersistentFileIdentity& id,
                                           const common::Status& status, bool complete);
     [[nodiscard]] common::Status finish(std::uint32_t channel, std::chrono::milliseconds timeout);

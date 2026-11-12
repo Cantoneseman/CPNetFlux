@@ -1318,3 +1318,19 @@ TEST(DynamicFileQueueTest, RangeAffinityAdmissionWaitHonorsCancellationAndTimeou
         EXPECT_EQ(queue.outstanding(), 0U);
     }
 }
+
+TEST(PersistentDirectoryBatchTest, FailedWorkReconciliationPreservesLaneAndRejectsForeignLease) {
+    PersistentDirectoryBatch batch(1,2);
+    for(unsigned c=0;c<2;++c){ASSERT_TRUE(batch.attach(c).isOk());batch.bind(c,-1,-1);}
+    auto id=tasks(1).front();
+    ASSERT_TRUE(batch.fileEvent(0,id,Status::ok(),false).isOk());
+    EXPECT_FALSE(batch.releaseFailedWork(1,id).isOk());
+    auto stale=id;stale.attempt=1;EXPECT_FALSE(batch.releaseFailedWork(0,stale).isOk());
+    ASSERT_TRUE(batch.releaseFailedWork(0,id).isOk());
+    ASSERT_TRUE(batch.releaseFailedWork(0,id).isOk());
+    // Reconciliation must not detach or make the healthy control lane unready.
+    EXPECT_TRUE(batch.waitReady(1,std::chrono::milliseconds(1)).isOk());
+    id.attempt=1;ASSERT_TRUE(batch.fileEvent(1,id,Status::ok(),false).isOk());
+    EXPECT_FALSE(batch.releaseFailedWork(0,id).isOk());
+    EXPECT_TRUE(batch.fileEvent(1,id,Status::ok(),true).isOk());
+}

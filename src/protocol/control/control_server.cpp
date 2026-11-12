@@ -36,6 +36,8 @@
 #include "cpnetflux/core/io/file_download_sender.h"
 #include "cpnetflux/core/io/file_transfer_server.h"
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/persistent_directory.h"
+#include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/core/io/detail/diagnostic_output.h"
 #include "cpnetflux/core/io/persistent_directory_batch.h"
 #include "cpnetflux/core/io/transfer_stages.h"
@@ -917,7 +919,11 @@ struct DirectoryLifetime {
     void recordTerminal(const common::Status& status) {
         if (status.isOk() || status.code() == common::StatusCode::TransportError) return;
         std::lock_guard lock(terminalMutex);
-        if (terminalStatus.isOk()) terminalStatus = status;
+        if (terminalStatus.isOk()) {
+            terminalStatus = status;
+            core::io::detail::emitDiagnosticRecord(stderr,"CPNETFLUX_V3_BATCH_TERMINAL code=" +
+                std::to_string(static_cast<int>(status.code())) + " message=" + status.message() + "\n");
+        }
     }
     common::Status terminal() {
         std::lock_guard lock(terminalMutex);
@@ -1085,7 +1091,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     PassiveListener* passive, const ControlServerOptions& options, bool upload,
     const std::string& requested, std::uint32_t pendingWindow, std::uint32_t channelIndex,
     std::uint32_t channelCount, std::uint32_t requestedTotalFiles, const std::string& batchId = {},
-    bool resume = false, std::uint32_t dataBytes = 65532) {
+    bool resume = false, std::uint32_t dataBytes = 65532, bool directoryMetadata = false) {
     namespace fs = std::filesystem;
     if (channelCount == 0 || channelCount > core::io::kPersistentTreeMaxChannels ||
         channelIndex >= channelCount)
@@ -1098,13 +1104,14 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     fs::path destination(root.value().fullPath);
     std::error_code error;
     if (logical.value() != "/") {
+        if (upload) {
+            auto prepared = core::tree::ensureTreeDirectory(root.value().fullPath,logical.value().substr(1));
+            if (!prepared.isOk()) return sendLine(control,formatReply(550,prepared.message()));
+        }
         for (const auto& part : fs::path(logical.value().substr(1))) {
             destination /= part;
             auto info = fs::symlink_status(destination, error);
-            if (upload && info.type() == fs::file_type::not_found) {
-                error.clear();
-                fs::create_directory(destination, error);
-            } else if (!fs::is_directory(info) || fs::is_symlink(info)) {
+            if (!fs::is_directory(info) || fs::is_symlink(info)) {
                 return sendLine(control, formatReply(550, "XDIR path is not a safe directory"));
             }
             if (error) return sendLine(control, formatReply(550, "Cannot prepare XDIR directory"));
@@ -1214,20 +1221,29 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         }
         guard.directory->batch->markDataActive(channelIndex);
     }
+    core::io::PersistentDirectoryTransfer directoryTransfer;
+    if (directoryMetadata && !upload) {
+        auto directories = core::tree::scanLocalDirectories(destination.string());
+        if (!directories.isOk()) return sendLine(control,formatReply(550,directories.status().message()));
+        for (const auto& path : directories.value())
+            directoryTransfer.entries.push_back({path,generateTransferId()});
+    }
     core::io::PersistentTreeStats stats;
     stats.phaseTiming = guard.directory != nullptr;
     stats.senderWorkProfile.enabled = options.senderWorkProfile && !upload;
     core::io::PersistentFileCallback callback;
     if (guard.directory) callback = [&](const auto& id, const auto& fileStatus, bool complete) {
+        if (!upload && complete && fileStatus.code() == common::StatusCode::TransportError)
+            return guard.directory->batch->releaseFailedWork(channelIndex,id);
         return guard.directory->batch->fileEvent(channelIndex,id,fileStatus,complete);
     };
     auto policy=persistentPolicy(options,resume);
     auto transactions=guard.directory ? guard.directory->transactions :
         core::io::makePersistentTransferContext(policy);
     status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats, callback,
-                     pendingWindow, channelIndex, channelCount, expectedChannelFiles, guard.directory != nullptr, resume, transactions)
+                     pendingWindow, channelIndex, channelCount, expectedChannelFiles, guard.directory != nullptr, resume, transactions, nullptr, 3, directoryMetadata ? &directoryTransfer : nullptr)
                     : core::io::sendPersistentTree(&data, destination.string(), files, &stats, callback,
-                     pendingWindow, channelIndex, channelCount, guard.directory ? guard.directory->queue.get() : nullptr, &policy.options);
+                     pendingWindow, channelIndex, channelCount, guard.directory ? guard.directory->queue.get() : nullptr, &policy.options, false, 3, {}, directoryMetadata ? &directoryTransfer : nullptr);
     std::string details;
     if (guard.directory) {
         if (!upload) guard.directory->publishSenderProfile(channelIndex, std::move(stats.senderWorkProfile), batchId,
@@ -1310,6 +1326,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     std::uint32_t persistentChannels = 1;
     bool persistentDynamic = false;
     bool persistentResume = false;
+    bool persistentDirectories = false;
     std::uint32_t persistentDataBytes = 65532;
     core::io::DataTransport sessionDataTransport = core::io::DataTransport::Tcp;
     AsyncTransferRegistry asyncTransfers(logger, control.fd());
@@ -1392,6 +1409,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 auto requestedDataTransport = core::io::DataTransport::Tcp;
                 std::uint32_t requestedDataBytes = 65532;
                 bool hasDataBytes = false;
+                bool requestedDirectories = false;
                 std::istringstream request(line.value().substr(std::string("XCPNETFLUX V3").size()));
                 std::string token;
                 bool valid = true;
@@ -1445,6 +1463,9 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         auto parsed = core::io::parseDataTlsMode(value);
                         valid = parsed.isOk();
                         if (valid) requestedDataTls = parsed.value();
+                    } else if (key == "DIRECTORIES") {
+                        valid = !requestedDirectories && value == "1";
+                        requestedDirectories = valid;
                     } else if (key == "DATA_BYTES") {
                         valid = !hasDataBytes && value == "262144";
                         hasDataBytes = true;
@@ -1478,6 +1499,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     persistentChannels = requestedChannels;
                     persistentDynamic = requestedDynamic;
                     persistentResume = requestedResume;
+                    persistentDirectories = requestedDirectories;
                     persistentDataBytes = requestedDataBytes;
                     sessionDataTransport = requestedDataTransport;
                 }
@@ -1487,6 +1509,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     " resume=" + std::string(requestedResume ? "1" : "0") +
                     " data_tls=" + core::io::dataTlsModeName(requestedDataTls) +
                     " data_transport=" + core::io::dataTransportName(requestedDataTransport) +
+                    (requestedDirectories ? " directories=1" : "") +
                     (hasDataBytes ? " data_bytes=262144 max_data_bytes=262144" : "") +
                     (linkSetRequested ? " links=" + std::to_string(requestedLinks) +
                         " link_caps=" + std::to_string(requestedLinkCaps) : "") +
@@ -1538,7 +1561,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             }
             auto status = runPersistentDirectory(&control, &session, &passive, options,
                 upload, requested, persistentWindow, channelIndex, channelCount, totalFiles, batchId,
-                persistentResume, persistentDataBytes);
+                persistentResume, persistentDataBytes, persistentDirectories);
             if (!status.isOk()) return;
             continue;
         }

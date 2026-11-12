@@ -2644,3 +2644,33 @@ TEST(BoundedPayloadPipelineTest, BatchRetainsFourIdleOwnersWithinDepthPlusThreeB
     auto end = waiting.get();
     ASSERT_TRUE(end.isOk()); EXPECT_EQ(end.value(), 0U);
 }
+
+TEST(PersistentTreeLeaseTest, TransportFailureReconcilesBatchBeforeRedispatch) {
+    TempRoot source;
+    std::ofstream(source.path/"retry.bin")<<"ABCDEFGH";
+    struct stat st{};ASSERT_EQ(::stat((source.path/"retry.bin").c_str(),&st),0);
+    PersistentFileIdentity id{1,1,8,"retry.bin","batch-retry",4,st.st_mtim.tv_sec};
+    DynamicFileQueue queue(std::vector<PersistentFileIdentity>{id},2,1,2);
+    PersistentDirectoryBatch batch(1,2);
+    for(unsigned c=0;c<2;++c){ASSERT_TRUE(batch.attach(c).isOk());batch.bind(c,-1,-1);}
+    SocketPair pair;PersistentTreeStats stats;
+    std::jthread peer([&]{
+        auto begin=PersistentDataSession::readNext(&pair.receiver,PersistentDataSession::kMaxPayload);
+        EXPECT_TRUE(begin.isOk());pair.receiver.shutdown();
+    });
+    bool transportReconciled=false;
+    auto status=sendPersistentTree(&pair.sender,source.path.string(),{},&stats,
+        [&](const auto& file,const auto& result,bool complete){
+            if(complete&&result.code()==cpnetflux::common::StatusCode::TransportError) {
+                transportReconciled=true; return batch.releaseFailedWork(0,file);
+            }
+            return batch.fileEvent(0,file,result,complete);
+        },1,0,2,&queue);
+    peer.join();
+    ASSERT_EQ(status.code(),cpnetflux::common::StatusCode::TransportError)<<status.message();
+    auto retry=queue.claim(1);ASSERT_TRUE(retry.isOk());ASSERT_TRUE(retry.value());
+    EXPECT_EQ(retry.value()->file.attempt,1U);
+    EXPECT_TRUE(transportReconciled)<<"old batch lease must be reconciled before work becomes ready";
+    auto adopted=batch.fileEvent(1,retry.value()->file,cpnetflux::common::Status::ok(),false);
+    EXPECT_TRUE(adopted.isOk())<<adopted.message();
+}

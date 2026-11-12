@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/persistent_directory.h"
 #include "cpnetflux/core/io/payload_pipeline.h"
 #include <cstdlib>
 #include <ctime>
@@ -1418,7 +1419,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     const PersistentFileCallback& callback, std::uint32_t pendingWindow,
     std::uint32_t channelIndex, std::uint32_t channelCount, DynamicFileQueue* ready,
     const config::FileTransferOptions* transferOptions, bool continueAfterFileFailure,
-    std::uint32_t maxRetries, const PersistentTransferLimits& limits) {
+    std::uint32_t maxRetries, const PersistentTransferLimits& limits,
+    const PersistentDirectoryTransfer* directories) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -1505,6 +1507,11 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     }
     detail::PersistentTransferLifetime lifetime(socket, limits);
     if (auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
+    if (directories) {
+        auto sent = sendPersistentDirectories(socket,*directories,channelIndex,channelCount,
+            transferOptions ? transferOptions->reconnectAttempt : 0,&stats->wireBytes);
+        if (!sent.isOk()) return sent;
+    }
     struct PendingFile {
         PersistentFileIdentity id;
         PersistentFileTiming timing;
@@ -2177,6 +2184,16 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         auto leases = ready->active(owner);
         if (!leases.isOk()) return leases.status();
         if (finalStatus.code() == common::StatusCode::TransportError) {
+            // Both IO threads are stopped. Reconcile external batch/checkpoint
+            // ownership before recover() makes any of this work claimable by a
+            // healthy lane. Otherwise its begin can race the old batch lease.
+            for (const auto& lease : leases.value()) {
+                const auto reconciled = notifySafe(lease.file,finalStatus,true);
+                if (!reconciled.isOk() && reconciled.code() != common::StatusCode::TransportError) {
+                    ready->cancel(reconciled);
+                    return reconciled;
+                }
+            }
             auto disconnected = ready->disconnect(owner);
             if (!disconnected.isOk()) return disconnected;
             std::vector<WorkRecoveryDecision> decisions;
@@ -2199,7 +2216,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     std::uint32_t channelIndex, std::uint32_t channelCount,
     std::uint32_t expectedFileCount, bool dynamic, bool resume,
     std::shared_ptr<PersistentTransferContext> context, DynamicFileQueue* ready,
-    std::uint32_t maxRetries) {
+    std::uint32_t maxRetries, const PersistentDirectoryTransfer* directories) {
     if (!stats) return Status::invalidArgument("missing persistent stats");
     if (!socket || !socket->valid()) return Status::invalidArgument("invalid persistent data socket");
     if (pendingWindow == 0 || pendingWindow > 16)
@@ -2265,6 +2282,10 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     }
     detail::PersistentTransferLifetime lifetime(socket, context->policy.limits);
     if (auto bounded = lifetime.status(); !bounded.isOk()) return bounded;
+    if (directories) {
+        auto received = receivePersistentDirectories(socket,root,*directories,channelIndex,channelCount,&stats->wireBytes);
+        if (!received.isOk()) return received;
+    }
     PersistentDataSession state(dynamic,socket->dataPayloadLimit());
     PersistentFrame incoming; // One owner per connection; all writes below are synchronous.
     std::optional<WorkExecutor> executor;

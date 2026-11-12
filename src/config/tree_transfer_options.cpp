@@ -666,15 +666,9 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         if (!sourceStatus.isOk()) {
             return sourceStatus;
         }
-        if (!options.resume) {
-            std::error_code error;
-            std::filesystem::create_directories(options.destDir, error);
-            if (error) {
-                return common::Status::systemError("create destination directory failed: " +
-                                                       error.message(),
-                                                   error.value());
-            }
-        }
+        // Destination preparation belongs to the negotiated V3 executor. Parsing
+        // must not create paths through an unvalidated ancestor symlink.
+
     }
     if (options.peerAddresses.size() > 1 && options.peerAddresses.size() != options.linkSetLinks) {
         return common::Status::invalidArgument(

@@ -4,6 +4,8 @@
 #include "cpnetflux/checkpoint/manifest_store.h"
 
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -174,6 +176,71 @@ common::Result<std::vector<TreeFileInfo>> scanLocalTree(const std::string& root,
         return left.relativePath < right.relativePath;
     });
     return files;
+}
+
+common::Result<std::vector<std::string>> scanLocalDirectories(const std::string& root) {
+    namespace fs = std::filesystem;
+    std::error_code error;
+    const auto rootStatus = fs::symlink_status(root, error);
+    if (error || !fs::is_directory(rootStatus))
+        return common::Status::invalidArgument("directory scan requires a real directory root");
+    std::vector<std::string> directories;
+    std::size_t bytes = 0;
+    fs::recursive_directory_iterator it(root, fs::directory_options::none, error), end;
+    if (error) return common::Status::systemError("directory scan: " + error.message(), error.value());
+    while (it != end) {
+        auto status = it->symlink_status(error);
+        if (error) return common::Status::systemError("directory scan: " + error.message(), error.value());
+        if (fs::is_symlink(status)) return common::Status::invalidArgument("directory scan rejects symlink");
+        if (fs::is_directory(status)) {
+            auto path = it->path().lexically_relative(fs::path(root)).generic_string();
+            auto valid = validateTreeRelativePath(path);
+            if (!valid.isOk()) return valid;
+            if (path.size() > kMaxTreeDirectoryPathBytes || directories.size() >= kMaxTreeDirectories ||
+                path.size() > kMaxTreeDirectoryBytes - bytes)
+                return common::Status::invalidArgument("directory metadata budget exceeded");
+            bytes += path.size(); directories.push_back(std::move(path));
+        } else if (!fs::is_regular_file(status)) {
+            return common::Status::invalidArgument("directory scan rejects non-regular entry");
+        }
+        it.increment(error);
+        if (error) return common::Status::systemError("directory scan: " + error.message(), error.value());
+    }
+    std::sort(directories.begin(), directories.end());
+    return directories;
+}
+
+common::Status ensureTreeDirectory(const std::string& root, const std::string& relativePath) {
+    auto valid = validateTreeRelativePath(relativePath);
+    if (!valid.isOk()) return valid;
+    if (relativePath.size() > kMaxTreeDirectoryPathBytes || relativePath.find("//") != std::string::npos ||
+        relativePath.back() == '/') return common::Status::invalidArgument("invalid directory path");
+    struct Descriptor {
+        int fd = -1;
+        ~Descriptor() { if (fd >= 0) ::close(fd); }
+        void reset(int next) { if (fd >= 0) ::close(fd); fd = next; }
+    } current;
+    // Anchor the root without following any ancestor symlink, including root itself.
+    const auto rootPath = std::filesystem::absolute(root);
+    current.fd = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (current.fd < 0) return common::Status::systemError("open directory anchor failed", errno);
+    for (const auto& part : rootPath.relative_path()) {
+        auto segment = part.string();
+        if (segment == ".") continue;
+        if (segment == "..") return common::Status::invalidArgument("directory root contains parent traversal");
+        int next = ::openat(current.fd, segment.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (next < 0) return common::Status::invalidArgument("unsafe or missing directory root component");
+        current.reset(next);
+    }
+    for (const auto& part : std::filesystem::path(relativePath)) {
+        auto segment = part.string();
+        if (::mkdirat(current.fd, segment.c_str(), 0700) != 0 && errno != EEXIST)
+            return common::Status::systemError("mkdirat directory failed", errno);
+        int next = ::openat(current.fd, segment.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (next < 0) return common::Status::invalidArgument("directory path conflicts with file or symlink");
+        current.reset(next);
+    }
+    return common::Status::ok();
 }
 
 }  // namespace cpnetflux::core::tree

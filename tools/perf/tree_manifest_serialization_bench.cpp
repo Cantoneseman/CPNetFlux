@@ -75,6 +75,7 @@ std::string identity(std::size_t index) {
 
 tree::TreeManifest fixture(const Options& o) {
     tree::TreeManifest m;
+    m.version = 1; // Frozen file-only diagnostic fixture; runtime manifests use schema 2.
     m.mode = o.transferMode == "upload" ? tree::TreeTransferMode::Upload : tree::TreeTransferMode::Download;
     m.checksumAlgorithm = o.algorithm == "none" ? checksum::ChecksumAlgorithm::None : checksum::ChecksumAlgorithm::Crc32c;
     m.rootLogicalPath = "/tmp/root: data";
@@ -103,7 +104,7 @@ tree::TreeManifest fixture(const Options& o) {
         m.files.clear();
         for (std::size_t i = 0; i < 40; ++i)
             m.files.push_back({"same", i, static_cast<std::int64_t>(i), identity(i), tree::TreeFileStatus::Pending, ""});
-    } else if (o.fixture == "bad-version") m.version = 2;
+    } else if (o.fixture == "bad-version") m.version = 3;
     else if (o.fixture == "bad-root") m.rootLogicalPath.clear();
     else if (o.fixture == "bad-path") m.files[0].relativePath = "../escape";
     else if (o.fixture == "bad-control") m.files[0].relativePath = "bad\npath";

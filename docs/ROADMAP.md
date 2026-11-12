@@ -1,8 +1,8 @@
 # CPNetFlux 性能路线图
 
-最新验收：[阶段75主组](tasks/2026-11-12-field-trial-comparison-75-result.md)1GiB五对中位CP31.075/Grid12.352Gbps；[阶段77场景](tasks/2026-11-13-field-trial-continuation-77-result.md)dense各3次0.399/0.945秒、tiny各3次3.504/2.561秒。mixed256MiB/514文件全对但缺空目录，B未通过，反向/安全/C及故障组NOT_RUN，上机NOT_READY。临时RX4096已恢复1024，现场已清理。下一开发项是[V3目录项与恢复语义](tasks/2026-11-13-v3-directory-semantics-followup.md)，当前计划未实现，不继续本轮负载或吞吐调参。
+当前开发：[阶段78：V3完整目录语义](tasks/2026-11-13-v3-directory-semantics-followup.md)已实现普通/空目录独立元数据、schema2完成事实及安全创建；发现并修复断连恢复时旧批次占用与队列重新派发的顺序竞争，相关14项单测、64次无trace真实客户端故障复测通过。R770-1完整828项中825通过、3项原生RDMA环境跳过、0失败；双端固定版本验收进行中。尚未恢复跨机负载，A/B/C与上机仍OPEN/NOT_READY。
 
-阶段76观察器跨主机monotonic错误及root77首轮启动路径错误均保留，未发payload即回滚；时钟域修正后双端实际观察器通过。当前真正阻塞是mixed空目录语义缺口，详见[77结果](tasks/2026-11-13-field-trial-continuation-77-result.md)。
+历史实测：[阶段75](tasks/2026-11-12-field-trial-comparison-75-result.md)1GiB五对中位CP31.075/Grid12.352Gbps；[阶段77](tasks/2026-11-13-field-trial-continuation-77-result.md)dense各3次0.399/0.945秒、tiny各3次3.504/2.561秒，mixed文件全对但空目录丢失。上述为旧运行时成绩，不能搬到新二进制。临时RX4096已恢复1024，阶段77现场已清理；新窗口需重新准入，不启动吞吐参数扫描。
 
 历史开发补项：[阶段68：工作租约迁移恢复修复](tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。该阶段未新增性能成绩；其后1GiB验收已由阶段69执行并失败，下一步以页首为准。当前验收结论以页首为准。
 

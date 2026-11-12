@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "cpnetflux/checkpoint/transfer_manifest.h"
 #include "cpnetflux/checkpoint/manifest_save_stats.h"
@@ -218,6 +219,75 @@ common::Result<std::vector<TreeFileRecord>> parseFiles(const std::string& text) 
     return records;
 }
 
+std::string serializeDirectories(const std::vector<TreeDirectoryRecord>& directories) {
+    auto sorted = directories;
+    std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.relativePath < b.relativePath; });
+    std::ostringstream out;
+    for (std::size_t i = 0; i < sorted.size(); ++i) {
+        if (i) out << ',';
+        const auto& d = sorted[i];
+        out << toHex(d.relativePath) << ':' << d.transferId << ':' << treeFileStatusName(d.status) << ':' << toHex(d.error);
+    }
+    return out.str();
+}
+
+common::Result<std::vector<TreeDirectoryRecord>> parseDirectories(const std::string& text) {
+    std::vector<TreeDirectoryRecord> out;
+    std::size_t begin = 0, bytes = 0;
+    std::unordered_set<std::string> paths;
+    while (begin < text.size()) {
+        auto end = text.find(',', begin);
+        if (end == std::string::npos) end = text.size();
+        auto item = text.substr(begin, end - begin);
+        std::vector<std::string> fields;
+        std::size_t at = 0;
+        for (;;) {
+            auto next = item.find(':', at);
+            fields.push_back(item.substr(at, next == std::string::npos ? next : next-at));
+            if (next == std::string::npos) break;
+            at = next + 1;
+        }
+        if (fields.size() != 4) return common::Status::invalidArgument("directory record must have four fields");
+        auto path = fromHexString(fields[0]); auto error = fromHexString(fields[3]);
+        auto status = parseTreeFileStatus(fields[2]);
+        if (!path.isOk() || !error.isOk() || !status.isOk() || !checkpoint::isValidTransferId(fields[1]))
+            return common::Status::invalidArgument("invalid directory record");
+        if (!validateTreeRelativePath(path.value()).isOk() || path.value().size() > kMaxTreeDirectoryPathBytes ||
+            out.size() >= kMaxTreeDirectories || path.value().size() > kMaxTreeDirectoryBytes - bytes ||
+            !paths.insert(path.value()).second)
+            return common::Status::invalidArgument("duplicate, unsafe or oversized directory record");
+        bytes += path.value().size();
+        out.push_back({path.value(), fields[1], status.value(), error.value()});
+        begin = end + 1;
+    }
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.relativePath < b.relativePath; });
+    return out;
+}
+
+common::Status validateDirectoryFacts(const TreeManifest& m) {
+    if (m.directories.empty()) return common::Status::ok();
+    if (m.version < 2 || m.directories.size() > kMaxTreeDirectories)
+        return common::Status::invalidArgument("unsupported or oversized directory facts");
+    std::unordered_set<std::string> directories, files;
+    std::size_t bytes = 0;
+    for (const auto& d : m.directories) {
+        if (!validateTreeRelativePath(d.relativePath).isOk() || d.relativePath.size() > kMaxTreeDirectoryPathBytes ||
+            d.relativePath.back() == '/' || d.relativePath.find("//") != std::string::npos ||
+            d.transferId.size() != 32 || !checkpoint::isValidTransferId(d.transferId) ||
+            d.relativePath.size() > kMaxTreeDirectoryBytes - bytes || !directories.insert(d.relativePath).second)
+            return common::Status::invalidArgument("invalid or duplicate directory fact");
+        bytes += d.relativePath.size();
+    }
+    for (const auto& f : m.files) {
+        if (directories.contains(f.relativePath)) return common::Status::invalidArgument("file/directory path conflict");
+        files.insert(f.relativePath);
+    }
+    for (const auto& d : m.directories)
+        for (auto path = std::filesystem::path(d.relativePath).parent_path(); !path.empty(); path = path.parent_path())
+            if (files.contains(path.generic_string())) return common::Status::invalidArgument("directory has a regular-file ancestor");
+    return common::Status::ok();
+}
+
 std::string bodyWithoutChecksum(const TreeManifest& manifest, checkpoint::ManifestSaveStats* stats) {
     std::ostringstream output;
     output << "manifest_version=" << manifest.version << '\n';
@@ -228,6 +298,7 @@ std::string bodyWithoutChecksum(const TreeManifest& manifest, checkpoint::Manife
     output << "created_at_unix_ns=" << manifest.createdAtUnixNanos << '\n';
     output << "updated_at_unix_ns=" << manifest.updatedAtUnixNanos << '\n';
     output << "files=" << serializeFiles(manifest.files, stats) << '\n';
+    if (manifest.version >= 2) output << "directories=" << serializeDirectories(manifest.directories) << '\n';
     return output.str();
 }
 
@@ -281,6 +352,7 @@ std::string bufferedBodyWithoutChecksum(const TreeManifest& m, checkpoint::Manif
         out.append(treeFileStatusName(r.status)); out.push_back(':'); appendHex(out, r.error);
     }
     out.push_back('\n');
+    if (m.version >= 2) { out.append("directories="); out.append(serializeDirectories(m.directories)); out.push_back('\n'); }
     return out;
 }
 
@@ -350,7 +422,9 @@ common::Result<TreeFileStatus> parseTreeFileStatus(const std::string& text) {
 }
 
 bool isTreeTransferComplete(const TreeManifest& manifest) {
-    return std::all_of(manifest.files.begin(), manifest.files.end(), [](const TreeFileRecord& file) {
+    return manifest.version >= 2 &&
+        std::all_of(manifest.directories.begin(), manifest.directories.end(), [](const auto& d) { return d.status == TreeFileStatus::Completed; }) &&
+        std::all_of(manifest.files.begin(), manifest.files.end(), [](const TreeFileRecord& file) {
         return file.status == TreeFileStatus::Completed;
     });
 }
@@ -370,7 +444,7 @@ common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest,
                                                 checkpoint::ManifestSaveStats* stats) {
     if (stats) ++stats->serializeCalls;
     checkpoint::OptionalManifestTimer total(stats ? &stats->serializeSeconds : nullptr);
-    if (manifest.version != kTreeManifestSchemaVersion) {
+    if (manifest.version != 1 && manifest.version != kTreeManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported tree manifest version");
     }
     if (manifest.rootLogicalPath.empty()) {
@@ -385,6 +459,8 @@ common::Result<std::string> serializeTreeManifest(const TreeManifest& manifest,
             return common::Status::invalidArgument("tree file transfer_id is invalid");
         }
     }
+    auto directoryStatus = validateDirectoryFacts(manifest);
+    if (!directoryStatus.isOk()) return directoryStatus;
     std::string body = serializer == TreeManifestSerializer::Buffered
         ? bufferedBodyWithoutChecksum(manifest, stats) : bodyWithoutChecksum(manifest, stats);
     checkpoint::OptionalManifestTimer crcTimer(stats ? &stats->bodyCrcSeconds : nullptr);
@@ -415,10 +491,12 @@ common::Result<TreeManifest> parseTreeManifest(const std::string& text) {
         const std::string key = line.substr(0, separator);
         const std::string value = line.substr(separator + 1);
         if (key == "manifest_body_crc32c") {
+            if (!expectedCrc.empty()) return common::Status::invalidArgument("duplicate tree manifest checksum");
             expectedCrc = value;
         } else {
             body += line + "\n";
-            values.emplace(key, value);
+            if (!values.emplace(key, value).second)
+                return common::Status::invalidArgument("duplicate tree manifest key");
         }
     }
     for (const char* key : {"manifest_version", "mode", "root_logical_path_hex",
@@ -447,7 +525,7 @@ common::Result<TreeManifest> parseTreeManifest(const std::string& text) {
     if (!version.isOk()) {
         return version.status();
     }
-    if (version.value() != kTreeManifestSchemaVersion) {
+    if (version.value() != 1 && version.value() != kTreeManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported tree manifest version");
     }
     manifest.version = static_cast<std::uint32_t>(version.value());
@@ -481,6 +559,16 @@ common::Result<TreeManifest> parseTreeManifest(const std::string& text) {
         return files.status();
     }
     manifest.files = files.value();
+    if (manifest.version >= 2) {
+        if (!values.contains("directories")) return common::Status::invalidArgument("tree manifest missing directories");
+        auto directories = parseDirectories(values["directories"]);
+        if (!directories.isOk()) return directories.status();
+        manifest.directories = std::move(directories.value());
+        auto valid = validateDirectoryFacts(manifest);
+        if (!valid.isOk()) return valid;
+    } else if (values.contains("directories")) {
+        return common::Status::invalidArgument("legacy manifest has directory extension");
+    }
     return manifest;
 }
 

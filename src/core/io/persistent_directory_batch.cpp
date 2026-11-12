@@ -211,6 +211,26 @@ common::Status PersistentDirectoryBatch::waitReady(
     std::uint32_t channel, std::chrono::milliseconds timeout) {
     return wait(false, timeout, channel);
 }
+common::Status PersistentDirectoryBatch::releaseFailedWork(
+    std::uint32_t channel, const PersistentFileIdentity& id) {
+    std::lock_guard lock(mutex_);
+    if (!status_.isOk()) return status_;
+    if (channel >= channels_.size() || !id.fileId || id.fileId > total_)
+        return common::Status::invalidArgument("invalid batch recovery identity");
+    auto found = files_.find(id.fileId);
+    if (found == files_.end()) return common::Status::ok(); // Claimed but not announced.
+    auto base = id;
+    base.rangeId = base.rangeOffset = base.rangeLength = base.rangeCount = base.attempt = 0;
+    if (!samePersistentIdentity(found->second.id,base))
+        return common::Status::invalidArgument("stale batch recovery identity");
+    auto lease = found->second.leases.find(id.rangeId);
+    if (lease == found->second.leases.end()) return common::Status::ok(); // Already reconciled/committed.
+    if (lease->second.owner != channel || !samePersistentIdentity(lease->second.id,id))
+        return common::Status::invalidArgument("foreign or stale batch recovery lease");
+    found->second.leases.erase(lease);
+    return common::Status::ok();
+}
+
 common::Status PersistentDirectoryBatch::fileEvent(std::uint32_t channel,
     const PersistentFileIdentity& id, const common::Status& status, bool complete) {
     std::lock_guard lock(mutex_);

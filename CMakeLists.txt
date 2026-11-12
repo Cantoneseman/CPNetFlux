@@ -148,6 +148,7 @@ add_library(cpnetflux_core STATIC
     src/core/io/rdma_data_socket.cpp
     src/core/io/persistent_data_session.cpp
     src/core/io/persistent_tree_transfer.cpp
+    src/core/io/persistent_directory.cpp
     src/core/io/member_work_profile.cpp
     src/core/io/sender_work_profile.cpp
     src/core/io/payload_pipeline.cpp
@@ -454,6 +455,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/member_work_profile_test.cpp
         tests/unit/sender_work_profile_test.cpp
         tests/unit/tree_scan_test.cpp
+        tests/unit/persistent_directory_test.cpp
         tests/unit/tree_transfer_options_test.cpp
         tests/unit/tree_pipeline_control_io_test.cpp
         tests/unit/tree_pipeline_state_test.cpp
@@ -1090,6 +1092,11 @@ if(CPNETFLUX_BUILD_TESTS)
             --build-dir ${CMAKE_BINARY_DIR}
             --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-publication-resume-evidence)
     set_tests_properties(cpnetflux_publication_resume_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_directory_semantics_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_directory_semantics_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_directory_semantics_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_tree_edge_cases_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_edge_cases_smoke.py --build-dir ${CMAKE_BINARY_DIR}

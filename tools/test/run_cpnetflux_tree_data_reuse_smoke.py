@@ -265,7 +265,9 @@ def main():
             (server_root / 'unsafe' / 'nested').symlink_to(outside, target_is_directory=True)
             unsafe = run('upload', source, 'unsafe', 'unsafe', success=False)
             assert not list(outside.iterdir())
-            assert unsafe['failed_files'] >= 2
+            # Directory preamble rejects the parent before any FILE_BEGIN.
+            assert unsafe['failed_directories'] >= 1
+            assert unsafe['completed_files'] == 0
 
             dense = root / 'dense'
             dense.mkdir()

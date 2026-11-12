@@ -30,6 +30,9 @@ enum class FrameType : std::uint16_t {
     FileEnd = 9,
     FileResult = 10,
     DirectoryEnd = 11,
+    DirectoryEntry = 12,
+    DirectoryResult = 13,
+    DirectoryMetadataEnd = 14,
 };
 
 enum class FrameStatusCode : std::uint32_t {

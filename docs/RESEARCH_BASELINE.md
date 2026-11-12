@@ -64,7 +64,7 @@ Beta 5 只是汇总 Beta 1-4 的证据，没有新增性能矩阵。它支持“
 - 没有实现生产级 GSI、凭据生命周期、委派、撤销和策略引擎。
 - 默认仍是 anonymous、TLS off、POSIX backend；alpha 安全配置不能当作生产安全方案。
 - STOR/RETR 数据通道使用 CPNetFlux framed protocol，不是普通 FTP raw data stream。
-- 目录传输不保留空目录、权限、owner/group、xattr、ACL、硬链接和 symlink target。
+- 历史Beta目录传输不保留空目录；2026-11-13的V3 schema2正在补齐普通/空目录语义，见下方更新。权限、owner/group、xattr、ACL、硬链接和symlink target仍不保留。
 - 压缩仍是 staging/restore 编排层，不是 CPNetFlux C++ 热路径能力。
 - 当前实验环境公网带宽约 10M，不能支撑高带宽性能声明。
 
@@ -92,3 +92,7 @@ Beta 5 只是汇总 Beta 1-4 的证据，没有新增性能矩阵。它支持“
 
 用户已批准在独立分支 codex/V3-PARALLEL-COMPRESSION-01 把并行压缩集成到 CPNetFlux V3 并进行 R730/R750 实测。此决定仅覆盖该功能分支，优先于本基线中“之后才讨论 C++ 热路径压缩”的旧路线；已冻结的 V3 候选及默认分支仍保持不变。该分支必须先完成代码测试，再核实实验服务器和链路。实验结论只适用于所测设备、数据类型及实际 TCP/RDMA 接口，不能等同于 native verbs 或跨域结论。任务范围、验收、允许路径与回滚见 docs/tasks/2026-10-21-v3-parallel-compression-01.md 和对应 DECISION。
 
+
+### 2026-11-13 路线更新：V3普通与空目录
+
+阶段78实现独立目录元数据及确认、schema2目录完成事实、安全fd-relative创建和旧清单显式迁移/拒绝。新树客户端要求双方DIRECTORIES=1，不把旧file-only完成当完整树通过；目录总数65536、路径4096字节、合计16MiB上限。单测/实际客户端验证记录见[阶段78任务](tasks/2026-11-13-v3-directory-semantics-followup.md)。R770-1完整回归825通过/3原生RDMA环境跳过/0失败，双端验收尚在进行，未产生新性能结果，不改变阶段75/77历史数字与NOT_READY边界。目录逐项确认可能增加多目录WAN时延，尚未优化或承诺。权限/身份/扩展属性与整个目录树原子替换不在本次范围。

@@ -18,6 +18,7 @@
 #include "cpnetflux/core/tree/tree_scan.h"
 
 namespace cpnetflux::core::io {
+struct PersistentDirectoryTransfer;
 struct PersistentTransferLimits {
     SocketDeadline taskDeadline;
     std::chrono::milliseconds resultTimeout = std::chrono::minutes(5);
@@ -200,7 +201,8 @@ using PersistentFileCallback = std::function<common::Status(
     std::uint32_t channelCount = 1, DynamicFileQueue* ready = nullptr,
     const config::FileTransferOptions* options = nullptr,
     bool continueAfterFileFailure = false, std::uint32_t maxRetries = 3,
-    const PersistentTransferLimits& limits = {});
+    const PersistentTransferLimits& limits = {},
+    const PersistentDirectoryTransfer* directories = nullptr);
 [[nodiscard]] common::Status receivePersistentTree(FramedDataSocket* socket,
     const std::string& root, bool download, const std::string& remoteRoot,
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},
@@ -208,5 +210,6 @@ using PersistentFileCallback = std::function<common::Status(
     std::uint32_t channelCount = 1,
     std::uint32_t expectedFileCount = kUnknownPersistentFileCount, bool dynamic = false,
     bool resume = false, std::shared_ptr<PersistentTransferContext> context = {},
-    DynamicFileQueue* ready = nullptr, std::uint32_t maxRetries = 3);
+    DynamicFileQueue* ready = nullptr, std::uint32_t maxRetries = 3,
+    const PersistentDirectoryTransfer* directories = nullptr);
 }  // namespace cpnetflux::core::io

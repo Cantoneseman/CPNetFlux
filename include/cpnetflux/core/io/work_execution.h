@@ -21,10 +21,12 @@ struct WorkerContext {
     bool operator==(const WorkerContext&) const = default;
 };
 // Full V3 identity is canonical; scheduler records are planning projections only.
+enum class WorkKind { File, Directory };
 struct WorkItem {
     PersistentFileIdentity file;
     std::string taskId;
     bool compressionCandidate = false;
+    WorkKind kind = WorkKind::File;
 };
 enum class WorkLeaseState { Claimed, InFlight, CommitPending, Completed, Failed, Reclaimable };
 // A value handle. State/counters/deadline are snapshots; the queue owns current state.

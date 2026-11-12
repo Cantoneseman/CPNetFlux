@@ -45,6 +45,8 @@ std::uint64_t acquireLeaseId() {
 }
 bool validWorkItem(const WorkItem& item) {
     const auto& file = item.file;
+    if (item.kind == WorkKind::Directory && (file.totalSize || file.chunkSize != 1 ||
+        file.rangeId || file.checksumAlgorithm != checksum::ChecksumAlgorithm::None || item.compressionCandidate)) return false;
     return !item.taskId.empty() && file.fileId && file.generation && file.chunkSize &&
         !file.transferId.empty() && tree::validateTreeRelativePath(file.relativePath).isOk() &&
         file.totalSize <= static_cast<std::uint64_t>(INT64_MAX) &&
@@ -332,6 +334,7 @@ common::Result<const DynamicFileQueue::Active*> DynamicFileQueue::find(const Wor
     const auto found = active_.find(activeKey(lease.file));
     if (!matchesWorker(lease.owner) || found == active_.end() || found->second.lease.leaseId != lease.leaseId ||
         found->second.lease.owner != lease.owner || found->second.lease.taskId != lease.taskId ||
+        found->second.lease.kind != lease.kind ||
         !samePersistentLeaseIdentity(found->second.lease.file, lease.file)) return mismatch();
     return &found->second;
 }

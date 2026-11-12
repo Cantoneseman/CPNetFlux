@@ -74,7 +74,10 @@ bool isKnownType(std::uint16_t type) noexcept {
            type == static_cast<std::uint16_t>(FrameType::FileBegin) ||
            type == static_cast<std::uint16_t>(FrameType::FileEnd) ||
            type == static_cast<std::uint16_t>(FrameType::FileResult) ||
-           type == static_cast<std::uint16_t>(FrameType::DirectoryEnd);
+           type == static_cast<std::uint16_t>(FrameType::DirectoryEnd) ||
+           type == static_cast<std::uint16_t>(FrameType::DirectoryEntry) ||
+           type == static_cast<std::uint16_t>(FrameType::DirectoryResult) ||
+           type == static_cast<std::uint16_t>(FrameType::DirectoryMetadataEnd);
 }
 
 bool isKnownStatus(std::uint32_t status) noexcept {
@@ -191,6 +194,20 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
     }
     if (header.payloadSize > maxPayloadSize) {
         return common::Status::invalidArgument("frame payload exceeds buffer size");
+    }
+    if (header.type == FrameType::DirectoryEntry || header.type == FrameType::DirectoryResult) {
+        if (header.flags || !header.streamId || header.chunkId != 1 || header.offset || header.rangeId ||
+            header.totalSize || (header.type == FrameType::DirectoryEntry ?
+                (header.statusCode != FrameStatusCode::Ok || header.payloadSize < 37 || header.payloadSize > 4132) :
+                (header.payloadSize || !isKnownStatus(static_cast<std::uint32_t>(header.statusCode)))))
+            return common::Status::invalidArgument("invalid directory metadata header");
+        return common::Status::ok();
+    }
+    if (header.type == FrameType::DirectoryMetadataEnd) {
+        if (header.flags || header.streamId || header.chunkId || header.offset || header.rangeId || header.attempt ||
+            header.payloadSize || header.statusCode != FrameStatusCode::Ok || header.totalSize > 65536)
+            return common::Status::invalidArgument("invalid directory metadata end");
+        return common::Status::ok();
     }
     if (header.type == FrameType::FileBegin) {
         if ((header.flags & ~kFileResume) != 0 || header.statusCode != FrameStatusCode::Ok || header.payloadSize == 0 ||

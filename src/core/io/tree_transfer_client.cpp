@@ -49,6 +49,7 @@
 #include "cpnetflux/core/io/file_download_client.h"
 #include "cpnetflux/core/io/file_transfer_client.h"
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/persistent_directory.h"
 #include "cpnetflux/core/io/work_executor.h"
 #include "cpnetflux/core/metrics/error_code.h"
 #include "cpnetflux/core/metrics/event_log.h"
@@ -336,7 +337,7 @@ class ControlClient {
         if (::setsockopt(control_.fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
             ::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0)
             return common::Status::runtimeError("persistent control timeout configuration failed");
-        std::string request = "XCPNETFLUX V3";
+        std::string request = "XCPNETFLUX V3 DIRECTORIES=1";
         if (requestedWindow != 1 || requestedChannels != 1 || dynamic || resume ||
             checksumAlgorithm != checksum::ChecksumAlgorithm::None || dataTlsMode != DataTlsMode::Off ||
             dataTransport != DataTransport::Tcp) {
@@ -359,6 +360,9 @@ class ControlClient {
         if (!reply.isOk()) return reply.status();
         if (reply.value().code == 200) {
             const std::string replyText = joined(reply.value());
+            { std::istringstream fields(replyText); std::string field; bool directories = false;
+              while (fields >> field) if (field == "directories=1") directories = true;
+              if (!directories) return false; }
             if (dataBytes != 65532) {
                 std::istringstream fields(replyText);
                 std::string field;
@@ -1370,6 +1374,8 @@ void printTreeSummary(const char* label, const char* result,
         elapsed > 0.0 ? static_cast<double>(logicalBytes) * 8.0 / elapsed / 1'000'000'000.0 : 0.0;
     const TreeSummary summary = summarizeManifest(manifest);
     std::cout << label << " result=" << result << " file_count=" << manifest.files.size()
+              << " directory_count=" << manifest.directories.size()
+              << " completed_directories=" << std::count_if(manifest.directories.begin(),manifest.directories.end(),[](const auto& d) { return d.status == core::tree::TreeFileStatus::Completed; })
               << " completed_files=" << summary.completedFiles
               << " skipped_files=" << stats.skippedFiles.load()
               << " failed_files=" << summary.failedFiles
@@ -1477,6 +1483,9 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"source\": \"" << jsonEscape(options.sourceDir) << "\",\n";
     output << "  \"dest\": \"" << jsonEscape(options.destDir) << "\",\n";
     output << "  \"file_count\": " << manifest.files.size() << ",\n";
+    output << "  \"directory_count\": " << manifest.directories.size() << ",\n";
+    output << "  \"completed_directories\": " << std::count_if(manifest.directories.begin(),manifest.directories.end(),[](const auto& d) { return d.status == core::tree::TreeFileStatus::Completed; }) << ",\n";
+    output << "  \"failed_directories\": " << std::count_if(manifest.directories.begin(),manifest.directories.end(),[](const auto& d) { return d.status == core::tree::TreeFileStatus::Failed; }) << ",\n";
     output << "  \"tree_manifest_state_events\": " << stats.treeManifestWrites.generation << ",\n";
     output << "  \"tree_manifest_event_threshold\": " << options.treeManifestEventThreshold << ",\n";
     output << "  \"tree_manifest_max_delay_ms\": " << options.treeManifestMaxDelayMs << ",\n";
@@ -1868,14 +1877,16 @@ common::Status emitTreeSummary(const char* label, const char* direction,
                                const core::tree::TreeManifest& manifest,
                                const TreeRunStats& stats,
                                std::chrono::steady_clock::time_point startedAt) {
-    const char* result = status.isOk() ? "pass" : "fail";
+    const auto effective = status.isOk() && !core::tree::isTreeTransferComplete(manifest)
+        ? common::Status::invalidArgument("V3 whole-tree completion is incomplete") : status;
+    const char* result = effective.isOk() ? "pass" : "fail";
     printTreeSummary(label, result, manifest, stats, options, startedAt);
     const common::Status jsonStatus =
-        writeTreeJsonSummary(direction, result, options, manifest, stats, startedAt, status);
+        writeTreeJsonSummary(direction, result, options, manifest, stats, startedAt, effective);
     if (!jsonStatus.isOk()) {
         return jsonStatus;
     }
-    return status;
+    return effective;
 }
 
 
@@ -2441,9 +2452,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         std::error_code error;
         if (std::filesystem::is_symlink(std::filesystem::symlink_status(options.destDir, error)))
             return common::Status::invalidArgument("persistent local destination is a symlink");
-        error.clear();
-        std::filesystem::create_directories(options.destDir, error);
-        if (error) return common::Status::runtimeError("cannot create persistent local destination");
+        const auto absolute = std::filesystem::absolute(options.destDir);
+        if (absolute != "/") {
+            auto prepared = core::tree::ensureTreeDirectory("/",absolute.relative_path().generic_string());
+            if (!prepared.isOk()) return prepared;
+        }
         manifest->mode = core::tree::TreeTransferMode::Download;
         manifest->rootLogicalPath = options.sourceDir;
         manifest->checksumAlgorithm = options.checksumAlgorithm;
@@ -2547,6 +2560,41 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         }, options.treeManifestEventThreshold,
         std::chrono::milliseconds(options.treeManifestMaxDelayMs),
         stats->treeManifestProfileEnabled ? &writerProfile : nullptr);
+    PersistentDirectoryTransfer directoryTransfer;
+    directoryTransfer.entries = manifest->directories;
+    std::unordered_map<std::string,std::size_t> directoryRecords;
+    std::size_t directoryBytes = 0;
+    for (std::size_t i = 0; i < manifest->directories.size(); ++i) {
+        auto& d = manifest->directories[i];
+        if (!directoryRecords.emplace(d.relativePath,i).second ||
+            d.relativePath.size() > core::tree::kMaxTreeDirectoryBytes - directoryBytes)
+            return common::Status::invalidArgument("directory manifest duplicate or budget exceeded");
+        directoryBytes += d.relativePath.size(); d.status = core::tree::TreeFileStatus::Pending;
+    }
+    directoryTransfer.callback = [&](const core::tree::TreeDirectoryRecord& incoming, bool complete) {
+        std::lock_guard lock(manifestMutex);
+        auto found = directoryRecords.find(incoming.relativePath);
+        if (found == directoryRecords.end()) {
+            if (upload || complete || manifest->directories.size() >= core::tree::kMaxTreeDirectories ||
+                incoming.relativePath.size() > core::tree::kMaxTreeDirectoryBytes - directoryBytes)
+                return common::Status::invalidArgument("unexpected directory or metadata budget exceeded");
+            if (std::any_of(manifest->files.begin(),manifest->files.end(),[&](const auto& f) { return f.relativePath == incoming.relativePath; }))
+                return common::Status::invalidArgument("file/directory manifest conflict");
+            directoryBytes += incoming.relativePath.size();
+            auto index = manifest->directories.size();
+            manifest->directories.push_back(incoming);
+            found = directoryRecords.emplace(incoming.relativePath,index).first;
+        }
+        auto& record = manifest->directories[found->second];
+        if (upload && record.transferId != incoming.transferId)
+            return common::Status::invalidArgument("directory manifest identity mismatch");
+        if (!upload && !complete) record.transferId = incoming.transferId;
+        if (record.transferId != incoming.transferId)
+            return common::Status::invalidArgument("directory completion identity mismatch");
+        record.status = complete ? core::tree::TreeFileStatus::Completed : core::tree::TreeFileStatus::Transferring;
+        record.error.clear();
+        return manifestWriter.markDirtyLocked();
+    };
     std::unordered_map<std::uint32_t, std::size_t> downloadRecords;
     struct ActiveIdentity {
         PersistentFileIdentity base;
@@ -2600,7 +2648,17 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 active = activeIdentities.emplace(id.fileId, std::move(value)).first;
             } else if (!samePersistentIdentity(active->second.base, base) ||
                        active->second.rangeCount != id.rangeCount) {
-                return common::Status::invalidArgument("persistent file begin identity mismatch");
+                std::ostringstream detail;
+                const auto& expected = active->second.base;
+                detail << "persistent file begin identity mismatch file=" << id.fileId
+                       << " expected_transfer=" << expected.transferId << " received_transfer=" << base.transferId
+                       << " expected_generation=" << expected.generation << " received_generation=" << base.generation
+                       << " expected_path=" << expected.relativePath << " received_path=" << base.relativePath
+                       << " expected_size=" << expected.totalSize << " received_size=" << base.totalSize
+                       << " expected_chunk=" << expected.chunkSize << " received_chunk=" << base.chunkSize
+                       << " expected_mtime=" << expected.mtimeUnixSeconds << " received_mtime=" << base.mtimeUnixSeconds
+                       << " expected_ranges=" << active->second.rangeCount << " received_ranges=" << id.rangeCount;
+                return common::Status::invalidArgument(detail.str());
             }
             if (id.rangeId != 0) {
                 const bool inserted = active->second.started.insert(id.rangeId).second;
@@ -2644,7 +2702,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             const auto existing = downloadRecords.find(id.fileId);
             if (existing != downloadRecords.end()) {
                 if (id.attempt == 0 || existing->second >= manifest->files.size())
-                    return common::Status::invalidArgument("duplicate or out-of-range persistent file ID");
+                    return common::Status::invalidArgument("duplicate or out-of-range persistent file ID file=" +
+                        std::to_string(id.fileId) + " attempt=" + std::to_string(id.attempt) +
+                        " prior_transfer=" + (existing->second < manifest->files.size() ?
+                            manifest->files[existing->second].transferId : "out-of-range") +
+                        " received_transfer=" + id.transferId);
                 // A local lane retry can begin the same file again on a new data
                 // connection. Reuse its manifest record after identity validation below.
                 record = &manifest->files[existing->second];
@@ -2836,11 +2898,11 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 common::Status transferStatus = upload
                     ? sendPersistentTree(&channel.data, options.sourceDir, channel.files,
                         &channel.observed, callback, dispatchWindow, index, channelCount, ready.get(),
-                        &attemptOptions, !options.dynamicFileScheduling, options.reconnectAttempts, transferLimits)
+                        &attemptOptions, !options.dynamicFileScheduling, options.reconnectAttempts, transferLimits, &directoryTransfer)
                     : receivePersistentTree(&channel.data, options.destDir, true, options.sourceDir,
                         &channel.observed, callback, dispatchWindow, index, channelCount,
                         channel.expectedFileCount, options.dynamicFileScheduling,
-                        attemptOptions.resume, transactions, ready.get(), options.reconnectAttempts);
+                        attemptOptions.resume, transactions, ready.get(), options.reconnectAttempts, &directoryTransfer);
                 dataFinished.store(true, std::memory_order_release);
                 {
                     std::lock_guard<std::mutex> lock(channel.dataMutex);
@@ -3028,6 +3090,12 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 [](const auto& left, const auto& right) { return left.relativePath < right.relativePath; });
         }
         if (!result.isOk()) {
+            for (auto& directory : manifest->directories) {
+                if (directory.status == core::tree::TreeFileStatus::Transferring) {
+                    directory.status = core::tree::TreeFileStatus::Failed;
+                    directory.error = result.message();
+                }
+            }
             for (auto& file : manifest->files) {
                 if (file.status == core::tree::TreeFileStatus::Transferring) {
                     file.status = core::tree::TreeFileStatus::Failed;
@@ -3197,6 +3265,17 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
             return loaded.status();
         }
         manifest = loaded.value();
+        auto directories = core::tree::scanLocalDirectories(options.sourceDir);
+        if (!directories.isOk()) return directories.status();
+        if (manifest.version == 1) {
+            manifest.version = core::tree::kTreeManifestSchemaVersion;
+            for (const auto& path : directories.value()) manifest.directories.push_back({path,generateTransferId()});
+        } else {
+            std::vector<std::string> prior;
+            for (const auto& d : manifest.directories) prior.push_back(d.relativePath);
+            std::sort(prior.begin(),prior.end());
+            if (prior != directories.value()) return common::Status::invalidArgument("upload source directory set changed");
+        }
         if (manifest.mode != core::tree::TreeTransferMode::Upload ||
             manifest.rootLogicalPath != options.sourceDir ||
             manifest.checksumAlgorithm != options.checksumAlgorithm) {
@@ -3220,6 +3299,9 @@ common::Status runTreeUploadClient(const config::TreeTransferOptions& inputOptio
                 file.relativePath, file.size, file.mtimeUnixSeconds, generateTransferId(),
                 core::tree::TreeFileStatus::Pending, ""});
         }
+        auto directories = core::tree::scanLocalDirectories(options.sourceDir);
+        if (!directories.isOk()) return directories.status();
+        for (const auto& path : directories.value()) manifest.directories.push_back({path,generateTransferId()});
         const common::Status saveStatus = saveManifest(&manifest, manifestPath, serializer.value());
         if (!saveStatus.isOk()) {
             return saveStatus;
@@ -3314,6 +3396,7 @@ common::Status runTreeDownloadClient(const config::TreeTransferOptions& inputOpt
         auto loaded = core::tree::loadTreeManifest(manifestPath);
         if (!loaded.isOk()) return loaded.status();
         manifest = loaded.value();
+        if (manifest.version < 2) return common::Status::invalidArgument("legacy file-only download manifest requires a fresh V3 directory transfer");
         if (manifest.mode != core::tree::TreeTransferMode::Download ||
             manifest.rootLogicalPath != options.sourceDir ||
             manifest.checksumAlgorithm != options.checksumAlgorithm) {

@@ -647,7 +647,7 @@ TEST(TreeTransferOptionsTest, ParsesTokenAuthOptions) {
     std::filesystem::remove(token);
 }
 
-TEST(TreeTransferOptionsTest, ParsesDownloadOptionsAndCreatesDestination) {
+TEST(TreeTransferOptionsTest, ParsesDownloadOptionsWithoutPreparingDestination) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-options-download";
     std::filesystem::remove_all(root);
@@ -1065,4 +1065,17 @@ TEST(TreeTransferOptionsTest, RejectsAmbiguousTcpSourcePortPlanEndpoints) {
  EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(rdma),rdma,TreeTransferRole::Download).isOk());
  const char* dns[]{"client","--auth-probe","--local-bind-address","127.0.0.1","--host","localhost","--tcp-data-source-port-plan","plan"};
  EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(dns),dns,TreeTransferRole::Download).isOk());
+}
+
+TEST(TreeTransferOptionsTest, DownloadParseDoesNotCreateThroughSymlinkAncestor) {
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path()/"cpnetflux-options-no-side-effects";
+    fs::remove_all(root);fs::create_directories(root/"outside");
+    fs::create_directory_symlink(root/"outside",root/"link");
+    auto target=(root/"link"/"uncreated").string();
+    const char* argv[]={"cpnetflux-tree-download-client","--source-dir","dataset","--dest-dir",target.c_str()};
+    auto result=cpnetflux::config::parseTreeTransferOptions(std::size(argv),argv,cpnetflux::config::TreeTransferRole::Download);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_TRUE(fs::is_empty(root/"outside"));
+    fs::remove_all(root);
 }

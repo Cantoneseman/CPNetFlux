@@ -34,9 +34,9 @@ def require_json_summary(path: Path, result: str) -> dict:
     return data
 
 
-def assert_empty_dir_not_preserved(root: Path) -> None:
-    if (root / "empty-dir").exists():
-        raise RuntimeError("empty directory was unexpectedly preserved")
+def assert_empty_dir_preserved(root: Path) -> None:
+    if not (root / "empty-dir").is_dir():
+        raise RuntimeError("empty directory was not preserved")
 
 
 def run_edge_transfer(build_dir: Path, temp: Path) -> None:
@@ -76,7 +76,7 @@ def run_edge_transfer(build_dir: Path, temp: Path) -> None:
         uploaded, _, _ = tree_hash(server_root / "dataset")
         if expected != uploaded:
             raise RuntimeError("edge upload tree hash mismatch")
-        assert_empty_dir_not_preserved(server_root / "dataset")
+        assert_empty_dir_preserved(server_root / "dataset")
 
         download_summary = temp / "download-summary.json"
         run_checked(
@@ -102,7 +102,7 @@ def run_edge_transfer(build_dir: Path, temp: Path) -> None:
         downloaded, _, _ = tree_hash(dest)
         if expected != downloaded:
             raise RuntimeError("edge download tree hash mismatch")
-        assert_empty_dir_not_preserved(dest)
+        assert_empty_dir_preserved(dest)
     finally:
         stop_server(server, server_log)
 

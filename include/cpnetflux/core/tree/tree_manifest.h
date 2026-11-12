@@ -12,7 +12,7 @@ namespace cpnetflux::checkpoint { struct ManifestSaveStats; }
 
 namespace cpnetflux::core::tree {
 
-inline constexpr std::uint32_t kTreeManifestSchemaVersion = 1;
+inline constexpr std::uint32_t kTreeManifestSchemaVersion = 2;
 
 enum class TreeManifestSerializer { Original, Buffered };
 [[nodiscard]] const char* treeManifestSerializerName(TreeManifestSerializer mode) noexcept;
@@ -40,6 +40,13 @@ struct TreeFileRecord {
     std::string error;
 };
 
+struct TreeDirectoryRecord {
+    std::string relativePath;
+    std::string transferId;
+    TreeFileStatus status = TreeFileStatus::Pending;
+    std::string error;
+};
+
 struct TreeManifest {
     std::uint32_t version = kTreeManifestSchemaVersion;
     TreeTransferMode mode = TreeTransferMode::Upload;
@@ -48,6 +55,7 @@ struct TreeManifest {
     std::uint64_t createdAtUnixNanos = 0;
     std::uint64_t updatedAtUnixNanos = 0;
     std::vector<TreeFileRecord> files;
+    std::vector<TreeDirectoryRecord> directories;
 };
 
 [[nodiscard]] std::string treeManifestPathForUpload(const std::string& sourceDir);
