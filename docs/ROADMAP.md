@@ -2,6 +2,8 @@
 
 开发闭环已验收：[阶段60结果](tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过，GridFTP比较和双机长时稳定性待执行。
 
+当前执行：[阶段63既有sender policy实验入口](tasks/2026-11-12-field-trial-sender-policy-63.md)。最新强配置1GiB真实传输的内容/资源/页型/清理通过但OOB/missed各+1344，未进入正式比较；先补现有应用pacer的有界入口/回执验证，不新增传输机制或系统调优。
+
 当前用户优先级：[保持性能、已有阶段闭环→GridFTP复测→稳定性→上机候选](tasks/2026-11-12-field-trial-closeout-60.md)，见[路线决定](DECISIONS/2026-11-12-field-trial-freeze.md)。旧M2结果保持；暂停自动推进内存后端/40Gbps调优，仅补清理缺陷与交付。
 
 当前交付C：[Task58后最终集成与边界](tasks/2026-11-12-performance-delivery-c-task58.md)、[当前冻结清单](tasks/2026-11-12-performance-delivery-c-task58-freeze.json)：代码/配置/回归/现场与备份收口；ENGINEERING CLOSED / M2 OPEN，正式资源门仍未通过。
@@ -10,7 +12,7 @@
 
 前次交付：[Task57 / 原生必要准备与交付C冻结](tasks/2026-11-12-v3-private-setup-57-result.md)：五对准备门通过（旧中位53.40ms→native 7.62ms），最终两端相关CTest各261/261、kernel pacing smoke各连续10次通过；唯一1GiB完整目标任务**40.865Gbps**，必要准备计入，内容/资源/网络/页型/清理均通过。仅单次可行性准入，正式8GiB M2与稳定性仍开放；[冻结清单](tasks/2026-11-12-v3-private-setup-57-freeze.json)。默认关闭，不追加本轮样本或参数扫描。
 
-下一步：先解决8GiB源/目标分配的宿主回收压力并固定资源条件或新后端设计；当前MemFree不足不分配、不原样重试。正式40Gbps/CV/配对及zero host swap门保留；原生RDMA/DEFERRED仍暂停。
+旧M2后续（按阶段60决定暂缓）：8GiB源/目标分配压力与后端设计不自动重启；正式40Gbps/CV/配对及zero host swap门保留。当前先完成固定版本比较和稳定性，8GiB不准入时明确NOT_RUN。
 
 历史交付：[Task56 / 内核TCP pacing与交付C冻结](tasks/2026-11-12-v3-kernel-tcp-pacing-56-result.md)：默认关闭机制已实现，R2相关259项通过、R1失败修复后定向5项通过，两端候选恢复各2项通过。唯一1GiB完整目标任务35.388Gbps，网络/资源/内容/页型/清理通过，但未达40Gbps准入。四lane ceiling回读不等于实际整形；一次0错误不关闭OOB因果。停止追加本候选和8GiB矩阵，M2仍开放；[冻结清单](tasks/2026-11-12-v3-kernel-tcp-pacing-56-freeze.json)。
 

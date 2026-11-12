@@ -85,6 +85,7 @@ def run(args):
     init_attempt=False;start_attempt=False;row=None;expected=None;source=None;server=None;failures=[];cleanup={}
     gates=dict(network=False,resources=False,content=False,pages=False)
     if args.kernel_tcp_pacing or spec['name']!='admission':gates['kernel_pacing']=False
+    if spec['sender_pacing']!='off':gates['application_pacing']=False
     if args.native_setup:gates['native_setup']=True
     page=dict(samples=0,target_shmem_pmd_mapped_peak_bytes=0,actual_uid=os.getuid(),
               scope='sampled actual receiver target VMAs; peak is not total file coverage')
@@ -105,7 +106,7 @@ def run(args):
         assert peer['mem_available_bytes']>=spec['preflight_mem_bytes'],'bounded sender preflight'
         expected=large.own_peer(args,'seed')
         start_attempt=True
-        base.peer(args,'start',name='private55',port=49337,data_base=61000,sender_pacing='off',
+        base.peer(args,'start',name='private55',port=49337,data_base=61000,sender_pacing=spec['sender_pacing'],
                   kernel_pacing='2000000000' if args.kernel_tcp_pacing else 'off')
         ready(49337)
         idle=[net.snapshot()];time.sleep(.5);idle.append(net.snapshot())
@@ -142,7 +143,15 @@ def run(args):
         if start_attempt:
             try:
                 server=base.peer(args,'stop',name='private55');base.save(args.evidence/'server.json',server)
-                assert not server['sender_phases'].get('sender_pacing',[]),'pacing unexpectedly active'
+                pacing_rows=server['sender_phases'].get('sender_pacing',[])
+                if spec['sender_pacing']=='off':
+                    assert not pacing_rows,'application pacing unexpectedly active'
+                else:
+                    from run_sender_pacing import validate_receipts
+                    proof=validate_receipts(pacing_rows,args.size)
+                    assert not server['sender_phases'].get('tcp_kernel_pacing',[]),'kernel pacing unexpectedly active'
+                    base.save(args.evidence/'application-pacing-receipts.json',proof)
+                    gates['application_pacing']=True
                 if args.kernel_tcp_pacing:
                     proof=validate_kernel_pacing_receipts(server['sender_phases'].get('tcp_kernel_pacing',[]))
                     base.save(args.evidence/'kernel-pacing-receipts.json',dict(
@@ -196,7 +205,7 @@ def run(args):
     report=dict(scope=scope,profile=spec['name'],payload_bytes=args.size,
         gates=gates,failures=failures,cleanup=cleanup,m2_pass=False,
         setup_strategy=mount.get('setup_strategy','python_namespace'),
-        pacing='off',exact_read='off',kernel_pacing='2000000000' if args.kernel_tcp_pacing else 'off',
+        pacing=spec['sender_pacing'],exact_read='off',kernel_pacing='2000000000' if args.kernel_tcp_pacing else 'off',
         final_admission_pending_external_unmount=True)
     if row is not None:
         base.save(args.evidence/'results.json',[row])
@@ -218,6 +227,7 @@ def main():
     p.add_argument('--evidence',type=Path,required=True)
     p.add_argument('--payload-root',type=Path,required=True)
     p.add_argument('--kernel-tcp-pacing',action='store_true')
+    p.add_argument('--sender-pacing',choices=('off','1500000000'),default='off')
     p.add_argument('--native-setup',action='store_true')
     p.add_argument('--profile',choices=['admission','m2-control','m2-candidate'],default='admission')
     p.add_argument('--commit',required=True)

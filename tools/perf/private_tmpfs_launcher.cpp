@@ -71,14 +71,14 @@ struct Fd {
 };
 struct Options {
     fs::path payload, evidence;
-    std::string mode, commit, hostNamespace, profile = "admission";
+    std::string mode, commit, hostNamespace, profile = "admission", senderPacing = "off";
     uid_t uid = 0; gid_t gid = 0; std::uint64_t inode = 0;
     double setupStarted = 0;
     bool enabled = false, pacing = false;
 };
 Options parse(int argc, char** argv) {
     std::map<std::string, std::string> values;
-    Options o; bool profileSeen = false;
+    Options o; bool profileSeen = false, senderSeen = false;
     const std::vector<std::string> keys = {"--payload-root", "--evidence", "--mode", "--commit",
         "--uid", "--gid", "--inode", "--host-namespace", "--setup-started"};
     for (int i = 1; i < argc; ++i) {
@@ -87,6 +87,10 @@ Options parse(int argc, char** argv) {
         else if (key == "--profile") {
             require(!profileSeen && i + 1 < argc, "missing or duplicate profile");
             profileSeen = true; o.profile = argv[++i];
+        }
+        else if (key == "--sender-pacing") {
+            require(!senderSeen && i + 1 < argc, "missing or duplicate sender pacing");
+            senderSeen = true; o.senderPacing = argv[++i];
         }
         else if (key == "--kernel-tcp-pacing") { require(!o.pacing, "duplicate pacing"); o.pacing = true; }
         else {
@@ -111,6 +115,9 @@ Options parse(int argc, char** argv) {
             o.mode == "smoke-timeout" || o.mode == "smoke-cancel" || o.mode == "smoke-v3" ||
             o.mode == "smoke-descendant", "unsupported fixed child mode");
     require(!o.pacing || o.mode == "v3", "kernel pacing requires V3");
+    require(o.senderPacing == "off" || o.senderPacing == "1500000000", "unsupported fixed application pacing");
+    require(o.senderPacing == "off" || (o.mode == "v3" && o.profile == "admission" && !o.pacing),
+            "application pacing requires admission V3 and kernel pacing off");
     require(o.profile == "admission" || o.profile == "m2-control" || o.profile == "m2-candidate",
             "unsupported bounded profile");
     if (o.profile != "admission") {
@@ -227,6 +234,7 @@ ChildResult workload(const Options& o, int evidence) {
             "--evidence", o.evidence.string(), "--payload-root", o.payload.string(),
             "--commit", o.commit, "--enable-private-tmpfs", "--native-setup", "--profile", o.profile});
         if (o.pacing) args.push_back("--kernel-tcp-pacing");
+        if (o.senderPacing != "off") args.insert(args.end(), {"--sender-pacing", o.senderPacing});
     } else args.insert(args.end(), {script + "private_tmpfs.py", "--action", "probe", "--payload-root",
         o.payload.string(), "--evidence", o.evidence.string(), "--mode", o.mode});
     std::vector<char*> argv; for (auto& arg : args) argv.push_back(arg.data()); argv.push_back(nullptr);

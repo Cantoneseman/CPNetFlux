@@ -28,6 +28,12 @@ def profile_spec(name):
 
 def validate_profile(args):
     spec=profile_spec(getattr(args,'profile','admission'))
+    sender=getattr(args,'sender_pacing','off')
+    if sender not in ('off','1500000000'):
+        raise ValueError('unsupported fixed application pacing policy')
+    if sender!='off' and (args.mode!='v3' or spec['name']!='admission' or args.kernel_tcp_pacing):
+        raise ValueError('application pacing requires admission V3 and kernel pacing off')
+    spec=dict(spec,sender_pacing=sender)
     if spec['name']!='admission':
         if not getattr(args,'native_setup',False) or args.mode not in ('v3','setup-only'):
             raise ValueError('M2 profiles require native setup and V3/setup-only mode')
@@ -168,6 +174,7 @@ def namespace(args):
             command=[sys.executable,str(script),'--action','run','--evidence',str(args.evidence),
                      '--payload-root',str(mp),'--commit',args.commit,'--enable-private-tmpfs']
             if args.kernel_tcp_pacing:command.append('--kernel-tcp-pacing')
+            if getattr(args,'sender_pacing','off')!='off':command+=['--sender-pacing',args.sender_pacing]
         else:
             command=[sys.executable,str(Path(__file__).resolve()),'--action','probe',
                      '--payload-root',str(mp),'--evidence',str(args.evidence),'--mode',args.mode]
@@ -247,6 +254,7 @@ def launch(args):
         '--setup-started',str(setup_started)]
     command+=['--profile',spec['name']]
     if args.kernel_tcp_pacing:command.append('--kernel-tcp-pacing')
+    if getattr(args,'sender_pacing','off')!='off':command+=['--sender-pacing',args.sender_pacing]
     try:
         result=run_child(command,args.evidence/'launcher.log',720,
                          on_cancel=lambda:(args.evidence/'cancel.request').touch(exist_ok=True))
@@ -283,6 +291,7 @@ def main():
     p.add_argument('--evidence',type=Path,required=True)
     p.add_argument('--mode',choices=['v3','smoke','smoke-fail','smoke-timeout','smoke-cancel','smoke-v3','setup-only','smoke-descendant'],default='v3')
     p.add_argument('--kernel-tcp-pacing',action='store_true')
+    p.add_argument('--sender-pacing',choices=('off','1500000000'),default='off')
     p.add_argument('--native-setup',action='store_true')
     p.add_argument('--profile',choices=['admission','m2-control','m2-candidate'],default='admission')
     p.add_argument('--commit',default='')

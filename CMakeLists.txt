@@ -1018,6 +1018,8 @@ if(CPNETFLUX_BUILD_TESTS)
         add_test(NAME cpnetflux_private_setup_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_setup_smoke.py --build-dir ${CMAKE_BINARY_DIR})
         set_tests_properties(cpnetflux_private_setup_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+        add_test(NAME cpnetflux_private_sender_policy_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_sender_policy_test.py --build-dir ${CMAKE_BINARY_DIR})
     endif()
     add_test(NAME cpnetflux_private_m2_driver_test
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_m2_test.py)
