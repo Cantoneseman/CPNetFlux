@@ -2,7 +2,7 @@
 
 开发闭环已验收：[阶段60结果](tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过，GridFTP比较和双机长时稳定性待执行。
 
-当前执行：[阶段63既有sender policy实验入口](tasks/2026-11-12-field-trial-sender-policy-63.md)。最新强配置1GiB真实传输的内容/资源/页型/清理通过但OOB/missed各+1344，未进入正式比较；先补现有应用pacer的有界入口/回执验证，不新增传输机制或系统调优。
+当前执行：[阶段63结果](tasks/2026-11-12-field-trial-sender-policy-63-result.md)：既有应用pacer的私有后端入口已完成，双端相关7/7；唯一1GiB完整目标任务39.924Gbps，内容/资源/页型/网络/清理通过。仅单次可行性，旧40G/M2门未过；正式GridFTP配对与长时稳定性待执行。原kernel ceiling样本OOB/missed +1344的失败保留，不作收益对照。
 
 当前用户优先级：[保持性能、已有阶段闭环→GridFTP复测→稳定性→上机候选](tasks/2026-11-12-field-trial-closeout-60.md)，见[路线决定](DECISIONS/2026-11-12-field-trial-freeze.md)。旧M2结果保持；暂停自动推进内存后端/40Gbps调优，仅补清理缺陷与交付。
 
