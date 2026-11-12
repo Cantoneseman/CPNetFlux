@@ -23,7 +23,8 @@ def profile_spec(name):
     capacity=(8448 if formal else 1280)*1024**2
     return dict(name=name,size_gib=8 if formal else 1,mount_limit_bytes=capacity,
                 huge_policy='never' if name=='m2-control' else 'within_size',
-                preflight_mem_bytes=12*GIB+capacity+GIB if formal else 12*GIB)
+                preflight_mem_bytes=12*GIB+capacity+GIB if formal else 12*GIB,
+                preflight_free_bytes=capacity+GIB if formal else 0)
 
 def validate_profile(args):
     spec=profile_spec(getattr(args,'profile','admission'))
@@ -38,6 +39,17 @@ def validate_profile(args):
 def available_memory():
     return int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines()
                     if line.startswith('MemAvailable:')))*1024
+
+def free_memory():
+    return int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines()
+                    if line.startswith('MemFree:')))*1024
+
+def memory_headroom(spec,allocating=True):
+    state=dict(mem_available_bytes=available_memory(),mem_free_bytes=free_memory())
+    assert state['mem_available_bytes']>=spec['preflight_mem_bytes'],'private profile memory preflight'
+    if allocating:
+        assert state['mem_free_bytes']>=spec['preflight_free_bytes'],'private profile physical free preflight'
+    return state
 
 def save(path,value):
     path.write_text(json.dumps(value,indent=2)+'\n')
@@ -216,7 +228,7 @@ def launch(args):
     assert os.geteuid()!=0,'launch as Su'
     owner=pwd.getpwnam('Su');assert os.getuid()==owner.pw_uid
     spec=validate_profile(args)
-    assert available_memory()>=spec['preflight_mem_bytes'],'private profile memory preflight'
+    memory_headroom(spec,allocating=args.mode=='v3')
     native=getattr(args,'native_setup',False)
     helper=Path(__file__).resolve().parents[2]/'build/cpnetflux-private-tmpfs-launcher'
     if native and not helper.is_file():raise ValueError('build the native private tmpfs launcher first')

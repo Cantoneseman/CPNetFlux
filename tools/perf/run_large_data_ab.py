@@ -129,6 +129,9 @@ def seed(args):
     base.receipt(args.commit)
     assert base.node()==2 and shutil.disk_usage('/dev/shm').free>SIZE+base.GIB
     assert base.mem()>=12*base.GIB, 'seed memory threshold before allocation'
+    if getattr(args,'reproducible_source',False):
+        import private_tmpfs
+        private_tmpfs.memory_headroom(private_tmpfs.profile_spec('m2-control'))
     source=base.owned(args.payload_root,'source');source.mkdir()
     path=source/'f000000.bin';state=base.resource_state();state['owner_before']=cgroup_owner()
     def guard(phase):

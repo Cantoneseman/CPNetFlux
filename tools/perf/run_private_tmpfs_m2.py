@@ -74,7 +74,8 @@ def receipt(commit):
     result['binaries']['cpnetflux-private-tmpfs-launcher']=base.sha(base.PROJECT/'build/cpnetflux-private-tmpfs-launcher')
     result['source_objects']={name:base.output('git','-C',str(base.PROJECT),'rev-parse','HEAD:'+name)
                               for name in ('src','include','tests','tools','CMakeLists.txt')}
-    result.update(snapshot=base.snapshot(),inventory=net.inventory(),
+    result.update(memory_headroom=dict(mem_available_bytes=private.available_memory(),mem_free_bytes=private.free_memory()),
+                  snapshot=base.snapshot(),inventory=net.inventory(),
                   qdisc=base.output('tc','qdisc','show','dev','eno17095np0'),host=private.host_state())
     stat=os.statvfs('/dev/shm');result['shm_used_bytes']=(stat.f_blocks-stat.f_bfree)*stat.f_frsize
     result['owned_paths']=[str(p) for p in Path('/dev/shm').glob('cpnetflux-s0-*')]
@@ -168,7 +169,10 @@ def matrix(args):
     evidence=private.validate_evidence(args.evidence);evidence.mkdir(exist_ok=False)
     before=receipts(args.commit);base.save(evidence/'before.json',before)
     floor=private.profile_spec('m2-candidate')['preflight_mem_bytes']
-    for r in before.values():require(r['snapshot']['mem_available_bytes']>=floor,'8GiB preflight memory floor')
+    for r in before.values():
+        require(r['snapshot']['mem_available_bytes']>=floor,'8GiB preflight memory floor')
+        require(r['memory_headroom']['mem_free_bytes']>=private.profile_spec('m2-candidate')['preflight_free_bytes'],
+                '8GiB physical free preflight')
     recovered=recovery_receipt(args.recovery_receipt,before)
     rows=[];attempted=[];failure=None;scene=False
     def one(rep,arm):
@@ -179,6 +183,8 @@ def matrix(args):
                     require(builds[side][key]['pswpout']==before[side][key]['pswpout'],'between-task swap-out')
                 else:require(builds[side][key]==before[side][key],'between-task environment changed')
             require(builds[side]['snapshot']['mem_available_bytes']>=floor,'between-task headroom')
+            require(builds[side]['memory_headroom']['mem_free_bytes']>=private.profile_spec('m2-candidate')['preflight_free_bytes'],
+                    'between-task physical free headroom')
         folder=evidence/(str(rep)+'-'+arm)
         root=Path('/dev/shm')/('cpnetflux-s0-private55-m258-'+args.commit[:7]+'-'+str(rep)+'-'+arm)
         attempted.append(dict(rep=rep,arm=arm,evidence=str(folder)))

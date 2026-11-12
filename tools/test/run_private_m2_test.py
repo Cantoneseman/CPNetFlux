@@ -55,6 +55,21 @@ class PrivateM2Tests(unittest.TestCase):
                 with self.assertRaisesRegex(AssertionError,'memory preflight'):private.launch(args)
             self.assertFalse(args.payload_root.exists());self.assertFalse(args.evidence.exists())
 
+    def test_large_allocation_requires_physical_free_headroom_before_any_paths(self):
+        import tempfile,uuid
+        from unittest.mock import patch
+        self.assertTrue(hasattr(private,'free_memory'),'physical-free preflight missing')
+        with tempfile.TemporaryDirectory() as folder:
+            args=SimpleNamespace(profile='m2-candidate',native_setup=True,mode='v3',
+                enable_private_tmpfs=True,kernel_tcp_pacing=True,commit='a'*40,
+                payload_root=Path('/dev/shm/cpnetflux-s0-private55-free58-'+uuid.uuid4().hex),
+                evidence=Path(folder)/'not-created')
+            spec=private.profile_spec(args.profile)
+            with patch.object(private,'available_memory',return_value=32*1024**3), \
+                 patch.object(private,'free_memory',return_value=spec['mount_limit_bytes']+1024**3-1):
+                with self.assertRaisesRegex(AssertionError,'physical free'):private.launch(args)
+            self.assertFalse(args.payload_root.exists());self.assertFalse(args.evidence.exists())
+
     def test_reproducible_source_is_identical_without_changing_default_fixture(self):
         import run_large_data_ab as large
         self.assertTrue(hasattr(large,'source_block'),'reproducible source fixture missing')

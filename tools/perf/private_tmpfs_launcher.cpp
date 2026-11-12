@@ -138,14 +138,20 @@ std::string profileFields(const Options& o) {
 void validate(const Options& o) {
     require(::geteuid() == 0 && ::getuid() == 0, "supervisor requires explicit sudo");
     if (o.profile != "admission") {
-        std::ifstream input("/proc/meminfo"); std::string line; std::uint64_t available = 0;
+        std::ifstream input("/proc/meminfo"); std::string line;
+        std::uint64_t available = 0, free = 0;
         while (std::getline(input, line)) {
             if (line.rfind("MemAvailable:", 0) == 0) {
-                std::istringstream fields(line.substr(13)); fields >> available; break;
+                std::istringstream fields(line.substr(13)); fields >> available;
+            } else if (line.rfind("MemFree:", 0) == 0) {
+                std::istringstream fields(line.substr(8)); fields >> free;
             }
         }
         require(available * 1024 >= 13ULL * 1024 * 1024 * 1024 + capacityBytes(o),
                 "formal profile memory preflight");
+        if (o.mode == "v3")
+            require(free * 1024 >= 1024ULL * 1024 * 1024 + capacityBytes(o),
+                    "formal profile physical free preflight");
     }
     const passwd* owner = ::getpwnam("Su");
     require(owner && o.uid != 0 && o.uid == owner->pw_uid && o.gid == owner->pw_gid, "only Su workload allowed");

@@ -74,7 +74,7 @@ def run(args):
         assert mount['mount_limit_bytes']==spec['mount_limit_bytes'] and mount['huge_policy']==huge
     if args.native_setup:
         assert mount.get('setup_strategy')=='native_syscalls' and mount.get('supervisor_euid')==0
-    assert base.mem()>=spec['preflight_mem_bytes'],'bounded receiver preflight'
+    private.memory_headroom(spec)
     broad_before=net.snapshot(full=True)
     before=base.snapshot();base.save(args.evidence/'preflight-r1.json',before)
     local=base.receipt(args.commit);remote=base.peer(args,'receipt');assert local==remote

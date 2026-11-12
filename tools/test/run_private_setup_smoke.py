@@ -122,6 +122,15 @@ def run(build):
           '--host-namespace',initial['namespace'],'--setup-started',str(time.monotonic())]
     def replaced(key,value):
         result=args.copy();result[result.index(key)+1]=value;return result
+    native_free_refusal=None
+    if private.free_memory()<private.profile_spec('m2-control')['preflight_free_bytes']:
+        command=replaced('--mode','v3')
+        command[command.index('--commit')+1]='a'*40
+        command+=['--profile','m2-control']
+        result=subprocess.run(command,capture_output=True,text=True,timeout=10)
+        assert result.returncode==2 and 'physical free preflight' in result.stderr,result.stderr
+        assert not list(badroot.iterdir()) and private.host_state()==initial
+        native_free_refusal=True
     cases=[args+['--command','/bin/true'],replaced('--uid','0'),replaced('--inode',str(inode+1)),
            replaced('--payload-root','/dev/shm'),replaced('--evidence','/tmp'),
            replaced('--mode','arbitrary'),replaced('--host-namespace','mnt:[0]'),
@@ -142,7 +151,7 @@ def run(build):
     finally:
         assert payload.stat().st_ino==inode and not os.path.ismount(payload) and not list(payload.iterdir())
         payload.rmdir()
-    report=dict(result='pass',lifecycle=receipts,m2_capacity_profiles=profiles,negative_cases=len(cases),symlink_receipt_rejected=True,
+    report=dict(result='pass',lifecycle=receipts,m2_capacity_profiles=profiles,native_free_refusal=native_free_refusal,negative_cases=len(cases),symlink_receipt_rejected=True,
                 host_unchanged=True,evidence=str(evidence),performance_claim=False)
     (evidence/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report));return 0
