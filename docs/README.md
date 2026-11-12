@@ -1,5 +1,7 @@
 # CPNetFlux 文档导航
 
+最新局部准入：[私有tmpfs首次大页54](tasks/2026-11-12-v3-private-tmpfs-54-result.md)：真实新目标窗口五对，worker CPU/墙钟和中位约降低49.8%/50.7%，5/5改善且CV约1.1%；无全局设置变更。下一阶段为默认关闭、有界私有目标后端的完整V3≤1GiB验证；尚无新跨机性能成绩，M2及网络稳定性仍开放。
+
 最新修复：[范围记录ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已消除分配ID的二次扫描；两端各251项相关回归通过。局部收益已量化，无新跨机性能样本，M2/网络稳定性仍开放。下一步核验私有有界tmpfs首次大folio分配机制，不修改全局THP或共享挂载。
 
 交付C历史快照已核对Task51/52版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
