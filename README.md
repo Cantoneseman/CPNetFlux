@@ -1,6 +1,6 @@
 # CPNetFlux
 
-最新验收：[阶段80](docs/tasks/2026-11-13-field-trial-scenarios-80-result.md)固定内存配置1GiB五对CP30.80/GridFTP12.10Gbps，三类目录和反向通过；[阶段82](docs/tasks/2026-11-13-field-trial-final-82-result.md)跨机TLS及坏token拒绝已PASS。C首个任务内容正确，但常驻源PID不在观察器所有权匹配范围，观测门失败；不是实际swap/内存超限。两端回滚清理完成。下一步[83](docs/tasks/2026-11-13-field-trial-observer-83.md)补私有源服务精确所有权覆盖、用真实observer预演后完成C/F。运行二进制/性能配置不变；整体NOT_READY，未宣称长期稳定、加密大文件或100G成绩。
+最新验收：[阶段80](docs/tasks/2026-11-13-field-trial-scenarios-80-result.md)固定内存配置五对CP30.80/GridFTP12.10Gbps、目录与反向通过；S跨机TLS/认证已通过。[阶段83](docs/tasks/2026-11-13-field-trial-observer-83-result.md)189任务/1468秒全部已接受任务正确，源FD4/swap0，但第190次退出空命令名覆盖汇总造成观测假阴性，未满1800秒，C不转PASS且F未跑。原FAIL/8281项证据已保留备份。下一步[84](docs/tasks/2026-11-13-field-trial-history-84.md)按PID/start保留真实程序名历史，真实trace回放与7项负例通过后重做完整C/F。运行二进制/性能配置不变；整体NOT_READY，不声称已长期稳定、连续线速或100G。
 
 历史实测：[阶段75](docs/tasks/2026-11-12-field-trial-comparison-75-result.md)1GiB五对中位CP31.075/Grid12.352Gbps；[阶段77](docs/tasks/2026-11-13-field-trial-continuation-77-result.md)dense各3次0.399/0.945秒、tiny各3次3.504/2.561秒，mixed文件全对但空目录丢失。上述为旧运行时成绩，不能搬到新二进制。临时RX4096已恢复1024，阶段77现场已清理；新窗口需重新准入，不启动吞吐参数扫描。
 
