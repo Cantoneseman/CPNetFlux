@@ -1,5 +1,7 @@
 # CPNetFlux 性能路线图
 
+最新诊断交付：[阶段65：连接/接收队列观测补全](tasks/2026-11-12-rss-flow-evidence-65-result.md)。12条低速probe的RSS预测全部验证；V3实际端口及最后CPU/NAPI已实现，双端各5项回归、一次0字节跨机功能核验通过。没有新增吞吐成绩，OOB因果尚未关闭；比较、稳定性和上机状态仍以下列阶段64失败边界为准。
+
 当前交付复核：[阶段64正式比较中止](tasks/2026-11-12-field-trial-comparison-64-result.md)：固定版本仅1/5完整有效配对，第2对CP在R1触发OOB/missed各+1275；比较NO-GO、稳定性未开始、上机NOT_READY。代码与既有工程闭环保持，不发布速度倍数或稳定40G。
 
 开发闭环已验收：[阶段60结果](tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过；后续比较/稳定性状态以阶段64为准。
