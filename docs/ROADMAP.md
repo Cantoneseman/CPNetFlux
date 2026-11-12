@@ -1,12 +1,14 @@
 # CPNetFlux 性能路线图
 
-开发闭环已验收：[阶段60结果](tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过，GridFTP比较和双机长时稳定性待执行。
+当前交付复核：[阶段64正式比较中止](tasks/2026-11-12-field-trial-comparison-64-result.md)：固定版本仅1/5完整有效配对，第2对CP在R1触发OOB/missed各+1275；比较NO-GO、稳定性未开始、上机NOT_READY。代码与既有工程闭环保持，不发布速度倍数或稳定40G。
 
-当前执行：[阶段63结果](tasks/2026-11-12-field-trial-sender-policy-63-result.md)：既有应用pacer的私有后端入口已完成，双端相关7/7；唯一1GiB完整目标任务39.924Gbps，内容/资源/页型/网络/清理通过。仅单次可行性，旧40G/M2门未过；正式GridFTP配对与长时稳定性待执行。原kernel ceiling样本OOB/missed +1344的失败保留，不作收益对照。
+开发闭环已验收：[阶段60结果](tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过；后续比较/稳定性状态以阶段64为准。
+
+前次入口验收：[阶段63结果](tasks/2026-11-12-field-trial-sender-policy-63-result.md)：既有应用pacer的私有后端入口已完成，双端相关7/7；唯一1GiB完整目标任务39.924Gbps，内容/资源/页型/网络/清理通过。仅单次可行性，旧40G/M2门未过；其后正式GridFTP比较在阶段64失败，长时稳定性仍未开始。原kernel ceiling样本OOB/missed +1344的失败保留，不作收益对照。
 
 当前用户优先级：[保持性能、已有阶段闭环→GridFTP复测→稳定性→上机候选](tasks/2026-11-12-field-trial-closeout-60.md)，见[路线决定](DECISIONS/2026-11-12-field-trial-freeze.md)。旧M2结果保持；暂停自动推进内存后端/40Gbps调优，仅补清理缺陷与交付。
 
-当前交付C：[Task58后最终集成与边界](tasks/2026-11-12-performance-delivery-c-task58.md)、[当前冻结清单](tasks/2026-11-12-performance-delivery-c-task58-freeze.json)：代码/配置/回归/现场与备份收口；ENGINEERING CLOSED / M2 OPEN，正式资源门仍未通过。
+历史Task58交付C：[Task58后最终集成与边界](tasks/2026-11-12-performance-delivery-c-task58.md)、[当前冻结清单](tasks/2026-11-12-performance-delivery-c-task58-freeze.json)：代码/配置/回归/现场与备份收口；ENGINEERING CLOSED / M2 OPEN，正式资源门仍未通过。
 
 最新交付：[Task58 / 有界8GiB与正式M2资源停止](tasks/2026-11-12-v3-private-m2-58-result.md)：固定双profile/五对矩阵和8GiB能力已实现；唯一尝试在第1个control源write时因R2 host pswpout +1页停止，未启动网络传输，完整样本0。源leaf swap/回收为0、user-1002祖先swap +4096B，具体对象未识别。已补MemFree≥9.25GiB的分配前拒绝；最终双端相关8/8通过，原输入双端262/262及候选恢复各2/2通过。M2 OPEN，当前资源未准入，不重跑；[冻结](tasks/2026-11-12-v3-private-m2-58-freeze.json)。
 
@@ -19,7 +21,7 @@
 历史交付：[Task55 / 私有tmpfs完整V3准入与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：默认关闭的有界后端与两端各18项相关回归通过。唯一1GiB样本计入必要目标准备后35.710Gbps，OOB/missed各+261，网络门失败；原始客户端窗口45.922Gbps不计为合格性能成绩。资源/内容/实际页型/清理通过，未运行新8GiB矩阵，M2仍开放；停止本候选的追加payload与扫描。冻结见[清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)。
 
 前序机制：[首次大页54](tasks/2026-11-12-v3-private-tmpfs-54-result.md)仅局部五对通过；
-[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以Task58结果与路线图为准，不沿用旧文档“待做1GiB”的历史下一步。
+[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以阶段64结果与路线图页首为准，不沿用旧文档“待做1GiB”的历史下一步。
 
 交付C历史快照已核对Task51/52版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
 

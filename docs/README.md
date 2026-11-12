@@ -1,10 +1,12 @@
 # CPNetFlux 文档导航
 
-开发闭环已验收：[阶段60结果](tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过，GridFTP比较和双机长时稳定性待执行。
+当前交付复核：[阶段64正式比较中止](tasks/2026-11-12-field-trial-comparison-64-result.md)：固定版本仅1/5完整有效配对，第2对CP在R1触发OOB/missed各+1275；比较NO-GO、稳定性未开始、上机NOT_READY。代码与既有工程闭环保持，不发布速度倍数或稳定40G。
+
+开发闭环已验收：[阶段60结果](tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过；后续比较/稳定性状态以阶段64为准。
 
 当前执行：[阶段60：保持性能、开发闭环→GridFTP复测→稳定性→上机候选](tasks/2026-11-12-field-trial-closeout-60.md)。M2及历史交付不改，未完成实际实验前不标稳定性通过。
 
-当前交付C：[Task58后最终集成与边界](tasks/2026-11-12-performance-delivery-c-task58.md)、[当前冻结清单](tasks/2026-11-12-performance-delivery-c-task58-freeze.json)：代码/配置/回归/现场与备份收口；ENGINEERING CLOSED / M2 OPEN，正式资源门仍未通过。
+历史Task58交付C：[Task58后最终集成与边界](tasks/2026-11-12-performance-delivery-c-task58.md)、[当前冻结清单](tasks/2026-11-12-performance-delivery-c-task58-freeze.json)：代码/配置/回归/现场与备份收口；ENGINEERING CLOSED / M2 OPEN，正式资源门仍未通过。
 
 最新交付：[Task58 / 有界8GiB与正式M2资源停止](tasks/2026-11-12-v3-private-m2-58-result.md)：固定双profile/五对矩阵和8GiB能力已实现；唯一尝试在第1个control源write时因R2 host pswpout +1页停止，未启动网络传输，完整样本0。源leaf swap/回收为0、user-1002祖先swap +4096B，具体对象未识别。已补MemFree≥9.25GiB的分配前拒绝；最终双端相关8/8通过，原输入双端262/262及候选恢复各2/2通过。M2 OPEN，当前资源未准入，不重跑；[冻结](tasks/2026-11-12-v3-private-m2-58-freeze.json)。
 
@@ -15,7 +17,7 @@
 历史交付：[Task55 / 私有tmpfs完整V3准入与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：默认关闭的有界后端与两端各18项相关回归通过。唯一1GiB样本计入必要目标准备后35.710Gbps，OOB/missed各+261，网络门失败；原始客户端窗口45.922Gbps不计为合格性能成绩。资源/内容/实际页型/清理通过，未运行新8GiB矩阵，M2仍开放；停止本候选的追加payload与扫描。冻结见[清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)。
 
 前序机制：[首次大页54](tasks/2026-11-12-v3-private-tmpfs-54-result.md)仅局部五对通过；
-[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以Task58结果与路线图为准，不沿用旧文档“待做1GiB”的历史下一步。
+[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以阶段64结果与路线图页首为准，不沿用旧文档“待做1GiB”的历史下一步。
 
 交付C历史快照已核对Task51/52版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
 
@@ -30,16 +32,16 @@
 |---|---|
 | 项目、服务器与开发入口 | [项目 README](../README.md)、[开发规则](../AGENTS.md)、[R770 环境](coordination/ENVIRONMENT.md) |
 | 当前状态、配置、未过门与下一项 | [性能路线图](ROADMAP.md) |
-| 当前工程交付状态 | [最新交付C](tasks/2026-11-12-performance-delivery-c-task58.md)：ENGINEERING CLOSED / M2 OPEN，Task58源准备资源停止；[Task50历史收尾合同](tasks/2026-11-11-performance-stage-closeout-handoff.md)保留原边界 |
+| 历史Task58工程交付状态 | [Task58交付C](tasks/2026-11-12-performance-delivery-c-task58.md)：ENGINEERING CLOSED / M2 OPEN，Task58源准备资源停止；[Task50历史收尾合同](tasks/2026-11-11-performance-stage-closeout-handoff.md)保留原边界 |
 | 交付B：成绩与M2判定 | [Task58正式尝试](tasks/2026-11-12-v3-private-m2-58-result.md)：源准备资源停止，0完整任务；[Task50历史NO-GO](tasks/2026-11-11-v3-sender-pacing-50-result.md)不作当前准入结论 |
 | 历史Task50交付C：冻结与边界 | [配置/版本冻结清单](tasks/2026-11-11-v3-sender-pacing-50-freeze.json)、[C销项结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：同运行时回归证据、现场清理与RDMA预算评估完成；阶段ENGINEERING CLOSED / M2 OPEN |
 | 暂存研究 idea（本轮不开发） | [统一工作单元与预算感知策略记忆](ideas/2026-11-11-unified-work-unit-and-budgeted-policy-memory.md)：DEFERRED，需用户明确重启 |
 | 当前批准主线与串行交接 | [里程碑35计划](tasks/2026-11-10-v3-large-file-milestone-35.md)、[实现/1GiB结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)、[M1-41计划](tasks/2026-11-11-v3-large-file-m1-41.md)、[M1-41结果：资源门中止、无吞吐样本](tasks/2026-11-11-v3-large-file-m1-41-result.md)、[M1-44计划](tasks/2026-11-11-v3-large-file-m1-44.md)、[M1-44结果：8GiB正式门通过](tasks/2026-11-11-v3-large-file-m1-44-result.md)、[M1-45接收端profile诊断](tasks/2026-11-11-v3-receiver-profile-diagnostic-45.md)、[Task46合同与结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46.md)、[Task46中止结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)、[资源失败证据补全42结果](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)、[host pswpout诊断43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)、[分层准入与路线决定](DECISIONS/2026-11-10-v3-performance-milestones.md) |
 | 近期诊断结果 | [无payload host pswpout归因43](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端均未复现，M1-41单页事件仍未定位 |
-| 最新执行结果 | [Task58结果](tasks/2026-11-12-v3-private-m2-58-result.md)、[冻结](tasks/2026-11-12-v3-private-m2-58-freeze.json)：有界8GiB/物理free拒绝已交付，资源未准入，无新吞吐成绩 |
+| 最新执行结果 | [阶段64结果](tasks/2026-11-12-field-trial-comparison-64-result.md)、[冻结](tasks/2026-11-12-field-trial-comparison-64-freeze.json)：1/5有效配对后网络门停止，稳定性未开始、上机NOT_READY |
 | 执行方式和缓冲所有权 | [三阶段指南](V3_TRANSFER_STAGES.md)、[映射下载边界](tasks/2026-11-08-v3-mapped-download-08-result.md) |
 | 接收队列计数归因 | [Task47合同](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47.md)、[Task47结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md)、[Task48计划](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48.md)、[Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md) |
-| 当前开发 | [阶段60](tasks/2026-11-12-field-trial-closeout-60.md)：补清理生命周期与指南、固定版本后串行交接配置和实验；持续性能调优暂不推进 |
+| 当前开发 | [阶段64](tasks/2026-11-12-field-trial-comparison-64-result.md)：正式比较因OOB停止；先解决可验证的接收服务/流分布问题，再重开比较与稳定性 |
 | 设计、协议与工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md)、[目录传输](DIRECTORY_TRANSFER.md) |
 | 安全、发布与证据边界 | [安全](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md)、[历史研究基线](RESEARCH_BASELINE.md) |
 

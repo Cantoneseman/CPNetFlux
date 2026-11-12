@@ -1,6 +1,8 @@
 # CPNetFlux
 
-开发闭环已验收：[阶段60结果](docs/tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过，GridFTP比较和双机长时稳定性待执行。
+当前交付复核：[阶段64正式比较中止](docs/tasks/2026-11-12-field-trial-comparison-64-result.md)：固定版本仅1/5完整有效配对，第2对CP在R1触发OOB/missed各+1275；比较NO-GO、稳定性未开始、上机NOT_READY。代码与既有工程闭环保持，不发布速度倍数或稳定40G。
+
+开发闭环已验收：[阶段60结果](docs/tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过；后续比较/稳定性状态以阶段64为准。
 
 CPNetFlux 面向超算中心节点间科学数据传输，提供分块校验、断点恢复和目录编排。运行时统一使用 V3 执行器、数据协议与工作租约；提供 GridFTP 风格控制接口及 CPNetFlux framed data channel，不是完整 GridFTP 实现。数据面支持 TCP 和显式选择的原生 RDMA SEND/RECV，控制面为 TCP/TLS。
 
@@ -20,7 +22,7 @@ Task50历史阶段状态为ENGINEERING CLOSED / M2 OPEN；40–50、70–85/100G
 
 最新[Task58 / 有界8GiB与正式M2](docs/tasks/2026-11-12-v3-private-m2-58-result.md)：矩阵驱动和有界后端已实现；唯一正式尝试在源准备时因host swap-out +1页停止，尚未网络传输、无新增有效吞吐。已补物理空闲内存分配前保护，两端最终专项各8项通过；M2资源门仍未通过，不重跑。历史[Task57](docs/tasks/2026-11-12-v3-private-setup-57-result.md)的1GiB完整目标40.865Gbps只作单次可行性准入，正式性能以[路线图](docs/ROADMAP.md)和固定提交结果为准。
 
-最新工程[交付C](docs/tasks/2026-11-12-performance-delivery-c-task58.md)汇总最终配置、同版本回归、清理与RDMA重启边界；工程收口完成，M2正式资源门仍未通过。
+历史Task58工程[交付C](docs/tasks/2026-11-12-performance-delivery-c-task58.md)汇总最终配置、同版本回归、清理与RDMA重启边界；工程收口完成，M2正式资源门仍未通过。
 
 ## 服务器与开发环境
 
