@@ -1426,6 +1426,30 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     if (paced && (socket->tlsEnabled() || socket->transport() != DataTransport::Tcp ||
         channelCount > 4 || (transferOptions && transferOptions->hotPathCompression.enabled)))
         return Status::invalidArgument("sender pacing requires plain uncompressed V3 TCP and at most four lanes");
+    const char* kernelValue = std::getenv("CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND");
+    const std::string_view kernelPacing = kernelValue ? kernelValue : "off";
+    if (kernelPacing != "off" && kernelPacing != "2000000000")
+        return Status::invalidArgument("CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND must be off or 2000000000");
+    const bool kernelPaced = kernelPacing != "off";
+    if (kernelPaced && (paced || channelCount > 4 || socket->tlsEnabled() ||
+        socket->transport() != DataTransport::Tcp ||
+        (transferOptions && transferOptions->hotPathCompression.enabled)))
+        return Status::invalidArgument("kernel pacing requires plain uncompressed TCP, at most four lanes and application pacing off");
+    auto kernelStatus = socket->configureTcpKernelPacing(kernelPaced ? 2000000000ULL : 0);
+    if (!kernelStatus.isOk()) return kernelStatus;
+    struct KernelPacingReceipt {
+        bool enabled; std::uint32_t lane; FramedDataSocket* socket;
+        ~KernelPacingReceipt() {
+            if (!enabled) return;
+            const auto s = socket->tcpKernelPacingStats();
+            std::fprintf(stderr,
+                "CPNETFLUX_TCP_KERNEL_PACING {\"lane\":%u,\"requested_bytes_per_second\":%llu,"
+                "\"effective_ceiling_bytes_per_second\":%llu,\"enabled\":%s,"
+                "\"scope\":\"TCP_socket_ceiling_not_achieved_rate\",\"application_pacer_enabled\":false}\n",
+                lane, (unsigned long long)s.requestedBytesPerSecond,
+                (unsigned long long)s.effectiveBytesPerSecond, s.enabled ? "true" : "false");
+        }
+    } kernelReceipt{kernelPaced, channelIndex, socket};
     detail::SenderPacer pacer(paced ? detail::SenderPacer::kRate : 0);
     struct PacingReceipt {
         bool enabled; std::uint32_t lane; detail::SenderPacer& p;

@@ -42,6 +42,11 @@ Task55已完成默认关闭私有tmpfs实验后端与本轮交付C冻结，见[�
 本候选停止追加试验；下一机制必须解释可减少的接收服务工作与OOB证据边界，
 不放宽门、不扫描参数，也不自动重启RDMA/DEFERRED项。
 
+用户持续目标推进：Task55原样重跑保持停止；[Task56合同](tasks/2026-11-12-v3-kernel-tcp-pacing-56.md)
+另行验证per-socket内核TCP pacing。它移除旧应用pacer每DATA帧timer等待，把节奏交给TCP，
+不是重调Task51的timer/rate，不改全局qdisc。仅固定单候选、默认off；OOB根因和M2仍未解决。
+旧“下一机制待确定”由本合同具体化，其他停止门与暂停范围不变。
+
 ## 当前主线
 
 **M1已在8GiB完整V3 TCP任务中跨过30Gbps；本阶段工程收口，40–50Gbps的M2仍未验收。发送节奏候选仅保留为默认关闭的诊断能力。**

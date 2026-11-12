@@ -1232,3 +1232,114 @@ TEST(FramedDataSocketTest, ExactReadBadCrcCannotPublishDestination) {
     EXPECT_FALSE(std::filesystem::exists(destination/"corrupt.bin"));
     EXPECT_EQ(receiver.tcpExactReadStats().bytes,bytes.size());
 }
+
+namespace {
+struct KernelPacingSetting {
+    std::optional<std::string> old;
+    explicit KernelPacingSetting(const char* value) {
+        if (const char* p=std::getenv("CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND")) old=p;
+        if (value) ::setenv("CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND",value,1);
+        else ::unsetenv("CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND");
+    }
+    ~KernelPacingSetting() {
+        if(old) ::setenv("CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND",old->c_str(),1);
+        else ::unsetenv("CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND");
+    }
+};
+}
+TEST(FramedDataSocketTest, KernelPacingRejectsInvalidEnvironmentBeforeSending) {
+    using namespace cpnetflux::core::io;
+    KernelPacingSetting setting("invalid");
+    SocketPair pair;
+    PersistentTreeStats stats;
+    auto status=sendPersistentTree(&pair.sender,"/tmp",{},&stats);
+    EXPECT_EQ(status.code(),StatusCode::InvalidArgument);
+}
+
+namespace {
+FramedDataSocket kernelTestSocket() {
+    const int fd=::socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0);
+    if(fd<0) throw std::runtime_error("TCP socket");
+    return FramedDataSocket(UniqueFd(fd));
+}
+std::uint64_t socketPacingLimit(int fd) {
+    std::uint64_t value=0;socklen_t length=sizeof(value);
+    if(::getsockopt(fd,SOL_SOCKET,SO_MAX_PACING_RATE,&value,&length)!=0 || length!=sizeof(value))
+        throw std::runtime_error("SO_MAX_PACING_RATE readback");
+    return value;
+}
+}
+TEST(FramedDataSocketTest, KernelPacingDefaultOffDoesNotRequireValidSocket) {
+    FramedDataSocket socket;
+    EXPECT_TRUE(socket.configureTcpKernelPacing(0).isOk());
+    EXPECT_FALSE(socket.tcpKernelPacingStats().enabled);
+    EXPECT_FALSE(socket.configureTcpKernelPacing(2000000000ULL).isOk());
+}
+TEST(FramedDataSocketTest, KernelPacingReadbackAndResetRestoreExistingCeiling) {
+    auto socket=kernelTestSocket();
+    ASSERT_TRUE(socket.configureDataFrameBytes(262144).isOk());
+    const std::uint64_t initial=1700000000;
+    ASSERT_EQ(::setsockopt(socket.fd(),SOL_SOCKET,SO_MAX_PACING_RATE,&initial,sizeof(initial)),0);
+    ASSERT_TRUE(socket.configureTcpKernelPacing(2000000000ULL).isOk());
+    EXPECT_EQ(socketPacingLimit(socket.fd()),2000000000ULL);
+    EXPECT_EQ(socket.tcpKernelPacingStats().requestedBytesPerSecond,2000000000ULL);
+    EXPECT_EQ(socket.tcpKernelPacingStats().effectiveBytesPerSecond,2000000000ULL);
+    ASSERT_TRUE(socket.configureTcpKernelPacing(2000000000ULL).isOk());
+    ASSERT_TRUE(socket.configureTcpKernelPacing(0).isOk());
+    EXPECT_EQ(socketPacingLimit(socket.fd()),initial);
+    EXPECT_FALSE(socket.tcpKernelPacingStats().enabled);
+}
+TEST(FramedDataSocketTest, KernelPacingRejectsWrongRateAndDataLimitWithoutChangingSocket) {
+    auto socket=kernelTestSocket();
+    const auto initial=socketPacingLimit(socket.fd());
+    EXPECT_FALSE(socket.configureTcpKernelPacing(2000000000ULL).isOk());
+    ASSERT_TRUE(socket.configureDataFrameBytes(262144).isOk());
+    EXPECT_FALSE(socket.configureTcpKernelPacing(1500000000ULL).isOk());
+    EXPECT_FALSE(socket.configureTcpKernelPacing(std::numeric_limits<std::uint64_t>::max()).isOk());
+    EXPECT_EQ(socketPacingLimit(socket.fd()),initial);
+}
+TEST(FramedDataSocketTest, KernelPacingRejectsNonTcpSocket) {
+    SocketPair pair;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    EXPECT_FALSE(pair.sender.configureTcpKernelPacing(2000000000ULL).isOk());
+    EXPECT_FALSE(pair.sender.tcpKernelPacingStats().enabled);
+}
+TEST(FramedDataSocketTest, KernelPacingMoveAndCloseRespectSocketOwnership) {
+    auto socket=kernelTestSocket();
+    ASSERT_TRUE(socket.configureDataFrameBytes(262144).isOk());
+    const auto initial=socketPacingLimit(socket.fd());
+    ASSERT_TRUE(socket.configureTcpKernelPacing(2000000000ULL).isOk());
+    FramedDataSocket moved(std::move(socket));
+    EXPECT_FALSE(socket.valid());
+    socket.close();
+    EXPECT_TRUE(moved.tcpKernelPacingStats().enabled);
+    EXPECT_EQ(socketPacingLimit(moved.fd()),2000000000ULL);
+    ASSERT_TRUE(moved.configureTcpKernelPacing(0).isOk());
+    EXPECT_EQ(socketPacingLimit(moved.fd()),initial);
+    ASSERT_TRUE(moved.configureTcpKernelPacing(2000000000ULL).isOk());
+    moved.close();
+    EXPECT_FALSE(moved.valid());
+    EXPECT_FALSE(moved.tcpKernelPacingStats().enabled);
+}
+TEST(FramedDataSocketTest, KernelPacingPropagatesSocketQueryFailure) {
+    auto socket=kernelTestSocket();
+    ASSERT_TRUE(socket.configureDataFrameBytes(262144).isOk());
+    ASSERT_EQ(::close(socket.fd()),0);
+    const auto status=socket.configureTcpKernelPacing(2000000000ULL);
+    EXPECT_EQ(status.code(),StatusCode::TransportError);
+    EXPECT_EQ(status.errorNumber(),EBADF);
+    socket.close();
+}
+TEST(FramedDataSocketTest, KernelPacingRejectsApplicationPacerAndTooManyLanes) {
+    using namespace cpnetflux::core::io;
+    KernelPacingSetting kernel("2000000000");
+    for(const bool app:{false,true}) {
+        SenderPacingSetting setting(app ? "1500000000" : "off");
+        SocketPair pair;
+        ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+        PersistentTreeStats stats;
+        const auto status=sendPersistentTree(&pair.sender,"/tmp",{},&stats,{},1,0,app?4:5);
+        EXPECT_EQ(status.code(),StatusCode::InvalidArgument);
+        EXPECT_NE(status.message().find("at most four lanes"),std::string::npos);
+    }
+}

@@ -131,6 +131,7 @@ def namespace(args):
             script=Path(__file__).with_name('run_private_tmpfs_v3.py')
             command=[sys.executable,str(script),'--action','run','--evidence',str(args.evidence),
                      '--payload-root',str(mp),'--commit',args.commit,'--enable-private-tmpfs']
+            if args.kernel_tcp_pacing:command.append('--kernel-tcp-pacing')
         else:
             command=[sys.executable,str(Path(__file__).resolve()),'--action','probe',
                      '--payload-root',str(mp),'--evidence',str(args.evidence),'--mode',args.mode]
@@ -192,6 +193,7 @@ def launch(args):
         '--uid',str(owner.pw_uid),'--gid',str(owner.pw_gid),'--inode',str(st.st_ino),
         '--host-namespace',before['namespace'],'--commit',args.commit,
         '--setup-started',str(setup_started)]
+    if args.kernel_tcp_pacing:command.append('--kernel-tcp-pacing')
     try:
         result=run_child(command,args.evidence/'launcher.log',720,
                          on_cancel=lambda:(args.evidence/'cancel.request').touch(exist_ok=True))
@@ -222,11 +224,13 @@ def main():
     p.add_argument('--payload-root',type=Path,required=True)
     p.add_argument('--evidence',type=Path,required=True)
     p.add_argument('--mode',choices=['v3','smoke','smoke-fail','smoke-timeout','smoke-cancel','smoke-v3'],default='v3')
+    p.add_argument('--kernel-tcp-pacing',action='store_true')
     p.add_argument('--commit',default='')
     p.add_argument('--uid',type=int);p.add_argument('--gid',type=int);p.add_argument('--inode',type=int)
     p.add_argument('--host-namespace')
     p.add_argument('--setup-started',type=float)
     args=p.parse_args()
+    if args.kernel_tcp_pacing and args.mode!='v3':p.error('kernel pacing requires V3 mode')
     if args.action=='namespace':return namespace(args)
     if args.action=='probe':probe(args);return 0
     return launch(args)

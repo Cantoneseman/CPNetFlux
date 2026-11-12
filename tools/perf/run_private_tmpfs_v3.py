@@ -33,6 +33,15 @@ def resource_gate(client,sender,source,host_mem_available,host_pswpout_delta):
         client.get('pswpout_delta')==0 and sender.get('pswpout_delta')==0 and
         source.get('host_pswpout_delta_since_seed')==0 and host_pswpout_delta==0 and
         sender.get('error') is None)
+def validate_kernel_pacing_receipts(rows):
+    assert len(rows)==4 and {r['lane'] for r in rows}==set(range(4)), 'kernel pacing lane receipts'
+    assert all(r['enabled'] is True and r['requested_bytes_per_second']==2000000000 and
+        r['effective_ceiling_bytes_per_second']==2000000000 and
+        r['application_pacer_enabled'] is False and
+        r['scope']=='TCP_socket_ceiling_not_achieved_rate' for r in rows), 'kernel pacing configuration'
+    return dict(lanes=4,per_socket_ceiling_bytes_per_second=2000000000,
+                ceiling_scope='TCP_socket_configuration_not_achieved_rate',application_pacer_enabled=False)
+
 def validate_summary(summary):
     assert summary['connections']==4 and summary['actual_transport']=='v3'
     assert summary['data_transport']=='tcp' and summary['data_frame_logical_bytes']==262144
@@ -61,6 +70,7 @@ def run(args):
     (args.payload_root/base.MARKER).write_text(base.TOKEN)
     init_attempt=False;start_attempt=False;row=None;expected=None;source=None;server=None;failures=[];cleanup={}
     gates=dict(network=False,resources=False,content=False,pages=False)
+    if args.kernel_tcp_pacing:gates['kernel_pacing']=False
     page=dict(samples=0,target_shmem_pmd_mapped_peak_bytes=0,actual_uid=os.getuid(),
               scope='sampled actual receiver target VMAs; peak is not total file coverage')
     def runner(command,log,**kw):
@@ -79,7 +89,8 @@ def run(args):
         peer=base.peer(args,'init');base.save(args.evidence/'preflight-r2.json',peer)
         expected=large.own_peer(args,'seed')
         start_attempt=True
-        base.peer(args,'start',name='private55',port=49337,data_base=61000,sender_pacing='off')
+        base.peer(args,'start',name='private55',port=49337,data_base=61000,sender_pacing='off',
+                  kernel_pacing='2000000000' if args.kernel_tcp_pacing else 'off')
         ready(49337)
         idle=[net.snapshot()];time.sleep(.5);idle.append(net.snapshot())
         base.save(args.evidence/'idle.json',idle);receive_gate(net.analyze(*idle))
@@ -115,6 +126,11 @@ def run(args):
             try:
                 server=base.peer(args,'stop',name='private55');base.save(args.evidence/'server.json',server)
                 assert not server['sender_phases'].get('sender_pacing',[]),'pacing unexpectedly active'
+                if args.kernel_tcp_pacing:
+                    proof=validate_kernel_pacing_receipts(server['sender_phases'].get('tcp_kernel_pacing',[]))
+                    base.save(args.evidence/'kernel-pacing-receipts.json',dict(
+                        receipts=server['sender_phases']['tcp_kernel_pacing'],proof=proof))
+                    gates['kernel_pacing']=True
                 server_delta=large.network_counter_deltas(server['before']['net'],server['after']['net'])
                 validate_netdev_deltas(server_delta)
             except BaseException as error:
@@ -157,7 +173,8 @@ def run(args):
         failures.append(dict(stage='resources',error=repr(error)))
     report=dict(scope='one instrumented feasibility; no A/B, CV, M2 or stability claim',
         gates=gates,failures=failures,cleanup=cleanup,m2_pass=False,
-        pacing='off',exact_read='off',final_admission_pending_external_unmount=True)
+        pacing='off',exact_read='off',kernel_pacing='2000000000' if args.kernel_tcp_pacing else 'off',
+        final_admission_pending_external_unmount=True)
     if row is not None:
         base.save(args.evidence/'results.json',[row])
         total=mount['target_setup_seconds']+row['target_preparation_seconds']+row['t_ready_seconds']
@@ -177,6 +194,7 @@ def main():
     p.add_argument('--enable-private-tmpfs',action='store_true')
     p.add_argument('--evidence',type=Path,required=True)
     p.add_argument('--payload-root',type=Path,required=True)
+    p.add_argument('--kernel-tcp-pacing',action='store_true')
     p.add_argument('--commit',required=True)
     return run(p.parse_args())
 

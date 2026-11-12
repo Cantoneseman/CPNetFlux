@@ -18,6 +18,11 @@ struct TcpExactReadStats {
     std::uint64_t bytes = 0, interruptions = 0;
 };
 
+struct TcpKernelPacingStats {
+    bool enabled = false;
+    std::uint64_t requestedBytesPerSecond = 0, effectiveBytesPerSecond = 0;
+};
+
 class FramedDataSocket {
    public:
     FramedDataSocket();
@@ -44,6 +49,10 @@ class FramedDataSocket {
     // Explicit plain TCP/256KiB DATA experiment. Small reads keep readSome semantics.
     [[nodiscard]] common::Status configureTcpExactRead(bool enabled);
     [[nodiscard]] TcpExactReadStats tcpExactReadStats() const noexcept { return tcpExactRead_; }
+    // Explicit Linux per-socket pacing; 0 restores the pre-experiment ceiling.
+    // A ceiling readback is configuration evidence, not an achieved sending rate.
+    [[nodiscard]] common::Status configureTcpKernelPacing(std::uint64_t bytesPerSecond);
+    [[nodiscard]] TcpKernelPacingStats tcpKernelPacingStats() const noexcept { return tcpKernelPacing_; }
     void shutdown() noexcept;
     void close() noexcept;
     [[nodiscard]] common::Status writeAll(const std::uint8_t* data, std::size_t length);
@@ -75,6 +84,8 @@ class FramedDataSocket {
     bool dataLimitConfigured_ = false;
     std::uint32_t tcpReceiveBufferBytes_ = 0;
     TcpExactReadStats tcpExactRead_;
+    TcpKernelPacingStats tcpKernelPacing_;
+    std::uint64_t tcpKernelPacingOriginalLimit_ = 0;
     bool tlsMode_ = false;
     bool rdmaMode_ = false;
     UniqueFd fd_;

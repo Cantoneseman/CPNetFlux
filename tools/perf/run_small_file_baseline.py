@@ -280,7 +280,7 @@ def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False
     return state
 
 def compact_log(path):
-    rows=[];sender_profiles=[];pacing=[]
+    rows=[];sender_profiles=[];pacing=[];kernel_pacing=[]
     with path.open() as f:
         for line in f:
             prefix='CPNETFLUX_PERSISTENT_TIMING '
@@ -289,9 +289,12 @@ def compact_log(path):
             if line.startswith(sender_prefix):sender_profiles.append(json.loads(line[len(sender_prefix):]))
             pacing_prefix='CPNETFLUX_SENDER_PACING '
             if line.startswith(pacing_prefix):pacing.append(json.loads(line[len(pacing_prefix):]))
+            kernel_prefix='CPNETFLUX_TCP_KERNEL_PACING '
+            if line.startswith(kernel_prefix):kernel_pacing.append(json.loads(line[len(kernel_prefix):]))
     result=phases(rows)
     if sender_profiles:result['sender_work_profiles']=sender_profiles
     if pacing:result['sender_pacing']=pacing
+    if kernel_pacing:result['tcp_kernel_pacing']=kernel_pacing
     with path.open('rb') as src,gzip.open(str(path)+'.gz','xb') as dst:shutil.copyfileobj(src,dst)
     path.unlink()
     return result
@@ -327,6 +330,7 @@ def server_run(args):
     server_env=environment()
     server_env['CPNETFLUX_SENDER_WORK_PROFILE']=args.sender_work_profile
     server_env['CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND']=args.sender_pacing
+    server_env['CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND']=args.kernel_pacing
     with log.open('x') as f:
         process=subprocess.Popen(command,stdout=f,stderr=subprocess.STDOUT,env=server_env)
         save(folder/(args.name+'.server.pid.json'),proc_info(process.pid))
@@ -352,7 +356,8 @@ def start_server(args):
     argv=[sys.executable,str(SCRIPT),'--action','server-run','--evidence',str(args.evidence),
           '--payload-root',str(args.payload_root),'--commit',args.commit,'--name',args.name,
           '--port',str(args.port),'--data-base',str(args.data_base),
-          '--sender-work-profile',args.sender_work_profile,'--sender-pacing',args.sender_pacing]
+          '--sender-work-profile',args.sender_work_profile,'--sender-pacing',args.sender_pacing,
+          '--kernel-pacing',args.kernel_pacing]
     with (folder/(args.name+'.supervisor.log')).open('x') as f:
         proc=subprocess.Popen(argv,stdout=f,stderr=subprocess.STDOUT,start_new_session=True)
     deadline=time.monotonic()+10
@@ -563,6 +568,7 @@ def main():
     p.add_argument('--size',type=int,default=0);p.add_argument('--count',type=int,default=0)
     p.add_argument('--port',type=int,default=0);p.add_argument('--data-base',type=int,default=59000)
     p.add_argument('--sender-pacing',choices=('off','1500000000'),default='off')
+    p.add_argument('--kernel-pacing',choices=('off','2000000000'),default='off')
     p.add_argument('--sender-work-profile',choices=('0','1'),default='0')
     args=p.parse_args();args.evidence.mkdir(parents=True,exist_ok=True)
     if args.action in ('start','stop','server-run'):

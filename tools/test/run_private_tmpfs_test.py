@@ -74,6 +74,49 @@ class PrivateTmpfsTests(unittest.TestCase):
         client['pswpout_delta']=1
         self.assertFalse(resource_gate(client,sender,source,12*1024**3,0))
         client['pswpout_delta']=0
+    def test_kernel_pacing_log_is_preserved_independently_from_application_pacer(self):
+        import json
+        import run_small_file_baseline as base
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'server.log'
+            row=dict(lane=0,requested_bytes_per_second=2000000000,
+                     effective_ceiling_bytes_per_second=2000000000,enabled=True,
+                     scope='TCP_socket_ceiling_not_achieved_rate',application_pacer_enabled=False)
+            path.write_text('CPNETFLUX_TCP_KERNEL_PACING '+json.dumps(row)+'\n')
+            parsed=base.compact_log(path)
+            self.assertEqual(parsed.get('tcp_kernel_pacing'),[row])
+            self.assertNotIn('sender_pacing',parsed)
+    def test_kernel_receipt_gate_rejects_missing_duplicate_inactive_and_wrong_scope(self):
+        import copy
+        from run_private_tmpfs_v3 import validate_kernel_pacing_receipts
+        rows=[dict(lane=i,requested_bytes_per_second=2000000000,
+              effective_ceiling_bytes_per_second=2000000000,enabled=True,
+              application_pacer_enabled=False,scope='TCP_socket_ceiling_not_achieved_rate') for i in range(4)]
+        self.assertEqual(validate_kernel_pacing_receipts(rows)['lanes'],4)
+        for values in (rows[:3],rows+rows[:1]):
+            with self.assertRaises(AssertionError):validate_kernel_pacing_receipts(values)
+        for key,value in [('lane',1),('effective_ceiling_bytes_per_second',1500000000),
+                          ('enabled',False),('application_pacer_enabled',True),('scope','achieved_rate')]:
+            values=copy.deepcopy(rows);values[0][key]=value
+            with self.subTest(key=key):
+                with self.assertRaises(AssertionError):validate_kernel_pacing_receipts(values)
+    def test_kernel_flag_reaches_private_namespace_launcher(self):
+        import os
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import uuid
+        captured=[]
+        with tempfile.TemporaryDirectory() as folder:
+            args=SimpleNamespace(enable_private_tmpfs=True,
+                payload_root=Path('/dev/shm/cpnetflux-s0-private55-unit56-'+uuid.uuid4().hex),
+                evidence=Path(folder)/'evidence',mode='v3',commit='test',kernel_tcp_pacing=True)
+            def child(command,*unused,**kwargs):
+                captured.append(command)
+                return dict(exit_code=0,reason='exit',reaped=True)
+            with patch.object(self.m,'validate_evidence',side_effect=lambda path:path),                  patch.object(self.m,'run_child',side_effect=child):
+                self.assertEqual(self.m.launch(args),0)
+            self.assertIn('--kernel-tcp-pacing',captured[0])
+            self.assertFalse(args.payload_root.exists())
     def test_no_target_page_proof_from_anonymous_mapping(self):
         text='1000-2000 rw-p 0000 00:00 0\nShmemPmdMapped: 2048 kB\n'
         self.assertEqual(self.m.target_pmd_bytes(text,Path('/target')),0)

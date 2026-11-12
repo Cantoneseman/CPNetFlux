@@ -96,6 +96,48 @@ common::Status FramedDataSocket::configureTcpExactRead(bool enabled) {
     return common::Status::ok();
 }
 
+common::Status FramedDataSocket::configureTcpKernelPacing(std::uint64_t bytesPerSecond) {
+    if (!bytesPerSecond && !tcpKernelPacing_.enabled) return common::Status::ok();
+    if (bytesPerSecond != 0 && bytesPerSecond != 2000000000ULL)
+        return common::Status::invalidArgument("TCP kernel pacing must be off or 2000000000");
+    if (!valid() || tlsMode_ || rdmaMode_ || dataPayloadLimit_ != 262148)
+        return common::Status::invalidArgument("TCP kernel pacing requires plain TCP 256KiB DATA");
+#if defined(__linux__) && defined(SO_MAX_PACING_RATE)
+    int protocol = 0;
+    socklen_t protocolLength = sizeof(protocol);
+    if (::getsockopt(fd(), SOL_SOCKET, SO_PROTOCOL, &protocol, &protocolLength) != 0)
+        return systemStatus("getsockopt(SO_PROTOCOL)", errno);
+    if (protocolLength != sizeof(protocol) || protocol != IPPROTO_TCP)
+        return common::Status::invalidArgument("TCP kernel pacing rejects non-TCP sockets");
+    std::uint64_t previous = 0;
+    socklen_t length = sizeof(previous);
+    if (::getsockopt(fd(), SOL_SOCKET, SO_MAX_PACING_RATE, &previous, &length) != 0)
+        return systemStatus("getsockopt(SO_MAX_PACING_RATE)", errno);
+    if (length != sizeof(previous))
+        return common::Status::invalidArgument("unexpected TCP pacing option width");
+    const auto requested = bytesPerSecond ? bytesPerSecond : tcpKernelPacingOriginalLimit_;
+    if (::setsockopt(fd(), SOL_SOCKET, SO_MAX_PACING_RATE, &requested, sizeof(requested)) != 0)
+        return systemStatus("setsockopt(SO_MAX_PACING_RATE)", errno);
+    std::uint64_t effective = 0;
+    length = sizeof(effective);
+    const int readback = ::getsockopt(fd(), SOL_SOCKET, SO_MAX_PACING_RATE, &effective, &length);
+    const int error = errno;
+    if (readback != 0 || length != sizeof(effective) || effective != requested) {
+        // Do not silently leave a partial configuration selected.
+        if (::setsockopt(fd(), SOL_SOCKET, SO_MAX_PACING_RATE, &previous, sizeof(previous)) != 0)
+            close();
+        if (readback != 0) return systemStatus("TCP pacing readback", error);
+        return common::Status::runtimeError("TCP kernel pacing ceiling readback mismatch");
+    }
+    if (!tcpKernelPacing_.enabled && bytesPerSecond) tcpKernelPacingOriginalLimit_ = previous;
+    tcpKernelPacing_ = {bytesPerSecond != 0, bytesPerSecond, bytesPerSecond ? effective : 0};
+    if (!bytesPerSecond) tcpKernelPacingOriginalLimit_ = 0;
+    return common::Status::ok();
+#else
+    return common::Status::invalidArgument("TCP kernel pacing unavailable in this build");
+#endif
+}
+
 RdmaTransportStats FramedDataSocket::rdmaStats() const noexcept {
     return rdmaMode_ ? rdma_.stats() : RdmaTransportStats{};
 }
@@ -110,6 +152,8 @@ void FramedDataSocket::shutdown() noexcept {
 
 void FramedDataSocket::close() noexcept {
     tcpExactRead_ = {};
+    tcpKernelPacing_ = {};
+    tcpKernelPacingOriginalLimit_ = 0;
     if (rdmaMode_) {
         rdma_.close();
         return;
