@@ -1,5 +1,7 @@
 # CPNetFlux 性能路线图
 
+当前交付C：[Task58后最终集成与边界](tasks/2026-11-12-performance-delivery-c-task58.md)、[当前冻结清单](tasks/2026-11-12-performance-delivery-c-task58-freeze.json)：代码/配置/回归/现场与备份收口；ENGINEERING CLOSED / M2 OPEN，正式资源门仍未通过。
+
 最新交付：[Task58 / 有界8GiB与正式M2资源停止](tasks/2026-11-12-v3-private-m2-58-result.md)：固定双profile/五对矩阵和8GiB能力已实现；唯一尝试在第1个control源write时因R2 host pswpout +1页停止，未启动网络传输，完整样本0。源leaf swap/回收为0、user-1002祖先swap +4096B，具体对象未识别。已补MemFree≥9.25GiB的分配前拒绝；最终双端相关8/8通过，原输入双端262/262及候选恢复各2/2通过。M2 OPEN，当前资源未准入，不重跑；[冻结](tasks/2026-11-12-v3-private-m2-58-freeze.json)。
 
 前次交付：[Task57 / 原生必要准备与交付C冻结](tasks/2026-11-12-v3-private-setup-57-result.md)：五对准备门通过（旧中位53.40ms→native 7.62ms），最终两端相关CTest各261/261、kernel pacing smoke各连续10次通过；唯一1GiB完整目标任务**40.865Gbps**，必要准备计入，内容/资源/网络/页型/清理均通过。仅单次可行性准入，正式8GiB M2与稳定性仍开放；[冻结清单](tasks/2026-11-12-v3-private-setup-57-freeze.json)。默认关闭，不追加本轮样本或参数扫描。

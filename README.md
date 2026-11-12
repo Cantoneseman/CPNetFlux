@@ -16,6 +16,8 @@ Task50历史阶段状态为ENGINEERING CLOSED / M2 OPEN；40–50、70–85/100G
 
 最新[Task58 / 有界8GiB与正式M2](docs/tasks/2026-11-12-v3-private-m2-58-result.md)：矩阵驱动和有界后端已实现；唯一正式尝试在源准备时因host swap-out +1页停止，尚未网络传输、无新增有效吞吐。已补物理空闲内存分配前保护，两端最终专项各8项通过；M2资源门仍未通过，不重跑。历史[Task57](docs/tasks/2026-11-12-v3-private-setup-57-result.md)的1GiB完整目标40.865Gbps只作单次可行性准入，正式性能以[路线图](docs/ROADMAP.md)和固定提交结果为准。
 
+最新工程[交付C](docs/tasks/2026-11-12-performance-delivery-c-task58.md)汇总最终配置、同版本回归、清理与RDMA重启边界；工程收口完成，M2正式资源门仍未通过。
+
 ## 服务器与开发环境
 
 | 用途 | R770-1 | R770-2 |
