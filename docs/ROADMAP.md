@@ -1,9 +1,11 @@
 # CPNetFlux 性能路线图
 
-最新交付：[Task55 / 私有tmpfs完整V3准入与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：默认关闭的有界后端与两端各18项相关回归通过。唯一1GiB样本计入必要目标准备后35.710Gbps，OOB/missed各+261，网络门失败；原始客户端窗口45.922Gbps不计为合格性能成绩。资源/内容/实际页型/清理通过，未运行新8GiB矩阵，M2仍开放；停止本候选的追加payload与扫描。冻结见[清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)。
+最新交付：[Task56 / 内核TCP pacing与交付C冻结](tasks/2026-11-12-v3-kernel-tcp-pacing-56-result.md)：默认关闭机制已实现，R2相关259项通过、R1失败修复后定向5项通过，两端候选恢复各2项通过。唯一1GiB完整目标任务35.388Gbps，网络/资源/内容/页型/清理通过，但未达40Gbps准入。四lane ceiling回读不等于实际整形；一次0错误不关闭OOB因果。停止追加本候选和8GiB矩阵，M2仍开放；[冻结清单](tasks/2026-11-12-v3-kernel-tcp-pacing-56-freeze.json)。
+
+前次交付：[Task55 / 私有tmpfs完整V3准入与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：默认关闭的有界后端与两端各18项相关回归通过。唯一1GiB样本计入必要目标准备后35.710Gbps，OOB/missed各+261，网络门失败；原始客户端窗口45.922Gbps不计为合格性能成绩。资源/内容/实际页型/清理通过，未运行新8GiB矩阵，M2仍开放；停止本候选的追加payload与扫描。冻结见[清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)。
 
 前序机制：[首次大页54](tasks/2026-11-12-v3-private-tmpfs-54-result.md)仅局部五对通过；
-[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以Task55结果与路线图为准，不沿用旧文档“待做1GiB”的历史下一步。
+[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以Task56结果与路线图为准，不沿用旧文档“待做1GiB”的历史下一步。
 
 交付C历史快照已核对Task51/52版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
 
@@ -42,10 +44,12 @@ Task55已完成默认关闭私有tmpfs实验后端与本轮交付C冻结，见[�
 本候选停止追加试验；下一机制必须解释可减少的接收服务工作与OOB证据边界，
 不放宽门、不扫描参数，也不自动重启RDMA/DEFERRED项。
 
-用户持续目标推进：Task55原样重跑保持停止；[Task56合同](tasks/2026-11-12-v3-kernel-tcp-pacing-56.md)
-另行验证per-socket内核TCP pacing。它移除旧应用pacer每DATA帧timer等待，把节奏交给TCP，
-不是重调Task51的timer/rate，不改全局qdisc。仅固定单候选、默认off；OOB根因和M2仍未解决。
-旧“下一机制待确定”由本合同具体化，其他停止门与暂停范围不变。
+Task56已完成[实现、完整任务与交付C冻结](tasks/2026-11-12-v3-kernel-tcp-pacing-56-result.md)。
+per-socket内核TCP pacing四lane回读通过，无应用逐帧timer；唯一1GiB完整目标35.388Gbps，
+观察窗OOB/missed为0，但没有稳定性/因果证据，未达40Gbps。本候选停止追加payload与扫描。
+下一步先只读审查必要目标准备的重复进程启动成本：54.108ms准备中mount子区间2.797ms，
+其余51.311ms尚未细分；能否减少实际工作须另写实现/失败清理合同，必要成本继续计时。
+禁止改分母或预热目标宣布达标。M2/原生RDMA/DEFERRED边界不变。
 
 ## 当前主线
 
@@ -89,6 +93,7 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | DONE / ABORTED FIRST SAMPLE | Task49 lane诊断与停止门 | [结果](tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)：1-lane pwrite首样本OOB/missed +171，4-lane未运行；SHA/资源/清理通过，无性能结果；停止门工程交付完成 |
 | DONE / DIAGNOSTIC ONLY | Task50有界发送准入 | [结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：四lane共4096帧实际受控，机制/正确性通过；唯一1GiB为28.221Gbps，低于40Gbps准入，未运行新8GiB矩阵；默认off，不推荐性能配置 |
 | DONE / NOT ADMITTED | Task51 timerfd等待修复 | [结果](tasks/2026-11-12-v3-pacing-wait-51-result.md)：相关回归两端各241；唯一1GiB36.478Gbps、网络门通过，但未达40准入、无收益对照 |
+| DONE / NOT ADMITTED | Task56 内核TCP pacing | [结果](tasks/2026-11-12-v3-kernel-tcp-pacing-56-result.md)：四lane socket配置通过，唯一1GiB完整目标35.388Gbps，工程/资源/网络门通过；速率不足，不追加样本，默认off |
 | DONE / NETWORK STOP | Task52 TCP exact-read | [结果](tasks/2026-11-12-v3-tcp-exact-read-52-result.md)：两端254项通过，4096大负载/4096recv；原始36.011Gbps因OOB/missed各+52不作合格成绩，默认off、未运行新矩阵 |
 | ENGINEERING CLOSED / M2 OPEN | 本阶段集成与边界收尾 | [Task50收尾](tasks/2026-11-11-v3-sender-pacing-50-result.md)：两端相关CTest各126/126，开启候选额外4/4；冻结配置、资源/清理和版本证据完成。原生RDMA仅评估MR预算/所有权重启条件，继续暂停；不自动追加诊断或启动DEFERRED idea |
 | DONE / NOT REPRODUCED | host `pswpout`归因诊断 | [任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端120秒无payload观察均稳定，未定位M1-41单页增量；M1-44已通过独立host swap-out门，但这不改变M1-41旧结果；不重跑M1-41 |

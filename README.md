@@ -12,7 +12,9 @@ CPNetFlux 面向超算中心节点间科学数据传输，提供分块校验、�
 
 [Task48源码核验](docs/tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)确认mlx5的rx_out_of_buffer为聚合计数，没有逐RQ/流归属；[Task49](docs/tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)的单路pwrite样本仍出现OOB/missed +171。[Task50与本阶段收尾](docs/tasks/2026-11-11-v3-sender-pacing-50-result.md)已完成显式、默认关闭的有界发送准入机制及回归。唯一1GiB四路TCP/tmpfs样本28.221Gbps，内容、资源和网络观察窗口通过，但未达40Gbps正式矩阵准入，未运行新8GiB矩阵；该单次结果不能与历史8GiB成绩直接算收益或退化。候选仅保留诊断能力，不作为性能推荐。
 
-本阶段状态为ENGINEERING CLOSED / M2 OPEN；40–50、70–85/100Gbps与长期稳定性仍未验收。原生RDMA优化继续暂停，仅完成重启价值、MR内存预算与数据所有权条件评估；统一工作单元/预算采样/策略记忆保持DEFERRED。冻结配置、精确版本、回归及下一步条件见[Task50结果](docs/tasks/2026-11-11-v3-sender-pacing-50-result.md)。
+Task50历史阶段状态为ENGINEERING CLOSED / M2 OPEN；40–50、70–85/100Gbps与长期稳定性仍未验收。原生RDMA优化继续暂停，仅完成重启价值、MR内存预算与数据所有权条件评估；统一工作单元/预算采样/策略记忆保持DEFERRED。冻结配置、精确版本、回归及下一步条件见[Task50结果](docs/tasks/2026-11-11-v3-sender-pacing-50-result.md)。
+
+最新[Task56 / 交付C冻结](docs/tasks/2026-11-12-v3-kernel-tcp-pacing-56-result.md)：默认关闭的每socket内核TCP pacing已实现并回归；唯一1GiB完整目标任务35.388Gbps，网络/资源/内容/清理通过，未达40Gbps。客户端45.70Gbps仅子窗口，必要目标准备已计入。M2仍开放，本候选不追加样本；当前下一步以[路线图](docs/ROADMAP.md)为准。
 
 ## 服务器与开发环境
 

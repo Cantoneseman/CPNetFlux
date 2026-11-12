@@ -69,3 +69,6 @@ A/B收益、CV或长期稳定性验收。无论失败/取消均执行源、目�
 evidence为本证据根/full-v3；payload-root为/dev/shm/cpnetflux-s0-private55-kernel56-<固定提交短SHA>。
 保留旧private55内部标签以复用已验收驱动，不复用Task55实际路径或证据。
 工程收口包括最终配置/回归/证据hash冻结、GitHub SHA回读、R2同步及Windows小体积查看副本。
+
+收口导航明确文件：README.md、docs/README.md、docs/ROADMAP.md；只更新当前结果与后续边界，
+不改历史原始记录。本次结果/冻结另存2026-11-12-v3-kernel-tcp-pacing-56-result.md与-freeze.json。

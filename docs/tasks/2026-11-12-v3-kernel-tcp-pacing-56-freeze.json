@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-12",
+  "scope": "Task56 engineering delivery C; does not supersede historical experiment inputs",
+  "status": "ENGINEERING_COMPLETE_RATE_ADMISSION_FAILED_M2_OPEN",
+  "implementation_commit": "423f20cdbf06e72ace57a93864a5dcd1b00d296e",
+  "runtime_source_last_change_commit": "423f20cdbf06e72ace57a93864a5dcd1b00d296e",
+  "source_objects": {
+    "src": "a5d96505154d33ae56dafef3a43874588d7b29ad",
+    "include": "f76069de94f80acb56ee0a9c80cb89ce0a977b94",
+    "tests": "84b97ece15166478f657c32a26d0581970b11e1d",
+    "tools": "bb32c6c554e3b17e0610a301c5648fcb78b9341d",
+    "CMakeLists.txt": "6f98848821ba0e90e66e3e7b234b4f8bd4358f4b"
+  },
+  "build_configuration": [
+    "CMAKE_BUILD_TYPE:STRING=RelWithDebInfo",
+    "CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/c++",
+    "CMAKE_PROJECT_VERSION:STATIC=0.1.0",
+    "CPNETFLUX_BUILD_DESKTOP:BOOL=OFF",
+    "CPNETFLUX_BUILD_TESTS:BOOL=ON",
+    "CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS:BOOL=OFF",
+    "CPNETFLUX_ENABLE_IO_URING:BOOL=ON",
+    "CPNETFLUX_ENABLE_ISAL:BOOL=ON",
+    "CPNETFLUX_ENABLE_RDMA:BOOL=ON",
+    "CPNETFLUX_ENABLE_TLS:BOOL=ON"
+  ],
+  "binary_sha256": {
+    "cpnetflux-gridftp-server": "0d9bec49660954351233864d6f434680aa1280b8b7795d74bde41388ccbf7969",
+    "cpnetflux-tree-download-client": "171555f4aa6b65b75eb2b01e47909f190299197b8ac808dd1fe22d9ca993c3d7",
+    "cpnetflux-tree-upload-client": "780831ba6b1304e25993b9ed724c103b2cc40d953d79d03027e5afbacfea6acf"
+  },
+  "default_behavior_changed": false,
+  "profile": {
+    "opt_in": [
+      "--enable-private-tmpfs",
+      "--kernel-tcp-pacing"
+    ],
+    "default_enabled": false,
+    "backend": "private mount namespace tmpfs, huge=within_size",
+    "mount_limit_bytes": 1342177280,
+    "workload_uid": 1002,
+    "workload_gid": 1002,
+    "payload_bytes": 1073741824,
+    "fresh_target": true,
+    "source_all_resident": true,
+    "protocol": "V3",
+    "data_transport": "TCP",
+    "connections": 4,
+    "direction": "r770-2 to r770-1",
+    "sender_bind": "192.168.100.2",
+    "receiver_bind": "192.168.100.1",
+    "interface": "eno17095np0",
+    "logical_data_bytes": 262144,
+    "crc_bytes": 4,
+    "chunk_bytes": 1048576,
+    "integrity": "CRC32C / verified_chunks",
+    "checkpoint_interval": 16,
+    "sender_execution": "queued",
+    "receiver_execution": "inline",
+    "receiver_backend": "experimental mmap",
+    "mapped_window_bytes_per_lane": 67108864,
+    "total_mapped_window_limit_bytes": 268435456,
+    "payload_budget_bytes": 67108864,
+    "tcp_receive_buffer_requested_bytes": 1048576,
+    "tcp_receive_buffer_validated_observed_range_bytes": [
+      1048576,
+      2097152
+    ],
+    "tls": false,
+    "compression": false,
+    "sender_pacing": "off",
+    "tcp_exact_read": "off",
+    "detailed_receiver_profile": false,
+    "range_timing": false,
+    "commit_sync": "none",
+    "global_settings_changed": false,
+    "production_promotion": false,
+    "kernel_tcp_pacing_env": "CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND=2000000000",
+    "per_socket_ceiling_bytes_per_second": 2000000000,
+    "aggregate_ceiling_bps": 64000000000,
+    "ceiling_scope": "configuration readback only; not an achieved rate or exact wire shaper",
+    "application_timer_per_frame": false
+  },
+  "experiment_result": {
+    "scope": "one instrumented feasibility; no A/B, CV, M2 or stability claim",
+    "gates": {
+      "network": true,
+      "resources": true,
+      "content": true,
+      "pages": true,
+      "kernel_pacing": true
+    },
+    "failures": [],
+    "cleanup": {
+      "peer_source": {
+        "source_removed": true
+      },
+      "peer_root": {
+        "removed": true
+      },
+      "local_mount_empty": true
+    },
+    "m2_pass": false,
+    "pacing": "off",
+    "exact_read": "off",
+    "kernel_pacing": "2000000000",
+    "final_admission_pending_external_unmount": true,
+    "client_wall_seconds": 0.18795212707482278,
+    "client_raw_gbps": 45.702779349660624,
+    "private_target_setup_seconds": 0.054108288837596774,
+    "target_directory_prepare_seconds": 0.0006765639409422874,
+    "complete_target_task_seconds": 0.24273697985336185,
+    "complete_target_task_gbps": 35.387828410772876,
+    "denominator": "private namespace/setup + target directory creation + client launch to exit; SHA/observation/cleanup separate"
+  },
+  "admission_result": {
+    "gates": {
+      "network": true,
+      "resources": true,
+      "content": true,
+      "pages": true,
+      "kernel_pacing": true,
+      "cleanup": true,
+      "no_failures": true,
+      "child_ok": true
+    },
+    "formal_admission": false,
+    "complete_target_task_gbps": 35.387828410772876,
+    "m2_pass": false,
+    "scope": "single feasibility only"
+  },
+  "relevant_regression": {
+    "r1_initial": "258/259 pass; private launcher flag regression failed, fixed and focused 5/5 passed",
+    "r1_cpp_kernel_tests": 8,
+    "r1_driver_unit_tests": 17,
+    "r2_final": 259,
+    "candidate_enabled_resume_per_host": 2,
+    "whole_repository_suite": false
+  },
+  "evidence_root": "/home/Su/experiments/CPNetFlux/2026-11-12-v3-kernel-tcp-pacing-56",
+  "evidence_sha256": {
+    "collect-receipt.py": "1389e2f2c571187af3b4ff06859da53862f53e6c8f98d98bf9a2996b6906e92a",
+    "ctest-driver-fix-r1.log": "15659507662eae87130c626d6284fe9d5edce1dbd3daa78e3f4b3a5e03605193",
+    "ctest-kernel-enabled-resume-r1.log": "75e8708f690fe8805e9d3877b07eb0d6da32057f9699948f1c1a26e099a76164",
+    "ctest-kernel-enabled-resume-r2.log": "13740c7b7f4dc8bfd2e6780262205c94be0cdf5414674a43c9b03398b66d0047",
+    "ctest-kernel-r1.log": "f2c5a117449851c7b2a6c41b1260046a32dd6a5d6e98d125dd7b8bc6f2d3993a",
+    "ctest-mechanism-r1.log": "ae4b36ee62338405e43edca108716258c9130691c38d7b2ac52ead52d70f2304",
+    "ctest-related-r1.log": "975db05ba98ba0a2623760bff58f470ec3274bc4f3fd31ac850bd028cfc2b5d0",
+    "ctest-related-r2.log": "0ec79c17feaf16f1ca528e3b517894f400e92086255af2cb8fc1b81e015a92ac",
+    "driver-red.log": "69c1c0f59ef6f06ce4c5a773f8ec621f06ffc75ea20696d6f2d1d75a421db0be",
+    "flag-red.log": "d2a1aa46e62d043ad8692ff4d249b1a58e3b50ab9d90a17b9fe05ee90ef85274",
+    "full-v3/acceptance.json": "c5253927db3e1633344af5db8f8ca626ce1e89a7559878c7633d51902aa93d50",
+    "full-v3/analysis.json": "290104e49241dd1489afe43dc70e02684d3d1ce7269627af505f0551ed119490",
+    "full-v3/broad-network.json": "60581e491ccce55066b853e8a6c5d43f3744d124c28486d20b02c859efcdc275",
+    "full-v3/child.log": "33d2d4732986fa8b0186a5453966e49e802e44354f34c58051a87d0c2c12f19e",
+    "full-v3/cleanup.json": "caecdb61a5bffefc82e4981927a461b669747ae4cbbd629ebc5b6766cfe053d4",
+    "full-v3/host-after.json": "c36565442b5d38e3076ee6474acf1a587bea65efee1e0cb9c51621df7160d8ab",
+    "full-v3/host-before.json": "ac770aef1d5035da6078c08bec92dadaea9a136aae6e5916e8036138587f097c",
+    "full-v3/idle.json": "2f33fa9bdbbb60e9fb96990e41b8326dee8bc78893de9c24e8e4142a4aa74ad5",
+    "full-v3/inventory-r1.json": "df39eb3c8420e34e145e3bc6a1b7b18c16fd070d13ed3f470514b0719531458a",
+    "full-v3/kernel-pacing-receipts.json": "c006346b4488a63f24d0d056ac338f2708c02734a27f73cbb0e00b8c1a628dcb",
+    "full-v3/launcher.json": "47bc8b9fcee62adb1779ac6e13326a3a3226399c6ea7dfcfd2b593d11dbee3e2",
+    "full-v3/launcher.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "full-v3/matching-builds.json": "ba54d16bf3a37962003d4ba088790e7ba6dd06cb3f40de6b03f4cb52fbadec96",
+    "full-v3/mount-ready.json": "6c13aa5932d50dc832c296f24bf0fa63d7913dd90d3caa38b15639c378ee421c",
+    "full-v3/namespace.json": "123a8c5bbbd43b191845cdba77b316bf9ef1c787155ac39d1d26cc6170e06a83",
+    "full-v3/preflight-r1.json": "4a7b928db98e5e07e4b9350808fa994e1f40ee1ab08ef5a8f8fb02d75c7fdbf7",
+    "full-v3/preflight-r2.json": "2f31337c7fa3e0d62b57ce69336ae821e41a97842c42e34b032abaf2021b0cf0",
+    "full-v3/receiver-pages.json": "644ae492f89312f8cfa22a6478573075434c861fb146dccff3d809ec5ebc0586",
+    "full-v3/results.json": "a058c366c692d1d693d5145f074a09e0d9d3aaf5c208d5aba3a030bee9ae6066",
+    "full-v3/samples/private55-combined-1g.client.log.gz": "91e731583210d7b175a9a0b39c31a8164ce03b3e39cfa8aafb86ce1217587d11",
+    "full-v3/samples/private55-combined-1g.receipt.json": "5af71b7d2ff023620ca9aa517acfcda810a6e550fdd515e348b06e77aa27dfa5",
+    "full-v3/samples/private55-combined-1g.summary.json.gz": "1b27ce15d5e230ba951e53d02f7ff00cf8286f65f73c232a2d8e65493f50f8d8",
+    "full-v3/server.json": "da56f7fc1b8425af83f28c0bfad2c2b1b2d3c36a681aa13e217834199d7a48f6",
+    "full-v3/source-check.json": "5a23dce5e9d7af4bf4816815c331ec230a0298f533bad6be0f4122c5983b100b",
+    "full-v3/source-residency.json": "7a6ef43157bed511e8b78babb61857ab7b50a705fc57314807904e7b510aa5ab",
+    "post-receipt-r1.json": "a89d75fbe75f7fe2cb2f46b29e00174bdca558b38d250e488027ccb779084578",
+    "post-receipt-r2.json": "678f37663030a098871965da3d8624170632dfbd0c6c2de6e50a4d1bccb8e60f",
+    "receipt-r1.json": "5ec63d5af1d23297781ace88502972cde438af09f00844782c8d041041b8d478",
+    "receipt-r2.json": "653c8d1c5161662574c8407aa215bd104fd42a4f5b875c8d1d2ac22f25e6a696",
+    "red-wrong-target.log": "2c636b43fa94547bf2660762732eb20b2c7f52057382efe312d646844cae3c8e",
+    "red.log": "17809ee42272ba8dc81cc28b27372fcabaf003648ce79f0ddbb0918612b8d634",
+    "verify-delivery.py": "02347ddf9a329f06878557903c3754a2b57ef46e35b2dfb4c3cc1745933123a3"
+  },
+  "stop_conditions": {
+    "candidate_further_payload": false,
+    "parameter_scan": false,
+    "new_8gib_matrix": false,
+    "required_complete_target_task_gbps": 40
+  },
+  "m2_achieved": false,
+  "overall_100g_goal_achieved": false,
+  "next_direction": "Audit actual repeated process startup in necessary target setup; no denominator exclusions; new implementation needs contract",
+  "deferred": [
+    "native RDMA optimization",
+    "microbatch",
+    "unified work unit and policy memory"
+  ],
+  "final_delivery_receipt": "/home/Su/experiments/CPNetFlux/2026-11-12-v3-kernel-tcp-pacing-56/delivery.json",
+  "verification_commands": {
+    "build": [
+      "cmake",
+      "--build",
+      "build",
+      "-j4"
+    ],
+    "related_ctest": [
+      "ctest",
+      "--test-dir",
+      "build",
+      "-R",
+      "FramedDataSocketTest|Persistent|Deadline|Timeout|Cancel|Budget|Publication|cpnetflux_large_data|cpnetflux_sender_pacing|cpnetflux_tcp_exact_read|cpnetflux_tcp_kernel_pacing|cpnetflux_private_tmpfs|cpnetflux_small_file_baseline_driver_test|cpnetflux_v3_.*resume|cpnetflux_publication_resume|cpnetflux_receive_network_test",
+      "--output-on-failure"
+    ],
+    "r1_after_fix": [
+      "ctest",
+      "--test-dir",
+      "build",
+      "-R",
+      "cpnetflux_private_tmpfs_driver_test|cpnetflux_tcp_kernel_pacing_smoke|cpnetflux_small_file_baseline_driver_test|cpnetflux_sender_pacing_driver_test|cpnetflux_large_data_ab_test",
+      "--output-on-failure"
+    ],
+    "candidate_resume_env": {
+      "CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND": "2000000000"
+    },
+    "candidate_resume": [
+      "ctest",
+      "--test-dir",
+      "build",
+      "-R",
+      "^(cpnetflux_large_data_interrupted_resume_smoke|cpnetflux_large_data_receive_buffer_resume_smoke)$",
+      "--output-on-failure"
+    ],
+    "actual_single_experiment_historical_do_not_rerun": [
+      "python3",
+      "tools/perf/private_tmpfs.py",
+      "--enable-private-tmpfs",
+      "--kernel-tcp-pacing",
+      "--evidence",
+      "/home/Su/experiments/CPNetFlux/2026-11-12-v3-kernel-tcp-pacing-56/full-v3",
+      "--payload-root",
+      "/dev/shm/cpnetflux-s0-private55-kernel56-423f20c",
+      "--mode",
+      "v3",
+      "--commit",
+      "423f20cdbf06e72ace57a93864a5dcd1b00d296e"
+    ],
+    "offline_acceptance": [
+      "python3",
+      "/home/Su/experiments/CPNetFlux/2026-11-12-v3-kernel-tcp-pacing-56/verify-delivery.py"
+    ]
+  }
+}
