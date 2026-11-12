@@ -1,3 +1,6 @@
+#include "cpnetflux/core/io/detail/diagnostic_output.h"
+#include <barrier>
+#include <set>
 #include "cpnetflux/core/io/framed_data_socket.h"
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
 #include "cpnetflux/core/protocol/compressed_data.h"
@@ -1342,4 +1345,46 @@ TEST(FramedDataSocketTest, KernelPacingRejectsApplicationPacerAndTooManyLanes) {
         EXPECT_EQ(status.code(),StatusCode::InvalidArgument);
         EXPECT_NE(status.message().find("at most four lanes"),std::string::npos);
     }
+}
+
+TEST(DiagnosticOutputTest, MergedStdoutAndStderrKeepConcurrentLargeRecordsWhole) {
+    std::FILE* file=std::tmpfile();
+    ASSERT_NE(file,nullptr);
+    struct Redirect {
+        int out=::dup(STDOUT_FILENO),err=::dup(STDERR_FILENO);
+        explicit Redirect(int fd) {
+            std::fflush(stdout);std::fflush(stderr);
+            if(out<0 || err<0 || ::dup2(fd,STDOUT_FILENO)<0 || ::dup2(fd,STDERR_FILENO)<0)
+                throw std::runtime_error("redirect diagnostic test");
+        }
+        ~Redirect() {
+            std::fflush(stdout);std::fflush(stderr);
+            ::dup2(out,STDOUT_FILENO);::dup2(err,STDERR_FILENO);::close(out);::close(err);
+        }
+    };
+    std::multiset<std::string> expected,actual;
+    for(int lane=0;lane<8;++lane) for(int i=0;i<16;++i)
+        expected.insert(std::to_string(lane)+":"+std::to_string(i)+":"+std::string(32768,char('a'+lane)));
+    {
+        Redirect redirect(::fileno(file));
+        std::barrier ready(8);
+        std::vector<std::jthread> writers;
+        for(int lane=0;lane<8;++lane)writers.emplace_back([&,lane] {
+            ready.arrive_and_wait();
+            for(int i=0;i<16;++i) {
+                const auto record=std::to_string(lane)+":"+std::to_string(i)+":"+std::string(32768,char('a'+lane))+"\n";
+                cpnetflux::core::io::detail::emitDiagnosticRecord(lane%2 ? stdout : stderr,record);
+            }
+        });
+        for(auto& writer:writers)writer.join();
+    }
+    std::rewind(file);
+    std::string line;
+    for(int ch;(ch=std::fgetc(file))!=EOF;) {
+        if(ch=='\n') {actual.insert(std::move(line));line.clear();}
+        else line.push_back(char(ch));
+    }
+    std::fclose(file);
+    EXPECT_TRUE(line.empty());
+    EXPECT_EQ(actual,expected);
 }

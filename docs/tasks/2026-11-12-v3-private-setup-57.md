@@ -92,3 +92,30 @@ queued sender/inline实验mmap、64MiB/lane窗口、64MiB payload预算、1MiB S
 全部通过且>=40仅允许另写正式M2合同，不把一次样本当M2/CV/稳定性。
 证据full-v3，payload-root为/dev/shm/cpnetflux-s0-private55-native57-<最终实现短SHA>。
 原2121服务、全局mount/THP、NIC/qdisc不变；无论失败/取消都执行私有卸载及源目标回收。
+
+## 回归停止与并发日志修复范围
+
+740396b两端构建相同，但R2相关10/11，原kernel pacing smoke在合并stdout/stderr中
+解析JSON失败（column131）。未启动跨机payload；原始失败日志已保留，不能算通过。
+追加允许修改tools/test/run_kernel_tcp_pacing_smoke.py以保留失败原始日志，
+最多五次本机小规模诊断取证，非跨机性能样本；先解释日志混写再修复。
+已读源码：control_server.cpp用osyncstream(cout)写完整timing，pacing用fprintf(stderr)，
+两个stream锁不同但合并到同一个日志文件，存在观测记录互插的风险，尚待原始行确认。
+如确认，同步日志修复只涉及src/core/io/persistent_tree_transfer.cpp及必要的
+src/protocol/control/control_server.cpp或共享输出工具/相应回归；不改变传输控制或速率。
+修复后必须重新提交推送并同步双端构建/SHA、重跑失败项与相关验收，不能沿用740396b传输。
+
+原始复现已保存：第4次本机download的kernel receipt在字符131处被完整timing记录插入，
+两个不同stream输出锁的归因获得实际坏行支持。修复为kernel/application两类sender receipt
+先在1024B有界元数据buffer格式化，再统一使用与control timing相同的osyncstream(cout)。
+不更改协议trace或任意其他日志；新smoke同时从客户端stdout/stderr收集并可保存原始证据。
+回执不是每payload热循环的一部分；失败/缺失回执依旧不能过机制门。
+此修复改变运行时对象，旧Task56二进制回归不自动覆盖新提交，需补跑相关259类回归。
+
+运行时首次修复的R1相关259/260，旧单测要求应用pacer回执保留stderr；没有修改该验收。
+调整为共享detail/diagnostic_output.h对所有参与的结构化记录持锁写入并flush，
+保留原stdout/stderr归属：发送端pacing/协议trace仍stderr，timing/sender-work仍stdout。
+追加允许该header、tests/unit/framed_data_socket_test.cpp及control_server.cpp必要调用点；
+8个并发线程合并两stream输出128条32KiB记录，完整逐条集合为独立oracle，覆盖长记录互插。
+协议trace只改输出串行化，不改字段/开关；不将日志接口变化当性能优化。
+原R2 10/11与R1 259/260失败保留，修复后重新验收。

@@ -20,7 +20,7 @@ def validate(rows):
                r['effective_ceiling_bytes_per_second']==2000000000 and
                r['application_pacer_enabled'] is False for r in rows),rows
 
-def run(build):
+def run(build,evidence_dir=None):
     with tempfile.TemporaryDirectory(prefix='cpnetflux-kernel-pacing-') as temp:
         root=Path(temp);source=root/'source';peer=root/'peer';target=root/'target'
         for path in (source,peer,target):path.mkdir()
@@ -51,7 +51,12 @@ def run(build):
                 data=json.loads(summary.read_text())
                 assert data['result']=='pass' and data['actual_transport']=='v3'
                 assert data['bytes_transferred']==expected[2],data
-                evidence=done.stderr if direction=='upload' else log.read_text()
+                evidence=done.stdout+done.stderr if direction=='upload' else log.read_text()
+                if evidence_dir is not None:
+                    evidence_dir.mkdir(parents=True,exist_ok=True)
+                    (evidence_dir/(direction+'-sender.log')).write_text(evidence)
+                    (evidence_dir/(direction+'-stdout.log')).write_text(done.stdout)
+                    (evidence_dir/(direction+'-stderr.log')).write_text(done.stderr)
                 rows=receipts(evidence)
                 validate(rows)
                 assert 'CPNETFLUX_SENDER_PACING ' not in evidence
@@ -63,4 +68,6 @@ def run(build):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build-dir',type=Path,required=True)
-    run(parser.parse_args().build_dir.resolve())
+    parser.add_argument('--evidence-dir',type=Path)
+    args=parser.parse_args()
+    run(args.build_dir.resolve(),args.evidence_dir)

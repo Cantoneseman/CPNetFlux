@@ -36,6 +36,7 @@
 #include "cpnetflux/core/io/file_download_sender.h"
 #include "cpnetflux/core/io/file_transfer_server.h"
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/detail/diagnostic_output.h"
 #include "cpnetflux/core/io/persistent_directory_batch.h"
 #include "cpnetflux/core/io/transfer_stages.h"
 #include "cpnetflux/core/tree/tree_scan.h"
@@ -957,7 +958,7 @@ struct DynamicDirectory {
             << "\",\"channels\":" << channels << ",\"attempt_records\":" << senderProfileArrivals << ",\"profile\":";
         core::io::appendSenderWorkProfile(out, enabled, true, senderProfiles);
         out << "}\n";
-        std::osyncstream(std::cout) << out.str() << std::flush_emit;
+        core::io::detail::emitDiagnosticRecord(stdout, out.str());
     }
 };
 struct DirectoryRegistration {
@@ -1269,7 +1270,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         observation << ",\"files\":";
         core::io::appendPersistentFileTimings(observation,stats.fileTimings);
         observation << "}\n";
-        std::osyncstream(std::cout) << observation.str() << std::flush_emit;
+        core::io::detail::emitDiagnosticRecord(stdout, observation.str());
         guard.success = status.isOk();
         guard.detach();
     }

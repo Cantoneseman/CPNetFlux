@@ -8,6 +8,7 @@
 #include "cpnetflux/core/io/work_executor.h"
 #include "cpnetflux/core/io/detail/persistent_transfer_lifetime.h"
 #include "cpnetflux/core/io/detail/sender_pacing.h"
+#include "cpnetflux/core/io/detail/diagnostic_output.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -105,6 +106,14 @@ std::vector<PersistentTreeFileMetadata> persistentTreePublishedFiles(
     return context->publishedFiles;
 }
 namespace {
+template<class... Args>
+void emitStderrObservation(const char* format, Args... args) noexcept {
+    std::array<char, 1024> buffer{};
+    const int size = std::snprintf(buffer.data(), buffer.size(), format, args...);
+    if (size > 0 && static_cast<std::size_t>(size) < buffer.size())
+        detail::emitDiagnosticRecord(stderr, std::string_view(buffer.data(), size));
+}
+
 using common::Status;
 using protocol::FrameStatusCode;
 using protocol::FrameType;
@@ -135,7 +144,7 @@ void tracePersistentProtocol(const char* role, const char* event,
     if (!enabled) return;
     const auto stamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
         Clock::now().time_since_epoch()).count();
-    std::fprintf(stderr,
+    emitStderrObservation(
         "CPNETFLUX_V3_PROTOCOL_TRACE {\"role\":\"%s\",\"event\":\"%s\","
         "\"monotonic_ns\":%lld,\"channel\":%u,\"file_id\":%u,"
         "\"generation\":%llu,\"range_id\":%llu,\"range_count\":%llu,"
@@ -150,7 +159,6 @@ void tracePersistentProtocol(const char* role, const char* event,
         static_cast<unsigned long long>(id ? id->rangeLength : 0),
         static_cast<unsigned long long>(value), static_cast<unsigned long long>(detail),
         resultCode);
-    std::fflush(stderr);
 }
 
 FrameStatusCode fileFailureCode(const Status& status) {
@@ -1442,7 +1450,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         ~KernelPacingReceipt() {
             if (!enabled) return;
             const auto s = socket->tcpKernelPacingStats();
-            std::fprintf(stderr,
+            emitStderrObservation(
                 "CPNETFLUX_TCP_KERNEL_PACING {\"lane\":%u,\"requested_bytes_per_second\":%llu,"
                 "\"effective_ceiling_bytes_per_second\":%llu,\"enabled\":%s,"
                 "\"scope\":\"TCP_socket_ceiling_not_achieved_rate\",\"application_pacer_enabled\":false}\n",
@@ -1455,7 +1463,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         bool enabled; std::uint32_t lane; detail::SenderPacer& p;
         ~PacingReceipt() {
             if (!enabled) return;
-            std::fprintf(stderr,
+            emitStderrObservation(
                 "CPNETFLUX_SENDER_PACING {\"lane\":%u,\"rate_bytes_per_second\":1500000000,"
                 "\"frames\":%llu,\"wire_bytes\":%llu,\"waits\":%llu,\"sleep_calls\":%llu,"
                 "\"wait_ns\":%llu,\"required_spacing_ns\":%llu,\"spacing_violations\":%llu,"
