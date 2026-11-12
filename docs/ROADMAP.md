@@ -1,8 +1,9 @@
 # CPNetFlux 性能路线图
 
-最新局部准入：[私有tmpfs首次大页54](tasks/2026-11-12-v3-private-tmpfs-54-result.md)：真实新目标窗口五对，worker CPU/墙钟和中位约降低49.8%/50.7%，5/5改善且CV约1.1%；无全局设置变更。下一阶段为默认关闭、有界私有目标后端的完整V3≤1GiB验证；尚无新跨机性能成绩，M2及网络稳定性仍开放。
+最新交付：[Task55 / 私有tmpfs完整V3准入与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：默认关闭的有界后端与两端各18项相关回归通过。唯一1GiB样本计入必要目标准备后35.710Gbps，OOB/missed各+261，网络门失败；原始客户端窗口45.922Gbps不计为合格性能成绩。资源/内容/实际页型/清理通过，未运行新8GiB矩阵，M2仍开放；停止本候选的追加payload与扫描。冻结见[清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)。
 
-最新修复：[范围记录ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已消除分配ID的二次扫描；两端各251项相关回归通过。局部收益已量化，无新跨机性能样本，M2/网络稳定性仍开放。下一步核验私有有界tmpfs首次大folio分配机制，不修改全局THP或共享挂载。
+前序机制：[首次大页54](tasks/2026-11-12-v3-private-tmpfs-54-result.md)仅局部五对通过；
+[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以Task55结果与路线图为准，不沿用旧文档“待做1GiB”的历史下一步。
 
 交付C历史快照已核对Task51/52版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
 
@@ -34,6 +35,12 @@ Task52已完成[默认关闭exact-read实现与结果](tasks/2026-11-12-v3-tcp-e
 未达40且网络门失败，不追加8GiB或扫描，exact-read保持默认off，M2/网络稳定性OPEN。
 下一实现前须在TCP接收/CRC/新目标页管理的数据所有权与搬运中识别具体可减工作，
 区别于已关闭候选；不增加通用profiler轮次。原生RDMA及DEFERRED工作继续暂停。
+
+Task55已完成默认关闭私有tmpfs实验后端与本轮交付C冻结，见[结果](tasks/2026-11-12-v3-private-tmpfs-55-result.md)。
+新目标大页实际生效，但唯一1GiB完整目标任务35.710Gbps、OOB/missed各+261；
+资源/内容/清理通过，网络门FAIL。没有新的合格吞吐成绩或8GiB M2样本。
+本候选停止追加试验；下一机制必须解释可减少的接收服务工作与OOB证据边界，
+不放宽门、不扫描参数，也不自动重启RDMA/DEFERRED项。
 
 ## 当前主线
 

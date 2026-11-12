@@ -23,3 +23,17 @@ CMakeLists.txt（测试注册）、本合同/对应结果、docs/README.md及doc
 之后另冻结同提交同私有挂载never/within_size的8GiB五对合同。
 本轮工程结束不等于M2或100G达标。证据目录：
 /home/Su/experiments/CPNetFlux/2026-11-12-v3-private-tmpfs-55。
+
+## 本次交付C收口范围（结果文档修改前固定）
+输入：初版驱动2c4890191e24bc383b0b5297b3be4e821fe91450；
+资源门分类修正f795dbe37b3dfa3f7579ef0b72e3aa712ada75ed。
+范围：固定当前代码/配置/二进制、回归证据与唯一1GiB失败准入的真实结论；
+补齐结果、独立复核清单与交付回执，历史Task50/51/52冻结记录不覆盖。
+非目标：不再启动跨机payload，不重跑/扩大本候选，不将客户端局部速率认定为M2成绩。
+受影响文件增加：docs/tasks/2026-11-12-v3-private-tmpfs-55-freeze.json；
+对应结果、ROADMAP与导航允许按本合同更新。
+验收：当前固定提交两端各18项相关CTest、配置及三个二进制SHA一致；
+原始证据hash和离线复核可重算，内容/资源/页面/清理与网络门分别表述；
+现场空间/临时端口/原服务身份不变；明确文件提交推送、远端SHA回读及R2同步。
+
+本轮结果与冻结：[结果](2026-11-12-v3-private-tmpfs-55-result.md)、[清单](2026-11-12-v3-private-tmpfs-55-freeze.json)。工程交付完成，网络/40Gbps准入未过。

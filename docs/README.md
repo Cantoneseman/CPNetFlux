@@ -1,8 +1,9 @@
 # CPNetFlux 文档导航
 
-最新局部准入：[私有tmpfs首次大页54](tasks/2026-11-12-v3-private-tmpfs-54-result.md)：真实新目标窗口五对，worker CPU/墙钟和中位约降低49.8%/50.7%，5/5改善且CV约1.1%；无全局设置变更。下一阶段为默认关闭、有界私有目标后端的完整V3≤1GiB验证；尚无新跨机性能成绩，M2及网络稳定性仍开放。
+最新交付：[Task55 / 私有tmpfs完整V3准入与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：默认关闭的有界后端与两端各18项相关回归通过。唯一1GiB样本计入必要目标准备后35.710Gbps，OOB/missed各+261，网络门失败；原始客户端窗口45.922Gbps不计为合格性能成绩。资源/内容/实际页型/清理通过，未运行新8GiB矩阵，M2仍开放；停止本候选的追加payload与扫描。冻结见[清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)。
 
-最新修复：[范围记录ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已消除分配ID的二次扫描；两端各251项相关回归通过。局部收益已量化，无新跨机性能样本，M2/网络稳定性仍开放。下一步核验私有有界tmpfs首次大folio分配机制，不修改全局THP或共享挂载。
+前序机制：[首次大页54](tasks/2026-11-12-v3-private-tmpfs-54-result.md)仅局部五对通过；
+[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以Task55结果与路线图为准，不沿用旧文档“待做1GiB”的历史下一步。
 
 交付C历史快照已核对Task51/52版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
 
@@ -19,14 +20,14 @@
 | 当前状态、配置、未过门与下一项 | [性能路线图](ROADMAP.md) |
 | 本阶段结束状态 | [收尾合同](tasks/2026-11-11-performance-stage-closeout-handoff.md)、[Task50收尾结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：ENGINEERING CLOSED / M2 OPEN；唯一1GiB速率未达40Gbps准入，未运行新8GiB矩阵 |
 | 交付B：成绩与M2判定 | [离线复核与NO-GO结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：历史M1十个完整任务复算通过；A未达40Gbps准入，正式M2未运行、未测项不计通过 |
-| 交付C：最终冻结与边界 | [配置/版本冻结清单](tasks/2026-11-11-v3-sender-pacing-50-freeze.json)、[C销项结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：同运行时回归证据、现场清理与RDMA预算评估完成；阶段ENGINEERING CLOSED / M2 OPEN |
+| 历史Task50交付C：冻结与边界 | [配置/版本冻结清单](tasks/2026-11-11-v3-sender-pacing-50-freeze.json)、[C销项结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：同运行时回归证据、现场清理与RDMA预算评估完成；阶段ENGINEERING CLOSED / M2 OPEN |
 | 暂存研究 idea（本轮不开发） | [统一工作单元与预算感知策略记忆](ideas/2026-11-11-unified-work-unit-and-budgeted-policy-memory.md)：DEFERRED，需用户明确重启 |
 | 当前批准主线与串行交接 | [里程碑35计划](tasks/2026-11-10-v3-large-file-milestone-35.md)、[实现/1GiB结果](tasks/2026-11-10-v3-large-file-milestone-35-result.md)、[M1-41计划](tasks/2026-11-11-v3-large-file-m1-41.md)、[M1-41结果：资源门中止、无吞吐样本](tasks/2026-11-11-v3-large-file-m1-41-result.md)、[M1-44计划](tasks/2026-11-11-v3-large-file-m1-44.md)、[M1-44结果：8GiB正式门通过](tasks/2026-11-11-v3-large-file-m1-44-result.md)、[M1-45接收端profile诊断](tasks/2026-11-11-v3-receiver-profile-diagnostic-45.md)、[Task46合同与结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46.md)、[Task46中止结果](tasks/2026-11-11-v3-profile-overhead-counter-correlation-46-result.md)、[资源失败证据补全42结果](tasks/2026-11-11-v3-resource-gate-failure-evidence-42-result.md)、[host pswpout诊断43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)、[分层准入与路线决定](DECISIONS/2026-11-10-v3-performance-milestones.md) |
 | 近期诊断结果 | [无payload host pswpout归因43](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端均未复现，M1-41单页事件仍未定位 |
-| 最新执行结果 | [Task50计划](tasks/2026-11-11-v3-sender-pacing-50.md)、[Task50结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：有界应用发送pacer实际生效，唯一1GiB为28.221Gbps，内容/资源/网络窗口通过；未达正式矩阵准入，默认off、仅保留诊断能力 |
+| 最新执行结果 | [Task55 / 交付C结果](tasks/2026-11-12-v3-private-tmpfs-55-result.md)、[冻结清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)：两端18项回归通过；唯一1GiB完整目标任务35.710Gbps，网络停止门失败，M2仍开放 |
 | 执行方式和缓冲所有权 | [三阶段指南](V3_TRANSFER_STAGES.md)、[映射下载边界](tasks/2026-11-08-v3-mapped-download-08-result.md) |
 | 接收队列计数归因 | [Task47合同](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47.md)、[Task47结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md)、[Task48计划](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48.md)、[Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md) |
-| 当前开发 | [Task52结果](tasks/2026-11-12-v3-tcp-exact-read-52-result.md)：exact-read默认off、网络门FAIL，不追加矩阵；下一机制须有实际搬运/页管理工作量依据。原生RDMA和DEFERRED工作仍暂停 |
+| 当前开发 | [Task55结果与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：唯一1GiB未过网络/40Gbps准入，停止追加矩阵；下一机制需有接收服务工作量与OOB边界依据。RDMA和DEFERRED工作继续暂停 |
 | 设计、协议与工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md)、[目录传输](DIRECTORY_TRANSFER.md) |
 | 安全、发布与证据边界 | [安全](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md)、[历史研究基线](RESEARCH_BASELINE.md) |
 
