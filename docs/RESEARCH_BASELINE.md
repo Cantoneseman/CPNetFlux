@@ -1,6 +1,6 @@
 # CPNetFlux 现状研究基线
 
-最新验收：[阶段80](tasks/2026-11-13-field-trial-scenarios-80-result.md)新运行时1GiB五对完整任务中位CPNetFlux30.80/GridFTP12.10Gbps，样本CV均<5%；三类目录及反向各三次通过（完整文件SHA与目录集合）。TLS组因实验误用明文专用pacer而零payload失败，已用同二进制8MiB单变量复现；C稳定性和故障组未运行，整体NOT_READY。两端RX/TX已恢复1024/1024并清理。下一步[81补验](tasks/2026-11-13-field-trial-followup-81.md)只修实验profile/清理门并完成S/C/F，不改变性能配置或启动新调优。比较双方安全、校验、内存后端与提交语义差异见结果；不声称加密、持久化或100G成绩。
+最新验收：[阶段80](tasks/2026-11-13-field-trial-scenarios-80-result.md)1GiB五对中位CPNetFlux30.80/GridFTP12.10Gbps，样本CV均<5%，三类目录与反向各3次通过。[阶段81](tasks/2026-11-13-field-trial-followup-81-result.md)真实跨机TLS/完整SHA与目录通过，坏token实际auth_failed且零payload；S文本判据假阴性导致原矩阵失败，C/F未运行。两端已恢复RX/TX1024并清理。下一步[82补验](tasks/2026-11-13-field-trial-final-82.md)用结构化认证判据，先本机实际故障脚本六组通过再做跨机S/C/F。运行二进制保持不变；整体仍NOT_READY，不新增调优、不声称加密/持久化/100G成绩。比较配置及语义差异见80结果。
 
 更新时间：2026-09-17
 
