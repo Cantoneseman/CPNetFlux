@@ -1,5 +1,7 @@
 # CPNetFlux
 
+开发闭环已验收：[阶段60结果](docs/tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过，GridFTP比较和双机长时稳定性待执行。
+
 CPNetFlux 面向超算中心节点间科学数据传输，提供分块校验、断点恢复和目录编排。运行时统一使用 V3 执行器、数据协议与工作租约；提供 GridFTP 风格控制接口及 CPNetFlux framed data channel，不是完整 GridFTP 实现。数据面支持 TCP 和显式选择的原生 RDMA SEND/RECV，控制面为 TCP/TLS。
 
 ## 当前入口

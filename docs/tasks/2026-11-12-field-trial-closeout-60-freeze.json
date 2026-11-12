@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "status": "DEVELOPMENT_CLOSED_COMPARISON_AND_SOAK_PENDING",
+  "implementation_commit": "b183cdf5530a2e6e21d13f909d070d68d5a73b5e",
+  "input_commit": "a1be2760d90bdecd3163d25a3c937f5c13840553",
+  "source_objects": {
+    "src": "2f43026f38a4ea75094673ec866d1dfaef919e21",
+    "include": "5927f4a7fe703d9cd93257bc40774df83d31a981",
+    "tests": "2b9a401959deb1dce44246b623d801046dc8413e",
+    "tools": "4f7d472e4498fff9c9b9e6898607e92c937aa8cd",
+    "CMakeLists.txt": "0385a8a44e2ae5eabdd0c83319da938d372ebbd6"
+  },
+  "build_configuration": [
+    "CMAKE_BUILD_TYPE:STRING=RelWithDebInfo",
+    "CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/c++",
+    "CMAKE_PROJECT_VERSION:STATIC=0.1.0",
+    "CPNETFLUX_BUILD_DESKTOP:BOOL=OFF",
+    "CPNETFLUX_BUILD_TESTS:BOOL=ON",
+    "CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS:BOOL=OFF",
+    "CPNETFLUX_ENABLE_IO_URING:BOOL=ON",
+    "CPNETFLUX_ENABLE_ISAL:BOOL=ON",
+    "CPNETFLUX_ENABLE_RDMA:BOOL=ON",
+    "CPNETFLUX_ENABLE_TLS:BOOL=ON"
+  ],
+  "binary_sha256": {
+    "cpnetflux-gridftp-server": "0bbbdd050951f86aaf8184c6b4ff389234e2196990280a7740807d2967e95ecd",
+    "cpnetflux-tree-download-client": "29ad8a438e3213d8ba07f2c49dc0a07418a21225a21a924e1f269ee4aa219848",
+    "cpnetflux-tree-upload-client": "1464e45e1f00cbeb624aea4d0a0e69a3b28e39673deb1e4d3382cb03dcc9adcb",
+    "cpnetflux-private-tmpfs-launcher": "cb82fecd76a06edd623bf50f9011a7825bdd86eb5e85226bde4d79cf53daf2f8"
+  },
+  "runtime_core_changed": false,
+  "runtime_defaults_changed": false,
+  "related_ctest_per_host": 278,
+  "skipped": 0,
+  "regression_scope": "related CTest including loopback V3 stability; not cross-host soak",
+  "cleanup_behavior_cases": 5,
+  "development_phase_closed": true,
+  "comparison_completed": false,
+  "soak_completed": false,
+  "field_trial_ready": false,
+  "m2_achieved": false,
+  "formal_performance_reference": {
+    "commit": "506b63be71bc5aea5eca92cab549c6d4adb2ff51",
+    "payload_bytes": 8589934592,
+    "pairs": 5,
+    "median_gbps": 34.15941
+  },
+  "experiment_thread": "01a1a253-6ddf-7f71-bfd7-0eec5550a10f",
+  "evidence_root": "/home/Su/experiments/CPNetFlux/2026-11-12-field-trial-closeout-60",
+  "evidence_sha256": {
+    "build-r1.log": "e67e814f3b675edcc41c5f1e80325b5083ae2fc2be08a87bbe58abc96df4a960",
+    "ctest-r1.log": "010b1789a36b0f7e07559721d1a44e5fa25ff1d5a36081dcd520275b23ac31fb",
+    "ctest-pattern.txt": "cd24effa24a8ac284617843c9ebc4e66ffc8031fccf77094635202ed3f235dc5",
+    "ctest-exit-r1.json": "e89df0eae5ec7db81135aed16463968955c578bcc4f2ec43172eff351f080c17",
+    "fixture-cleanup-r1.json": "64e07d957e6302908a65a0f31a8c1a54a5924c28f34e6cf877880e519ef87b50",
+    "r1-before-tests.json": "202cb709566d870427c1a7314353c53337133a7cda8e92fe2b8a15da95c0e080",
+    "r1-after-tests.json": "c1e64f78123ae058ed02148545b7aad6a54c6a28d38b0b9b74e31119f70f6150",
+    "r1-binary-continuity.json": "ab581a0ed91428f7448a88927564f6757bebe63b5037ff60ebe174b0575cd4f1",
+    "matching-builds.json": "a13eba32dbbe6bd59d2084ceb3f9f9462dacad3d62990860c66fd5f111649709",
+    "implementation-backup.json": "1fc98f5b77e8d69234a6a8da4d7af1b1670414b01be9878bc0add3be94410978",
+    "peer/build-r2.log": "e67e814f3b675edcc41c5f1e80325b5083ae2fc2be08a87bbe58abc96df4a960",
+    "peer/ctest-r2.log": "44dc55c3f37d0f4b9e7a73575ae1e443f3d90047d69f7be1605b55e876f3d6f6",
+    "peer/ctest-exit-r2.json": "e89df0eae5ec7db81135aed16463968955c578bcc4f2ec43172eff351f080c17",
+    "peer/fixture-cleanup-r2.json": "e496f97c817787a2ce9d78c606fcbf067280dba8325db8bde78aa6c9a509907e",
+    "peer/r2-before-tests.json": "61c3ee1c5ab6413a2c30e98fa7b575d79892fcd8793fce31ba6b2d6c4be5d7e0",
+    "peer/r2-after-tests.json": "ae8b5a66baffa6597bdcf641f04eb0096a961c8b90735d72d8d9ab1c6be1b8a2"
+  },
+  "source_regression_evidence_sha256": {
+    "red-cleanup.log": "b84551e9900168f296e35ceaefe3a6384818dc6ff80fd9b08b47a8eb9e835d78",
+    "green-cleanup.log": "d03ce458f2a6cd2b4f27522f3aacad03ce1872c028853507c3ad02ca621bdcad"
+  },
+  "next": "freeze and serial handoff; compare latest CPNetFlux/GridFTP, then selected-config cross-host stability",
+  "final_delivery_receipt": "/home/Su/experiments/CPNetFlux/2026-11-12-field-trial-closeout-60/development-delivery.json"
+}

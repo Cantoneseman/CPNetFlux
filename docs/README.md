@@ -1,5 +1,7 @@
 # CPNetFlux 文档导航
 
+开发闭环已验收：[阶段60结果](tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过，GridFTP比较和双机长时稳定性待执行。
+
 当前执行：[阶段60：保持性能、开发闭环→GridFTP复测→稳定性→上机候选](tasks/2026-11-12-field-trial-closeout-60.md)。M2及历史交付不改，未完成实际实验前不标稳定性通过。
 
 当前交付C：[Task58后最终集成与边界](tasks/2026-11-12-performance-delivery-c-task58.md)、[当前冻结清单](tasks/2026-11-12-performance-delivery-c-task58-freeze.json)：代码/配置/回归/现场与备份收口；ENGINEERING CLOSED / M2 OPEN，正式资源门仍未通过。

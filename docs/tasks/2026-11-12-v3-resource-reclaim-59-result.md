@@ -21,3 +21,7 @@ CPNetFlux历史实验文件驻留21087297536B，其中旧64GiB输出驻留140174
 新单元回归：python3 tools/test/run_corrupt_checkpoint_cleanup_test.py。
 真实fixture与完整相关验收日志/正则/清理回执位于阶段60实验根；RED/GREEN在Task59实验根。
 工程修复闭环，性能/资源新设计按用户决定暂停；不继续扩大本任务。
+
+最后双端验收：固定b183cdf后R2相关278/278（139.74s）通过；双端真实fixture清理、
+源码/配置/四SHA、原服务和host pswpout复核通过。Task59清理修复已工程闭环；
+Task60的新对照和长时稳定性不包含在这278项回归中。
