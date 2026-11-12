@@ -1,6 +1,6 @@
 # CPNetFlux
 
-最新验收：[阶段73：无探针正式比较中止](docs/tasks/2026-11-12-field-trial-comparison-73-result.md)。首个1GiB CP内容/资源通过，但R1 OOB/missed各+327；完整配对0/5，GridFTP未传payload，稳定性NOT_RUN，上机NOT_READY。临时现场已清理。下一步[RX ring单变量提案](docs/tasks/2026-11-12-rx-ring-headroom-74-proposal.md)等待用户明确授权，尚未修改系统网卡；不再重复同配置负载。
+最新验收：[阶段73：无探针正式比较中止](docs/tasks/2026-11-12-field-trial-comparison-73-result.md)。首个1GiB CP内容/资源通过，但R1 OOB/missed各+327；完整配对0/5，GridFTP未传payload，稳定性NOT_RUN，上机NOT_READY。临时现场已清理。下一步[RX ring单变量提案](docs/tasks/2026-11-12-rx-ring-headroom-74-proposal.md)已获用户明确授权，阶段74临时4096准入通过，正在进行阶段75正式验收；不再重复原1024配置负载。
 
 最新开发补项：[阶段68：工作租约迁移恢复修复](docs/tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](docs/tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。该阶段未新增性能成绩；其后1GiB验收已由阶段69执行并失败，下一步以页首为准。比较仍NO-GO、上机NOT_READY。
 
