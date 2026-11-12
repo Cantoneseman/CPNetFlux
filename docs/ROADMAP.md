@@ -15,6 +15,12 @@
 
 用户已要求在上一阶段收尾后继续修复实验暴露的问题并推进开发。[等待成本51](tasks/2026-11-12-v3-pacing-wait-51.md)先做一次无payload定向定位，确认机制后只改一个有界任务局部候选；不重开参数扫描、不放宽M2/资源门。下文Task50/C的结束状态是上一阶段历史交付，不表示停止本次新目标。原生RDMA及DEFERRED新idea仍暂停。
 
+任务51结果：[有界timerfd等待修复](tasks/2026-11-12-v3-pacing-wait-51-result.md)已完成并固定52acbeb9；
+两端相关CTest各241通过，唯一1GiB可行性36.478Gbps，完整性/资源/网络/清理通过。
+未达40Gbps准入，新8GiB正式样本0，不能与Task50或历史M1算跨提交收益。
+本候选停止追加rate/lane/wait扫描；下一设计检查接收端页管理/搬运中是否还有具体可减工作，
+与已有聚合写及失败population/direct-receive/collapse路径区分；原生RDMA及DEFERRED工作仍暂停。
+
 ## 当前主线
 
 **M1已在8GiB完整V3 TCP任务中跨过30Gbps；本阶段工程收口，40–50Gbps的M2仍未验收。发送节奏候选仅保留为默认关闭的诊断能力。**
