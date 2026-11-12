@@ -53,6 +53,15 @@ def validate_summary(summary):
                and 1048576<=e['tcp_receive_buffer_bytes']<=2097152
                and not e.get('tcp_exact_read',{}).get('enabled',False) for e in ends)
 
+def observe_receiver_pages(proc,state,page,payload_root):
+    try:
+        text=base.read_owned_process_text(proc,'smaps',state)
+        page['target_shmem_pmd_mapped_peak_bytes']=max(
+            page['target_shmem_pmd_mapped_peak_bytes'],private.target_pmd_bytes(text,payload_root))
+        page['samples']+=1
+    except base.ProcessSampleEnded:pass
+
+
 def run(args):
     private.require_enabled(args.enable_private_tmpfs)
     assert base.node()==1 and os.geteuid()!=0
@@ -91,12 +100,7 @@ def run(args):
               scope='sampled actual receiver target VMAs; peak is not total file coverage')
     def runner(command,log,**kw):
         def observe(proc,state):
-            try:
-                text=(Path('/proc')/str(proc.pid)/'smaps').read_text()
-                page['target_shmem_pmd_mapped_peak_bytes']=max(
-                    page['target_shmem_pmd_mapped_peak_bytes'],private.target_pmd_bytes(text,args.payload_root))
-                page['samples']+=1
-            except FileNotFoundError:pass
+            observe_receiver_pages(proc,state,page,args.payload_root)
         return base.run_guarded(command,log,process_observer=observe,**kw)
     def cancel(signum,frame):raise InterruptedError('experiment cancelled '+str(signum))
     previous={s:signal.signal(s,cancel) for s in (signal.SIGTERM,signal.SIGINT)}

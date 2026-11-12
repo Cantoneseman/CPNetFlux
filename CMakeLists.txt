@@ -568,6 +568,9 @@ if(CPNETFLUX_BUILD_TESTS)
         add_test(NAME cpnetflux_small_file_baseline_driver_test
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_small_file_baseline_test.py)
         set_tests_properties(cpnetflux_small_file_baseline_driver_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_procfs_sampling_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_procfs_sampling_test.py)
+        set_tests_properties(cpnetflux_procfs_sampling_test PROPERTIES TIMEOUT 20)
         add_test(NAME cpnetflux_summary_path_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_summary_path_smoke.py --build-dir ${CMAKE_BINARY_DIR})
         set_tests_properties(cpnetflux_summary_path_smoke PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)

@@ -19,6 +19,7 @@ import threading
 import time
 
 import receive_network
+from procfs_sampling import ProcessSampleEnded, read_owned_process_text
 
 PROJECT = Path(__file__).resolve().parents[2]
 SCRIPT = Path(__file__).resolve()
@@ -140,10 +141,11 @@ def mem():
 def pswpout():
     return int(next(l.split()[1] for l in Path('/proc/vmstat').read_text().splitlines() if l.startswith('pswpout ')))
 
-def proc_info(pid):
+def proc_info(pid, *, read_text=None):
     base=Path('/proc')/str(pid)
-    fields=(base/'stat').read_text().rsplit(')',1)[1].split()
-    values={line.split(':')[0]:int(line.split()[1])*1024 for line in (base/'status').read_text().splitlines() if line.endswith('kB')}
+    read_text=read_text or (lambda path:path.read_text())
+    fields=read_text(base/'stat').rsplit(')',1)[1].split()
+    values={line.split(':')[0]:int(line.split()[1])*1024 for line in read_text(base/'status').splitlines() if line.endswith('kB')}
     return {'pid':pid,'start_ticks':int(fields[19]),'cpu_seconds':(int(fields[11])+int(fields[12]))/os.sysconf('SC_CLK_TCK'),
             'rss_bytes':values.get('VmRSS',0),'swap_bytes':values.get('VmSwap',0)}
 
@@ -188,17 +190,20 @@ def environment(receiver_profile=False, range_timing=None):
 
 def resource_state():
     return {'mem_available_min_bytes':mem(),'owned_swap_peak_bytes':0,'owned_swap_current_bytes':None,'rss_peak_bytes':0,
-            'cpu_seconds_sampled_lower_bound':0,'pswpout_before':pswpout(),'samples':0,'tcp_snapshots':[]}
+            'cpu_seconds_sampled_lower_bound':0,'pswpout_before':pswpout(),'samples':0,'process_samples':0,'tcp_snapshots':[]}
 
 def observe(proc, state):
     state['mem_available_min_bytes']=min(state['mem_available_min_bytes'],mem())
     try:
-        info=proc_info(proc.pid)
+        info=proc_info(proc.pid,read_text=lambda path:read_owned_process_text(proc,path.name,state))
+        if state.setdefault('process_start_ticks',info['start_ticks'])!=info['start_ticks']:
+            raise RuntimeError('owned process identity changed')
+        state['process_samples']+=1
         state['owned_swap_current_bytes']=info['swap_bytes']
         state['owned_swap_peak_bytes']=max(state['owned_swap_peak_bytes'],info['swap_bytes'])
         state['rss_peak_bytes']=max(state['rss_peak_bytes'],info['rss_bytes'])
         state['cpu_seconds_sampled_lower_bound']=max(state['cpu_seconds_sampled_lower_bound'],info['cpu_seconds'])
-    except FileNotFoundError:pass
+    except ProcessSampleEnded:pass
     state['samples']+=1
     assert state['mem_available_min_bytes']>=12*GIB, 'memory threshold'
     assert state['owned_swap_peak_bytes']==0 and pswpout()==state['pswpout_before'], 'swap gate'

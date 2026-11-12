@@ -1,6 +1,6 @@
 # CPNetFlux 文档导航
 
-最新验收：[阶段80](tasks/2026-11-13-field-trial-scenarios-80-result.md)固定内存配置五对CP30.80/GridFTP12.10Gbps、目录与反向通过；S跨机TLS/认证已通过。[阶段83](tasks/2026-11-13-field-trial-observer-83-result.md)189任务/1468秒全部已接受任务正确，源FD4/swap0，但第190次退出空命令名覆盖汇总造成观测假阴性，未满1800秒，C不转PASS且F未跑。原FAIL/8281项证据已保留备份。下一步[84](tasks/2026-11-13-field-trial-history-84.md)按PID/start保留真实程序名历史，真实trace回放与7项负例通过后重做完整C/F。运行二进制/性能配置不变；整体NOT_READY，不声称已长期稳定、连续线速或100G。
+最新验收：[阶段80](tasks/2026-11-13-field-trial-scenarios-80-result.md)固定内存五对CP30.80/GridFTP12.10Gbps，目录/反向通过；TLS/认证已通过。[阶段84](tasks/2026-11-13-field-trial-history-84-result.md)93个完整验收任务/725秒后因资源采集器退出ESRCH中止，未达到1800秒和100任务，F未跑；原FAIL/4251项证据已保留并备份。下一步[85](tasks/2026-11-13-field-trial-procfs-85.md)修复已确认退出子进程的精确procfs读取竞态及失败计时/根因顺序，10项新采样回归、6项实际失败路径测试及相关CTest通过，再重做完整C/F。运行二进制和性能配置不变，整体NOT_READY；不声称持续线速或100G。
 
 历史实测：[阶段75](tasks/2026-11-12-field-trial-comparison-75-result.md)1GiB五对中位CP31.075/Grid12.352Gbps；[阶段77](tasks/2026-11-13-field-trial-continuation-77-result.md)dense各3次0.399/0.945秒、tiny各3次3.504/2.561秒，mixed文件全对但空目录丢失。上述为旧运行时成绩，不能搬到新二进制。临时RX4096已恢复1024，阶段77现场已清理；新窗口需重新准入，不启动吞吐参数扫描。
 

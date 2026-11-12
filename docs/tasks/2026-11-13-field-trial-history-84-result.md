@@ -1,0 +1,11 @@
+# Stage84: preserved observer teardown failure
+
+Status: NOT_READY; admission/S PASS, C FAIL, F/postrestartTLS NOT_RUN. Input41e4bd6adf26498e1f86cceb92e5e861a7bc7a35/runtime dbb2d6b; dual four runtime hashes/config matched,85 offline tests each. No project/Git or runtime tuning during experiment.
+
+C:94 attempts,93 independently accepted fresh1GiB targets over725.304563s,93GiB total; median31.699483Gbps among accepted tasks only. Same source PID1812922/start117128609; FD4; sampled RSS approx10.6–11.6MiB,owned swap0. 93 accepted rows passed externalSHA/fullbytes/1024chunks/terminal/resource/network gates. Duration and count both below1800s/100; previous windows not combined. These are repeated tasks separated by external verification/observation/cleanup, not sustained31.7Gbps wire utilization.
+
+C94 client reports result pass,exit0,1GiB,1024chunks; actual resource collector reports ProcessLookupError(ESRCH) after16 samples,swap0/hostpswpoutdelta0. It aborts before external destinationSHA/results generation; formal subsequently reads missing success-only artifact and reports FileNotFoundError. C94 is NOT accepted and its preflight-only denominator/planned-byte pseudo2407Gbps is invalid and excluded. Failure evidence remains unchanged. Root reproduced Linux stat/status/smaps descriptor reads after actual owned-child exit all returning ESRCH; Stage85 confirms owned termination for these exact reads, tests active errors and fixes primary-failure propagation/invalid timing before any distinct new window.
+
+Both rings restoredRX/TX1024; routes/IRQ/RSS and original2121 PID/start preserved; hostpswpout stayed4693038/2292432; all owned process/listener/mount/payload/private credentials cleared. Serial-return grants root sole write ownership. No same-window retry.
+
+Evidence: /home/Su/experiments/CPNetFlux/2026-11-13-field-trial-history-84. Archive62772701bytes SHA256 6e2ec60a288d3de9db7a07459934adc90dd83fc3e7fb2f3f847a25ae8f69b984;4251 entries individually verified remotely and at D:/Project/CPNetFlux/_codex_field_trial_history_84/evidence. Nested R2archive1018 entries independently verified by experiment chat, SHA9fb49b25bf85765a6de8d3548f63a9b5c94c1dc8461c96efdeb20b16028275b9. Large evidence/payload/credentials not added to Git.
