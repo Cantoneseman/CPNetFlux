@@ -1,0 +1,11 @@
+{
+  "input_commit": "463eb1c28e4ef310c9f6952f327d540053ae6b4a",
+  "runtime_commit": "42718ac26be24d53ec17525a7b1b3bcb1e340931",
+  "evidence_root": "/home/Su/experiments/CPNetFlux/2026-11-12-field-trial-scenarios-76",
+  "manifest_sha256": "8d5d6a8f4add4bc9440a7bb554622eccc04070e5d9f281c4df76f3dd4437cac1",
+  "status": "SERIAL_RETURN_SETUP_OBSERVER_FAIL_ROLLED_BACK_CLEANED",
+  "payload_bytes": 0,
+  "audit_checks": 18,
+  "writer_released": true,
+  "readiness": false
+}
