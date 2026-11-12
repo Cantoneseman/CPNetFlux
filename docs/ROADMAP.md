@@ -1,5 +1,7 @@
 # CPNetFlux 性能路线图
 
+当前交付C已核对Task51/52后的版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
+
 更新：2026-11-12。当前决定：[按性能里程碑推进](DECISIONS/2026-11-10-v3-performance-milestones.md)。
 最近交付：[发送节奏50与本阶段收尾结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：ENGINEERING CLOSED / M2 OPEN；已验收大文件成绩见[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)。
 历史结果保留原提交、负载与结论；本页规定下一步，不产生新的性能成绩。

@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-12",
+  "artifact_kind": "reviewable configuration and evidence freeze; not an auto-loaded runtime config",
+  "stage_status": "DELIVERABLE_C_COMPLETE_M2_OPEN",
+  "runtime_code_commit": "ac2544558d71cf7fc44e7e07d57e5499871d4272",
+  "repository_input_commit": "7d7992fe78fce0acf075f9e9797ae4ce30eb269d",
+  "final_commit_and_backup_receipt": "/home/Su/experiments/CPNetFlux/2026-11-12-performance-delivery-c/delivery.json",
+  "runtime_source_trees": {
+    "src": "e5b74de33630c706a114d1850b0ac22b27fad249",
+    "include": "8d66b0bcd2dd3b610ff98868340e80a4c50c7726",
+    "tests": "c5af076aba5a67a54e08497a88be4189f11cecf9",
+    "tools": "f76618190c99d31566393fbb3226bf17ed0bc313",
+    "CMakeLists.txt": "5c4f8656b9a2e57343ebed19eb6c909c4a2322e5"
+  },
+  "build": {
+    "configuration": [
+      "CMAKE_BUILD_TYPE:STRING=RelWithDebInfo",
+      "CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/c++",
+      "CMAKE_PROJECT_VERSION:STATIC=0.1.0",
+      "CPNETFLUX_BUILD_DESKTOP:BOOL=OFF",
+      "CPNETFLUX_BUILD_TESTS:BOOL=ON",
+      "CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS:BOOL=OFF",
+      "CPNETFLUX_ENABLE_IO_URING:BOOL=ON",
+      "CPNETFLUX_ENABLE_ISAL:BOOL=ON",
+      "CPNETFLUX_ENABLE_RDMA:BOOL=ON",
+      "CPNETFLUX_ENABLE_TLS:BOOL=ON",
+      "CPNETFLUX_IBVERBS_INCLUDE_DIR:PATH=/usr/include",
+      "CPNETFLUX_IBVERBS_LIBRARY:FILEPATH=/usr/lib/x86_64-linux-gnu/libibverbs.so",
+      "CPNETFLUX_LIBURING_INCLUDE_DIR:PATH=/usr/include",
+      "CPNETFLUX_LIBURING_LIBRARY:FILEPATH=/usr/lib/x86_64-linux-gnu/liburing.so",
+      "CPNETFLUX_RDMACM_LIBRARY:FILEPATH=/usr/lib/x86_64-linux-gnu/librdmacm.so",
+      "CPNETFLUX_RDMA_INCLUDE_DIR:PATH=/usr/include"
+    ],
+    "binaries_sha256": {
+      "cpnetflux-gridftp-server": "9372d0ce8f258ad97461aa064f577abbd5dd060ad0918f7e270a789f09b3cbef",
+      "cpnetflux-tree-download-client": "aa3e523572fa64339c715a61c14c96e8dc657bc20e8023ebb48b90406feddcd3",
+      "cpnetflux-tree-upload-client": "79a79d464c2df561c9b7886ea648e9ee46139f3cf24056ce6d80e7eb871f0119"
+    }
+  },
+  "profiles": {
+    "defaults_unchanged": {
+      "sender_execution": "queued",
+      "receiver_execution": "queued",
+      "receiver_backend": "pwrite",
+      "sender_pacing": "off",
+      "data_frame_logical_bytes": 65532,
+      "tcp_receive_buffer_request": "off",
+      "checksum_validation": "full",
+      "tcp_exact_read": "off"
+    },
+    "explicit_large_file_reference": {
+      "transport": "TCP",
+      "v3_only": true,
+      "lanes": 4,
+      "source": "resident tmpfs file",
+      "target": "fresh tmpfs file",
+      "direction": "r770-2 to r770-1",
+      "sender_local_bind": "192.168.100.2",
+      "receiver_local_bind": "192.168.100.1",
+      "interface": "eno17095np0",
+      "sender_execution": "queued",
+      "receiver_execution": "inline",
+      "receiver_backend": "experimental mmap",
+      "data_frame_logical_bytes": 262144,
+      "crc_bytes_per_frame": 4,
+      "frame_header_bytes": 64,
+      "chunk_bytes": 1048576,
+      "tcp_receive_buffer_requested_bytes": 1048576,
+      "tcp_receive_buffer_observed_bytes_per_socket": 2097152,
+      "checkpoint_interval": 16,
+      "pending_window": 2,
+      "pipeline_depth": 2,
+      "payload_budget_bytes": 67108864,
+      "mapped_window_bytes_per_lane": 67108864,
+      "mapped_window_bytes_total": 268435456,
+      "integrity": "CRC32C / verified_chunks",
+      "tls": false,
+      "compression": false,
+      "commit_sync": "none",
+      "sender_pacing": "off",
+      "promotion_to_default": false,
+      "tcp_exact_read": "off",
+      "current_head_performance_validated": false
+    },
+    "diagnostic_sender_pacing": {
+      "base_profile": "explicit_large_file_reference",
+      "environment_variable": "CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND",
+      "enabled_value": "1500000000",
+      "disabled_value": "off or unset",
+      "apply_to": "actual sender process; for download this is the remote server",
+      "per_lane_application_bytes_per_second": 1500000000,
+      "max_lanes": 4,
+      "application_rate_cap_gbps_4_lanes": 48,
+      "performance_recommended": false,
+      "proof_scope": "application DATA admission, not packet shaping",
+      "unsupported": [
+        "TLS",
+        "native RDMA",
+        "compression",
+        "more than four lanes"
+      ],
+      "wait_backend": "CLOCK_MONOTONIC timerfd, lazily created once per lane",
+      "additional_fds_max": 4
+    },
+    "diagnostic_tcp_exact_read": {
+      "base_profile": "explicit_large_file_reference",
+      "environment_variable": "CPNETFLUX_TCP_EXACT_READ",
+      "enabled_value": "on",
+      "disabled_value": "off or unset",
+      "apply_to": "actual receiver process; for download this is local client",
+      "support": "plain TCP / 256KiB logical DATA / at most four channels",
+      "mechanism": "MSG_WAITALL completion loop for validated readAll lengths greater than 65536 bytes",
+      "unchanged": [
+        "headers/small controls",
+        "readSome/readAllV",
+        "TLS/RDMA",
+        "CRC32C/lease/checkpoint/recovery/publication"
+      ],
+      "additional_fd_threads_queues_payload_buffers": 0,
+      "performance_recommended": false,
+      "latest_sample_network_gate": "FAIL",
+      "new_samples_allowed_by_this_delivery": false
+    }
+  },
+  "measured_results": {
+    "historical_m1": {
+      "commit": "506b63be71bc5aea5eca92cab549c6d4adb2ff51",
+      "payload_bytes": 8589934592,
+      "pairs": 5,
+      "combined_median_gbps": 34.159409520336126,
+      "combined_median_t_ready_seconds": 2.011729057994671,
+      "current_head_measurement": false
+    },
+    "pacing_feasibility": {
+      "commit": "057159ce02099e4a88c94e591f02880ca1669834",
+      "payload_bytes": 1073741824,
+      "samples": 1,
+      "task_gbps": 28.22135862411986,
+      "t_ready_seconds": 0.3043770750518888,
+      "same_commit_comparison": false
+    },
+    "formal_m2": {
+      "status": "NOT_RUN_NOT_ADMITTED",
+      "samples": 0,
+      "median_gbps": null,
+      "cv": null,
+      "admission_threshold_gbps": 40,
+      "m2_achieved": false
+    },
+    "pacing_wait_feasibility": {
+      "commit": "52acbeb9a4142f7c89cc22678a80778795a66246",
+      "payload_bytes": 1073741824,
+      "samples": 1,
+      "t_ready_seconds": 0.23548019398003817,
+      "task_gbps": 36.47837402719388,
+      "same_commit_comparison": false,
+      "formal_baseline": false,
+      "network_windows_pass": true,
+      "long_term_stability_proven": false
+    },
+    "exact_read_feasibility": {
+      "commit": "ac2544558d71cf7fc44e7e07d57e5499871d4272",
+      "payload_bytes": 1073741824,
+      "samples": 1,
+      "t_ready_seconds": 0.2385353751014918,
+      "raw_task_gbps": 36.011155948442294,
+      "valid_performance_samples": 0,
+      "network_gate": "FAIL",
+      "oob_delta": 52,
+      "missed_delta": 52,
+      "source_check_after_transfer": "NOT_RUN",
+      "same_commit_comparison": false,
+      "large_payload_calls": 4096,
+      "recv_calls": 4096,
+      "short_returns": 0
+    }
+  },
+  "acceptance": {
+    "related_ctest_per_endpoint": 254,
+    "exact_read_enabled_resume_ctest_r1": 2,
+    "corrected_driver_ctest_per_endpoint": 3,
+    "evidence_root": "/home/Su/experiments/CPNetFlux/2026-11-12-v3-tcp-exact-read-52",
+    "reused_regression_reason": "src/include/tests/CMake unchanged after ac254455 and binaries identical; corrected tools separately passed driver 3/3",
+    "live_cleanup_checked": true,
+    "external_services_match_original": true,
+    "new_ctest_executed_this_documentation_delivery": false,
+    "new_payload_experiments": 0,
+    "evidence_gate": "/home/Su/experiments/CPNetFlux/2026-11-12-performance-delivery-c/acceptance.json"
+  },
+  "resource_contract": {
+    "minimum_mem_available_bytes": 12884901888,
+    "owned_swap_bytes": 0,
+    "host_pswpout_delta": 0,
+    "source_all_resident": true,
+    "per_endpoint_payload_limit_bytes": 8589934592,
+    "payloads_cleaned": true,
+    "scope": "Experiment contract; RSS excludes some tmpfs file memory"
+  },
+  "reproduction": {
+    "related_ctest_regex": "FramedDataSocketTest|SenderPacerTest|Persistent|Deadline|Timeout|Cancel|Budget|Publication|cpnetflux_large_data|cpnetflux_sender_pacing|cpnetflux_tcp_exact_read|cpnetflux_small_file_baseline_driver_test|cpnetflux_v3_.*resume|cpnetflux_publication_resume",
+    "candidate_enabled_ctest_regex": "^(cpnetflux_large_data_interrupted_resume_smoke|cpnetflux_large_data_receive_buffer_resume_smoke)$",
+    "driver_ctest_regex": "^(cpnetflux_tcp_exact_read_driver_test|cpnetflux_sender_pacing_driver_test|cpnetflux_small_file_baseline_driver_test)$",
+    "historical_drivers": {
+      "52acbeb9": "tools/perf/run_sender_pacing.py",
+      "ac254455": "tools/perf/run_tcp_exact_read.py"
+    },
+    "historical_receipts": [
+      "/home/Su/experiments/CPNetFlux/2026-11-12-v3-pacing-wait-51/one-gib",
+      "/home/Su/experiments/CPNetFlux/2026-11-12-v3-tcp-exact-read-52/one-gib"
+    ],
+    "offline_verification_command": "python3 /home/Su/experiments/CPNetFlux/2026-11-12-performance-delivery-c/verify.py",
+    "preconditions": [
+      "No new cross-host run in C; do not rerun stopped candidates or pass old SHA against later HEAD",
+      "Future scope requires new mechanism and frozen contract; preserve changes before selecting a version",
+      "Both hosts same fixed commit/config/build/binary SHA before payload; new evidence/marker roots",
+      "Exact-read original driver exited 1 after transfer; offline correction preserves original failure"
+    ]
+  },
+  "rdma_assessment_only": {
+    "status": "STILL_PAUSED",
+    "send_slots": 16,
+    "receive_posted_slots": 2048,
+    "receive_spare_slots": 32,
+    "slot_bytes": 1052672,
+    "data_pool_bytes_per_connection": 2206400512,
+    "data_pool_bytes_4_connections_per_endpoint": 8825602048,
+    "includes_cq_metadata_allocator_overhead": false,
+    "actual_rdma_measurement": false,
+    "restart_conditions": [
+      "explicit route restart scope",
+      "bounded MR/memlock and whole-host memory budget",
+      "actual rdma transport selection and matching QP/completion/byte receipts",
+      "V3 lease/CRC/cancel/deadline/recovery/publication and buffer return acceptance",
+      "same-frame baseline first; existing 256KiB DATA path is plain TCP only"
+    ],
+    "source": "include/cpnetflux/core/io/rdma_data_socket.h; src/core/io/rdma_data_socket.cpp at ac254455",
+    "value": "May bypass some TCP stack work, but not tmpfs page allocation, CRC, manifest or existing MR copies"
+  },
+  "open_acceptance": [
+    "M2 40-50 Gbps",
+    "70-85/100 Gbps",
+    "historical OOB cause and long-duration stability",
+    "disk persistence",
+    "TLS performance",
+    "reverse direction and wider workloads",
+    "production readiness"
+  ],
+  "deferred": [
+    "unified work units",
+    "budgeted sampling and policy memory",
+    "small-file aggregation / S1B default promotion"
+  ],
+  "scope": "Task51/52 current freeze; historical Task50 C remains unchanged",
+  "overall_performance_goal_complete": false,
+  "next_development": "TCP receive/CRC/fresh-target page-management ownership audit; identify concrete work reduction, no profiler/parameter scan"
+}

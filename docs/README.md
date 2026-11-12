@@ -1,5 +1,7 @@
 # CPNetFlux 文档导航
 
+当前交付C已核对Task51/52后的版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
+
 
 最新交付：[TCP exact-read 52](tasks/2026-11-12-v3-tcp-exact-read-52-result.md)：双端254项相关回归通过，读取机制确认；唯一1GiB触发OOB/missed各+52停止门，未产生新合格性能成绩，M2仍开放。
 
