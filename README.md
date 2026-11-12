@@ -14,7 +14,7 @@ CPNetFlux 面向超算中心节点间科学数据传输，提供分块校验、�
 
 Task50历史阶段状态为ENGINEERING CLOSED / M2 OPEN；40–50、70–85/100Gbps与长期稳定性仍未验收。原生RDMA优化继续暂停，仅完成重启价值、MR内存预算与数据所有权条件评估；统一工作单元/预算采样/策略记忆保持DEFERRED。冻结配置、精确版本、回归及下一步条件见[Task50结果](docs/tasks/2026-11-11-v3-sender-pacing-50-result.md)。
 
-最新[Task56 / 交付C冻结](docs/tasks/2026-11-12-v3-kernel-tcp-pacing-56-result.md)：默认关闭的每socket内核TCP pacing已实现并回归；唯一1GiB完整目标任务35.388Gbps，网络/资源/内容/清理通过，未达40Gbps。客户端45.70Gbps仅子窗口，必要目标准备已计入。M2仍开放，本候选不追加样本；当前下一步以[路线图](docs/ROADMAP.md)为准。
+最新[Task57 / 交付C冻结](docs/tasks/2026-11-12-v3-private-setup-57-result.md)：默认关闭的原生必要准备路径及并发回执修复已完成，两端相关CTest各261项、kernel pacing smoke各连续10次通过。五对准备中位53.40→7.62ms；唯一1GiB完整目标任务**40.865Gbps**，包含必要准备，内容/资源/网络/页型/清理通过。仅单次可行性准入，正式8GiB M2未运行，不能称稳定40Gbps；下一步先完善有界8GiB支持和正式合同，详见[路线图](docs/ROADMAP.md)。
 
 ## 服务器与开发环境
 

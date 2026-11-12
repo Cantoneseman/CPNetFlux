@@ -1,11 +1,13 @@
 # CPNetFlux 文档导航
 
-最新交付：[Task56 / 内核TCP pacing与交付C冻结](tasks/2026-11-12-v3-kernel-tcp-pacing-56-result.md)：默认关闭机制已实现，R2相关259项通过、R1失败修复后定向5项通过，两端候选恢复各2项通过。唯一1GiB完整目标任务35.388Gbps，网络/资源/内容/页型/清理通过，但未达40Gbps准入。四lane ceiling回读不等于实际整形；一次0错误不关闭OOB因果。停止追加本候选和8GiB矩阵，M2仍开放；[冻结清单](tasks/2026-11-12-v3-kernel-tcp-pacing-56-freeze.json)。
+最新交付：[Task57 / 原生必要准备与交付C冻结](tasks/2026-11-12-v3-private-setup-57-result.md)：五对准备门通过（旧中位53.40ms→native 7.62ms），最终两端相关CTest各261/261、kernel pacing smoke各连续10次通过；唯一1GiB完整目标任务**40.865Gbps**，必要准备计入，内容/资源/网络/页型/清理均通过。仅单次可行性准入，正式8GiB M2与稳定性仍开放；[冻结清单](tasks/2026-11-12-v3-private-setup-57-freeze.json)。默认关闭，不追加本轮样本或参数扫描。
 
-前次交付：[Task55 / 私有tmpfs完整V3准入与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：默认关闭的有界后端与两端各18项相关回归通过。唯一1GiB样本计入必要目标准备后35.710Gbps，OOB/missed各+261，网络门失败；原始客户端窗口45.922Gbps不计为合格性能成绩。资源/内容/实际页型/清理通过，未运行新8GiB矩阵，M2仍开放；停止本候选的追加payload与扫描。冻结见[清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)。
+前次交付：[Task56 / 内核TCP pacing与交付C冻结](tasks/2026-11-12-v3-kernel-tcp-pacing-56-result.md)：默认关闭机制已实现，R2相关259项通过、R1失败修复后定向5项通过，两端候选恢复各2项通过。唯一1GiB完整目标任务35.388Gbps，网络/资源/内容/页型/清理通过，但未达40Gbps准入。四lane ceiling回读不等于实际整形；一次0错误不关闭OOB因果。停止追加本候选和8GiB矩阵，M2仍开放；[冻结清单](tasks/2026-11-12-v3-kernel-tcp-pacing-56-freeze.json)。
+
+历史交付：[Task55 / 私有tmpfs完整V3准入与交付C冻结](tasks/2026-11-12-v3-private-tmpfs-55-result.md)：默认关闭的有界后端与两端各18项相关回归通过。唯一1GiB样本计入必要目标准备后35.710Gbps，OOB/missed各+261，网络门失败；原始客户端窗口45.922Gbps不计为合格性能成绩。资源/内容/实际页型/清理通过，未运行新8GiB矩阵，M2仍开放；停止本候选的追加payload与扫描。冻结见[清单](tasks/2026-11-12-v3-private-tmpfs-55-freeze.json)。
 
 前序机制：[首次大页54](tasks/2026-11-12-v3-private-tmpfs-54-result.md)仅局部五对通过；
-[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以Task56结果与路线图为准，不沿用旧文档“待做1GiB”的历史下一步。
+[ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已交付。当前下一步以Task57结果与路线图为准，不沿用旧文档“待做1GiB”的历史下一步。
 
 交付C历史快照已核对Task51/52版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
 

@@ -119,3 +119,25 @@ src/protocol/control/control_server.cpp或共享输出工具/相应回归；不�
 8个并发线程合并两stream输出128条32KiB记录，完整逐条集合为独立oracle，覆盖长记录互插。
 协议trace只改输出串行化，不改字段/开关；不将日志接口变化当性能优化。
 原R2 10/11与R1 259/260失败保留，修复后重新验收。
+
+## 剩余交付C收口合同
+
+范围：冻结Task57已提交实现118211f及helper来源740396b的实际配置、双端回归与唯一1GiB
+可行性证据；离线复算完整任务和准入判定；复核双端现场、明确默认/实验/生产边界及回退；
+只提交本次文档，推送GitHub回读SHA，R2同步同文档提交；Windows只复制小报告和清单。
+非目标：不再改运行时/测试/CMake，不追加payload、参数扫描或8GiB正式矩阵，不将一次40Gbps
+准入或工程交付包装为正式M2，不重启RDMA/DEFERRED项。
+受影响文件：本合同、2026-11-12-v3-private-setup-57-result.md及-freeze.json、
+README.md、docs/README.md、docs/ROADMAP.md；实验根新增verify-delivery.py、
+delivery-acceptance.json、最终双端回执和delivery.json，不提交大日志/构建产物/凭据。
+验收：原证据hash、源对象/四二进制/配置匹配、两端261/261及各10次pacing smoke、
+8种native生命周期/身份/失败清理和五对准备门通过，完整任务复算40.865344828Gbps、
+所有准入门true且M2仍false；本地链接与git diff --check通过；最终两端同提交、清理无残留、
+GitHub SHA回读一致及Windows小文件hash匹配。仅文档变化不重跑未改变的完整回归。
+
+交付C离线结果：304个原始证据文件SHA核对、194个文档本地链接、源对象/四二进制/配置、
+双端261/261与各10次smoke、native生命周期与五对准备门均通过；
+从成功字节与必要准备/目录/client计时复算40.865344828Gbps，全部准入门true，
+M2仍false。本轮收口未增加payload，失败/取消的wrapper 124与子进程SIGTERM 143、
+卸载前私有probe.bin和最终host路径删除分别按真实证据判定。
+最终GitHub回读与双端同步另记实验根delivery.json；下一开发为有界8GiB能力及正式M2合同。
