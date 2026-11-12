@@ -59,6 +59,21 @@ class PrivateTmpfsTests(unittest.TestCase):
         validate_receive_deltas({'rx_out_of_buffer_delta':0,'rx_missed_errors_delta':0})
         with self.assertRaises(AssertionError):validate_netdev_deltas({'rx_missed_errors':1})
         validate_netdev_deltas({'rx_missed_errors':0})
+    def test_resource_gate_is_independent_of_network_gate(self):
+        from run_private_tmpfs_v3 import resource_gate
+        client=dict(mem_available_min_bytes=12*1024**3,owned_swap_peak_bytes=0,
+                    owned_swap_current_bytes=0,pswpout_delta=0)
+        sender=dict(mem_available_min_bytes=12*1024**3,owned_swap_peak_bytes=0,
+                    pswpout_delta=0,error=None)
+        source=dict(mem_available_bytes=12*1024**3,process=dict(swap_bytes=0),
+                    host_pswpout_delta_since_seed=0)
+        self.assertTrue(resource_gate(client,sender,source,12*1024**3,0))
+        sender['mem_available_min_bytes']=12*1024**3-1
+        self.assertFalse(resource_gate(client,sender,source,12*1024**3,0))
+        sender['mem_available_min_bytes']=12*1024**3
+        client['pswpout_delta']=1
+        self.assertFalse(resource_gate(client,sender,source,12*1024**3,0))
+        client['pswpout_delta']=0
     def test_no_target_page_proof_from_anonymous_mapping(self):
         text='1000-2000 rw-p 0000 00:00 0\nShmemPmdMapped: 2048 kB\n'
         self.assertEqual(self.m.target_pmd_bytes(text,Path('/target')),0)

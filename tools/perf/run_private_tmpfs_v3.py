@@ -20,6 +20,19 @@ def validate_receive_deltas(values):
 def validate_netdev_deltas(values):
     assert values['rx_missed_errors']==0
 
+def resource_gate(client,sender,source,host_mem_available,host_pswpout_delta):
+    if not all(isinstance(value,dict) for value in (client,sender,source)):
+        return False
+    client_mem=client.get('mem_available_min_bytes',0)
+    sender_mem=sender.get('mem_available_min_bytes',0)
+    source_mem=source.get('mem_available_bytes',0)
+    source_process=source.get('process') or {}
+    return (min(host_mem_available,client_mem,sender_mem,source_mem)>=12*base.GIB and
+        client.get('owned_swap_peak_bytes')==0 and client.get('owned_swap_current_bytes')==0 and
+        sender.get('owned_swap_peak_bytes')==0 and source_process.get('swap_bytes')==0 and
+        client.get('pswpout_delta')==0 and sender.get('pswpout_delta')==0 and
+        source.get('host_pswpout_delta_since_seed')==0 and host_pswpout_delta==0 and
+        sender.get('error') is None)
 def validate_summary(summary):
     assert summary['connections']==4 and summary['actual_transport']=='v3'
     assert summary['data_transport']=='tcp' and summary['data_frame_logical_bytes']==262144
@@ -46,7 +59,7 @@ def run(args):
     base.save(args.evidence/'inventory-r1.json',net.inventory())
     assert not list(args.payload_root.iterdir())
     (args.payload_root/base.MARKER).write_text(base.TOKEN)
-    init_attempt=False;start_attempt=False;row=None;expected=None;failures=[];cleanup={}
+    init_attempt=False;start_attempt=False;row=None;expected=None;source=None;server=None;failures=[];cleanup={}
     gates=dict(network=False,resources=False,content=False,pages=False)
     page=dict(samples=0,target_shmem_pmd_mapped_peak_bytes=0,actual_uid=os.getuid(),
               scope='sampled actual receiver target VMAs; peak is not total file coverage')
@@ -93,7 +106,6 @@ def run(args):
         broad_delta=large.network_counter_deltas(row['before']['net'],row['after']['net'])
         validate_netdev_deltas(broad_delta)
         gates['network']=True
-        gates['resources']=row['resource']['pswpout_delta']==0
     except BaseException as error:
         failures.append(dict(stage='run',error=repr(error)))
     finally:
@@ -103,11 +115,10 @@ def run(args):
             try:
                 server=base.peer(args,'stop',name='private55');base.save(args.evidence/'server.json',server)
                 assert not server['sender_phases'].get('sender_pacing',[]),'pacing unexpectedly active'
-                assert 'error' not in server['resource'] and server['resource']['pswpout_delta']==0
                 server_delta=large.network_counter_deltas(server['before']['net'],server['after']['net'])
                 validate_netdev_deltas(server_delta)
             except BaseException as error:
-                gates['resources']=False;failures.append(dict(stage='server-stop',error=repr(error)))
+                gates['network']=False;failures.append(dict(stage='server-stop',error=repr(error)))
         if init_attempt:
             try:
                 checked=base.peer(args,'source-check');base.save(args.evidence/'source-check.json',checked)
@@ -133,9 +144,17 @@ def run(args):
         receive_gate(broad)
         task_delta=large.network_counter_deltas(before['net'],base.snapshot()['net'])
         validate_netdev_deltas(task_delta)
-        assert base.pswpout()==before['pswpout'] and base.mem()>=12*base.GIB
     except BaseException as error:
         gates['network']=False;failures.append(dict(stage='broad-final-gate',error=repr(error)))
+    try:
+        gates['resources']=resource_gate(
+            row.get('resource') if row is not None else None,
+            server.get('resource') if server is not None else None,
+            source,base.mem(),base.pswpout()-before['pswpout'])
+        if not gates['resources']:raise AssertionError('memory or swap resource gate')
+    except BaseException as error:
+        gates['resources']=False
+        failures.append(dict(stage='resources',error=repr(error)))
     report=dict(scope='one instrumented feasibility; no A/B, CV, M2 or stability claim',
         gates=gates,failures=failures,cleanup=cleanup,m2_pass=False,
         pacing='off',exact_read='off',final_admission_pending_external_unmount=True)
