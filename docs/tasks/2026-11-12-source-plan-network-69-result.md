@@ -35,7 +35,7 @@ native_syscalls、huge=within_size；目标实际ShmemPmdMapped采样峰26214400
 
 清理已核验：两端69私有payload roots不存在，无69临时mount、49337监听、owned活动数据/观察进程；原2121服务PID/startticks保持。停止/清理按标记和确切拥有路径由固定harness执行，无reset/clean，无全局网络/内存调优，无旧证据或CPSS修改。R2完整小体量实验记录已收集在r2-evidence。
 
-离线29项一致性审计通过，含实际路径、SHA、四队列、资源采样、Git状态和预期失败门；这不等于网络验收通过。audit69.py可重复只读审计。
+离线29项一致性审计通过，含实际路径、SHA、四队列、资源采样、Git状态和预期失败门；这不等于网络验收通过。audit69.py在冻结时已运行；原脚本会写audit.json，不能在冻结目录直接重跑。复核请只读检查SHA256SUMS，或在副本重放审计，保留原始冻结文件。
 
 ## 交还root的下一步
 

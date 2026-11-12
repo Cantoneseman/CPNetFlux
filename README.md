@@ -1,6 +1,6 @@
 # CPNetFlux
 
-最新验收：[阶段69：1GiB完整文件网络门失败](docs/tasks/2026-11-12-source-plan-network-69-result.md)。4路实际队列9/27/7/28均匹配，R1 OOB/missed仍各+132；内容/资源/页型通过，性能有效样本0，正式GridFTP比较和稳定性未启动，上机NOT_READY。下一步仅[阶段70任务级CPU隔离诊断](docs/tasks/2026-11-12-rx-cpu-isolation-70.md)，不重复69或扫描全局参数。
+最新验收：[阶段70：接收物理核隔离仍未关闭网络门](docs/tasks/2026-11-12-rx-cpu-isolation-70-result.md)。实际线程亲和性生效，R1 OOB/missed仍各+328；[阶段69四队列分流](docs/tasks/2026-11-12-source-plan-network-69-result.md)也未解决。两次1GiB均为失败诊断，有效性能样本0。停止同类扫描，先定位发送突发与RX服务时序；正式比较NO-GO、稳定性NOT_RUN、上机NOT_READY。
 
 最新开发补项：[阶段68：工作租约迁移恢复修复](docs/tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](docs/tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。该阶段未新增性能成绩；其后1GiB验收已由阶段69执行并失败，下一步以页首为准。比较仍NO-GO、上机NOT_READY。
 
