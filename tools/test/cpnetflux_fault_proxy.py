@@ -303,7 +303,7 @@ class FaultProxy:
     def accept(self, listener, host, port, data):
         while not self.stopped.is_set():
             try:
-                client, _ = listener.accept()
+                client, accepted_peer = listener.accept()
                 backend = socket.create_connection((host, port), timeout=3)
                 client.settimeout(None)
                 backend.settimeout(None)
@@ -333,6 +333,8 @@ class FaultProxy:
                                 self.target_connection = connection_id
                         self.event(
                             event="data_connected",
+                            accepted_local=list(client.getsockname()),
+                            accepted_peer=list(accepted_peer),
                             connection=connection_id,
                             data_connection=self.data_connection_count,
                             data_port=port,
@@ -344,6 +346,8 @@ class FaultProxy:
                         self.control_sockets[connection_id] = (client, backend)
                         self.event(
                             event="control_connected",
+                            accepted_local=list(client.getsockname()),
+                            accepted_peer=list(accepted_peer),
                             connection=connection_id,
                             control_connection=self.control_connection_count,
                         )

@@ -72,6 +72,23 @@ def run_case(build, root, direction, fault=None):
                 assert endpoint['channel_index'] == endpoint['lane_index'] == index, endpoint
                 assert endpoint['control_peer_address'] == endpoint['data_peer_address'] == peers[index], endpoint
                 assert endpoint['control_local_address'] == endpoint['data_local_address'] == '127.0.0.1', endpoint
+                required = {'control_local_port','control_peer_port','data_local_port','data_peer_port',
+                    'tcp_last_incoming_cpu','tcp_last_incoming_napi_id','data_endpoint_scope'}
+                assert required.issubset(endpoint), ('socket endpoint observation fields missing',endpoint)
+                assert endpoint['data_endpoint_scope']=='last_connected_socket'
+                records = [json.loads(x) for x in (case / ('proxy-'+str(index)+'.jsonl')).read_text().splitlines()]
+                data_accepts=[r for r in records if r['event']=='data_connected']
+                control_accepts=[r for r in records if r['event']=='control_connected']
+                assert len(data_accepts)==endpoint['data_connections']
+                for prefix,accepted in [('data',data_accepts[-1]),('control',control_accepts[-1])]:
+                    assert endpoint[prefix+'_local_port']==accepted['accepted_peer'][1], (endpoint,accepted)
+                    assert endpoint[prefix+'_peer_port']==accepted['accepted_local'][1], (endpoint,accepted)
+                    assert 0<endpoint[prefix+'_local_port']<=65535 and 0<endpoint[prefix+'_peer_port']<=65535
+                # Loopback has no hardware NAPI; a missing observation is explicit.
+                assert endpoint['tcp_last_incoming_napi_id'] is None
+                cpu=endpoint['tcp_last_incoming_cpu']
+                assert cpu is None or (isinstance(cpu,int) and cpu>=0)
+
             observed = tree_hash(server_root / 'uploaded' if direction == 'upload' else case / 'downloaded')
             assert observed == expected, (observed, expected)
             if fault:

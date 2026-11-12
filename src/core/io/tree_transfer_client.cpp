@@ -4,6 +4,7 @@
 
 #include <fcntl.h>
 #include <netdb.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -96,6 +97,20 @@ std::string socketAddress(int fd, bool peer) {
     if (status != 0 || ::getnameinfo(reinterpret_cast<sockaddr*>(&address), length,
             host, sizeof(host), nullptr, 0, NI_NUMERICHOST) != 0) return {};
     return host;
+}
+
+std::uint16_t socketPort(int fd, bool peer) {
+    if (fd < 0) return 0;
+    sockaddr_storage address{};
+    socklen_t length = sizeof(address);
+    const int status = peer ? ::getpeername(fd, reinterpret_cast<sockaddr*>(&address), &length)
+                            : ::getsockname(fd, reinterpret_cast<sockaddr*>(&address), &length);
+    if (status != 0) return 0;
+    if (address.ss_family == AF_INET && length >= sizeof(sockaddr_in))
+        return ntohs(reinterpret_cast<const sockaddr_in*>(&address)->sin_port);
+    if (address.ss_family == AF_INET6 && length >= sizeof(sockaddr_in6))
+        return ntohs(reinterpret_cast<const sockaddr_in6*>(&address)->sin6_port);
+    return 0;
 }
 
 constexpr auto kPipelineControlResponseTimeout = std::chrono::seconds(30);
@@ -944,7 +959,45 @@ struct LaneEndpoint {
     std::string controlPeer, dataPeer, controlLocal, dataLocal;
     std::uint32_t tcpReceiveBufferBytes = 0;
     TcpExactReadStats tcpExactRead;
+    std::uint16_t controlPeerPort = 0, controlLocalPort = 0, dataPeerPort = 0, dataLocalPort = 0;
+    std::optional<int> tcpLastIncomingCpu;
+    std::optional<std::uint32_t> tcpLastIncomingNapiId;
 };
+
+void observeLaneConnection(LaneEndpoint& endpoint, int controlFd,
+                           const FramedDataSocket& data) {
+    endpoint.controlPeer = socketAddress(controlFd, true);
+    endpoint.controlLocal = socketAddress(controlFd, false);
+    endpoint.controlPeerPort = socketPort(controlFd, true);
+    endpoint.controlLocalPort = socketPort(controlFd, false);
+    endpoint.dataPeer = socketAddress(data.fd(), true);
+    endpoint.dataLocal = socketAddress(data.fd(), false);
+    // RDMA's fd is bootstrap/control plumbing, not a TCP payload connection.
+    endpoint.dataPeerPort = data.transport() == DataTransport::Tcp ? socketPort(data.fd(), true) : 0;
+    endpoint.dataLocalPort = data.transport() == DataTransport::Tcp ? socketPort(data.fd(), false) : 0;
+    endpoint.tcpLastIncomingCpu.reset();
+    endpoint.tcpLastIncomingNapiId.reset();
+}
+
+void observeLastIncoming(LaneEndpoint& endpoint, const FramedDataSocket& data) {
+    endpoint.tcpLastIncomingCpu.reset();
+    endpoint.tcpLastIncomingNapiId.reset();
+    if (data.transport() != DataTransport::Tcp || !data.valid()) return;
+#if defined(SO_INCOMING_CPU)
+    int cpu = -1;
+    socklen_t cpuLength = sizeof(cpu);
+    if (::getsockopt(data.fd(), SOL_SOCKET, SO_INCOMING_CPU, &cpu, &cpuLength) == 0 &&
+        cpuLength == sizeof(cpu) && cpu >= 0)
+        endpoint.tcpLastIncomingCpu = cpu;
+#endif
+#if defined(SO_INCOMING_NAPI_ID)
+    std::uint32_t napiId = 0;
+    socklen_t napiLength = sizeof(napiId);
+    if (::getsockopt(data.fd(), SOL_SOCKET, SO_INCOMING_NAPI_ID, &napiId, &napiLength) == 0 &&
+        napiLength == sizeof(napiId) && napiId != 0)
+        endpoint.tcpLastIncomingNapiId = napiId;
+#endif
+}
 
 void addRdmaTransportStats(RdmaTransportStats* target,
                            const RdmaTransportStats& source) {
@@ -1610,6 +1663,13 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
                << "\",\"control_local_address\":\"" << jsonEscape(endpoint.controlLocal)
                << "\",\"data_local_address\":\"" << jsonEscape(endpoint.dataLocal)
                << "\",\"data_connections\":" << endpoint.dataConnections
+               << ",\"control_local_port\":" << (endpoint.controlLocalPort ? std::to_string(endpoint.controlLocalPort) : "null")
+               << ",\"control_peer_port\":" << (endpoint.controlPeerPort ? std::to_string(endpoint.controlPeerPort) : "null")
+               << ",\"data_local_port\":" << (endpoint.dataLocalPort ? std::to_string(endpoint.dataLocalPort) : "null")
+               << ",\"data_peer_port\":" << (endpoint.dataPeerPort ? std::to_string(endpoint.dataPeerPort) : "null")
+               << ",\"data_endpoint_scope\":\"last_connected_socket\""
+               << ",\"tcp_last_incoming_cpu\":" << (endpoint.tcpLastIncomingCpu ? std::to_string(*endpoint.tcpLastIncomingCpu) : "null")
+               << ",\"tcp_last_incoming_napi_id\":" << (endpoint.tcpLastIncomingNapiId ? std::to_string(*endpoint.tcpLastIncomingNapiId) : "null")
                << ",\"tcp_receive_buffer_bytes\":" << endpoint.tcpReceiveBufferBytes
                << ",\"tcp_exact_read\":{\"enabled\":" << (endpoint.tcpExactRead.enabled ? "true" : "false")
                << ",\"large_read_calls\":" << endpoint.tcpExactRead.largeReadCalls
@@ -2413,10 +2473,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
             std::lock_guard<std::mutex> lock(channel.dataMutex);
             channel.data = std::move(data.value());
-            channel.endpoint.controlPeer = socketAddress(channel.control->socketFd(), true);
-            channel.endpoint.controlLocal = socketAddress(channel.control->socketFd(), false);
-            channel.endpoint.dataPeer = socketAddress(channel.data.fd(), true);
-            channel.endpoint.dataLocal = socketAddress(channel.data.fd(), false);
+            observeLaneConnection(channel.endpoint, channel.control->socketFd(), channel.data);
             channel.dataConnected = true;
             channel.dataConnectCount = 1;
         });
@@ -2729,10 +2786,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                 {
                     std::lock_guard<std::mutex> lock(channel.dataMutex);
                     channel.data = std::move(data.value());
-                    channel.endpoint.controlPeer = socketAddress(channel.control->socketFd(), true);
-                    channel.endpoint.controlLocal = socketAddress(channel.control->socketFd(), false);
-                    channel.endpoint.dataPeer = socketAddress(channel.data.fd(), true);
-                    channel.endpoint.dataLocal = socketAddress(channel.data.fd(), false);
+                    observeLaneConnection(channel.endpoint, channel.control->socketFd(), channel.data);
                 }
                 channel.dataConnected = true;
                 ++channel.dataConnectCount;
@@ -2774,6 +2828,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     addRdmaTransportStats(&channel.rdmaTransport, channel.data.rdmaStats());
                     channel.endpoint.tcpReceiveBufferBytes = channel.data.tcpReceiveBufferBytes();
                     channel.endpoint.tcpExactRead = channel.data.tcpExactReadStats();
+                    observeLastIncoming(channel.endpoint, channel.data);
                     channel.data = FramedDataSocket{};
                 }
                 const auto waiting = std::chrono::steady_clock::now();
