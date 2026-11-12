@@ -1,5 +1,7 @@
 # CPNetFlux
 
+最新开发补项：[阶段68：工作租约迁移恢复修复](docs/tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](docs/tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。未新增性能成绩；下一步一次1GiB完整文件网络验收，再正式GridFTP五对、稳定性。比较仍NO-GO、上机NOT_READY。
+
 最新诊断：[阶段66：RX队列聚集隔离对照](docs/tasks/2026-11-12-rss-queue-control-66-result.md)。同速四流分散队列时OOB/missed为0；集中单队列触发各+310并停止。没有新增CP性能成绩，下一步验证软件TCP连接布局及恢复/端口复用；正式比较仍NO-GO、稳定性未开始、上机NOT_READY。
 
 前序观测交付：[阶段65：连接/接收队列观测补全](docs/tasks/2026-11-12-rss-flow-evidence-65-result.md)。12条低速probe的RSS预测全部验证；V3实际端口及最后CPU/NAPI已实现，双端各5项回归、一次0字节跨机功能核验通过。没有新增吞吐成绩，OOB因果尚未关闭；比较、稳定性和上机状态仍以下列阶段64失败边界为准。

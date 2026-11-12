@@ -1,0 +1,27 @@
+# 阶段68：重试文件在健康通道迁移时的恢复语义修复
+
+实现提交42718ac26be24d53ec17525a7b1b3bcb1e340931，已推送GitHub并回读远端SHA。输入839352cd8273c8badf52d4b2da58fa784c4780c8；R1唯一写入，R2固定提交验收，无子代理/worktree/系统网络修改。
+
+## 问题与最小修复
+
+阶段67保留512B早期故障边界、2MiB+约2.9KiB混合文件，捕获identity mismatch及total deadline失败。协议trace显示attempt1的非分片文件被健康通道接手，此通道自身没有重连，原实现只依赖channel options.resume决定是否请求恢复，导致文件级重试没有正确的缺失集握手。另外sender会用lane reconnectAttempt覆盖动态工作租约的attempt；range接收也没有采用帧上的resume标志。
+
+本次将恢复语义绑定到工作租约：动态队列claim返回的attempt保持权威；只有不使用动态工作队列的调用才使用显式lane override。attempt非零或原resume请求均发FILE_BEGIN已有kFileResume标志并等待缺失集；range接收采用同一请求。没有新协议格式、身份检查放松、CRC跳过、扩大重试预算或延长deadline，正常attempt0路径保持。
+
+新增真实socket、真实检查点回归：8B文件已有4B CRC验证，原worker断开后将工作排回队列，仍处于epoch1的worker1接管；全局resume=false、lane reconnectAttempt=0。upload/download×whole/range四个参数在旧实现4/4失败，修复后4/4通过，实际仅补4B、跳过4B、完成attempt1、内容一致且队列无剩余。原来“重连worker且显式resume=true”的回归保留。
+
+## 验收事实
+
+两端同42718ac、同CMake配置、四个程序SHA-256完全一致。每端79项恢复/options/socket/端口计划及7类集成门，加77项PersistentSession/PersistentDirectory/PersistentRange协议、陈旧身份拒绝、CRC、完整性和并发写入回归，合计156/156通过、无跳过。精确正则与原始输出见ctest-command/protocol-command和两端日志。
+
+保留阶段67原512B脚本不改，仅打开现有协议trace，对data/control reset各三次串行复核6/6通过，日志、summary和proxy事件保存。正式端口计划smoke增加6个独立早期故障夹具，各自持有一次reset预算；原TLS、重复任务、512KiB中途故障、耗尽、缺失行及deadline仍在。同一夹具重复3任务原先第二次已经没有reset却要求恢复计数，导致一次79项回归失败；现改独立夹具，失败日志和原因保留，未修改runtime/deadline绕过失败。
+
+原identity mismatch未保存每个身份字段的比较值，不能将该字符串的全部可能成因都宣称为唯一归因；已确认的租约attempt/resume缺口有确定性RED/GREEN和原场景复核证据。六次早期复核也不是长时稳定性或掉电恢复保证。诊断脚本original_timeout_resolved=false原样保留，用于避免把有限复核当成所有偶发故障关闭；本报告定义经过验证的修复范围。
+
+## 性能与交付C边界
+
+本阶段只做loopback正确性/故障验收，没有新跨机性能负载。阶段67唯一1MiB实际队列样本属于839352c，不冒充42718ac性能验收。候选源端口计划默认OFF，默认帧/pacing/后端均未晋级；没有新增Gbps或收益比例。阶段64正式比较仍NO-GO、稳定性NOT_RUN、上机NOT_READY，交付C整体仍待网络完整文件验收、正式GridFTP配对与稳定性。
+
+临时payload均登记hash后移除，测试私钥删除；原2121服务身份保留，host pswpout无新增，未触碰CPSS(DCC)、历史数据或全局网络。证据/home/Su/experiments/CPNetFlux/2026-11-12-whole-file-retry-68，离线核验python3 verify68.py；阶段67失败及单次实际映射证据独立冻结，不覆盖。
+
+下一步仅进入阶段69有界完整文件网络验收：固定最新已备份提交及相同四hash，保留既有最强实验配置，只增加显式端口布局，最多一次1GiB可行性，任何错误立即停止；通过后续接既有配置和实验聊天做新的五对正式比较。新提交的样本必须重新配对，不能合并阶段64唯一旧有效对。再做至少1800s且100任务稳定性及恢复/取消/TLS等门，最后给上机判定。
