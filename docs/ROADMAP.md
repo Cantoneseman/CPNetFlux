@@ -1,6 +1,8 @@
 # CPNetFlux 性能路线图
 
-当前交付C已核对Task51/52后的版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
+最新修复：[范围记录ID水位53](tasks/2026-11-12-v3-record-id-watermark-53-result.md)已消除分配ID的二次扫描；两端各251项相关回归通过。局部收益已量化，无新跨机性能样本，M2/网络稳定性仍开放。下一步核验私有有界tmpfs首次大folio分配机制，不修改全局THP或共享挂载。
+
+交付C历史快照已核对Task51/52版本：[冻结清单](tasks/2026-11-12-performance-delivery-c-freeze.json)、[交付结果与边界](tasks/2026-11-12-performance-delivery-c.md)。工程交付完成，M2/网络稳定性开放；历史Task50冻结保留原版本，不作为新代码性能成绩。
 
 更新：2026-11-12。当前决定：[按性能里程碑推进](DECISIONS/2026-11-10-v3-performance-milestones.md)。
 最近交付：[发送节奏50与本阶段收尾结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：ENGINEERING CLOSED / M2 OPEN；已验收大文件成绩见[M1-44](tasks/2026-11-11-v3-large-file-m1-44-result.md)。
