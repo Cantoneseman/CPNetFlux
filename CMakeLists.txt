@@ -1057,6 +1057,9 @@ if(CPNETFLUX_BUILD_TESTS)
             --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-v3-timeout-resume-evidence
     )
     set_tests_properties(cpnetflux_v3_timeout_resume_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_corrupt_checkpoint_cleanup_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_corrupt_checkpoint_cleanup_test.py)
+    set_tests_properties(cpnetflux_corrupt_checkpoint_cleanup_test PROPERTIES TIMEOUT 30)
     add_test(
         NAME cpnetflux_v3_corrupt_partial_checkpoint_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_corrupt_partial_checkpoint_smoke.py

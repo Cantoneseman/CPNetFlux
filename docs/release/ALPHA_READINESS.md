@@ -1,3 +1,5 @@
+> 历史Alpha快照：下文保留旧版范围，不能作为当前V3上机验收。当前版本已有控制面/数据TLS与V3执行能力；GSI对照认证不等于CPNetFlux生产认证。最新阶段、稳定性和限制以[阶段60](../tasks/2026-11-12-field-trial-closeout-60.md)、[路线图](../ROADMAP.md)及其实际结果为准，尚未通过的上机门不可视为ready。
+
 # CPNetFlux Alpha Readiness
 
 ## Alpha Scope

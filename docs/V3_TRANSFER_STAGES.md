@@ -1,6 +1,6 @@
 # V3 三阶段执行与缓冲预算
 
-更新时间：2026-11-07。实现见[工程收口结果](tasks/2026-11-07-v3-stage-decoupling-01-result.md)，最新性能处置见[lane扩展复核结果](tasks/2026-11-07-v3-tcp-scaling-audit-01-result.md)。工程门已过，吞吐门未过。
+更新时间：2026-11-12。当前准备上机阶段见[阶段60](tasks/2026-11-12-field-trial-closeout-60.md)；以下历史收益/止损保持原合同。实现见[工程收口结果](tasks/2026-11-07-v3-stage-decoupling-01-result.md)，最新性能处置见[lane扩展复核结果](tasks/2026-11-07-v3-tcp-scaling-audit-01-result.md)。工程门已过，吞吐门未过。
 
 ## 执行和所有权
 
@@ -25,9 +25,9 @@ DynamicFileQueue 共享源端控制器，PersistentTransferContext 共享接收�
 
 默认队列深度仍为2，不通过加深队列制造收益。预算校验公式：
 
-`payload_ownership_bound_bytes = network_lanes * (pipeline_depth + 6) * 65536`
+`payload_ownership_bound_bytes = network_lanes * (pipeline_depth + 6) * frame_capacity_bytes`
 
-保守上界覆盖队列、生产/消费、复用、解码/压缩中可能同时持有的 payload。4 lane/depth2 为2097152 bytes；整个 batch 的预算不足会在 DATA/FILE_BEGIN 前明确拒绝，而非先让不同 lane 各占预算后互相等待。它不预分配64MiB，且不包括传输池/原生 RDMA 注册池、元数据/CRC统计、线程栈和 tmpfs 数据；后者必须独立用 RSS、MemAvailable、VmSwap 和 tmpfs 计量。预算不是整台服务器所有并行任务的总内存上限。
+保守上界覆盖队列、生产/消费、复用、解码/压缩中可能同时持有的 payload。frame_capacity_bytes为当前协商DATA最大payload容量，包含4字节帧CRC：旧65532字节有效数据取65536，显式256KiB有效数据取262148。4 lane/depth2分别为2097152和8388736 bytes。当前大帧只支持这两种容量，256KiB模式总payload预算最多64MiB；旧65536容量路径仍允许最多256MiB。整个 batch 的预算不足会在 DATA/FILE_BEGIN 前明确拒绝，而非先让不同 lane 各占预算后互相等待。它不预分配64MiB，且不包括传输池/原生 RDMA 注册池、元数据/CRC统计、线程栈和 tmpfs 数据；后者必须独立用 RSS、MemAvailable、VmSwap 和 tmpfs 计量。预算不是整台服务器所有并行任务的总内存上限。
 
 ## 观测和验收
 

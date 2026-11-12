@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import shutil
 import signal
 import subprocess
@@ -67,32 +69,39 @@ def corrupt_checkpoint(path: Path) -> tuple[str, str]:
 def run_direction(build_dir: Path, root: Path, source_file: Path,
                   direction: str) -> dict:
     endpoint = TestEndpoint(build_dir, root, None, None, None)
-    endpoint.prepare()
-    if direction == "download":
-        source_dir = endpoint.local_server_root / "uploaded"
-        source_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source_file, source_dir / "payload.bin")
-    endpoint.start_server()
-    endpoint.start_proxy()
-    checkpoint = (endpoint.local_server_root / "uploaded" /
-                  "payload.bin.cpnetflux.manifest"
-                  if direction == "upload" else
-                  root / "download" / "payload.bin.cpnetflux.download.manifest")
-    target_dir = root / "download"
-    if direction == "download":
-        target_dir.mkdir()
-        source_arg, destination_arg = "uploaded", str(target_dir)
-    else:
-        source_arg, destination_arg = str(source_file.parent), "uploaded"
-    first_log = root / f"{direction}-initial.log"
-    first_summary = root / f"{direction}-initial.json"
-    command = client_command(
-        build_dir, direction, endpoint.host, endpoint.control_port,
-        source_arg, destination_arg, first_summary, False,
-    )
     process = None
     temp_path = None
+    copied_source = None
+    copied_identity = None
     try:
+        endpoint.prepare()
+        if direction == "download":
+            source_dir = endpoint.local_server_root / "uploaded"
+            source_dir.mkdir(parents=True, exist_ok=True)
+            copy_path = source_dir / "payload.bin"
+            with source_file.open("rb") as source, copy_path.open("xb") as destination:
+                copied_source = copy_path
+                info = os.fstat(destination.fileno())
+                copied_identity = (info.st_dev, info.st_ino)
+                shutil.copyfileobj(source, destination)
+        endpoint.start_server()
+        endpoint.start_proxy()
+        checkpoint = (endpoint.local_server_root / "uploaded" /
+                      "payload.bin.cpnetflux.manifest"
+                      if direction == "upload" else
+                      root / "download" / "payload.bin.cpnetflux.download.manifest")
+        target_dir = root / "download"
+        if direction == "download":
+            target_dir.mkdir()
+            source_arg, destination_arg = "uploaded", str(target_dir)
+        else:
+            source_arg, destination_arg = str(source_file.parent), "uploaded"
+        first_log = root / f"{direction}-initial.log"
+        first_summary = root / f"{direction}-initial.json"
+        command = client_command(
+            build_dir, direction, endpoint.host, endpoint.control_port,
+            source_arg, destination_arg, first_summary, False,
+        )
         with first_log.open("w", encoding="utf-8") as output:
             process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT)
             fields, count = wait_for_stall(
@@ -166,8 +175,20 @@ def run_direction(build_dir: Path, root: Path, source_file: Path,
         try:
             endpoint.stop()
         finally:
-            if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
+            try:
+                if temp_path is not None:
+                    temp_path.unlink(missing_ok=True)
+            finally:
+                if copied_source is not None:
+                    try:
+                        info = copied_source.lstat()
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        if (not stat.S_ISREG(info.st_mode) or
+                                (info.st_dev, info.st_ino) != copied_identity):
+                            raise RuntimeError("download fixture identity changed; retained")
+                        copied_source.unlink()
 
 
 def run(build_dir: Path, evidence_dir: Path, file_size_mib: int) -> dict:
@@ -178,8 +199,8 @@ def run(build_dir: Path, evidence_dir: Path, file_size_mib: int) -> dict:
     source = run_dir / "source"
     source.mkdir()
     source_file = source / "payload.bin"
-    create_payload(source_file, file_size_mib)
     try:
+        create_payload(source_file, file_size_mib)
         upload = run_direction(build_dir, run_dir / "upload", source_file, "upload")
         download = run_direction(build_dir, run_dir / "download-case", source_file, "download")
         result = {

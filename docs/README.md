@@ -1,5 +1,7 @@
 # CPNetFlux 文档导航
 
+当前执行：[阶段60：保持性能、开发闭环→GridFTP复测→稳定性→上机候选](tasks/2026-11-12-field-trial-closeout-60.md)。M2及历史交付不改，未完成实际实验前不标稳定性通过。
+
 当前交付C：[Task58后最终集成与边界](tasks/2026-11-12-performance-delivery-c-task58.md)、[当前冻结清单](tasks/2026-11-12-performance-delivery-c-task58-freeze.json)：代码/配置/回归/现场与备份收口；ENGINEERING CLOSED / M2 OPEN，正式资源门仍未通过。
 
 最新交付：[Task58 / 有界8GiB与正式M2资源停止](tasks/2026-11-12-v3-private-m2-58-result.md)：固定双profile/五对矩阵和8GiB能力已实现；唯一尝试在第1个control源write时因R2 host pswpout +1页停止，未启动网络传输，完整样本0。源leaf swap/回收为0、user-1002祖先swap +4096B，具体对象未识别。已补MemFree≥9.25GiB的分配前拒绝；最终双端相关8/8通过，原输入双端262/262及候选恢复各2/2通过。M2 OPEN，当前资源未准入，不重跑；[冻结](tasks/2026-11-12-v3-private-m2-58-freeze.json)。
@@ -35,7 +37,7 @@
 | 最新执行结果 | [Task58结果](tasks/2026-11-12-v3-private-m2-58-result.md)、[冻结](tasks/2026-11-12-v3-private-m2-58-freeze.json)：有界8GiB/物理free拒绝已交付，资源未准入，无新吞吐成绩 |
 | 执行方式和缓冲所有权 | [三阶段指南](V3_TRANSFER_STAGES.md)、[映射下载边界](tasks/2026-11-08-v3-mapped-download-08-result.md) |
 | 接收队列计数归因 | [Task47合同](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47.md)、[Task47结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md)、[Task48计划](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48.md)、[Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md) |
-| 当前开发 | [最新C的下一步](tasks/2026-11-12-performance-delivery-c-task58.md)：先解决实际回收压力并冻结有界设计，不原样重试；RDMA/DEFERRED继续暂停 |
+| 当前开发 | [阶段60](tasks/2026-11-12-field-trial-closeout-60.md)：补清理生命周期与指南、固定版本后串行交接配置和实验；持续性能调优暂不推进 |
 | 设计、协议与工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md)、[目录传输](DIRECTORY_TRANSFER.md) |
 | 安全、发布与证据边界 | [安全](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md)、[历史研究基线](RESEARCH_BASELINE.md) |
 
