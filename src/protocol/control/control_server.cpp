@@ -36,13 +36,16 @@
 #include "cpnetflux/core/io/file_download_sender.h"
 #include "cpnetflux/core/io/file_transfer_server.h"
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/detail/diagnostic_output.h"
 #include "cpnetflux/core/io/persistent_directory_batch.h"
+#include "cpnetflux/core/io/transfer_stages.h"
 #include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/core/session/transfer_session_config.h"
 #include "cpnetflux/core/metrics/event_log.h"
 #include "cpnetflux/core/tree/tree_scan.h"
 #include "cpnetflux/core/io/socket_utils.h"
 #include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/scheduler/link_set.h"
 #include "cpnetflux/protocol/control/control_command.h"
 #include "cpnetflux/storage/posix_file.h"
 
@@ -56,7 +59,20 @@ using EventLoggerPtr = std::shared_ptr<core::metrics::EventLogger>;
 
 struct PassiveListener {
     core::io::UniqueFd fd;
+    core::io::RdmaListener rdma;
+    core::io::DataTransport transport = core::io::DataTransport::Tcp;
     std::uint16_t port = 0;
+
+    [[nodiscard]] bool valid() const noexcept {
+        return transport == core::io::DataTransport::Rdma ? rdma.valid() : fd.isValid();
+    }
+
+    void reset() noexcept {
+        fd.reset();
+        rdma.close();
+        port = 0;
+        transport = core::io::DataTransport::Tcp;
+    }
 };
 
 common::Status systemStatus(const char* operation, int errorNumber) {
@@ -186,12 +202,13 @@ class AsyncTransferRegistry {
         }
         if (activeCount() >= 2) {
             if (passive != nullptr) {
-                passive->fd.reset();
-                passive->port = 0;
+                passive->reset();
             }
             return sendLine(control, formatReply(450, "Async transfer window is full"));
         }
-        if (passive == nullptr || !passive->fd.isValid()) {
+        if (passive == nullptr || !passive->valid() ||
+            passive->transport != core::io::DataTransport::Tcp) {
+            if (passive != nullptr) passive->reset();
             return sendLine(control, formatReply(550, "Passive data listener is not ready"));
         }
 
@@ -400,20 +417,31 @@ std::string generateTransferId() {
 }
 
 common::Result<PassiveListener> openPassiveListener(const ControlServerOptions& options,
-                                                    std::uint32_t connections) {
+                                                    std::uint32_t connections,
+                                                    core::io::DataTransport transport) {
     const std::uint32_t maxPort = std::numeric_limits<std::uint16_t>::max();
     for (std::uint32_t offset = 0; offset < kPassiveScanLimit; ++offset) {
         const std::uint32_t port = static_cast<std::uint32_t>(options.dataPortBase) + offset;
         if (port == 0 || port > maxPort) {
             break;
         }
-        auto listener = core::io::createListener(
-            options.host.c_str(), static_cast<std::uint16_t>(port), static_cast<int>(connections));
-        if (!listener.isOk()) {
-            continue;
-        }
         PassiveListener passive;
-        passive.fd = std::move(listener.value());
+        passive.transport = transport;
+        if (transport == core::io::DataTransport::Rdma) {
+            if (!core::io::rdmaTransportAvailable()) {
+                return common::Status::runtimeError(
+                    "RDMA data transport unavailable: this build has no rdma-core support");
+            }
+            auto listener = core::io::RdmaListener::listen(
+                options.host.c_str(), static_cast<std::uint16_t>(port), static_cast<int>(connections));
+            if (!listener.isOk()) continue;
+            passive.rdma = std::move(listener.value());
+        } else {
+            auto listener = core::io::createListener(
+                options.host.c_str(), static_cast<std::uint16_t>(port), static_cast<int>(connections));
+            if (!listener.isOk()) continue;
+            passive.fd = std::move(listener.value());
+        }
         passive.port = static_cast<std::uint16_t>(port);
         return passive;
     }
@@ -490,15 +518,15 @@ common::Result<core::io::UniqueFd> acceptDataConnection(int listenerFd) {
 }
 
 common::Status sendAsciiData(PassiveListener* passive, const std::string& payload) {
-    if (passive == nullptr || !passive->fd.isValid()) {
+    if (passive == nullptr || !passive->valid() ||
+        passive->transport != core::io::DataTransport::Tcp) {
         return common::Status::runtimeError("passive data listener is not ready");
     }
     auto dataFd = acceptDataConnection(passive->fd.get());
     if (!dataFd.isOk()) {
         return dataFd.status();
     }
-    passive->fd.reset();
-    passive->port = 0;
+    passive->reset();
     return sendAllRaw(dataFd.value().get(), payload);
 }
 
@@ -653,9 +681,11 @@ common::Status runListLike(core::io::TlsConnection* control, ControlSession& ses
                            const ControlServerOptions& controlOptions,
                            const ControlResponse& response, bool namesOnly,
                            const EventLoggerPtr& logger) {
-    if (passive == nullptr || !passive->fd.isValid()) {
+    if (passive == nullptr || !passive->valid() ||
+        passive->transport != core::io::DataTransport::Tcp) {
         emitControlEvent(logger, namesOnly ? "nlst_failed" : "list_failed", "", response.path, "",
                          common::Status::runtimeError("Passive data listener is not ready"));
+        if (passive != nullptr) passive->reset();
         return sendLine(control, formatReply(550, "Passive data listener is not ready"));
     }
     auto path = resolveControlPath(controlOptions.root, session.workingDirectory(), response.path,
@@ -698,9 +728,11 @@ common::Status runStor(core::io::TlsConnection* control, ControlSession& session
                        const ControlServerOptions& controlOptions,
                        const ControlResponse& response, const EventLoggerPtr& logger,
                        AsyncTransferRegistry* asyncTransfers) {
-    if (passive == nullptr || !passive->fd.isValid()) {
+    if (passive == nullptr || !passive->valid() ||
+        passive->transport != core::io::DataTransport::Tcp) {
         emitControlEvent(logger, "stor_failed", "upload", response.path, "",
                          common::Status::runtimeError("Passive data listener is not ready"));
+        if (passive != nullptr) passive->reset();
         return sendLine(control, formatReply(550, "Passive data listener is not ready"));
     }
 
@@ -785,9 +817,11 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
                        const ControlServerOptions& controlOptions,
                        const ControlResponse& response, const EventLoggerPtr& logger,
                        AsyncTransferRegistry* asyncTransfers) {
-    if (passive == nullptr || !passive->fd.isValid()) {
+    if (passive == nullptr || !passive->valid() ||
+        passive->transport != core::io::DataTransport::Tcp) {
         emitControlEvent(logger, "retr_failed", "download", response.path, "",
                          common::Status::runtimeError("Passive data listener is not ready"));
+        if (passive != nullptr) passive->reset();
         return sendLine(control, formatReply(550, "Passive data listener is not ready"));
     }
 
@@ -878,7 +912,28 @@ core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& 
     p.options.preallocateMode=options.preallocateMode;p.options.resume=resume;
     return p;
 }
+struct DirectoryLifetime {
+    std::atomic<bool> released{false};
+    void recordTerminal(const common::Status& status) {
+        if (status.isOk() || status.code() == common::StatusCode::TransportError) return;
+        std::lock_guard lock(terminalMutex);
+        if (terminalStatus.isOk()) terminalStatus = status;
+    }
+    common::Status terminal() {
+        std::lock_guard lock(terminalMutex);
+        return terminalStatus;
+    }
+ private:
+    std::mutex terminalMutex;
+    common::Status terminalStatus;
+};
 struct DynamicDirectory {
+    std::shared_ptr<DirectoryLifetime> lifetime = std::make_shared<DirectoryLifetime>();
+    ~DynamicDirectory() {
+        transactions.reset();
+        queue.reset();
+        lifetime->released.store(true, std::memory_order_release);
+    }
     std::string destination;
     bool upload;
     std::uint32_t channels, window, total;
@@ -886,28 +941,91 @@ struct DynamicDirectory {
     std::shared_ptr<core::io::PersistentDirectoryBatch> batch;
     std::unique_ptr<core::io::DynamicFileQueue> queue;
     std::shared_ptr<core::io::PersistentTransferContext> transactions = core::io::makePersistentTransferContext();
+    std::mutex senderProfileMutex;
+    std::vector<core::io::SenderWorkProfile> senderProfiles;
+    std::vector<bool> senderProfileSeen;
+    std::uint32_t senderProfileArrivals = 0, senderProfileSeenCount = 0;
+    void publishSenderProfile(std::uint32_t channel, core::io::SenderWorkProfile profile,
+                              const std::string& batchId, bool enabled) {
+        std::lock_guard lock(senderProfileMutex);
+        if (senderProfiles.empty()) { senderProfiles.resize(channels); senderProfileSeen.resize(channels); }
+        ++senderProfileArrivals;
+        if (!senderProfileSeen[channel]) { senderProfileSeen[channel] = true; ++senderProfileSeenCount; }
+        senderProfiles[channel] = std::move(profile);
+        if (senderProfileSeenCount != channels) return;
+        std::ostringstream out;
+        out << std::setprecision(17) << "CPNETFLUX_SENDER_WORK {\"batch_id\":\"" << batchId
+            << "\",\"channels\":" << channels << ",\"attempt_records\":" << senderProfileArrivals << ",\"profile\":";
+        core::io::appendSenderWorkProfile(out, enabled, true, senderProfiles);
+        out << "}\n";
+        core::io::detail::emitDiagnosticRecord(stdout, out.str());
+    }
 };
+struct DirectoryRegistration {
+    std::shared_ptr<DynamicDirectory> directory;
+    std::shared_ptr<DirectoryLifetime> lifetime;
+};
+std::mutex directoryRegistryMutex;
+std::unordered_map<std::string, DirectoryRegistration> directoryRegistry;
+struct DirectoryDrainResult { bool drained = true; common::Status terminalStatus; };
+DirectoryDrainResult drainDynamicDirectory(const std::string& key) {
+    std::lock_guard lock(directoryRegistryMutex);
+    const auto found = directoryRegistry.find(key);
+    if (found == directoryRegistry.end()) return {};
+    auto& registration = found->second;
+    if (registration.lifetime->released.load(std::memory_order_acquire))
+        return {true, registration.lifetime->terminal()};
+    if (!registration.directory) {
+        registration.lifetime->released.store(true, std::memory_order_release);
+        return {true, registration.lifetime->terminal()};
+    }
+    if (!registration.directory->batch->allChannelsDetached()) return {false, {}};
+    // Read after detachment: every channel records its terminal error before unbinding.
+    const auto terminal = registration.lifetime->terminal();
+    registration.lifetime->released.store(true, std::memory_order_release);
+    registration.directory.reset();
+    return {true, terminal};
+}
+void releaseCompletedDynamicDirectory(
+    const std::string& key, const std::shared_ptr<DynamicDirectory>& directory) {
+    if (key.empty() || !directory) return;
+    std::lock_guard lock(directoryRegistryMutex);
+    const auto found = directoryRegistry.find(key);
+    if (found == directoryRegistry.end() || found->second.directory != directory) return;
+    const bool complete = directory->batch->completeAndDetached();
+    const bool terminalAndDetached =
+        !found->second.lifetime->terminal().isOk() &&
+        directory->batch->allChannelsDetached();
+    if (!complete && !terminalAndDetached) return;
+    found->second.lifetime->released.store(true, std::memory_order_release);
+    found->second.directory.reset();
+}
 common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     const std::string& key, const std::string& destination, bool upload,
     std::uint32_t channels, std::uint32_t window, std::uint32_t requestedTotal,
-    std::uint64_t chunkSize, checksum::ChecksumAlgorithm checksumAlgorithm,
+    std::uint32_t channelIndex, std::uint64_t chunkSize,
+    checksum::ChecksumAlgorithm checksumAlgorithm,
     const ControlServerOptions& policyOptions) {
-    static std::mutex mutex;
-    static std::unordered_map<std::string, std::weak_ptr<DynamicDirectory>> batches;
-    std::lock_guard lock(mutex);
-    for (auto i = batches.begin(); i != batches.end();)
-        if (i->second.expired()) i = batches.erase(i); else ++i;
-    const auto found = batches.find(key);
-    if (found != batches.end()) if (auto existing = found->second.lock()) {
+    std::lock_guard lock(directoryRegistryMutex);
+    for (auto i = directoryRegistry.begin(); i != directoryRegistry.end();)
+        if (i->second.lifetime->released.load(std::memory_order_acquire))
+            i = directoryRegistry.erase(i);
+        else ++i;
+    const auto found = directoryRegistry.find(key);
+    if (found != directoryRegistry.end() && found->second.directory) {
+        auto existing = found->second.directory;
         if (existing->destination != destination || existing->upload != upload ||
             existing->channels != channels || existing->window != window ||
             (upload && existing->total != requestedTotal)) {
             existing->batch->cancel(common::Status::invalidArgument("dynamic batch parameters changed"));
             return common::Status::invalidArgument("dynamic batch parameters changed");
         }
+        auto attached = existing->batch->attach(channelIndex);
+        if (!attached.isOk()) return attached;
         return existing;
     }
-    if (batches.size() >= 64) return common::Status::runtimeError("dynamic batch capacity exhausted");
+    if (found != directoryRegistry.end()) directoryRegistry.erase(found);
+    if (directoryRegistry.size() >= 64) return common::Status::runtimeError("dynamic batch capacity exhausted");
     auto created = std::make_shared<DynamicDirectory>();
     created->transactions=core::io::makePersistentTransferContext(persistentPolicy(policyOptions));
     created->destination = destination; created->upload = upload;
@@ -932,21 +1050,34 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
             std::move(expanded.value()),channels,window,channels*window*2);
     }
     created->batch = std::make_shared<core::io::PersistentDirectoryBatch>(created->total,channels);
-    batches[key] = created;
+    auto attached = created->batch->attach(channelIndex);
+    if (!attached.isOk()) return attached;
+    directoryRegistry[key] = {created, created->lifetime};
     return created;
 }
 struct DynamicDirectoryGuard {
     std::shared_ptr<DynamicDirectory> directory;
+    std::string key;
     std::uint32_t channel = 0;
-    bool attached = false, success = false;
+    bool attached = false, success = false, handled = false;
+    int controlFd = -1;
+    void detach() {
+        if (!directory || !attached) return;
+        directory->batch->unbind(channel, controlFd);
+        attached = false;
+        releaseCompletedDynamicDirectory(key, directory);
+    }
     ~DynamicDirectoryGuard() {
         if (!directory || !attached) return;
-        if (!success) {
+        if (!success && !handled) {
+            const auto batchStatus = directory->batch->status();
+            if (batchStatus.code() != common::StatusCode::Ok &&
+                batchStatus.code() != common::StatusCode::TransportError)
+                directory->lifetime->recordTerminal(batchStatus);
             auto error = common::Status::runtimeError("dynamic directory channel failed/cancelled");
-            directory->batch->cancel(error);
-            if (directory->queue) directory->queue->cancel(error);
+            (void)directory->batch->failChannel(channel, error);
         }
-        directory->batch->unbind(channel);
+        detach();
     }
 };
 
@@ -954,7 +1085,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     PassiveListener* passive, const ControlServerOptions& options, bool upload,
     const std::string& requested, std::uint32_t pendingWindow, std::uint32_t channelIndex,
     std::uint32_t channelCount, std::uint32_t requestedTotalFiles, const std::string& batchId = {},
-    bool resume = false) {
+    bool resume = false, std::uint32_t dataBytes = 65532) {
     namespace fs = std::filesystem;
     if (channelCount == 0 || channelCount > core::io::kPersistentTreeMaxChannels ||
         channelIndex >= channelCount)
@@ -979,22 +1110,23 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
             if (error) return sendLine(control, formatReply(550, "Cannot prepare XDIR directory"));
         }
     }
-    if (!passive->fd.isValid() || !session->passiveReady())
+    if (!passive->valid() || !session->passiveReady())
         return sendLine(control, formatReply(425, "Use EPSV before XDIR"));
     core::io::FramedDataSocket data;
     DynamicDirectoryGuard guard;
     guard.channel = channelIndex;
     if (!batchId.empty()) {
-        auto group = acquireDynamicDirectory(options.host + ":" + std::to_string(options.port) + ":" +
-            root.value().fullPath + "/" + batchId, destination.string(),
-            upload, channelCount, pendingWindow, requestedTotalFiles, options.chunkSize,
+        guard.key = options.host + ":" + std::to_string(options.port) + ":" +
+            root.value().fullPath + "/" + batchId;
+        auto group = acquireDynamicDirectory(guard.key, destination.string(),
+            upload, channelCount, pendingWindow, requestedTotalFiles, channelIndex, options.chunkSize,
             options.checksumAlgorithm, options);
         if (!group.isOk()) return sendLine(control, formatReply(550, group.status().message()));
         guard.directory = group.value();
-        auto attached = guard.directory->batch->attach(channelIndex);
-        if (!attached.isOk()) return sendLine(control, formatReply(550, attached.message()));
         guard.attached = true;
-        guard.directory->batch->bind(channelIndex, control->fd(), -1, false);
+        guard.directory->batch->bind(channelIndex, control->fd(), -1, false,
+            [&data] { data.shutdown(); });
+        guard.controlFd = control->fd();
     }
     std::vector<core::io::PersistentFileIdentity> files;
     std::uint32_t totalFiles = guard.directory ? guard.directory->total : requestedTotalFiles;
@@ -1025,33 +1157,66 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     }
     auto status = sendLine(control, formatReply(150, readyMessage));
     if (!status.isOk()) return status;
-    pollfd descriptors[2]{{passive->fd.get(), POLLIN, 0}, {control->fd(), POLLIN, 0}};
-    int ready;
-    do { ready = ::poll(descriptors, 2, 30000); } while (ready < 0 && errno == EINTR);
-    if (ready > 0 && descriptors[1].revents != 0) {
-        passive->fd.reset();
-        session->clearPassiveReady();
-        return common::Status::runtimeError("persistent channel cancelled before data accept");
+    common::Result<core::io::FramedDataSocket> acceptedData =
+        common::Status::runtimeError("persistent data accept was not attempted");
+    if (passive->transport == core::io::DataTransport::Rdma) {
+        acceptedData = [&]() -> common::Result<core::io::FramedDataSocket> {
+            auto accepted = passive->rdma.accept(std::chrono::steady_clock::now() +
+                                                 std::chrono::seconds(30));
+            if (!accepted.isOk()) return accepted.status();
+            return core::io::FramedDataSocket(std::move(accepted.value()));
+        }();
+    } else {
+        pollfd descriptors[2]{{passive->fd.get(), POLLIN, 0}, {control->fd(), POLLIN, 0}};
+        int ready;
+        do { ready = ::poll(descriptors, 2, 30000); } while (ready < 0 && errno == EINTR);
+        if (ready > 0 && descriptors[1].revents != 0) {
+            passive->reset();
+            session->clearPassiveReady();
+            return common::Status::runtimeError("persistent channel cancelled before data accept");
+        }
+        if (ready <= 0 || !(descriptors[0].revents & POLLIN)) {
+            passive->reset();
+            session->clearPassiveReady();
+            return sendLine(control, formatReply(425, "Persistent data accept timed out"));
+        }
+        acceptedData = core::io::acceptFramedDataSocket(
+            core::io::UniqueFd(::accept4(passive->fd.get(), nullptr, nullptr, SOCK_CLOEXEC)),
+            options.dataTlsMode, options.tls);
     }
-    if (ready <= 0 || !(descriptors[0].revents & POLLIN)) {
-        passive->fd.reset();
-        session->clearPassiveReady();
-        return sendLine(control, formatReply(425, "Persistent data accept timed out"));
-    }
-    auto acceptedData = core::io::acceptFramedDataSocket(
-        core::io::UniqueFd(::accept4(passive->fd.get(), nullptr, nullptr, SOCK_CLOEXEC)),
-        options.dataTlsMode, options.tls);
-    passive->fd.reset();
+    passive->reset();
     session->clearPassiveReady();
     if (!acceptedData.isOk()) return acceptedData.status();
     data = std::move(acceptedData.value());
+    status = data.configureDataFrameBytes(dataBytes);
+    if (!status.isOk()) return status;
     if (guard.directory) {
-        guard.directory->batch->bind(channelIndex, control->fd(), data.fd());
-        status = guard.directory->batch->waitReady(std::chrono::seconds(30));
-        if (!status.isOk()) return status;
+        guard.directory->batch->bind(channelIndex, control->fd(), data.fd(), true,
+            [&data] { data.shutdown(); });
+        status = guard.directory->batch->waitReady(channelIndex,std::chrono::seconds(30));
+        if (!status.isOk()) {
+            std::osyncstream(std::cerr) << "CPNETFLUX_DYNAMIC_BATCH_WAIT_READY_FAILED batch="
+                << batchId << " channel=" << channelIndex << " status=" << status.message() << "\n";
+            const auto integrity = core::io::verifyCommittedPersistentOutputs(guard.directory->transactions);
+            if (!integrity.isOk()) {
+                guard.directory->lifetime->recordTerminal(integrity);
+                guard.handled = true;
+                const auto reply = sendLine(control,formatReply(550,integrity.message()));
+                guard.directory->batch->cancel(integrity);
+                guard.detach();
+                return reply;
+            }
+            (void)guard.directory->batch->failChannel(channelIndex,status);
+            guard.handled = true;
+            guard.detach();
+            const auto reply = sendLine(control,formatReply(550,status.message()));
+            return reply.isOk() ? common::Status::ok() : reply;
+        }
+        guard.directory->batch->markDataActive(channelIndex);
     }
     core::io::PersistentTreeStats stats;
     stats.phaseTiming = guard.directory != nullptr;
+    stats.senderWorkProfile.enabled = options.senderWorkProfile && !upload;
     core::io::PersistentFileCallback callback;
     if (guard.directory) callback = [&](const auto& id, const auto& fileStatus, bool complete) {
         return guard.directory->batch->fileEvent(channelIndex,id,fileStatus,complete);
@@ -1065,8 +1230,32 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
                      pendingWindow, channelIndex, channelCount, guard.directory ? guard.directory->queue.get() : nullptr, &policy.options);
     std::string details;
     if (guard.directory) {
-        if (!status.isOk()) guard.directory->batch->cancel(status);
-        else status = guard.directory->batch->finish(channelIndex,std::chrono::seconds(30));
+        if (!upload) guard.directory->publishSenderProfile(channelIndex, std::move(stats.senderWorkProfile), batchId,
+                                                           options.senderWorkProfile);
+        auto original = guard.directory->batch->status();
+        if (original.isOk()) original = status;
+        if (!original.isOk() &&
+            original.message().find("output already exists") != std::string::npos)
+            status = original;
+        if (!original.isOk() && original.code() != common::StatusCode::TransportError)
+            guard.directory->lifetime->recordTerminal(original);
+        if (!status.isOk()) {
+            if (status.code() == common::StatusCode::TransportError) {
+                (void)guard.directory->batch->failChannel(channelIndex, status);
+            } else {
+                guard.directory->batch->cancel(status);
+            }
+            guard.handled = true;
+        } else {
+            status = guard.directory->batch->finish(channelIndex,std::chrono::seconds(30));
+            if (!status.isOk()) {
+                if (status.code() == common::StatusCode::TransportError)
+                    (void)guard.directory->batch->failChannel(channelIndex, status);
+                else
+                    guard.directory->batch->cancel(status);
+                guard.handled = true;
+            }
+        }
         double queueWait = 0;
         for (const auto& timing : stats.fileTimings) queueWait += timing.queueWaitSeconds.value_or(0);
         std::ostringstream extra;
@@ -1076,12 +1265,18 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
         details = extra.str();
         std::ostringstream observation;
         observation << "CPNETFLUX_PERSISTENT_TIMING {\"batch_id\":\"" << batchId
-                    << "\",\"channel_index\":" << channelIndex << ",\"files\":";
+                    << "\",\"channel_index\":" << channelIndex << ",\"range_observation_contract\":";
+        core::io::appendRangeObservationContract(observation);
+        observation << ",\"files\":";
         core::io::appendPersistentFileTimings(observation,stats.fileTimings);
         observation << "}\n";
-        std::osyncstream(std::cout) << observation.str();
+        core::io::detail::emitDiagnosticRecord(stdout, observation.str());
         guard.success = status.isOk();
+        guard.detach();
     }
+    // Static transactions persist their final checkpoint state during cleanup.
+    // Complete it before clients can act on the terminal control reply.
+    if (!guard.directory) transactions.reset();
     return sendLine(control, formatReply(status.isOk() ? 226 : 550,
         status.isOk() ? "Persistent directory complete" + details : status.message()));
 }
@@ -1115,6 +1310,8 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     std::uint32_t persistentChannels = 1;
     bool persistentDynamic = false;
     bool persistentResume = false;
+    std::uint32_t persistentDataBytes = 65532;
+    core::io::DataTransport sessionDataTransport = core::io::DataTransport::Tcp;
     AsyncTransferRegistry asyncTransfers(logger, control.fd());
 
     if (!sendLine(&control, formatReply(220, "CPNetFlux GridFTP control ready")).isOk()) {
@@ -1129,13 +1326,35 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             return;
         }
 
-        const bool persistentNegotiation = line.value() == "XCPNETFLUX V2" ||
-            line.value().starts_with("XCPNETFLUX V2 ");
+        if (line.value().starts_with("XCPNETFLUX DRAIN ")) {
+            if (!session.authenticated()) {
+                (void)sendLine(&control, formatReply(530, "Authenticate before batch status"));
+                continue;
+            }
+            const auto id = line.value().substr(17);
+            if (id.size() != 32 || id.find_first_not_of("0123456789abcdef") != std::string::npos) {
+                (void)sendLine(&control, formatReply(504, "Invalid batch identity"));
+                continue;
+            }
+            auto root = resolveControlPath(options.root, "/", "", ControlPathKind::ExistingDirectory, "XDIR");
+            if (!root.isOk()) { (void)sendLine(&control, formatReply(550, "Invalid batch root")); continue; }
+            const auto key = options.host + ":" + std::to_string(options.port) + ":" + root.value().fullPath + "/" + id;
+            const auto drain = drainDynamicDirectory(key);
+            const bool drained = drain.drained;
+            const bool terminal = drained && !drain.terminalStatus.isOk();
+            (void)sendLine(&control, formatReply(terminal ? 550 : (drained ? 200 : 450),
+                terminal ? drain.terminalStatus.message() :
+                (drained ? "CPNetFlux batch drained" : "CPNetFlux batch still active")));
+            continue;
+        }
+
+        const bool persistentNegotiation = line.value() == "XCPNETFLUX V3" ||
+            line.value().starts_with("XCPNETFLUX V3 ");
         const bool persistentTreeCommand = line.value().starts_with("XDIR ") ||
             line.value().starts_with("XDIRP ") || line.value().starts_with("XDIRD ");
         if (persistentNegotiation || persistentTreeCommand) {
             if (session.pipelineOptIn() || asyncTransfers.activeCount() > 0) {
-                (void)sendLine(&control, formatReply(503, "V2 cannot share an async control session"));
+                (void)sendLine(&control, formatReply(503, "V3 cannot share an async control session"));
                 continue;
             }
             if (!session.authenticated()) {
@@ -1157,13 +1376,23 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 }
             }
             if (persistentNegotiation) {
+                persistentNegotiated = false;
+                sessionDataTransport = core::io::DataTransport::Tcp;
                 std::uint32_t requestedWindow = 1;
                 std::uint32_t requestedChannels = 1;
                 bool requestedDynamic = false;
+                std::uint32_t requestedLinks = 1;
+                std::uint64_t requestedLinkCaps = 0;
+                bool linkSetRequested = false;
+                bool hasRequestedLinks = false;
+                bool hasRequestedLinkCaps = false;
                 auto checksumAlgorithm = checksum::ChecksumAlgorithm::None;
                 bool requestedResume = false;
                 auto requestedDataTls = core::io::DataTlsMode::Off;
-                std::istringstream request(line.value().substr(std::string("XCPNETFLUX V2").size()));
+                auto requestedDataTransport = core::io::DataTransport::Tcp;
+                std::uint32_t requestedDataBytes = 65532;
+                bool hasDataBytes = false;
+                std::istringstream request(line.value().substr(std::string("XCPNETFLUX V3").size()));
                 std::string token;
                 bool valid = true;
                 while (request >> token) {
@@ -1184,6 +1413,27 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     } else if (key == "SCHED") {
                         valid = value == "dynamic";
                         requestedDynamic = valid;
+                    } else if (key == "LINKS") {
+                        unsigned long parsed = 0;
+                        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+                        valid = !hasRequestedLinks && result.ec == std::errc() &&
+                            result.ptr == value.data() + value.size() && parsed > 0 &&
+                            parsed <= core::scheduler::LinkSet::kMaxLinks;
+                        if (valid) {
+                            requestedLinks = static_cast<std::uint32_t>(parsed);
+                            hasRequestedLinks = true;
+                            linkSetRequested = true;
+                        }
+                    } else if (key == "LINK_CAPS") {
+                        unsigned long long parsed = 0;
+                        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+                        valid = !hasRequestedLinkCaps && result.ec == std::errc() &&
+                            result.ptr == value.data() + value.size();
+                        if (valid) {
+                            requestedLinkCaps = static_cast<std::uint64_t>(parsed);
+                            hasRequestedLinkCaps = true;
+                            linkSetRequested = true;
+                        }
                     } else if (key == "CHECKSUM") {
                         auto parsed = checksum::parseChecksumAlgorithm(value);
                         valid = parsed.isOk();
@@ -1195,27 +1445,54 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         auto parsed = core::io::parseDataTlsMode(value);
                         valid = parsed.isOk();
                         if (valid) requestedDataTls = parsed.value();
+                    } else if (key == "DATA_BYTES") {
+                        valid = !hasDataBytes && value == "262144";
+                        hasDataBytes = true;
+                        if (valid) requestedDataBytes = 262144;
+                    } else if (key == "DATA_TRANSPORT") {
+                        auto parsed = core::io::parseDataTransport(value);
+                        valid = parsed.isOk();
+                        if (valid) requestedDataTransport = parsed.value();
                     } else {
                         valid = false;
                     }
                     if (!valid) break;
                 }
                 persistentNegotiated = valid && checksumAlgorithm == options.checksumAlgorithm &&
-                    requestedDataTls == options.dataTlsMode;
+                    (!hasDataBytes || (requestedDataTls == core::io::DataTlsMode::Off &&
+                        !control.tlsEnabled() && requestedDataTransport == core::io::DataTransport::Tcp &&
+                        checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c &&
+                        options.chunkSize == 1048576 &&
+                        core::io::TransferStages::preflight(requestedChannels,262148).isOk())) &&
+                    requestedDataTls == options.dataTlsMode &&
+                    requestedDataTransport == options.dataTransport &&
+                    (requestedDataTransport != core::io::DataTransport::Rdma ||
+                     core::io::rdmaTransportAvailable()) &&
+                    (!linkSetRequested || (hasRequestedLinks && hasRequestedLinkCaps &&
+                        requestedLinks <= core::io::kPersistentTreeMaxChannels &&
+                        requestedLinks <= requestedChannels &&
+                        requestedLinks <= options.linkSetMaxLinks &&
+                        (requestedLinkCaps & ~options.linkSetCapabilityBits) == 0));
                 if (persistentNegotiated) {
                     persistentWindow = requestedWindow;
                     persistentChannels = requestedChannels;
                     persistentDynamic = requestedDynamic;
                     persistentResume = requestedResume;
+                    persistentDataBytes = requestedDataBytes;
+                    sessionDataTransport = requestedDataTransport;
                 }
-                const std::string accepted = "CPNetFlux V2 file-transactions/1 window=" +
+                const std::string accepted = "CPNetFlux V3 file-transactions/1 window=" +
                     std::to_string(requestedWindow) + " channels=" + std::to_string(requestedChannels) +
                     " checksum=" + checksum::checksumAlgorithmName(checksumAlgorithm) +
                     " resume=" + std::string(requestedResume ? "1" : "0") +
                     " data_tls=" + core::io::dataTlsModeName(requestedDataTls) +
+                    " data_transport=" + core::io::dataTransportName(requestedDataTransport) +
+                    (hasDataBytes ? " data_bytes=262144 max_data_bytes=262144" : "") +
+                    (linkSetRequested ? " links=" + std::to_string(requestedLinks) +
+                        " link_caps=" + std::to_string(requestedLinkCaps) : "") +
                     (requestedDynamic ? " scheduling=dynamic" : "");
                 (void)sendLine(&control, formatReply(persistentNegotiated ? 200 : 504,
-                    persistentNegotiated ? accepted : "Unsupported V2 configuration"));
+                    persistentNegotiated ? accepted : "Unsupported V3 configuration"));
                 continue;
             }
 
@@ -1261,7 +1538,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             }
             auto status = runPersistentDirectory(&control, &session, &passive, options,
                 upload, requested, persistentWindow, channelIndex, channelCount, totalFiles, batchId,
-                persistentResume);
+                persistentResume, persistentDataBytes);
             if (!status.isOk()) return;
             continue;
         }
@@ -1282,8 +1559,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                                  type == ControlCommandType::Mdtm ||
                                  type == ControlCommandType::Noop;
             if (!allowed) {
-                passive.fd.reset();
-                passive.port = 0;
+                passive.reset();
                 session.clearPassiveReady();
                 (void)sendLine(&control,
                                formatReply(503, "Command unavailable while async transfer is active"));
@@ -1308,8 +1584,15 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
         }
         if (response.action == ControlAction::OpenPassiveEpsv ||
             response.action == ControlAction::OpenPassivePasv) {
-            passive.fd.reset();
-            auto passiveResult = openPassiveListener(options, session.connections());
+            passive.reset();
+            if (response.action == ControlAction::OpenPassivePasv &&
+                sessionDataTransport == core::io::DataTransport::Rdma) {
+                (void)sendLine(&control, formatReply(522, "RDMA data transport requires EPSV"));
+                session.clearPassiveReady();
+                continue;
+            }
+            auto passiveResult = openPassiveListener(options, session.connections(),
+                                                    sessionDataTransport);
             if (!passiveResult.isOk()) {
                 (void)sendLine(&control, formatReply(421, "Cannot open passive data listener"));
                 return;
@@ -1322,7 +1605,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 auto reply = pasvReply(control.fd(), options.host, passive.port);
                 if (!reply.isOk()) {
                     (void)sendLine(&control, formatReply(550, reply.status().message()));
-                    passive.fd.reset();
+                    passive.reset();
                     session.clearPassiveReady();
                 } else {
                     (void)sendLine(&control, reply.value());
@@ -1377,7 +1660,11 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
 
 }  // namespace
 
-common::Status runControlServer(const ControlServerOptions& options) {
+common::Status runControlServer(const ControlServerOptions& inputOptions) {
+    const auto senderProfile = core::io::senderWorkProfileFromEnvironment();
+    if (!senderProfile.isOk()) return senderProfile.status();
+    auto options = inputOptions;
+    options.senderWorkProfile = senderProfile.value();
     EventLoggerPtr eventLogger;
     if (!options.eventLogPath.empty()) {
         auto logger = core::metrics::EventLogger::open(options.eventLogPath);

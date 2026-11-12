@@ -11,6 +11,8 @@
 #include <utility>
 
 #include "cpnetflux/checksum/crc32c.h"
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
+#include "manifest_record_serialization.h"
 
 namespace cpnetflux::checkpoint {
 namespace {
@@ -118,7 +120,14 @@ std::string serializeRanges(const std::vector<core::chunk::CompletedRange>& rang
     return output.str();
 }
 
-std::vector<ChunkChecksumRecord> sortedRecords(const std::vector<ChunkChecksumRecord>& records) {
+std::vector<ChunkChecksumRecord> sortedRecords(const std::vector<ChunkChecksumRecord>& records,
+                                             ManifestSaveStats* stats = nullptr) {
+    OptionalManifestTimer preparation(stats ? &stats->recordPreparationSeconds : nullptr);
+    if (stats) {
+        ++stats->recordPreparationCalls;
+        ++stats->recordSortCalls;
+        stats->recordCopyItems += records.size();
+    }
     std::vector<ChunkChecksumRecord> sorted = records;
     std::sort(sorted.begin(), sorted.end(),
               [](const ChunkChecksumRecord& left, const ChunkChecksumRecord& right) {
@@ -128,21 +137,6 @@ std::vector<ChunkChecksumRecord> sortedRecords(const std::vector<ChunkChecksumRe
                   return left.chunkId < right.chunkId;
               });
     return sorted;
-}
-
-std::string serializeVerifiedChunks(const std::vector<ChunkChecksumRecord>& records) {
-    std::ostringstream output;
-    const std::vector<ChunkChecksumRecord> sorted = sortedRecords(records);
-    for (std::size_t index = 0; index < sorted.size(); ++index) {
-        if (index != 0) {
-            output << ',';
-        }
-        output << sorted[index].chunkId << ':' << sorted[index].offset << ':'
-               << sorted[index].length << ':'
-               << checksum::checksumAlgorithmName(sorted[index].checksum.algorithm) << ':'
-               << hex32(sorted[index].checksum.value);
-    }
-    return output.str();
 }
 
 common::Result<std::vector<core::chunk::CompletedRange>> parseRanges(const std::string& text,
@@ -256,9 +250,12 @@ common::Result<std::vector<ChunkChecksumRecord>> parseVerifiedChunks(
 }
 
 common::Result<core::chunk::RangeList> completedFromVerified(
-    const std::vector<ChunkChecksumRecord>& records, std::uint64_t totalSize) {
+    const std::vector<ChunkChecksumRecord>& records, std::uint64_t totalSize,
+    ManifestSaveStats* stats = nullptr) {
     core::chunk::RangeList completed;
-    for (const ChunkChecksumRecord& record : sortedRecords(records)) {
+    const auto sorted = sortedRecords(records, stats);
+    OptionalManifestTimer validation(stats ? &stats->rangeValidationSeconds : nullptr);
+    for (const ChunkChecksumRecord& record : sorted) {
         const common::Status insertStatus =
             completed.insert(record.offset, record.length, totalSize);
         if (!insertStatus.isOk()) {
@@ -269,7 +266,9 @@ common::Result<core::chunk::RangeList> completedFromVerified(
 }
 
 std::string buildManifestBody(const TransferManifest& manifest,
-                              const std::vector<core::chunk::CompletedRange>& ranges) {
+                              const std::vector<core::chunk::CompletedRange>& ranges,
+                              const std::vector<ChunkChecksumRecord>& records,
+                              ManifestSaveStats* stats) {
     std::ostringstream output;
     output << "manifest_version=" << manifest.version << '\n';
     output << "transfer_id=" << manifest.transferId << '\n';
@@ -283,7 +282,7 @@ std::string buildManifestBody(const TransferManifest& manifest,
     output << "updated_at_unix_ns=" << manifest.updatedAtUnixNanos << '\n';
     output << "state=" << manifestStateName(manifest.state) << '\n';
     output << "completed_ranges=" << serializeRanges(ranges) << '\n';
-    output << "verified_chunks=" << serializeVerifiedChunks(manifest.verifiedChunks) << '\n';
+    output << "verified_chunks=" << detail::serializeOrderedRecords(records, stats) << '\n';
     return output.str();
 }
 
@@ -343,9 +342,9 @@ common::Result<ManifestState> parseManifestState(const std::string& text) {
     return common::Status::invalidArgument("invalid manifest state");
 }
 
-common::Result<std::string> serializeTransferManifest(const TransferManifest& manifest) {
-    if (manifest.version != kTransferManifestVersion) {
-        return common::Status::invalidArgument("serializer only writes manifest version 2");
+common::Result<std::string> serializeTransferManifest(const TransferManifest& manifest, ManifestSaveStats* stats) {
+    if (manifest.version != kTransferManifestSchemaVersion) {
+        return common::Status::invalidArgument("serializer only writes the current manifest schema");
     }
     if (!isValidTransferId(manifest.transferId)) {
         return common::Status::invalidArgument("invalid transfer_id");
@@ -357,13 +356,16 @@ common::Result<std::string> serializeTransferManifest(const TransferManifest& ma
         return common::Status::invalidArgument("manifest chunk_size must be greater than zero");
     }
 
-    auto completed = completedFromVerified(manifest.verifiedChunks, manifest.totalSize);
+    const detail::OrderedManifestRecords records(manifest.verifiedChunks, stats);
+    auto completed = detail::completedFromOrderedRecords(records.records(), manifest.totalSize, stats);
     if (!completed.isOk()) {
         return completed.status();
     }
-    const std::string body = buildManifestBody(manifest, completed.value().ranges());
+    const std::string body = buildManifestBody(manifest, completed.value().ranges(), records.records(), stats);
+    OptionalManifestTimer bodyCrc(stats ? &stats->bodyCrcSeconds : nullptr);
     const std::uint32_t bodyChecksum =
         checksum::crc32c(reinterpret_cast<const std::uint8_t*>(body.data()), body.size());
+    bodyCrc.stop();
     return body + "manifest_body_crc32c=" + hex32(bodyChecksum) + '\n';
 }
 
@@ -403,36 +405,26 @@ common::Result<TransferManifest> parseTransferManifest(const std::string& text) 
     if (!version.isOk()) {
         return version.status();
     }
-    if (version.value() != kTransferManifestVersionV1 &&
-        version.value() != kTransferManifestVersion) {
-        return common::Status::invalidArgument("unsupported manifest version");
+    if (version.value() != kTransferManifestSchemaVersion) {
+        return common::Status::invalidArgument("unsupported manifest schema version");
     }
-
-    const bool isV2 = version.value() == kTransferManifestVersion;
     for (const char* key :
          {"transfer_id", "output_path_hex", "temp_path_hex", "total_size", "chunk_size",
-          "created_at_unix_ns", "updated_at_unix_ns", "state", "completed_ranges"}) {
+          "checksum_algorithm", "created_at_unix_ns", "updated_at_unix_ns", "state",
+          "completed_ranges", "verified_chunks", "manifest_body_crc32c"}) {
         const common::Status status = requireKey(values, key);
         if (!status.isOk()) {
             return status;
         }
     }
-    if (isV2) {
-        for (const char* key : {"checksum_algorithm", "verified_chunks", "manifest_body_crc32c"}) {
-            const common::Status status = requireKey(values, key);
-            if (!status.isOk()) {
-                return status;
-            }
-        }
-        auto parsedExpected = parseHex32(expectedBodyChecksum, "manifest_body_crc32c");
-        if (!parsedExpected.isOk()) {
-            return parsedExpected.status();
-        }
-        const std::uint32_t actual = checksum::crc32c(
-            reinterpret_cast<const std::uint8_t*>(bodyText.data()), bodyText.size());
-        if (actual != parsedExpected.value()) {
-            return common::Status::invalidArgument("manifest body checksum mismatch");
-        }
+    auto parsedExpected = parseHex32(expectedBodyChecksum, "manifest_body_crc32c");
+    if (!parsedExpected.isOk()) {
+        return parsedExpected.status();
+    }
+    const std::uint32_t actual = checksum::crc32c(
+        reinterpret_cast<const std::uint8_t*>(bodyText.data()), bodyText.size());
+    if (actual != parsedExpected.value()) {
+        return common::Status::invalidArgument("manifest body checksum mismatch");
     }
 
     TransferManifest manifest;
@@ -491,12 +483,6 @@ common::Result<TransferManifest> parseTransferManifest(const std::string& text) 
         return ranges.status();
     }
     manifest.completedRanges = std::move(ranges.value());
-
-    if (!isV2) {
-        manifest.checksumAlgorithm = checksum::ChecksumAlgorithm::None;
-        manifest.verifiedChunks.clear();
-        return manifest;
-    }
 
     auto algorithm = checksum::parseChecksumAlgorithm(values["checksum_algorithm"]);
     if (!algorithm.isOk()) {

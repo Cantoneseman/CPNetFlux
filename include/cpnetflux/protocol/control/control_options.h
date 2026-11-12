@@ -11,6 +11,7 @@
 #include "cpnetflux/core/session/final_verify_policy.h"
 #include "cpnetflux/core/session/manifest_flush_policy.h"
 #include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/io/data_transport.h"
 #include "cpnetflux/protocol/control/control_auth.h"
 #include "cpnetflux/storage/file_io.h"
 #include "cpnetflux/storage/preallocate_mode.h"
@@ -23,11 +24,14 @@ inline constexpr std::uint16_t kMaxPassiveDataPortBase =
                                kPassiveDataPortWindowSize + 1);
 
 struct ControlServerOptions {
+    bool senderWorkProfile = false; // Internal startup-frozen diagnostic, not a wire option.
     std::string host = "127.0.0.1";
     std::uint16_t port = 2121;
     std::string root;
     std::uint16_t dataPortBase = 20200;
     std::uint32_t connections = 1;
+    std::uint32_t linkSetMaxLinks = 1;
+    std::uint64_t linkSetCapabilityBits = 0;
     std::uint64_t chunkSize = 1048576;
     std::uint32_t bufferSize = 65536;
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;
@@ -46,6 +50,7 @@ struct ControlServerOptions {
     std::string eventLogPath;
     core::io::TlsConfig tls;
     core::io::DataTlsMode dataTlsMode = core::io::DataTlsMode::Off;
+    core::io::DataTransport dataTransport = core::io::DataTransport::Tcp;
 };
 
 enum class ControlPathKind {

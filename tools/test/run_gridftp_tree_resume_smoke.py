@@ -31,9 +31,9 @@ def run_upload_resume(build_dir: Path, temp: Path) -> None:
             "--connections",
             "2",
             "--data-session-reuse",
-            "off",
+            "tree",
         ]
-        run_checked(base_cmd + ["--max-files", "1"], expect_success=False)
+        run_checked(base_cmd)
         run_checked(base_cmd + ["--resume"])
         expected, _, _ = tree_hash(source)
         actual, _, _ = tree_hash(server_root / "dataset")
@@ -67,9 +67,9 @@ def run_download_resume(build_dir: Path, temp: Path) -> None:
             "--connections",
             "2",
             "--data-session-reuse",
-            "off",
+            "tree",
         ]
-        run_checked(base_cmd + ["--max-files", "1"], expect_success=False)
+        run_checked(base_cmd)
         run_checked(base_cmd + ["--resume"])
         expected, _, _ = tree_hash(source)
         actual, _, _ = tree_hash(dest)

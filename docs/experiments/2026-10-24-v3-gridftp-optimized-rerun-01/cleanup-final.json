@@ -1,0 +1,17 @@
+{
+  "host": "R730",
+  "epoch": 1792828829.8854437,
+  "root": "/tmp/cpnetflux-runs/V3-GRIDFTP-OPTIMIZED-RERUN-01/20261024T071000Z-aa20229",
+  "free_before": 57357979648,
+  "removed": [
+    "payload",
+    "credentials",
+    "tls"
+  ],
+  "experiment_ports_closed": true,
+  "sanitized_evidence_token_scan": "pass",
+  "free_after": 68242685952,
+  "payload_removed": true,
+  "credentials_removed": true,
+  "private_tls_removed": true
+}

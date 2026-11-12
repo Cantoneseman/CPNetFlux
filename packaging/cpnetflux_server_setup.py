@@ -237,13 +237,18 @@ def build_bundle_payload(*, node_id: str, name: str, host: str, control_port: in
 def build_server_config(*, bind_host: str, port: int, data_port_base: int,
                         connections: int, root: Path, token_file: Path,
                         tls_key_file: Path, tls_cert_file: Path,
-                        tls_ca_file: Path, access_policy: str) -> dict:
+                        tls_ca_file: Path, access_policy: str,
+                        data_transport: str = "tcp", data_tls_mode: str = "required") -> dict:
     _validate_bind_host(bind_host)
     data_port_range(data_port_base)
     if not 1 <= connections <= 8:
         raise ValueError("connections must be between 1 and 8")
     if access_policy not in {"read-only", "write-only", "read-write"}:
         raise ValueError("invalid access policy")
+    if data_transport not in {"tcp", "rdma"} or data_tls_mode not in {"off", "required"}:
+        raise ValueError("invalid data transport or data TLS mode")
+    if data_transport == "rdma" and data_tls_mode != "off":
+        raise ValueError("RDMA mode requires --data-tls-mode off")
     return {
         "enabled": True,
         "host": bind_host,
@@ -256,6 +261,8 @@ def build_server_config(*, bind_host: str, port: int, data_port_base: int,
         "tls_cert_file": str(tls_cert_file),
         "tls_ca_file": str(tls_ca_file),
         "tls_client_auth": "none",
+        "data_transport": data_transport,
+        "data_tls_mode": data_tls_mode,
         "access_policy": access_policy,
     }
 
@@ -337,6 +344,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tls-server-name",
                         help="certificate SAN and TLS name (defaults to advertise host)")
     parser.add_argument("--data-port-base", type=int, default=20200)
+    parser.add_argument("--data-transport", choices=("tcp", "rdma"), default="tcp")
+    parser.add_argument("--data-tls-mode", choices=("off", "required"), default="required")
     parser.add_argument("--connections", type=int, default=4)
     parser.add_argument("--data-root", default="/var/lib/cpnetflux/data")
     parser.add_argument("--config-dir", default="/etc/cpnetflux")
@@ -385,6 +394,8 @@ def _print_plan(args, bind_host: str, port: int, first_data: int, last_data: int
     payload = {
         "listen": f"{bind_host}:{port}",
         "data_port_window": f"{first_data}-{last_data}",
+        "data_transport": args.data_transport,
+        "data_tls_mode": args.data_tls_mode,
         "config": str(config),
         "bundle": str(bundle),
         "install_service": bool(args.install_service),
@@ -404,6 +415,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         bind_host, port = parse_endpoint(args.listen)
         _validate_bind_host(bind_host)
         first_data, last_data = data_port_range(args.data_port_base)
+        if args.data_transport == "rdma" and args.data_tls_mode != "off":
+            raise ValueError("RDMA mode requires --data-tls-mode off")
         advertise_host = args.advertise_host or args.tls_server_name or bind_host
         if advertise_host in {"0.0.0.0", "::"}:
             raise ValueError("wildcard listen address cannot be used in a node bundle; provide --advertise-host")
@@ -453,7 +466,8 @@ def main(argv: Iterable[str] | None = None) -> int:
                 bind_host=bind_host, port=port, data_port_base=args.data_port_base,
                 connections=args.connections, root=data_root, token_file=token_path,
                 tls_key_file=key_path, tls_cert_file=cert_path, tls_ca_file=ca_path,
-                access_policy=args.access_policy)
+                access_policy=args.access_policy, data_transport=args.data_transport,
+                data_tls_mode=args.data_tls_mode)
             _atomic_write(config_path, (json.dumps(config, indent=2) + "\n").encode(),
                           0o640, args.force, created)
             if args.install_service:

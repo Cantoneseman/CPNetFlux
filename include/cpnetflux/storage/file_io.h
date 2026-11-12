@@ -7,6 +7,7 @@
 #include <iosfwd>
 #include <string>
 #include <string_view>
+#include <span>
 #include <vector>
 
 #include "cpnetflux/common/status.h"
@@ -112,6 +113,13 @@ class FileIoStats {
     std::atomic<std::uint64_t> posixWriteZeroCount_{0};
 };
 
+struct FileWriteObservation {
+    std::uint64_t writeAtAllCalls = 0;
+    std::uint64_t writeAtAllBytes = 0;
+    std::uint64_t writeAtAllFailures = 0;
+    double writeAtAllSeconds = 0;
+};
+
 [[nodiscard]] common::Result<FileIoBackendKind> parseFileIoBackendKind(std::string_view value);
 [[nodiscard]] const char* fileIoBackendName(FileIoBackendKind backend);
 [[nodiscard]] common::Result<FileIoAdvice> parseFileIoAdvice(std::string_view value);
@@ -132,10 +140,11 @@ class FileIoStats {
                                        const FileIoContext& context, FileIoStats* stats);
 [[nodiscard]] common::Status writeAtAll(const PosixFile& file, std::uint64_t offset,
                                         const std::uint8_t* data, std::size_t length,
-                                        FileIoStats* stats);
+                                        FileIoStats* stats, FileWriteObservation* observation = nullptr);
 [[nodiscard]] common::Status writeAtAll(const PosixFile& file, std::uint64_t offset,
                                         const std::uint8_t* data, std::size_t length,
-                                        const FileIoContext& context, FileIoStats* stats);
+                                        const FileIoContext& context, FileIoStats* stats,
+                                        FileWriteObservation* observation = nullptr);
 
 [[nodiscard]] common::Status ioUringReadAtAll(const PosixFile& file, std::uint64_t offset,
                                               std::uint8_t* data, std::size_t length,
@@ -162,6 +171,15 @@ using IoUringCompletionFn = common::Status (*)(std::uint64_t offset, std::size_t
     std::uint64_t queueDepth, std::uint64_t batchSize, std::size_t maxBytesPerSqe,
     IoUringCompletionFn completion, void* userData, FileIoStats* stats);
 
+struct FileWriteSlice {
+    const std::uint8_t* data = nullptr;
+    std::size_t size = 0;
+};
+// At most two borrowed slices; no payload copy or retained references.
+[[nodiscard]] common::Status writeGatheredAtAll(const PosixFile& file, std::uint64_t offset,
+    std::span<const FileWriteSlice> slices, FileIoStats* stats,
+    FileWriteObservation* observation = nullptr);
+
 class BufferedFileWriter {
    public:
     BufferedFileWriter(const PosixFile& file, const FileIoConfig& config, FileIoStats* stats);
@@ -170,8 +188,8 @@ class BufferedFileWriter {
     BufferedFileWriter& operator=(const BufferedFileWriter&) = delete;
 
     [[nodiscard]] common::Status write(std::uint64_t offset, const std::uint8_t* data,
-                                       std::size_t length);
-    [[nodiscard]] common::Status flush();
+                                       std::size_t length, FileWriteObservation* observation = nullptr);
+    [[nodiscard]] common::Status flush(FileWriteObservation* observation = nullptr);
 
    private:
     [[nodiscard]] bool canAppend(std::uint64_t offset, std::size_t length) const noexcept;

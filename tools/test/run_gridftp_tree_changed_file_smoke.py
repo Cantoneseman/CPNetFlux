@@ -38,7 +38,7 @@ def run_upload_changed(build_dir: Path, temp: Path) -> None:
             "--connections",
             "2",
         ]
-        run_checked(base_cmd + ["--max-files", "1"], expect_success=False)
+        run_checked(base_cmd)
         before, _, _ = tree_hash(server_root / "dataset")
         changed = source / "nested" / "beta.bin"
         time.sleep(1.1)
@@ -76,7 +76,7 @@ def run_download_remote_changed(build_dir: Path, temp: Path) -> None:
             "--connections",
             "2",
         ]
-        run_checked(base_cmd + ["--max-files", "1"], expect_success=False)
+        run_checked(base_cmd)
         changed = source / "nested" / "beta.bin"
         time.sleep(1.1)
         changed.write_bytes(b"changed remote download source")

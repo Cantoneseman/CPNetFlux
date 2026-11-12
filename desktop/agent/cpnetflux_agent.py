@@ -6,6 +6,8 @@ from collections import deque
 import copy
 from datetime import datetime, timezone
 import fcntl
+import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -24,7 +26,7 @@ MAX_OPERATIONS = 2000
 MAX_CLIENTS = 16
 MAX_PAGE_SNAPSHOTS = 64
 MAX_PAGE_CURSORS = 512
-API_VERSION = "2.0.0"
+API_VERSION = "3.0.0"
 PAGE_TTL_SECONDS = 300
 TERMINAL = {"completed", "failed", "cancelled", "recoverable"}
 ACTIVE = {"scanning", "connecting", "negotiating", "transferring", "committing"}
@@ -48,6 +50,7 @@ def detail(code, message, transfer_id=None, scope="rpc"):
                 transfer_id=transfer_id, file_id=None, range_id=None)
 class RpcError(Exception):
     def __init__(self, code, message, number=None):
+        super().__init__(message)
         self.code, self.message = code, message
         self.number = number or ERROR_NUMBERS[code]
 
@@ -77,14 +80,19 @@ class Agent:
         self.events, self.clients, self.runners = deque(maxlen=128), set(), {}
         self.processes = {}
         self.core_bin_dir = Path(args.core_bin_dir).absolute() if args.core_bin_dir else None
-        self.store = dict(tasks={}, profiles={}, operations={}, attempt_history={})
+        self.store = dict(api_version=API_VERSION, tasks={}, profiles={}, operations={}, attempt_history={}, network_plans={}, network_bindings={}, task_inputs={}, summaries={})
         self.page_snapshots, self.page_cursors = {}, {}
         path = self.state_dir / "state.json"
         if path.exists():
             if path.is_symlink() or path.stat().st_uid != os.getuid(): raise RuntimeError("unsafe state file")
             if path.stat().st_size > 8 * MAX_FRAME: raise RuntimeError("state file exceeds limit")
             self.store = json.loads(path.read_text())
+            if self.store.get("api_version") != API_VERSION:
+                raise RuntimeError("state API mismatch; preserve the old state directory and use a new private directory")
+            self.store.setdefault("task_inputs", {}); self.store.setdefault("summaries", {})
             self.store.setdefault("attempt_history", {})
+            self.store.setdefault("network_plans", {})
+            self.store.setdefault("network_bindings", {})
             for t in self.store["tasks"].values():
                 t.setdefault("backend_evidence", empty_evidence())
                 t.setdefault("effective_policy", self.pending_policy())
@@ -94,7 +102,11 @@ class Agent:
                     t["attempt"]["state"] = "recoverable"
                     t["attempt"]["quiescence"] = "confirmed"
                     t["metrics"].update(speed_bps=None, average_speed_bps=None, eta_seconds=None, channel_count_active=0, data_connections=0)
-                    t["recovery"] = dict(eligibility="eligible", checkpoint_id="demo:"+t["transfer_id"], reason="演示 agent 重启，需手动恢复")
+                    self.checkpoint(t)
+                    if t["recovery"]["eligibility"] != "eligible":
+                        t["state"] = "failed"; t["attempt"]["state"] = "failed"
+                    t["transfer_status"] = "fail"
+                    t["evidence_status"] = "incomplete"
         for transfer_id, task in self.store["tasks"].items():
             history = self.store["attempt_history"].setdefault(transfer_id, [])
             for i, previous in enumerate(history):
@@ -154,9 +166,9 @@ class Agent:
             raise RpcError("unsupported", "缺少真实后端可执行文件: " + name)
         return str(path)
 
-    def profile_for(self, endpoint):
+    def profile_for(self, endpoint, profile=None):
         node_id = endpoint.get("node_id")
-        profile = self.store["profiles"].get(node_id)
+        profile = profile if profile is not None else self.store["profiles"].get(node_id)
         if profile is None:
             raise RpcError("not_found", "请先保存远端节点配置")
         if profile.get("auth_mode") == "anonymous":
@@ -188,7 +200,15 @@ class Agent:
             raise RpcError("permission_denied", "本地目标父目录不可写")
         if remote["path"].startswith("/") or ".." in Path(remote["path"]).parts:
             raise RpcError("permission_denied", "远端路径必须是 root-relative 且不能越界")
-        profile = self.profile_for(remote)
+        frozen = self.store.get("task_inputs", {}).get(p.get("transfer_id"), {})
+        profile = self.profile_for(remote, frozen.get("profile"))
+        if remote.get("root_id") != profile.get("default_root_id"):
+            raise RpcError("unsupported", "root_id 必须匹配节点默认授权 root；核心不支持运行时切换 root")
+        binding = frozen.get("binding") if frozen else self.store.get("network_bindings", {}).get(remote["node_id"])
+        if binding:
+            verification = self._verify_binding(remote["node_id"], binding)
+            if not verification["verified"]:
+                raise RpcError("invalid_state", "已配置的本机网卡绑定当前不可用，请重新检测并应用")
         # The unified tree adapter is the only authenticated real endpoint currently
         # exposed by the core. Keep single-file requests explicit and actionable until
         # the file client gains the same control-plane contract.
@@ -241,16 +261,39 @@ class Agent:
     def build_real_command(self, t):
         path = Path(t["source"]["path"] if t["direction"] == "upload" else t["destination"]["path"])
         remote = t["destination"] if t["direction"] == "upload" else t["source"]
-        profile = self.profile_for(remote)
+        frozen = self.store.get("task_inputs", {}).get(t.get("transfer_id"), {})
+        profile = self.profile_for(remote, frozen.get("profile"))
+        binding = frozen.get("binding") if frozen else self.store.get("network_bindings", {}).get(remote["node_id"])
+        options = self.resolve_options(t["policy"], binding)
         args = ["--host", profile["host"], "--port", str(profile["control_port"]),
-                "--connections", "1", "--checksum", "crc32c",
+                "--connections", str(options["channel_count"]), "--checksum", options["checksum"],
                 "--tls-mode", "required", "--tls-server-name", profile.get("server_name") or profile["host"],
                 "--tls-ca-file", profile["ca_path"],
-                "--data-tls-mode", "required", "--event-log", t["backend_evidence"]["event_log"],
+                "--data-tls-mode", t["policy"]["data_tls"], "--event-log", t["backend_evidence"]["event_log"],
                 "--auth-mode", "token", "--auth-token-file", profile["credential_ref"][5:],
                 "--json-summary", t["backend_evidence"]["summary"], "--phase-timing", "on"]
-        if t["attempt"]["attempt_number"] > 1:
+        for key, flag in (("channel_count", "file-parallelism"), ("channel_count", "link-set-links"),
+                          ("pending_window", "data-pending-window"), ("file_scheduling", "file-scheduling"),
+                          ("reconnect_attempts", "reconnect-attempts"), ("compression", "compression"),
+                          ("chunk_size", "chunk-size"), ("buffer_size", "buffer-size"),
+                          ("control_pipeline_depth", "control-pipeline-depth"),
+                          ("scheduler_mode", "scheduler"), ("scheduler_policy", "scheduler-policy"),
+                          ("scheduler_work_item_min_bytes", "scheduler-workitem-min-bytes"),
+                          ("scheduler_work_item_max_bytes", "scheduler-workitem-max-bytes"),
+                          ("scheduler_default_rtt_ms", "scheduler-default-rtt-ms"),
+                          ("scheduler_capacity_gbps", "scheduler-capacity-gbps")):
+            args += ["--" + flag, str(options[key])]
+        if options["transfer_timeout_ms"]:
+            args += ["--transfer-timeout-ms", str(options["transfer_timeout_ms"])]
+        if t["attempt"]["attempt_number"] > 1 or t["policy"]["resume_policy"] == "require":
             args += ["--resume"]
+        if binding:
+            addresses = binding.get("local_bind_addresses", [])
+            if addresses:
+                args += ["--local-bind-addresses", ",".join(addresses)]
+            peers = self.binding_peers(binding)
+            if peers:
+                args += ["--peer-addresses", ",".join(peers)]
         if t["direction"] == "upload":
             exe = self.core_binary("cpnetflux-tree-upload-client")
             args += ["--source-dir", str(path), "--dest-dir", remote["path"]]
@@ -260,33 +303,28 @@ class Agent:
         return [exe] + args
 
     def apply_real_policy(self, t, summary):
-        """Copy only backend-observed facts into the public transfer snapshot.
-
-        The tree client summary is authoritative for mode/scheduler/checksum and
-        resume. TLS remains unknown because the current client summary does not
-        expose a verified handshake fact.
-        """
-        observed_mode = {"persistent_tree": "v2", "per_file": "v1"}.get(
-            summary.get("actual_mode"), "unknown")
-        observed_scheduler = {"dynamic": "dynamic_ring", "static": "static",
-                              "per_file": "static"}.get(
+        """Resolve policy only from a successful, verified V3 core summary."""
+        t.update(actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown")
+        t["effective_policy"] = self.pending_policy()
+        lanes = summary.get("link_set_accepted_links")
+        if (summary.get("result") != "pass" or summary.get("actual_transport") != "v3"
+                or not summary.get("control_tls_verified") or not isinstance(summary.get("data_tls_verified"), bool)
+                or not isinstance(lanes, int) or not 1 <= lanes <= 10):
+            return
+        observed_scheduler = {"dynamic": "dynamic_ring", "static": "static"}.get(
             summary.get("actual_file_scheduling"), "unknown")
         observed_checksum = {"crc32c": "crc32c", "none": "none"}.get(
             summary.get("checksum_algorithm"), "unknown")
-        successful = summary.get("result") == "pass"
-        t["actual_mode"] = observed_mode
+        if observed_scheduler == "unknown" or observed_checksum == "unknown": return
+        t["actual_mode"] = "v3"
         t["actual_scheduler"] = observed_scheduler
-        t["actual_range_policy"] = "file" if observed_mode != "unknown" else "unknown"
-        connections = summary.get("connections")
-        if not isinstance(connections, int) or connections < 1:
-            connections = None
+        t["actual_range_policy"] = "auto"
         t["effective_policy"] = dict(
-            resolution="resolved" if successful and observed_mode != "unknown" else "pending",
-            mode=observed_mode, scheduler=observed_scheduler,
+            resolution="resolved", mode="v3", scheduler=observed_scheduler,
             range_policy=t["actual_range_policy"], checksum=observed_checksum,
             resume_enabled=summary.get("resume") if isinstance(summary.get("resume"), bool) else None,
-            control_tls="unknown", data_tls="unknown", channel_count=connections,
-            applied_at=now() if successful and observed_mode != "unknown" else None)
+            control_tls="verified", data_tls="verified" if summary["data_tls_verified"] else "off",
+            channel_count=lanes, applied_at=now())
 
     def read_real_evidence(self, t, summary):
         local = Path(t["source"]["path"] if t["direction"] == "upload" else t["destination"]["path"])
@@ -298,19 +336,17 @@ class Agent:
             m.update(files_total=files, files_committed=summary.get("completed_files"),
                      files_failed=summary.get("failed_files"), files_skipped=summary.get("skipped_files"),
                      bytes_total=total, bytes_transferred=moved, bytes_verified=None,
-                     bytes_committed=moved, channel_count_active=0, queue_depth_current=0,
+                     bytes_committed=total if summary.get("result") == "pass" else None, channel_count_active=0, queue_depth_current=0,
                      data_connections=summary.get("data_connect_count"), speed_bps=None,
                      average_speed_bps=None, eta_seconds=None)
+            t["scan_complete"] = isinstance(files, int) and isinstance(total, int)
             t["backend_evidence"]["phase_timing"].update(
                 control_prepare=summary.get("control_prepare_seconds"),
+                data_connect=summary.get("data_connect_seconds"),
                 payload_io=summary.get("elapsed_seconds"),
                 transfer_complete_wait=summary.get("transfer_complete_wait_seconds"))
             t["backend_evidence"]["checksum"] = {"algorithm": summary.get("checksum_algorithm", "unknown"),
-                                                        "status": "pass" if summary.get("result") == "pass" else "fail"}
-            suffix = ".cpnetflux.tree.upload.manifest" if t["direction"] == "upload" else ".cpnetflux.tree.download.manifest"
-            manifest_path = Path(str(local) + suffix)
-            t["backend_evidence"]["manifest"] = {"path": str(manifest_path),
-                                                  "status": "observed" if manifest_path.exists() else "unknown"}
+                "status": "not_requested" if summary.get("checksum_algorithm") == "none" else ("pass" if summary.get("result") == "pass" else "fail")}
         elif local.exists() and local.is_dir():
             files = [f for f in local.rglob("*") if f.is_file()]
             m.update(files_total=len(files), files_committed=None, files_failed=None, files_skipped=None,
@@ -318,6 +354,24 @@ class Agent:
                      bytes_verified=None, bytes_committed=None, channel_count_active=0,
                      queue_depth_current=None, data_connections=None, speed_bps=None,
                      average_speed_bps=None, eta_seconds=None)
+        # SIGTERM can leave a valid tree checkpoint without a final summary.
+        # Offer it as a resume candidate; the V3 core still validates file identity.
+        manifest_path = Path(str(local) + ".cpnetflux.tree." + t["direction"] + ".manifest")
+        observed = False
+        try:
+            if not manifest_path.is_symlink():
+                with manifest_path.open("r", encoding="ascii") as stream:
+                    fields = dict(stream.readline(131072).rstrip("\n").split("=", 1) for _ in range(4))
+                expected_checksum = "none" if t.get("policy", {}).get("checksum_policy") == "none" else "crc32c"
+                observed = (fields.get("manifest_version") == "1"
+                    and fields.get("mode") == t["direction"]
+                    and fields.get("root_logical_path_hex") == os.fsencode(t["source"]["path"]).hex()
+                    and fields.get("checksum_algorithm") == expected_checksum)
+        except (OSError, UnicodeError, ValueError):
+            pass
+        t["backend_evidence"]["manifest"] = dict(path=str(manifest_path),
+            status="observed" if observed else "unknown")
+
     def page(self, kind, t, p, items, query, extra=None):
         now_mono = asyncio.get_running_loop().time()
         for token, cursor in list(self.page_cursors.items()):
@@ -335,7 +389,7 @@ class Agent:
             snapshot = dict(snapshot_id=snapshot_id, query=query, transfer_id=t["transfer_id"],
                             attempt_id=p.get("attempt_id"), agent_epoch=self.epoch,
                             revision=t["revision"], snapshot_sequence=self.sequence,
-                            items=copy.deepcopy(items), expires=now_mono+PAGE_TTL_SECONDS)
+                            items=copy.deepcopy(items), extra=copy.deepcopy(extra or {}), expires=now_mono+PAGE_TTL_SECONDS)
             self.page_snapshots[snapshot_id] = snapshot
             offset = 0
         else:
@@ -359,7 +413,7 @@ class Agent:
         result=dict(kind=kind,transfer_id=snapshot["transfer_id"],attempt_id=snapshot["attempt_id"],
                     snapshot_id=snapshot_id,agent_epoch=snapshot["agent_epoch"],revision=snapshot["revision"],
                     snapshot_sequence=snapshot["snapshot_sequence"],items=page_items,next_cursor=next_cursor)
-        if extra: result.update(extra)
+        result.update(snapshot.get("extra",{}))
         return result
     def attempts_for(self, transfer_id):
         history=copy.deepcopy(self.store["attempt_history"].get(transfer_id, []))
@@ -386,16 +440,426 @@ class Agent:
         n=file["bytes_transferred"] or 0
         if n==0: return []
         return [dict(transfer_id=t["transfer_id"],attempt_id=attempt_id,file_id=file_id,range_id="demo-range-1",generation=generation,offset=0,length=file["size"],state="verified" if file["bytes_verified"]==file["size"] else "transferring",bytes_transferred=n,error=None,attempt_number=next(a["attempt_number"] for a in self.attempts_for(t["transfer_id"]) if a["attempt_id"]==attempt_id),checksum=copy.deepcopy(file["checksum"]))]
+    def _network_inventory(self, node_id):
+        if self.args.demo:
+            interfaces = [{
+                "interface_id": "demo:eth0", "name": "eth0", "kind": "physical",
+                "state": "up", "carrier": True, "addresses": ["192.0.2.10"],
+                "mtu": 1500, "speed_bps": 1000000000, "management": True
+            }]
+            management_id = "demo:eth0"
+        else:
+            addresses_by_name = {}
+            try:
+                completed = subprocess.run(
+                    ["ip", "-j", "address", "show"],
+                    capture_output=True, text=True, timeout=3, check=False)
+                if completed.returncode == 0:
+                    for item in json.loads(completed.stdout):
+                        values = []
+                        for address in item.get("addr_info", []):
+                            local = address.get("local")
+                            if isinstance(local, str) and local:
+                                values.append(local)
+                        addresses_by_name[item.get("ifname", "")] = values
+            except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+                addresses_by_name = {}
+            interfaces = []
+            for _, name in socket.if_nameindex():
+                base = Path("/sys/class/net") / name
+                def read_text(filename, default):
+                    try:
+                        return (base / filename).read_text().strip()
+                    except (OSError, UnicodeDecodeError):
+                        return default
+                state_text = read_text("operstate", "unknown")
+                state = state_text if state_text in {"up", "down"} else "unknown"
+                carrier_text = read_text("carrier", "0")
+                carrier = carrier_text == "1"
+                kind = "loopback" if name == "lo" else (
+                    "physical" if (base / "device").exists() else "virtual")
+                try:
+                    mtu = int(read_text("mtu", "0"))
+                except ValueError:
+                    mtu = 0
+                speed = None
+                try:
+                    value = int(read_text("speed", "-1"))
+                    if value >= 0:
+                        speed = value * 1000000
+                except ValueError:
+                    pass
+                interfaces.append({
+                    "interface_id": "linux:" + name, "name": name, "kind": kind,
+                    "state": state, "carrier": carrier,
+                    "addresses": sorted(set(addresses_by_name.get(name, []))),
+                    "mtu": mtu, "speed_bps": speed, "management": False
+                })
+            management_name = None
+            try:
+                for line in Path("/proc/net/route").read_text().splitlines()[1:]:
+                    fields = line.split()
+                    if len(fields) > 1 and fields[1] == "00000000":
+                        management_name = fields[0]
+                        break
+            except (OSError, UnicodeDecodeError):
+                pass
+            management_id = "linux:" + management_name if management_name else None
+            for item in interfaces:
+                item["management"] = item["interface_id"] == management_id
+        canonical = dict(node_id=node_id, management_interface_id=management_id,
+                         interfaces=interfaces)
+        revision = hashlib.sha256(json.dumps(
+            canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
+        warnings = []
+        usable = [x for x in interfaces
+                  if x["kind"] != "loopback" and x["state"] == "up"
+                  and x["carrier"] and x["addresses"]]
+        if not usable:
+            warnings.append("没有检测到带地址且链路为 up 的可用网卡")
+        elif len(usable) == 1:
+            warnings.append("当前只有一块可用网卡，无法形成多条独立链路")
+        if management_id is None:
+            warnings.append("未识别默认管理路由；应用绑定不会修改系统路由")
+        return dict(kind="network_inventory", node_id=node_id,
+                    inventory_revision=revision, observed_at=now(),
+                    interfaces=interfaces, management_interface_id=management_id,
+                    warnings=warnings)
+
+    def _network_plan(self, node_id, inventory_revision, requested_links, peer_addresses, selections=None):
+        inventory = self._network_inventory(node_id)
+        if inventory["inventory_revision"] != inventory_revision:
+            raise RpcError("revision_conflict", "网卡清单已变化，请重新检测")
+        explicit_peers = any(address is not None for address in peer_addresses)
+        if len(peer_addresses) > requested_links or (explicit_peers and (
+                len(peer_addresses) != requested_links or None in peer_addresses)):
+            raise RpcError("invalid_state", "远端映射必须为每条链路指定地址，不能混用空值")
+        if explicit_peers:
+            try:
+                peers = [ipaddress.ip_address(x) for x in peer_addresses]
+                if any(x.is_unspecified or x.is_multicast or x.is_link_local or x.is_loopback for x in peers):
+                    raise ValueError()
+            except ValueError:
+                raise RpcError("invalid_state", "远端映射必须为可用的数字 IPv4/IPv6 地址")
+            peer_addresses = [str(x) for x in peers]
+        host = self.store.get("profiles", {}).get(node_id, {}).get("host")
+        try:
+            peer_family = ipaddress.ip_address(host).version if host else None
+        except ValueError:
+            peer_family = None
+        candidates = []
+        for interface in inventory["interfaces"]:
+            if interface["kind"] == "loopback" or interface["state"] != "up" or not interface["carrier"]:
+                continue
+            usable = []
+            for text in interface["addresses"]:
+                try:
+                    address = ipaddress.ip_address(text)
+                except ValueError:
+                    continue
+                if address.is_loopback or address.is_link_local or address.is_unspecified or address.is_multicast:
+                    continue
+                usable.append(address)
+            if usable:
+                candidates.append(dict(interface, addresses=[str(x) for x in usable]))
+        if selections is not None:
+            if len(selections) != requested_links or len({x["interface_id"] for x in selections}) != len(selections):
+                raise RpcError("invalid_state", "手动选择数量必须匹配链路数，且每块网卡只能选择一次")
+            selected_interfaces = []
+            for selection in selections:
+                interface = next((x for x in inventory["interfaces"] if x["interface_id"] == selection["interface_id"]), None)
+                try: address = ipaddress.ip_address(selection["local_address"])
+                except ValueError: raise RpcError("invalid_state", "绑定地址必须是数字 IP")
+                if (interface is None or interface["kind"] == "loopback" or interface["state"] != "up"
+                        or not interface["carrier"] or str(address) not in interface["addresses"]
+                        or address.is_loopback or address.is_link_local or address.is_unspecified
+                        or address.is_multicast):
+                    raise RpcError("invalid_state", "选择的本机地址不可用或与远端地址族不匹配")
+                selected_interfaces.append(dict(interface, addresses=[str(address)]))
+            candidates = selected_interfaces
+        bindings = []
+        for lane, interface in enumerate(candidates[:requested_links]):
+            peers = peer_addresses[lane] if lane < len(peer_addresses) else None
+            family = ipaddress.ip_address(peers).version if peers else peer_family
+            if selections is None:
+                # Match each lane's family before choosing an unused local interface.
+                used = {x["interface_id"] for x in bindings}
+                interface = next((x for x in candidates if x["interface_id"] not in used and
+                    any(family is None or ipaddress.ip_address(a).version == family for a in x["addresses"])), None)
+                if interface is None:
+                    break
+                addresses = [ipaddress.ip_address(x) for x in interface["addresses"]
+                    if family is None or ipaddress.ip_address(x).version == family]
+                local_address = str(min(addresses, key=lambda a: (a.version, int(a))))
+            else:
+                local_address = interface["addresses"][0]
+                if family and ipaddress.ip_address(local_address).version != family:
+                    raise RpcError("invalid_state", "选择的本机地址与该链路远端地址族不匹配")
+            bindings.append(dict(lane_id=lane, interface_id=interface["interface_id"],
+                                 local_address=local_address,
+                                 peer_address=peers))
+        warnings = list(inventory["warnings"])
+        if len(bindings) < requested_links:
+            warnings.append("可用网卡数量少于请求链路数量，请降低链路数后重新生成")
+        payload = dict(node_id=node_id, inventory_revision=inventory_revision,
+                       requested_links=requested_links, bindings=bindings)
+        plan_id = "plan-" + hashlib.sha256(json.dumps(
+            payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
+        result = dict(kind="network_plan", plan_id=plan_id, node_id=node_id,
+                      inventory_revision=inventory_revision,
+                      requested_links=requested_links, bindings=bindings,
+                      warnings=warnings, requires_privilege=False)
+        if len(self.store["network_plans"]) >= 100 and plan_id not in self.store["network_plans"]:
+            raise RpcError("invalid_state", "网卡方案预算已满，请复用已有方案")
+        self.store["network_plans"][plan_id] = copy.deepcopy(result)
+        self.save()
+        return result
+
+    def _network_verify(self, node_id, plan_id):
+        plan = self.store.get("network_plans", {}).get(plan_id)
+        if plan is None or plan.get("node_id") != node_id:
+            raise RpcError("not_found", "网卡绑定方案不存在")
+        binding = self.store.get("network_bindings", {}).get(node_id)
+        if binding is None or binding.get("plan_id") != plan_id:
+            raise RpcError("invalid_state", "网卡绑定方案尚未应用")
+        return self._verify_binding(node_id, binding)
+
+    def _verify_binding(self, node_id, binding):
+        plan_id = binding["plan_id"]
+        inventory = self._network_inventory(node_id)
+        by_id = {x["interface_id"]: x for x in inventory["interfaces"]}
+        verified = True
+        warnings = list(inventory["warnings"])
+        effective = []
+        for item in binding.get("bindings", []):
+            interface = by_id.get(item["interface_id"])
+            ok = interface is not None and interface["state"] == "up" and interface["carrier"] \
+                and item["local_address"] in interface["addresses"]
+            if not ok:
+                verified = False
+                warnings.append("绑定地址或网卡状态已变化: " + item["interface_id"])
+            effective.append(copy.deepcopy(item))
+        return dict(kind="network_verify", node_id=node_id, plan_id=plan_id,
+                    inventory_revision=inventory["inventory_revision"], verified=verified,
+                    physical_path_verified=False, effective_bindings=effective,
+                    warnings=warnings)
+
+    @staticmethod
+    def binding_peers(binding):
+        rows = (binding or {}).get("bindings", [])
+        peers = [x.get("peer_address") for x in rows]
+        if not any(x is not None for x in peers): return []
+        try:
+            if any(x is None for x in peers): raise ValueError()
+            return [str(ipaddress.ip_address(x)) for x in peers]
+        except ValueError:
+            raise RpcError("invalid_state", "保存的远端映射不完整或不是数字 IP，请重新生成方案")
+
+    def resolve_options(self, policy, binding=None):
+        p = dict(self.policy_defaults(), **policy)
+        if (p["requested_mode"] != "v3" or p["fallback_policy"] != "reject"
+                or p["range_policy"] != "auto" or p["queue_depth"] != "auto"
+                or p["conflict_policy"] != "fail"):
+            raise RpcError("unsupported", "CPNetFlux 只运行 V3；队列和 range 由核心自动管理，冲突策略固定为失败")
+        addresses = (binding or {}).get("local_bind_addresses", [])
+        channels = (len(addresses) or 1) if p["channel_count"] == "auto" else p["channel_count"]
+        if addresses and len(addresses) not in {1, channels}:
+            raise RpcError("invalid_state", "通道数须匹配绑定地址数；单个地址可用于所有通道")
+        peers = self.binding_peers(binding)
+        if peers and (len(peers) not in {1, channels} or len(peers) != len(addresses)):
+            raise RpcError("invalid_state", "远端映射数量须匹配绑定地址和通道数")
+        scheduler = "dynamic_ring" if p["scheduler"] == "auto" else p["scheduler"]
+        if scheduler == "static" and (p["control_pipeline_depth"] or p["scheduler_mode"] == "global"):
+            raise RpcError("unsupported", "控制流水线和 global 调度要求 dynamic 文件调度")
+        if p["reconnect_attempts"] and (p["resume_policy"] == "never" or p["checksum_policy"] == "none"):
+            raise RpcError("unsupported", "自动重连需要允许 resume 和 CRC32C 校验")
+        if p["scheduler_policy"] == "adaptive" and p["scheduler_mode"] != "global":
+            raise RpcError("unsupported", "adaptive 调度策略要求启用 global 调度")
+        if p["scheduler_work_item_min_bytes"] > p["scheduler_work_item_max_bytes"]:
+            raise RpcError("invalid_state", "调度最小工作块不能超过最大工作块")
+        return dict(channel_count=channels, pending_window=p["control_pipeline_depth"] or p["pending_window"],
+            queue_capacity=channels*(p["control_pipeline_depth"] or p["pending_window"])*2 if scheduler=="dynamic_ring" else 0,
+            checksum="crc32c" if p["checksum_policy"] == "required_crc32c" else "none",
+            file_scheduling="dynamic" if scheduler == "dynamic_ring" else "static",
+            reconnect_attempts=p["reconnect_attempts"],
+            transfer_timeout_ms=p["transfer_timeout_ms"] or (300000 if p["reconnect_attempts"] else 0),
+            compression=p["compression"], chunk_size=p["chunk_size"], buffer_size=p["buffer_size"],
+            control_pipeline_depth=p["control_pipeline_depth"],
+            scheduler_mode=p["scheduler_mode"], scheduler_policy=p["scheduler_policy"],
+            scheduler_work_item_min_bytes=p["scheduler_work_item_min_bytes"],
+            scheduler_work_item_max_bytes=p["scheduler_work_item_max_bytes"],
+            scheduler_default_rtt_ms=p["scheduler_default_rtt_ms"],
+            scheduler_capacity_gbps=p["scheduler_capacity_gbps"])
+
+    @staticmethod
+    def policy_defaults():
+        return dict(requested_mode="v3",scheduler="dynamic_ring",channel_count="auto",
+            pending_window=2,queue_depth="auto",range_policy="auto",checksum_policy="required_crc32c",
+            resume_policy="allow",control_tls="verify_ca",data_tls="required",fallback_policy="reject",
+            conflict_policy="fail",experimental_raw_ack=False,reconnect_attempts=0,
+            transfer_timeout_ms=0,compression="off",chunk_size=1048576,buffer_size=65536,
+            control_pipeline_depth=0,scheduler_mode="off",scheduler_policy="fixed",
+            scheduler_work_item_min_bytes=67108864,scheduler_work_item_max_bytes=268435456,
+            scheduler_default_rtt_ms=10,scheduler_capacity_gbps=0.01)
+
+    def contract(self):
+        unsupported={"transfer.pause":"核心尚未提供暂停/静止屏障",
+                     "directory.list":"核心尚未提供安全的结构化目录查询"}
+        methods=[]
+        for req in self.schema["$defs"]["request"]["oneOf"]:
+            method=req["properties"]["method"]["const"]
+            reason=unsupported.get(method)
+            if not self.args.demo and method in {"transfer.validate","transfer.create","transfer.start","transfer.resume","node.testConnection"}:
+                try:
+                    for name in ("cpnetflux-tree-upload-client","cpnetflux-tree-download-client","cpnetflux-auth-probe"): self.core_binary(name)
+                except RpcError as exc: reason=exc.message
+            support="unsupported" if reason else ("simulated" if self.args.demo else "supported")
+            methods.append(dict(method=method,support=support,reason=reason))
+        return dict(kind="agent_contract",api_version=API_VERSION,runtime_protocol="v3",
+            adapter="demo" if self.args.demo else "real",methods=methods,
+            policy_defaults=self.policy_defaults(),policy_schema=copy.deepcopy(self.schema["$defs"]["policy"]),
+            limitations=["只提供带 TLS/token 的目录任务，不提供统一认证的单文件传输",
+                "真实文件/range 明细在传输结束后由核心摘要生成，没有实时逐块速率",
+                "网卡配置只写 CPNetFlux 本机绑定和逐链路远端 IP，不改系统路由；映射须指向同一 V3 服务和根目录",
+                "local_supported 表示本机核心支持项；远端 peer 能力仍需连接实际协商"])
+
+    def validation(self, p):
+        if self.args.demo:
+            remote=p["destination"] if p["direction"]=="upload" else p["source"]
+            binding=self.store["network_bindings"].get(remote["node_id"])
+        else:
+            self.validate_real_request(p)
+            remote=p["destination"] if p["direction"]=="upload" else p["source"]
+            binding=self.store["network_bindings"].get(remote["node_id"])
+        options=self.resolve_options(p["policy"],binding)
+        if not self.args.demo and p["policy"]["resume_policy"]=="require":
+            local=p["source"] if p["direction"]=="upload" else p["destination"]
+            suffix=".cpnetflux.tree."+p["direction"]+".manifest"
+            if not Path(local["path"]+suffix).is_file():
+                raise RpcError("checkpoint_missing","require resume 需要已有 V3 tree manifest；具体内容由核心检查")
+        warnings=["preview 不连接远端；认证、数据端口和远端目录由启动后的核心验证"]
+        if p["policy"].get("control_pipeline_depth",0) and p["policy"]["control_pipeline_depth"] != p["policy"]["pending_window"]:
+            warnings.append("V3 共享流水线使用深度 %s 作为实际窗口；请求 pending_window=%s，实际=%s" %
+                (p["policy"]["control_pipeline_depth"],p["policy"]["pending_window"],options["pending_window"]))
+        return dict(kind="transfer_validation",valid=True,runtime_protocol="v3",
+            resolved_options=options,binding_plan_id=binding["plan_id"] if binding else None,
+            warnings=warnings)
+
+    def summary_for(self, t, attempt_id):
+        if not any(x["attempt_id"]==attempt_id for x in self.attempts_for(t["transfer_id"])):
+            raise RpcError("not_found","attempt 不属于该任务")
+        record=self.store.get("summaries",{}).get(attempt_id)
+        if record is None: return None
+        return self.load_summary(record)
+
+    def load_summary(self, path):
+        if not path or not Path(path).is_file(): return None
+        try:
+            with Path(path).open() as stream: value=json.load(stream)
+            if not isinstance(value,dict): return None
+            return value
+        except (OSError,ValueError): return None
+
+    def real_files(self, t, attempt_id):
+        summary=self.summary_for(t,attempt_id)
+        if summary is None: return []
+        groups={}
+        for row in summary.get("file_timings",[]): groups.setdefault((row["file_id"],row["generation"]),[]).append(row)
+        success=summary.get("result")=="pass"
+        return [dict(transfer_id=t["transfer_id"],attempt_id=attempt_id,file_id=str(key[0]),
+            generation=key[1],relative_path=rows[0]["relative_path"],size=rows[0]["size"],mtime_ns=None,
+            state="committed" if success else "recoverable",bytes_transferred=None,bytes_verified=None,
+            range_count=sum(1 for row in rows if row["length"]>0),error=None,checksum=dict(algorithm=summary.get("checksum_algorithm","unknown"),
+                expected=None,actual=None,status="not_requested" if summary.get("checksum_algorithm")=="none" else "pass" if success else "pending"))
+            for key,rows in sorted(groups.items())]
+
+    def real_ranges(self, t, p):
+        summary=self.summary_for(t,p["attempt_id"])
+        rows=(summary or {}).get("file_timings",[])
+        selected=[x for x in rows if str(x["file_id"])==p["file_id"] and x["generation"]==p["generation"]]
+        if not selected: raise RpcError("not_found","最终摘要尚无该文件/range 观测证据")
+        return [dict(transfer_id=t["transfer_id"],attempt_id=p["attempt_id"],file_id=p["file_id"],
+            generation=p["generation"],range_id=str(x["range_id"]),offset=x["offset"],length=x["length"],
+            state="verified" if summary["result"]=="pass" else "recoverable",bytes_transferred=None,
+            attempt_number=next(a["attempt_number"] for a in self.attempts_for(t["transfer_id"]) if a["attempt_id"]==p["attempt_id"]),
+            core_attempt=x["attempt"],error=None,checksum=dict(algorithm=summary["checksum_algorithm"],
+            expected=None,actual=None,status="not_requested" if summary["checksum_algorithm"]=="none" else "pass" if summary["result"]=="pass" else "pending")) for x in selected if x["length"]>0]
+
+    def completion_matches(self, t, summary):
+        remote=t["destination"] if t["direction"]=="upload" else t["source"]
+        frozen=self.store.get("task_inputs",{}).get(t["transfer_id"],{})
+        binding=frozen.get("binding") if frozen else self.store["network_bindings"].get(remote["node_id"])
+        options=self.resolve_options(t["policy"],binding); m=t["metrics"]
+        peers=self.binding_peers(binding)
+        endpoints=summary.get("lane_endpoints",[])
+        if peers:
+            if summary.get("peer_addresses") != peers or len(endpoints)!=options["channel_count"]:
+                return False
+            if {x.get("channel_index") for x in endpoints}!=set(range(options["channel_count"])):
+                return False
+            for endpoint in endpoints:
+                lane=endpoint["channel_index"]
+                try:
+                    expected=ipaddress.ip_address(peers[lane%len(peers)])
+                    local=ipaddress.ip_address(binding["local_bind_addresses"][lane%len(binding["local_bind_addresses"])])
+                    if endpoint.get("lane_index") != lane or any(
+                            ipaddress.ip_address(endpoint.get(key,""))!=expected
+                            for key in ("control_peer_address","data_peer_address")) or any(
+                            ipaddress.ip_address(endpoint.get(key,""))!=local
+                            for key in ("control_local_address","data_local_address")):
+                        return False
+                except ValueError:
+                    return False
+        return (t["effective_policy"]["resolution"]=="resolved"
+            and t["effective_policy"]["channel_count"]==options["channel_count"]
+            and t["effective_policy"]["checksum"]==options["checksum"]
+            and summary.get("resume")== (t["attempt"]["attempt_number"]>1 or t["policy"]["resume_policy"]=="require")
+            and summary.get("reconnect_attempt_budget")==options["reconnect_attempts"]
+            and isinstance(summary.get("recovery_attempts_used"),int) and 0<=summary["recovery_attempts_used"]<=options["reconnect_attempts"]
+            and summary.get("actual_transport")=="v3"
+            and summary.get("actual_file_scheduling")==options["file_scheduling"]
+            and summary.get("data_pending_window")==options["pending_window"]
+            and summary.get("compression_policy")==options["compression"]
+            and summary.get("scheduler_mode")==options["scheduler_mode"]
+            and summary.get("scheduler_policy")==options["scheduler_policy"]
+            and summary.get("data_tls_verified")== (t["policy"]["data_tls"]=="required")
+            and summary.get("control_pipeline_depth")==options["control_pipeline_depth"]
+            and summary.get("queue_capacity")==options["queue_capacity"]
+            and all(isinstance(m.get(k),int) and m[k]>=0 for k in ["files_total","files_committed","files_skipped","files_failed","bytes_total","bytes_committed"])
+            and m["files_committed"]+m["files_skipped"]==m["files_total"]
+            and m["files_failed"]==0 and m["bytes_total"] is not None and m["bytes_committed"]==m["bytes_total"])
+
     def dispatch(self, method, p, client):
+        if method=="agent.getContract": return self.contract()
+        if method=="transfer.validate": return self.validation(p)
+        if method=="node.network.get":
+            return dict(kind="network_configuration",node_id=p["node_id"],binding=copy.deepcopy(self.store["network_bindings"].get(p["node_id"])))
+        if method=="transfer.evidence":
+            t=self.task(p); summary=self.summary_for(t,p["attempt_id"])
+            fields=self.schema["$defs"]["coreSummary"]["properties"]
+            return dict(kind="transfer_evidence",transfer_id=t["transfer_id"],attempt_id=p["attempt_id"],
+                observation="final_summary" if summary else "not_available",physical_path_verified=False,
+                summary={k:copy.deepcopy(v) for k,v in summary.items() if k in fields} if summary else None)
+        if method == "node.network.inventory":
+            if not self.args.demo and p["node_id"] != "local" and p["node_id"] not in self.store["profiles"]:
+                raise RpcError("not_found", "节点不存在")
+            return self._network_inventory(p["node_id"])
+        if method == "node.network.plan":
+            if not self.args.demo and p["node_id"] != "local" and p["node_id"] not in self.store["profiles"]:
+                raise RpcError("not_found", "节点不存在")
+            return self._network_plan(p["node_id"], p["inventory_revision"],
+                                      p["requested_links"], p["peer_addresses"], p.get("selections"))
+        if method == "node.network.verify":
+            return self._network_verify(p["node_id"], p["plan_id"])
         if method == "agent.getInfo":
             real_ready = (self.core_bin_dir is not None and self.core_bin_dir.is_dir() and
                           all((self.core_bin_dir / name).is_file() and os.access(self.core_bin_dir / name, os.X_OK)
                               for name in ("cpnetflux-tree-upload-client", "cpnetflux-tree-download-client", "cpnetflux-auth-probe")))
-            return dict(kind="agent_info",api_version=API_VERSION,agent_version="0.1.0",agent_epoch=self.epoch,
+            return dict(kind="agent_info",agent_version="0.3.0",api_version=API_VERSION,agent_epoch=self.epoch,
                         adapter="demo" if self.args.demo else "real",max_frame_bytes=MAX_FRAME,
                         max_concurrent_requests=32,state_store="persistent",
-                        features=["profiles","transfer_lifecycle","entity_pages","resume"] if self.args.demo else
-                                 (["profiles","transfer_lifecycle","entity_pages","cancel","resume"] if real_ready else ["profiles"]))
+                        features=["profiles","contract","network_inventory","network_plan","network_apply","network_verify","network_get","network_clear","network_peer_mapping"]+
+                            (["transfer_lifecycle","entity_pages","cancel","resume","transfer_validate","transfer_evidence","v3"] if self.args.demo or real_ready else []))
         if method == "transfer.pause": raise RpcError("unsupported", "暂停尚未实现，任务状态保持不变")
         if method == "directory.list": raise RpcError("unsupported", "真实远端目录浏览尚未接入")
         if method == "node.testConnection":
@@ -455,7 +919,7 @@ class Agent:
                 "dns_control_port": check("dns_control_port", "控制端口已连接"),
                 "tls_identity": check("tls_identity", "TLS 服务端身份已验证"),
                 "login": check("login", "token 登录已验证"),
-                "capabilities": check("capabilities", "V2 控制面能力已协商"),
+                "capabilities": check("capabilities", "V3 控制面能力已协商"),
                 "directory_permission": dict(state="unsupported", message="认证检查不写入远端目录", error=None),
                 "data_port": dict(state="unsupported", message="认证检查不打开数据端口", error=None),
             }
@@ -467,22 +931,29 @@ class Agent:
         if method == "node.capabilities":
             if self.args.demo:
                 return dict(kind="capabilities", node_id=p["node_id"], adapter="demo", observed_at=now(), protocol_version="not-connected", modes=[], schedulers=[], range_policies=[], max_channel_count=1, max_pending_window=0, max_queue_depth=0, checksums=[], resume_supported=False, pause_supported=False, control_tls_verified=False, data_tls_supported=False, directory_permission_probe_supported=False, mode_capabilities=[])
-            return dict(kind="capabilities", node_id=p["node_id"], adapter="real", observed_at=now(), protocol_version="core-tree-client", modes=["v2"], schedulers=["dynamic_ring"], range_policies=["file"], max_channel_count=1, max_pending_window=16, max_queue_depth=256, checksums=["crc32c"], resume_supported=True, pause_supported=False, control_tls_verified=False, data_tls_supported=True, directory_permission_probe_supported=False, mode_capabilities=[dict(mode="v2", schedulers=["dynamic_ring"], range_policies=["file"], checksums=["crc32c"], resume_supported=True, pause_supported=False, control_tls_verified=False, data_tls_supported=True, max_channel_count=1, max_pending_window=16, max_queue_depth=256)])
+            self.profile_for({"node_id":p["node_id"]})
+            caps=dict(schedulers=["static","dynamic_ring"],range_policies=["auto"],checksums=["crc32c","none"],resume_supported=True,pause_supported=False,control_tls_verified=False,data_tls_supported=True,max_channel_count=10,max_pending_window=16,max_queue_depth=320)
+            return dict(kind="capabilities",node_id=p["node_id"],adapter="real",observed_at=now(),protocol_version="v3-local-supported-not-peer-observed",modes=["v3"],directory_permission_probe_supported=False,mode_capabilities=[dict(mode="v3",**caps)],**caps)
         if method == "profile.list": return dict(kind="profile_list", profiles=list(self.store["profiles"].values()))
         if method == "transfer.list":
-            if p["cursor"] is not None: raise RpcError("cursor_expired", "本切片仅支持完整第一页，请刷新")
-            return dict(kind="transfer_list", snapshots=list(self.store["tasks"].values())[:p["limit"]], next_cursor=None)
+            page=self.page("transfer_list",dict(transfer_id="*",revision=0),p,
+                list(self.store["tasks"].values()),[method,p["limit"]])
+            return dict(kind="transfer_list",snapshots=page["items"],next_cursor=page["next_cursor"])
         if method == "transfer.get": return self.snapshot(self.task(p))
         if method in {"attempt.list", "file.list", "range.list"}:
             t=self.task(p); attempt_id=p.get("attempt_id")
             query=[method,p["transfer_id"],attempt_id,p.get("file_id"),p.get("generation"),p["limit"]]
             if method == "attempt.list":
                 return self.page("attempt_list",t,p,self.attempts_for(t["transfer_id"]),query,{"attempt_id":None})
-            if not self.args.demo:
-                raise RpcError("unsupported", "真实 manifest 文件实体分页尚未由 agent adapter 提供；任务级摘要和阶段证据可用")
             if method == "file.list":
-                return self.page("file_list",t,p,self.demo_files(t,attempt_id),query)
-            return self.page("range_list",t,p,self.demo_ranges(t,attempt_id,p["file_id"],p["generation"]),query,{"file_id":p["file_id"],"generation":p["generation"]})
+                items=self.demo_files(t,attempt_id) if self.args.demo else self.real_files(t,attempt_id)
+                observed=self.args.demo or self.summary_for(t,attempt_id) is not None
+                meta=dict(observation="simulated" if self.args.demo else "final_summary" if observed else "not_available",
+                    coverage="observed_only")
+                return self.page("file_list",t,p,items,query,meta)
+            items=self.demo_ranges(t,attempt_id,p["file_id"],p["generation"]) if self.args.demo else self.real_ranges(t,p)
+            return self.page("range_list",t,p,items,query,{"file_id":p["file_id"],"generation":p["generation"],
+                "observation":"simulated" if self.args.demo else "final_summary", "coverage":"observed_only"})
         if method == "transfer.subscribe":
             after = p["after_sequence"]
             reset = p["agent_epoch"] != self.epoch or after is None or after > self.sequence or (self.events and after < self.events[0]["sequence"]-1)
@@ -497,7 +968,41 @@ class Agent:
             if old["request"] != fingerprint: raise RpcError("invalid_state", "operation_id 已用于不同请求")
             return copy.deepcopy(old["result"])
         if len(self.store["operations"]) >= MAX_OPERATIONS: raise RpcError("invalid_state", "本地操作历史预算已满")
-        if method.startswith("profile."):
+        if method == "node.network.clear":
+            if p.get("confirm") is not True: raise RpcError("invalid_state","必须显式确认清除绑定")
+            old=self.store["network_bindings"].get(p["node_id"])
+            if (old["plan_id"] if old else None)!=p["expected_plan_id"]:
+                raise RpcError("revision_conflict","绑定已变化；读取最新绑定后再确认清除")
+            if any(t["state"] in ACTIVE and p["node_id"] in [t["source"]["node_id"],t["destination"]["node_id"]] for t in self.store["tasks"].values()):
+                raise RpcError("invalid_state","节点有传输任务运行，不能清除绑定")
+            self.store["network_bindings"].pop(p["node_id"],None)
+            result=dict(kind="network_configuration",node_id=p["node_id"],binding=None)
+        elif method == "node.network.apply":
+            plan = self.store.get("network_plans", {}).get(p["plan_id"])
+            if plan is None or plan.get("node_id") != p["node_id"]:
+                raise RpcError("not_found", "网卡绑定方案不存在")
+            if not p["confirm"]:
+                raise RpcError("invalid_state", "必须显式确认网卡绑定方案")
+            current = self._network_inventory(p["node_id"])
+            if current["inventory_revision"] != p["inventory_revision"] or plan["inventory_revision"] != p["inventory_revision"]:
+                raise RpcError("revision_conflict", "网卡清单已变化，请重新检测")
+            if not plan["bindings"]:
+                raise RpcError("invalid_state", "没有可应用的网卡地址绑定")
+            if any(t["state"] in ACTIVE and p["node_id"] in [t["source"]["node_id"],t["destination"]["node_id"]] for t in self.store["tasks"].values()): raise RpcError("invalid_state","节点有运行任务，不能修改绑定")
+            if len(plan["bindings"]) != plan["requested_links"]:
+                raise RpcError("invalid_state", "可用网卡不足，不能应用不完整的链路方案；请降低链路数后重新生成")
+            old = self.store.get("network_bindings", {}).get(p["node_id"])
+            outcome = "already_applied" if old and old.get("plan_id") == p["plan_id"] else "applied"
+            self.store["network_bindings"][p["node_id"]] = dict(
+                plan_id=p["plan_id"], inventory_revision=p["inventory_revision"],
+                bindings=copy.deepcopy(plan["bindings"]),
+                local_bind_addresses=[x["local_address"] for x in plan["bindings"]],
+                applied_at=now())
+            result = dict(kind="network_apply", node_id=p["node_id"], plan_id=p["plan_id"],
+                          inventory_revision=p["inventory_revision"], outcome=outcome,
+                          effective_bindings=copy.deepcopy(plan["bindings"]),
+                          requires_privilege=False)
+        elif method.startswith("profile."):
             profiles = self.store["profiles"]
             if method == "profile.delete":
                 if any(t["state"] in ACTIVE and p["node_id"] in [t["source"]["node_id"], t["destination"]["node_id"]] for t in self.store["tasks"].values()): raise RpcError("invalid_state", "节点有运行中的任务")
@@ -511,6 +1016,7 @@ class Agent:
                 profiles[profile["node_id"]] = copy.deepcopy(profile); result = dict(kind="profile", profile=profile)
         elif method == "transfer.create":
             if len(self.store["tasks"]) >= MAX_TASKS: raise RpcError("invalid_state", "任务预算已满")
+            self.validation(p)
             if self.args.demo:
                 metrics = {k:None for k in self.schema["$defs"]["metrics"]["properties"]}
                 adapter="demo"
@@ -522,11 +1028,13 @@ class Agent:
                     metrics["bytes_total"] = path.stat().st_size
                 adapter="real"
             transfer_id=uid()
+            remote=p["destination"] if p["direction"]=="upload" else p["source"]
             evidence=empty_evidence()
             evidence["event_log"]=str(self.state_dir / (transfer_id+".events.jsonl"))
             evidence["summary"]=str(self.state_dir / (transfer_id+".summary.json"))
             t = dict(transfer_id=transfer_id, revision=0, adapter=adapter, state="queued", direction=p["direction"], source=p["source"], destination=p["destination"], policy=p["policy"], actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown", fallback_reason=None, attempt=dict(attempt_id=uid(), attempt_number=1, state="queued", cancel_requested=False, started_at=None, ended_at=None, quiescence="not_applicable"), effective_policy=self.pending_policy(), metrics=metrics, recovery=dict(eligibility="unknown", checkpoint_id=None, reason=None), scan_complete=False, commit_confirmed=False, transfer_status="pending", integrity_status="pending", evidence_status="pending", error=None, backend_evidence=evidence)
             self.store["tasks"][t["transfer_id"]] = t
+            if adapter=="real": self.store["task_inputs"][transfer_id]=dict(profile=copy.deepcopy(profile),binding=copy.deepcopy(self.store["network_bindings"].get(remote["node_id"])))
             self.store["attempt_history"][t["transfer_id"]] = [copy.deepcopy(t["attempt"])]
             self.emit(t); result = self.snapshot(t)
         else:
@@ -551,8 +1059,13 @@ class Agent:
             elif method == "transfer.resume":
                 if t["state"] not in TERMINAL or t["recovery"]["eligibility"] != "eligible" or p["checkpoint_id"] != t["recovery"]["checkpoint_id"]:
                     raise RpcError("checkpoint_missing", "agent 未返回可验证的 resume checkpoint")
+                if t["policy"]["resume_policy"]=="never": raise RpcError("unsupported","任务策略禁止恢复")
                 t["attempt"] = dict(attempt_id=uid(), attempt_number=t["attempt"]["attempt_number"]+1, state="queued", cancel_requested=False, started_at=None, ended_at=None, quiescence="not_applicable")
                 t.update(error=None, transfer_status="pending", integrity_status="pending", evidence_status="pending")
+                t["effective_policy"]=self.pending_policy(); t["commit_confirmed"]=False; t["scan_complete"]=False
+                prefix=t["transfer_id"]+"."+t["attempt"]["attempt_id"]
+                t["backend_evidence"]=empty_evidence()
+                t["backend_evidence"].update(event_log=str(self.state_dir/(prefix+".events.jsonl")),summary=str(self.state_dir/(prefix+".summary.json")))
                 self.begin(t)
             result = dict(kind="operation", outcome=outcome, snapshot=copy.deepcopy(t))
         self.store["operations"][opid] = dict(request=fingerprint, result=copy.deepcopy(result))
@@ -561,7 +1074,6 @@ class Agent:
     def begin(self, t):
         if not self.args.demo:
             return self.begin_real(t)
-        if t["policy"]["requested_mode"] in {"auto","v2"} and t["policy"]["fallback_policy"] == "reject": raise RpcError("capability_mismatch", "演示 adapter 仅模拟 V1；请求禁止回退")
         t.update(state="scanning", actual_mode="unknown", actual_scheduler="unknown", actual_range_policy="unknown", fallback_reason=None)
         t["attempt"].update(state="running", started_at=now(), ended_at=None)
         self.emit(t)
@@ -575,6 +1087,7 @@ class Agent:
     async def run_real(self, t):
         proc = None
         try:
+            self.validate_real_request(t)
             command = self.build_real_command(t)
             t["state"] = "connecting"; self.emit(t)
             proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE,
@@ -587,30 +1100,32 @@ class Agent:
             self.emit(t)
             stdout, stderr = await proc.communicate()
             summary_path=t["backend_evidence"].get("summary")
-            summary={}
-            if summary_path and os.path.isfile(summary_path):
-                try: summary=json.loads(Path(summary_path).read_text())
-                except (OSError,ValueError): summary={}
+            summary=self.load_summary(summary_path) or {}
             self.read_real_evidence(t,summary)
+            if summary: self.store.setdefault("summaries",{})[t["attempt"]["attempt_id"]]=summary_path
             self.apply_real_policy(t, summary)
             if t["attempt"]["cancel_requested"]:
                 t.update(state="cancelled", transfer_status="fail", evidence_status="incomplete")
                 t["attempt"].update(state="cancelled", ended_at=now(), quiescence="confirmed")
-                self.quiescent(t)
-            elif proc.returncode == 0 and summary.get("result") == "pass":
+                self.checkpoint(t)
+            elif proc.returncode == 0 and summary.get("result") == "pass" and self.completion_matches(t,summary):
                 t.update(state="completed", commit_confirmed=True, transfer_status="pass",
-                         integrity_status="pass", evidence_status="complete",
+                         integrity_status="not_requested" if t["policy"]["checksum_policy"]=="none" else "pass", evidence_status="complete",
                          recovery=dict(eligibility="ineligible", checkpoint_id=None, reason="backend完成"))
                 t["backend_evidence"]["finalize"]={"status":"pass"}
                 t["attempt"].update(state="completed", ended_at=now(), quiescence="confirmed")
                 self.quiescent(t)
             else:
-                message=stderr.decode(errors="replace")[-2000:] or "CPNetFlux core 返回失败"
+                mismatch=summary.get("result")=="pass"
+                message=stderr.decode(errors="replace")[-2000:] or (
+                    "V3 核心成功，但实际策略或文件/字节计数与预检不一致；请查看 transfer.evidence"
+                    if mismatch else "CPNetFlux core 返回失败")
                 t.update(state="recoverable", transfer_status="fail", integrity_status="fail",
                          evidence_status="incomplete",
-                         error=detail("internal_error",message,t["transfer_id"],"transfer"))
+                         error=detail("capability_mismatch" if mismatch else "internal_error",message,t["transfer_id"],"transfer"))
                 t["attempt"].update(state="recoverable", ended_at=now(), quiescence="confirmed")
                 self.checkpoint(t)
+                if t["recovery"]["eligibility"]!="eligible": t["state"]="failed"; t["attempt"]["state"]="failed"
             self.emit(t)
         except (OSError, RpcError) as exc:
             t.update(state="failed", transfer_status="fail", evidence_status="incomplete",
@@ -631,9 +1146,10 @@ class Agent:
                     t["scan_complete"] = True
                     t["metrics"].update(files_total=4, files_committed=0, files_failed=0, files_skipped=0, bytes_total=4194304, bytes_transferred=0, bytes_verified=0, bytes_committed=0)
                 if phase == "transferring":
-                    t.update(actual_mode="v1", actual_scheduler="static", actual_range_policy="file")
-                    if t["policy"]["requested_mode"] in ["auto", "v2"]: t["fallback_reason"] = dict(code="mode_unsupported", message="演示 adapter 仅模拟 V1；不代表真实引擎协商", required=[t["policy"]["requested_mode"]], available=["v1-demo"])
-                    t["effective_policy"] = dict(resolution="resolved",mode="v1",scheduler="static",range_policy="file",checksum="crc32c" if t["policy"]["checksum_policy"]=="required_crc32c" else "none",resume_enabled=t["policy"]["resume_policy"]!="never",control_tls="verified",data_tls="verified" if t["policy"]["data_tls"]=="required" else "off",channel_count=1,applied_at=now())
+                    options=self.resolve_options(t["policy"])
+                    scheduler="dynamic_ring" if options["file_scheduling"]=="dynamic" else "static"
+                    t.update(actual_mode="v3",actual_scheduler=scheduler,actual_range_policy="auto")
+                    t["effective_policy"]=dict(resolution="resolved",mode="v3",scheduler=scheduler,range_policy="auto",checksum=options["checksum"],resume_enabled=t["policy"]["resume_policy"]!="never",control_tls="verified",data_tls="verified" if t["policy"]["data_tls"]=="required" else "off",channel_count=options["channel_count"],applied_at=now())
                     t["metrics"].update(channel_count_active=1, data_connections=1, queue_depth_current=4)
                 self.emit(t)
             for index in range(1, 9):
@@ -653,13 +1169,15 @@ class Agent:
             t["attempt"].update(state="completed", ended_at=now()); self.quiescent(t); self.emit(t)
         finally: self.runners.pop(t["transfer_id"], None)
     def checkpoint(self, t):
+        if t["policy"]["resume_policy"]=="never":
+            t["recovery"]=dict(eligibility="ineligible",checkpoint_id=None,reason="任务策略禁止恢复")
+            self.quiescent(t);return
         if self.args.demo:
             t["recovery"] = dict(eligibility="eligible", checkpoint_id="demo:"+t["transfer_id"], reason="仅用于演示恢复")
         else:
-            summary = t.get("backend_evidence", {}).get("summary")
-            evidence = t.get("backend_evidence", {}).get("manifest", {})
-            if summary and evidence.get("status") == "observed":
-                t["recovery"] = dict(eligibility="eligible", checkpoint_id="core:"+t["transfer_id"], reason="核心 manifest 可用于 resume")
+            evidence = t.get("backend_evidence", {}).get("manifest") or {}
+            if evidence.get("status") == "observed":
+                t["recovery"] = dict(eligibility="eligible", checkpoint_id="core:"+t["transfer_id"], reason="已观测 V3 tree manifest；源身份和缺失 range 由核心 resume 核验")
             else:
                 t["recovery"] = dict(eligibility="unknown", checkpoint_id=None, reason="核心未返回可验证 manifest；resume 已禁用")
         self.quiescent(t)

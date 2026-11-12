@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-12",
+  "artifact_kind": "reviewable configuration and evidence freeze; not an auto-loaded runtime config",
+  "stage_status": "ENGINEERING_CLOSED_M2_OPEN",
+  "runtime_code_commit": "057159ce02099e4a88c94e591f02880ca1669834",
+  "repository_input_commit": "6e945293b23ceaed798f54e2308baa545b17caba",
+  "final_commit_and_backup_receipt": "/home/Su/experiments/CPNetFlux/2026-11-11-v3-sender-pacing-50/c-delivery-2026-11-12.json",
+  "runtime_source_trees": {
+    "CMakeLists.txt": "f806754a67c9fb96ac3512fc5454c4ec9cfa8dc8",
+    "include": "1f8b54dbeda2688a2f193f33b53d65ab67b97ff9",
+    "src": "e3900b80ccd8cde24717f146898023435d898fa3",
+    "tests": "c807fa59f742faec1479e3a87b34ab7ca3c48a76",
+    "tools": "fef70fac7b4fcc8272fdebef5e39341f57f14525"
+  },
+  "build": {
+    "configuration": [
+      "CMAKE_BUILD_TYPE:STRING=RelWithDebInfo",
+      "CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/c++",
+      "CMAKE_PROJECT_VERSION:STATIC=0.1.0",
+      "CPNETFLUX_BUILD_DESKTOP:BOOL=OFF",
+      "CPNETFLUX_BUILD_TESTS:BOOL=ON",
+      "CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS:BOOL=OFF",
+      "CPNETFLUX_ENABLE_IO_URING:BOOL=ON",
+      "CPNETFLUX_ENABLE_ISAL:BOOL=ON",
+      "CPNETFLUX_ENABLE_RDMA:BOOL=ON",
+      "CPNETFLUX_ENABLE_TLS:BOOL=ON"
+    ],
+    "binaries_sha256": {
+      "cpnetflux-gridftp-server": "c412a92774c6314ad7a457b1c27e0066bee8a9da7c3249938af0e38373b6d74c",
+      "cpnetflux-tree-download-client": "f756380a7b2f10e0ecc5447a31c13743b598b2f573d9ef519eb18e8971f8f9ed",
+      "cpnetflux-tree-upload-client": "0f25e73aa24d03bee4b3512d4abf5105e99831f2332b2085c6f80d99f84cfb14"
+    }
+  },
+  "profiles": {
+    "defaults_unchanged": {
+      "sender_execution": "queued",
+      "receiver_execution": "queued",
+      "receiver_backend": "pwrite",
+      "sender_pacing": "off",
+      "data_frame_logical_bytes": 65532,
+      "tcp_receive_buffer_request": "off",
+      "checksum_validation": "full"
+    },
+    "explicit_large_file_reference": {
+      "transport": "TCP",
+      "v3_only": true,
+      "lanes": 4,
+      "source": "resident tmpfs file",
+      "target": "fresh tmpfs file",
+      "direction": "r770-2 to r770-1",
+      "sender_local_bind": "192.168.100.2",
+      "receiver_local_bind": "192.168.100.1",
+      "interface": "eno17095np0",
+      "sender_execution": "queued",
+      "receiver_execution": "inline",
+      "receiver_backend": "experimental mmap",
+      "data_frame_logical_bytes": 262144,
+      "crc_bytes_per_frame": 4,
+      "frame_header_bytes": 64,
+      "chunk_bytes": 1048576,
+      "tcp_receive_buffer_requested_bytes": 1048576,
+      "tcp_receive_buffer_observed_bytes_per_socket": 2097152,
+      "checkpoint_interval": 16,
+      "pending_window": 2,
+      "pipeline_depth": 2,
+      "payload_budget_bytes": 67108864,
+      "mapped_window_bytes_per_lane": 67108864,
+      "mapped_window_bytes_total": 268435456,
+      "integrity": "CRC32C / verified_chunks",
+      "tls": false,
+      "compression": false,
+      "commit_sync": "none",
+      "sender_pacing": "off",
+      "promotion_to_default": false
+    },
+    "diagnostic_sender_pacing": {
+      "base_profile": "explicit_large_file_reference",
+      "environment_variable": "CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND",
+      "enabled_value": "1500000000",
+      "disabled_value": "off or unset",
+      "apply_to": "actual sender process; for download this is the remote server",
+      "per_lane_application_bytes_per_second": 1500000000,
+      "max_lanes": 4,
+      "application_rate_cap_gbps_4_lanes": 48,
+      "performance_recommended": false,
+      "proof_scope": "application DATA admission, not packet shaping",
+      "unsupported": [
+        "TLS",
+        "native RDMA",
+        "compression",
+        "more than four lanes"
+      ]
+    }
+  },
+  "measured_results": {
+    "historical_m1": {
+      "commit": "506b63be71bc5aea5eca92cab549c6d4adb2ff51",
+      "payload_bytes": 8589934592,
+      "pairs": 5,
+      "combined_median_gbps": 34.159409520336126,
+      "combined_median_t_ready_seconds": 2.011729057994671,
+      "current_head_measurement": false
+    },
+    "pacing_feasibility": {
+      "commit": "057159ce02099e4a88c94e591f02880ca1669834",
+      "payload_bytes": 1073741824,
+      "samples": 1,
+      "task_gbps": 28.22135862411986,
+      "t_ready_seconds": 0.3043770750518888,
+      "same_commit_comparison": false
+    },
+    "formal_m2": {
+      "status": "NOT_RUN_NOT_ADMITTED",
+      "samples": 0,
+      "median_gbps": null,
+      "cv": null,
+      "admission_threshold_gbps": 40,
+      "m2_achieved": false
+    }
+  },
+  "acceptance": {
+    "related_ctest_per_endpoint": 126,
+    "candidate_enabled_loopback_ctest_r1": 4,
+    "reused_regression_reason": "same runtime/test/tools trees and identical binary SHA; later commits only documentation",
+    "live_cleanup_checked": true,
+    "external_services_match_original": true
+  },
+  "resource_contract": {
+    "minimum_mem_available_bytes": 12884901888,
+    "owned_swap_bytes": 0,
+    "host_pswpout_delta": 0,
+    "source_all_resident": true,
+    "per_endpoint_payload_limit_bytes": 8589934592,
+    "payloads_cleaned": true
+  },
+  "reproduction": {
+    "related_ctest_regex": "FramedDataSocketTest|SenderPacerTest|.*(Cancel|Timeout|Deadline|Publication|Resume|Budget|large_data|publication_resume|v3_interrupted).*|cpnetflux_(sender_pacing_driver_test|small_file_baseline_driver_test|receive_network_test)$",
+    "candidate_enabled_ctest_regex": "cpnetflux_(large_data_smoke|large_data_interrupted_resume_smoke|large_data_receive_buffer_resume_smoke|publication_resume_smoke)$",
+    "historical_payload_driver": "tools/perf/run_sender_pacing.py",
+    "historical_commit": "057159ce02099e4a88c94e591f02880ca1669834",
+    "preconditions": [
+      "serial owner and preserve existing changes before restoring an exact recorded version",
+      "both endpoints same selected commit/config/build and binary SHA",
+      "new evidence path and marker-owned payload path; never reuse the original paths",
+      "current phase allows no further payload runs; a future experiment requires a newly authorized scope",
+      "do not pass the historical commit to the driver while HEAD is a later documentation commit"
+    ]
+  },
+  "rdma_assessment_only": {
+    "status": "STILL_PAUSED",
+    "send_slots": 16,
+    "receive_posted_slots": 2048,
+    "receive_spare_slots": 32,
+    "slot_bytes": 1052672,
+    "data_pool_bytes_per_connection": 2206400512,
+    "data_pool_bytes_4_connections_per_endpoint": 8825602048,
+    "includes_cq_metadata_allocator_overhead": false,
+    "actual_rdma_measurement": false,
+    "restart_conditions": [
+      "explicit route restart scope",
+      "bounded MR/memlock and whole-host memory budget",
+      "actual rdma transport selection and matching QP/completion/byte receipts",
+      "V3 lease/CRC/cancel/deadline/recovery/publication and buffer return acceptance",
+      "same-frame baseline first; existing 256KiB DATA path is plain TCP only"
+    ]
+  },
+  "open_acceptance": [
+    "M2 40-50 Gbps",
+    "70-85/100 Gbps",
+    "historical OOB cause and long-duration stability",
+    "disk persistence",
+    "TLS performance",
+    "reverse direction and wider workloads",
+    "production readiness"
+  ],
+  "deferred": [
+    "unified work units",
+    "budgeted sampling and policy memory",
+    "small-file aggregation / S1B default promotion"
+  ]
+}

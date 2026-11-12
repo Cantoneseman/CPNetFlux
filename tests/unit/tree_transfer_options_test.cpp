@@ -4,9 +4,163 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/io/persistent_tree_transfer.h"
+
+TEST(TreeTransferOptionsTest, DownloadReceiverDefaultsMatchPersistentPolicy) {
+    const char* argv[]{"cpnetflux-tree-download-client", "--auth-probe"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        std::size(argv), argv, cpnetflux::config::TreeTransferRole::Download);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    const auto& options = parsed.value();
+    const cpnetflux::core::io::PersistentTransferPolicy runtime;
+    EXPECT_EQ(options.finalVerifyPolicy, runtime.options.finalVerifyPolicy);
+    EXPECT_EQ(options.manifestFlushPolicy, runtime.options.manifestFlushPolicy);
+    EXPECT_EQ(options.manifestFlushIntervalChunks, runtime.options.manifestFlushIntervalChunks);
+    EXPECT_EQ(options.commitSyncPolicy, runtime.options.commitSyncPolicy);
+    EXPECT_EQ(options.fileIo.bufferSize, runtime.options.fileIo.bufferSize);
+    EXPECT_EQ(options.fileIo.posixWriteStrategy, runtime.options.fileIo.posixWriteStrategy);
+    EXPECT_EQ(options.rangeCheckpointBatchChunks, runtime.rangeCheckpointBatchChunks);
+}
+
+TEST(TreeTransferOptionsTest, ParsesDownloadReceiverPolicies) {
+    const char* argv[]{"cpnetflux-tree-download-client", "--auth-probe",
+        "--final-verify-policy", "verified_chunks", "--manifest-flush-policy", "final_only",
+        "--manifest-flush-interval-chunks", "65536", "--commit-sync-policy", "fsync_file_and_dir",
+        "--range-checkpoint-batch-chunks", "16"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        std::size(argv), argv, cpnetflux::config::TreeTransferRole::Download);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().finalVerifyPolicy, cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks);
+    EXPECT_EQ(parsed.value().manifestFlushPolicy, cpnetflux::core::session::ManifestFlushPolicy::FinalOnly);
+    EXPECT_EQ(parsed.value().manifestFlushIntervalChunks, 65536U);
+    EXPECT_EQ(parsed.value().commitSyncPolicy, cpnetflux::core::session::CommitSyncPolicy::FsyncFileAndDir);
+    EXPECT_EQ(parsed.value().rangeCheckpointBatchChunks, 16U);
+}
+
+TEST(TreeTransferOptionsTest, RejectsInvalidReceiverPoliciesAndUploadReceiverFlags) {
+    const std::vector<std::pair<std::string, std::string>> valid{
+        {"--final-verify-policy", "verified_chunks"},
+        {"--manifest-flush-policy", "final_only"},
+        {"--manifest-flush-interval-chunks", "16"},
+        {"--commit-sync-policy", "none"},
+        {"--range-checkpoint-batch-chunks", "auto"}};
+    for (const auto& [option, value] : valid) {
+        SCOPED_TRACE(option);
+        const char* argv[]{"cpnetflux-tree-upload-client", "--auth-probe", option.c_str(), value.c_str()};
+        auto parsed = cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, cpnetflux::config::TreeTransferRole::Upload);
+        ASSERT_FALSE(parsed.isOk());
+        EXPECT_NE(parsed.status().message().find("download-only"), std::string::npos);
+    }
+    const std::vector<std::pair<std::string, std::string>> invalid{
+        {"--final-verify-policy", "off"}, {"--manifest-flush-policy", "off"},
+        {"--commit-sync-policy", "auto"}, {"--manifest-flush-interval-chunks", "0"},
+        {"--manifest-flush-interval-chunks", "65537"}, {"--manifest-flush-interval-chunks", "-1"},
+        {"--manifest-flush-interval-chunks", "16x"}, {"--range-checkpoint-batch-chunks", "0"},
+        {"--range-checkpoint-batch-chunks", "2"}, {"--range-checkpoint-batch-chunks", "-1"},
+        {"--range-checkpoint-batch-chunks", "16x"}};
+    for (const auto& [option, value] : invalid) {
+        SCOPED_TRACE(option + "=" + value);
+        const char* argv[]{"cpnetflux-tree-download-client", "--auth-probe", option.c_str(), value.c_str()};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, cpnetflux::config::TreeTransferRole::Download).isOk());
+    }
+}
+
+TEST(TreeTransferOptionsTest, ReceiverPolicyUsageAndRangeOverridesAreRoleScoped) {
+    for (const auto value : {"auto", "1", "4", "16"}) {
+        const char* argv[]{"cpnetflux-tree-download-client", "--auth-probe",
+            "--range-checkpoint-batch-chunks", value};
+        auto parsed = cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, cpnetflux::config::TreeTransferRole::Download);
+        ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+        EXPECT_EQ(parsed.value().rangeCheckpointBatchChunks,
+            std::string(value) == "auto" ? 0U : static_cast<std::uint32_t>(std::stoi(value)));
+    }
+    const auto download = cpnetflux::config::treeTransferUsage("client", cpnetflux::config::TreeTransferRole::Download);
+    const auto upload = cpnetflux::config::treeTransferUsage("client", cpnetflux::config::TreeTransferRole::Upload);
+    EXPECT_NE(download.find("--final-verify-policy"), std::string::npos);
+    EXPECT_NE(download.find("--range-checkpoint-batch-chunks"), std::string::npos);
+    EXPECT_EQ(upload.find("--final-verify-policy"), std::string::npos);
+}
+
+TEST(TreeTransferOptionsTest, DownloadPreallocationIsExplicitAndUploadReceiverScoped) {
+    using cpnetflux::config::TreeTransferRole;
+    for (const char* mode : {"off", "full"}) {
+        const char* argv[]{"client", "--auth-probe", "--preallocate", mode};
+        auto download = cpnetflux::config::parseTreeTransferOptions(std::size(argv), argv, TreeTransferRole::Download);
+        ASSERT_TRUE(download.isOk()) << download.status().message();
+        EXPECT_EQ(download.value().preallocateMode, std::string(mode) == "full"
+            ? cpnetflux::storage::PreallocateMode::Full : cpnetflux::storage::PreallocateMode::Off);
+        auto upload = cpnetflux::config::parseTreeTransferOptions(std::size(argv), argv, TreeTransferRole::Upload);
+        EXPECT_FALSE(upload.isOk());
+        EXPECT_NE(upload.status().message().find("download-only"), std::string::npos);
+    }
+    for (const char* mode : {"auto", "1", "", "FULL"}) {
+        const char* argv[]{"client", "--auth-probe", "--preallocate", mode};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(argv), argv, TreeTransferRole::Download).isOk());
+    }
+    const char* argv[]{"client", "--auth-probe"};
+    auto defaults = cpnetflux::config::parseTreeTransferOptions(std::size(argv), argv, TreeTransferRole::Download);
+    ASSERT_TRUE(defaults.isOk());
+    EXPECT_EQ(defaults.value().preallocateMode, cpnetflux::core::io::PersistentTransferPolicy{}.options.preallocateMode);
+    EXPECT_NE(cpnetflux::config::treeTransferUsage("client", TreeTransferRole::Download).find("--preallocate"), std::string::npos);
+    EXPECT_EQ(cpnetflux::config::treeTransferUsage("client", TreeTransferRole::Upload).find("--preallocate"), std::string::npos);
+}
+
+TEST(TreeTransferOptionsTest, TreeManifestEventThresholdDefaultsAndValidates) {
+    const char* defaultsArgv[]{"cpnetflux-tree-upload-client", "--auth-probe"};
+    auto defaults = cpnetflux::config::parseTreeTransferOptions(
+        std::size(defaultsArgv), defaultsArgv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(defaults.isOk()) << defaults.status().message();
+    EXPECT_EQ(defaults.value().treeManifestEventThreshold, 32U);
+    EXPECT_EQ(defaults.value().treeManifestMaxDelayMs, 100U);
+
+    const char* candidateArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
+        "--tree-manifest-event-threshold", "256"};
+    auto candidate = cpnetflux::config::parseTreeTransferOptions(
+        std::size(candidateArgv), candidateArgv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(candidate.isOk()) << candidate.status().message();
+    EXPECT_EQ(candidate.value().treeManifestEventThreshold, 256U);
+
+    const char* delayArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
+        "--tree-manifest-max-delay-ms", "500"};
+    auto delay = cpnetflux::config::parseTreeTransferOptions(
+        std::size(delayArgv), delayArgv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(delay.isOk()) << delay.status().message();
+    EXPECT_EQ(delay.value().treeManifestMaxDelayMs, 500U);
+
+    for (const char* value : {"0", "501", "-1", "500x"}) {
+        const char* invalidArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
+            "--tree-manifest-max-delay-ms", value};
+        auto invalid = cpnetflux::config::parseTreeTransferOptions(
+            std::size(invalidArgv), invalidArgv, cpnetflux::config::TreeTransferRole::Upload);
+        ASSERT_FALSE(invalid.isOk()) << value;
+        EXPECT_NE(invalid.status().message().find("tree-manifest-max-delay-ms"),
+                  std::string::npos);
+    }
+
+    for (const char* value : {"0", "65537", "-1", "256x"}) {
+        const char* invalidArgv[]{"cpnetflux-tree-upload-client", "--auth-probe",
+            "--tree-manifest-event-threshold", value};
+        auto invalid = cpnetflux::config::parseTreeTransferOptions(
+            std::size(invalidArgv), invalidArgv, cpnetflux::config::TreeTransferRole::Upload);
+        ASSERT_FALSE(invalid.isOk()) << value;
+        EXPECT_NE(invalid.status().message().find("tree-manifest-event-threshold"),
+                  std::string::npos);
+    }
+
+    const auto usage = cpnetflux::config::treeTransferUsage(
+        "client", cpnetflux::config::TreeTransferRole::Upload);
+    EXPECT_NE(usage.find("--tree-manifest-event-threshold"), std::string::npos);
+    EXPECT_NE(usage.find("--tree-manifest-max-delay-ms"), std::string::npos);
+}
 
 TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
     const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe",
@@ -20,6 +174,62 @@ TEST(TreeTransferOptionsTest, AuthProbeDoesNotRequireTransferRoots) {
     EXPECT_TRUE(parsed.value().authProbe);
     EXPECT_TRUE(parsed.value().sourceDir.empty());
     EXPECT_TRUE(parsed.value().destDir.empty());
+}
+
+TEST(TreeTransferOptionsTest, DownloadWriteBufferOptionsAreValidatedAndRoleScoped) {
+    using cpnetflux::config::TreeTransferRole;
+    const char* valid[]{"client", "--auth-probe", "--file-io-buffer-size", "262144",
+        "--posix-write-strategy", "coalesced"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        std::size(valid), valid, TreeTransferRole::Download);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().fileIo.bufferSize, 262144U);
+    EXPECT_EQ(parsed.value().fileIo.posixWriteStrategy, cpnetflux::storage::PosixWriteStrategy::Coalesced);
+    for (const auto* size : {"0", "67108864"}) {
+        const char* argv[]{"client", "--auth-probe", "--file-io-buffer-size", size,
+            "--posix-write-strategy", "direct"};
+        EXPECT_TRUE(cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, TreeTransferRole::Download).isOk());
+    }
+    const std::vector<std::pair<std::string, std::string>> invalid{
+        {"--file-io-buffer-size", "-1"}, {"--file-io-buffer-size", "67108865"},
+        {"--file-io-buffer-size", "256x"}, {"--posix-write-strategy", "unknown"},
+        {"--posix-write-strategy", "coalesced"}};
+    for (const auto& [option, value] : invalid) {
+        const char* argv[]{"client", "--auth-probe", option.c_str(), value.c_str()};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, TreeTransferRole::Download).isOk()) << option << '=' << value;
+    }
+    for (const auto* option : {"--file-io-buffer-size", "--posix-write-strategy"}) {
+        const char* argv[]{"client", "--auth-probe", option, "0"};
+        auto upload = cpnetflux::config::parseTreeTransferOptions(
+            std::size(argv), argv, TreeTransferRole::Upload);
+        ASSERT_FALSE(upload.isOk());
+        EXPECT_NE(upload.status().message().find("download-only"), std::string::npos);
+        const auto downloadUsage = cpnetflux::config::treeTransferUsage("client", TreeTransferRole::Download);
+        EXPECT_NE(downloadUsage.find(option), std::string::npos);
+        EXPECT_EQ(cpnetflux::config::treeTransferUsage("client", TreeTransferRole::Upload).find(option),
+            std::string::npos);
+    }
+}
+
+TEST(TreeTransferOptionsTest, ParsesRdmaDataTransportForV3) {
+    const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe", "--host", "127.0.0.1",
+                          "--data-transport", "rdma", "--data-tls-mode", "off"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().dataTransport, cpnetflux::core::io::DataTransport::Rdma);
+    EXPECT_EQ(parsed.value().dataTlsMode, cpnetflux::core::io::DataTlsMode::Off);
+}
+
+TEST(TreeTransferOptionsTest, RejectsRdmaDataTransportWithDataTls) {
+    const char* argv[] = {"cpnetflux-auth-probe", "--auth-probe", "--host", "127.0.0.1",
+                          "--data-transport", "rdma", "--data-tls-mode", "required"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_FALSE(parsed.isOk());
+    EXPECT_NE(parsed.status().message().find("cannot be combined with data TLS"), std::string::npos);
 }
 
 TEST(TreeTransferOptionsTest, ParsesTlsServerName) {
@@ -67,8 +277,6 @@ TEST(TreeTransferOptionsTest, ParsesUploadOptions) {
                           "none",
                           "--checksum-backend",
                           "software",
-                          "--max-files",
-                          "1",
                           "--user",
                           "alice",
                           "--password",
@@ -274,18 +482,18 @@ TEST(TreeTransferOptionsTest, BoundsPersistentChannelCount) {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
     const std::string rootText = root.string();
-    for (const char* count : {"1", "4", "8"}) {
+    for (const char* count : {"1", "2", "4", "8", "10"}) {
         const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
                               "--dest-dir", "remote", "--data-session-reuse", "tree",
                               "--file-parallelism", count};
         auto parsed = cpnetflux::config::parseTreeTransferOptions(
             static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
         ASSERT_TRUE(parsed.isOk()) << count << ": " << parsed.status().message();
-        EXPECT_EQ(parsed.value().fileParallelism, static_cast<std::uint32_t>(count[0] - '0'));
+        EXPECT_EQ(parsed.value().fileParallelism, static_cast<std::uint32_t>(std::stoul(count)));
     }
     const char* tooMany[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
                              "--dest-dir", "remote", "--data-session-reuse", "tree",
-                             "--file-parallelism", "9"};
+                             "--file-parallelism", "11"};
     EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
         static_cast<int>(std::size(tooMany)), tooMany,
         cpnetflux::config::TreeTransferRole::Upload).isOk());
@@ -306,16 +514,19 @@ TEST(TreeTransferOptionsTest, ParsesControlPipelineDepthAndRejectsInvalidCombina
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
     EXPECT_EQ(parsed.value().controlPipelineDepth, 1U);
 
-    const char* tooDeep[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
-                             "--dest-dir", "remote", "--data-session-reuse", "off",
-                             "--control-pipeline-depth", "2"};
-    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
-                     static_cast<int>(std::size(tooDeep)), tooDeep,
-                     cpnetflux::config::TreeTransferRole::Upload)
-                     .isOk());
+    const char* validLegacyAlias[] = {"cpnetflux-tree-upload-client", "--source-dir",
+                                      rootText.c_str(), "--dest-dir", "remote",
+                                      "--data-session-reuse", "off",
+                                      "--control-pipeline-depth", "2"};
+    auto aliasParsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(validLegacyAlias)), validLegacyAlias,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(aliasParsed.isOk()) << aliasParsed.status().message();
+    EXPECT_TRUE(aliasParsed.value().reuseDataSession);
+    EXPECT_EQ(aliasParsed.value().controlPipelineDepth, 2U);
     const char* wrongMode[] = {"cpnetflux-tree-upload-client", "--source-dir", rootText.c_str(),
                                "--dest-dir", "remote", "--data-session-reuse", "off",
-                               "--control-pipeline-depth", "1"};
+                               "--file-scheduling", "static", "--control-pipeline-depth", "1"};
     EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
                      static_cast<int>(std::size(wrongMode)), wrongMode,
                      cpnetflux::config::TreeTransferRole::Upload)
@@ -608,6 +819,30 @@ TEST(TreeTransferOptionsTest, DefaultsToV3PersistentDynamicDispatch) {
     std::filesystem::remove_all(root);
 }
 
+TEST(TreeTransferOptionsTest, LegacyReuseOffInputMapsToV3PersistentExecutor) {
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", "/tmp",
+                          "--dest-dir", "remote", "--data-session-reuse", "off",
+                          "--file-scheduling", "static"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_TRUE(parsed.value().reuseDataSession);
+    EXPECT_FALSE(parsed.value().dynamicFileScheduling);
+    EXPECT_TRUE(parsed.value().modeFallbackReason.empty());
+}
+
+TEST(TreeTransferOptionsTest, RejectsLegacyPerFileMaxFilesLimit) {
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--source-dir", "/tmp",
+                          "--dest-dir", "remote", "--max-files", "1"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_FALSE(parsed.isOk());
+    EXPECT_NE(parsed.status().message().find("not supported by the V3 tree executor"),
+              std::string::npos);
+}
+
 TEST(TreeTransferOptionsTest, DefaultsPersistentDataPendingWindowToTwo) {
     const auto root = std::filesystem::temp_directory_path() / "cpnetflux-tree-options-default-window-root";
     std::filesystem::remove_all(root);
@@ -622,10 +857,212 @@ TEST(TreeTransferOptionsTest, DefaultsPersistentDataPendingWindowToTwo) {
     std::filesystem::remove_all(root);
 }
 
+TEST(TreeTransferOptionsTest, AcceptsAutomaticSmallFilePendingWindow) {
+    const char* args[] = {"cpnetflux-tree-upload-client", "--source-dir", "/tmp",
+                          "--dest-dir", "remote", "--data-pending-window", "auto"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(args)), args,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().dataPendingWindow, 0U);
+    EXPECT_NE(cpnetflux::config::treeTransferUsage(
+                  "client", cpnetflux::config::TreeTransferRole::Upload)
+                  .find("--data-pending-window auto|1..16"),
+              std::string::npos);
+}
+
 TEST(TreeTransferOptionsTest, AcceptsDynamicFileSchedulingForPersistentTree) {
     const char* argv[] = {"client", "--source-dir", "remote", "--dest-dir", "/tmp/cpnetflux-dynamic-option",
         "--data-session-reuse", "tree", "--checksum", "none", "--file-scheduling", "dynamic"};
     auto parsed = cpnetflux::config::parseTreeTransferOptions(
         static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Download);
     ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+}
+
+TEST(TreeTransferOptionsTest, AllowsGlobalSchedulerWithPersistentSharedDispatch) {
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--host", "127.0.0.1",
+        "--port", "2121", "--source-dir", "/tmp", "--dest-dir", "remote",
+        "--control-reuse", "worker", "--control-pipeline-depth", "2",
+        "--data-session-reuse", "tree", "--file-scheduling", "dynamic",
+        "--scheduler", "global", "--scheduler-policy", "adaptive",
+        "--scheduler-metrics-dir", "/var/tmp/cpnetflux-stage02-metrics"};
+    auto result = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(sizeof(argv) / sizeof(argv[0])), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(result.isOk()) << result.status().message();
+    EXPECT_EQ(result.value().schedulerMode, cpnetflux::config::TreeSchedulerMode::Global);
+    EXPECT_EQ(result.value().schedulerPolicy, cpnetflux::core::scheduler::SchedulerPolicy::Adaptive);
+    EXPECT_TRUE(result.value().reuseDataSession);
+    EXPECT_TRUE(result.value().dynamicFileScheduling);
+}
+
+TEST(TreeTransferOptionsTest, RejectsGlobalSchedulerWithPersistentStaticDispatch) {
+    const char* argv[] = {"cpnetflux-tree-upload-client", "--host", "127.0.0.1",
+        "--port", "2121", "--source-dir", "/tmp", "--dest-dir", "remote",
+        "--data-session-reuse", "tree", "--file-scheduling", "static",
+        "--scheduler", "global", "--scheduler-metrics-dir", "/var/tmp/cpnetflux-stage02-static"};
+    auto result = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(sizeof(argv) / sizeof(argv[0])), argv,
+        cpnetflux::config::TreeTransferRole::Upload);
+    EXPECT_FALSE(result.isOk());
+}
+
+TEST(TreeTransferOptionsTest, ReconnectBudgetAndTotalDeadlineAreBounded) {
+    const char* valid[] = {"client", "--auth-probe", "--reconnect-attempts", "2"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(4, valid, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().reconnectAttempts, 2U);
+    EXPECT_EQ(parsed.value().transferTimeoutMs, 300000U);
+    for (const auto value : {"-1", "11", "abc"}) {
+        const char* invalid[] = {"client", "--auth-probe", "--reconnect-attempts", value};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(4, invalid, cpnetflux::config::TreeTransferRole::Upload).isOk());
+    }
+    for (const auto value : {"0", "86400001", "-1"}) {
+        const char* invalid[] = {"client", "--auth-probe", "--transfer-timeout-ms", value};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(4, invalid, cpnetflux::config::TreeTransferRole::Upload).isOk());
+    }
+    const char* incompatible[] = {"client", "--auth-probe", "--reconnect-attempts", "1", "--file-scheduling", "static"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(6, incompatible, cpnetflux::config::TreeTransferRole::Upload).isOk());
+}
+
+TEST(TreeTransferOptionsTest, AutomaticReconnectRejectsUnverifiedCheckpointMode) {
+    const char* args[] = {"client", "--auth-probe", "--reconnect-attempts", "1", "--checksum", "none"};
+    EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(6, args, cpnetflux::config::TreeTransferRole::Upload).isOk());
+}
+
+TEST(TreeTransferOptionsTest, ParsesExplicitLinkSetNegotiationOptions) {
+    const char* args[] = {"client", "--auth-probe", "--link-set-links", "4",
+                          "--link-set-capabilities", "9"};
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(args)), args, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    EXPECT_EQ(parsed.value().linkSetLinks, 4U);
+    EXPECT_EQ(parsed.value().linkSetCapabilityBits, 9U);
+
+    for (const auto value : {"0", "11", "abc"}) {
+        const char* invalid[] = {"client", "--auth-probe", "--link-set-links", value};
+        EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+            4, invalid, cpnetflux::config::TreeTransferRole::Upload).isOk());
+    }
+}
+
+TEST(TreeTransferOptionsTest, AcceptsTenPersistentChannelsAndRejectsEleven) {
+    for (const auto role : {cpnetflux::config::TreeTransferRole::Upload,
+                            cpnetflux::config::TreeTransferRole::Download}) {
+        const char* args[] = {"client", "--auth-probe", "--data-session-reuse", "tree",
+                              "--file-parallelism", "10", "--link-set-links", "10"};
+        auto parsed = cpnetflux::config::parseTreeTransferOptions(
+            static_cast<int>(std::size(args)), args, role);
+        ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+        EXPECT_EQ(parsed.value().fileParallelism, 10U);
+        EXPECT_EQ(parsed.value().linkSetLinks, 10U);
+        EXPECT_TRUE(parsed.value().reuseDataSession);
+        for (const auto count : {"0", "11"}) {
+            const char* invalid[] = {"client", "--auth-probe",
+                                     "--file-parallelism", count};
+            EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(
+                static_cast<int>(std::size(invalid)), invalid, role).isOk());
+        }
+    }
+}
+
+
+TEST(TreeTransferOptionsTest, ParsesNumericPeerAddresses) {
+    const char* argv[] = {"client", "--auth-probe", "--link-set-links", "2",
+                          "--peer-addresses", "127.0.0.2,::1"};
+    auto result = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(result.isOk()) << result.status().message();
+    EXPECT_EQ(result.value().peerAddresses, (std::vector<std::string>{"127.0.0.2", "::1"}));
+}
+
+TEST(TreeTransferOptionsTest, RejectsInvalidPeerAddresses) {
+    for (const char* value : {"", "peer.example", "127.0.0.1,", "127.0.0.1,,127.0.0.2",
+                              "127.0.0.1,127.0.0.2,127.0.0.3"}) {
+        const char* argv[] = {"client", "--auth-probe", "--link-set-links", "2",
+                              "--peer-addresses", value};
+        auto result = cpnetflux::config::parseTreeTransferOptions(
+            static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+        EXPECT_FALSE(result.isOk()) << value;
+    }
+}
+
+TEST(TreeTransferOptionsTest, ParsesNumericLocalBindAddresses) {
+    const char* argv[] = {
+        "cpnetflux-tree-upload-client",
+        "--source-dir", "/tmp",
+        "--dest-dir", "remote",
+        "--local-bind-addresses", "192.0.2.10,2001:db8::10",
+        "--link-set-links", "2"
+    };
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+    ASSERT_EQ(parsed.value().localBindAddresses.size(), 2U);
+    EXPECT_EQ(parsed.value().localBindAddresses[0], "192.0.2.10");
+    EXPECT_EQ(parsed.value().localBindAddresses[1], "2001:db8::10");
+}
+
+TEST(TreeTransferOptionsTest, RejectsNonNumericLocalBindAddress) {
+    const char* argv[] = {
+        "cpnetflux-tree-upload-client",
+        "--source-dir", "/tmp",
+        "--dest-dir", "remote",
+        "--local-bind-address", "eth1"
+    };
+    auto parsed = cpnetflux::config::parseTreeTransferOptions(
+        static_cast<int>(std::size(argv)), argv, cpnetflux::config::TreeTransferRole::Upload);
+    ASSERT_FALSE(parsed.isOk());
+}
+
+TEST(TreeTransferOptionsTest, ExportsServerRdmaReceiveQueueObservations) {
+    cpnetflux::core::io::PersistentFileTiming timing;
+    timing.rdmaReceiveObservationAvailable = true;
+    timing.rdmaTransportStats.receiveBytes = 65536;
+    timing.rdmaTransportStats.negotiatedReceiveQueueDepth = 128;
+    timing.rdmaTransportStats.negotiatedPathMtuBytes = 1024;
+    timing.rdmaTransportStats.negotiatedMinRnrTimer = 12;
+    timing.rdmaTransportStats.negotiatedRnrRetry = 7;
+    timing.rdmaTransportStats.receiveCompletions = 1;
+    timing.rdmaTransportStats.receivePostCalls = 129;
+    timing.rdmaTransportStats.receiveReposts = 1;
+    timing.rdmaTransportStats.receiveCompletionPollCalls = 8193;
+    timing.rdmaTransportStats.receiveCompletionEmptyPollCalls = 8192;
+    timing.rdmaTransportStats.receiveCompletionEventWaits = 12;
+    timing.rdmaTransportStats.receiveCompletionWaitCount = 1;
+    timing.rdmaTransportStats.receiveCompletionWaitNanoseconds = 250000;
+    std::ostringstream json;
+    cpnetflux::core::io::appendPersistentFileTimings(
+        json, std::vector<cpnetflux::core::io::PersistentFileTiming>{timing});
+    EXPECT_NE(json.str().find("\"rdma_receive_observation\""), std::string::npos);
+    EXPECT_NE(json.str().find("\"negotiated_receive_queue_depth\":128"), std::string::npos);
+    EXPECT_NE(json.str().find("\"negotiated_path_mtu_bytes\":1024"), std::string::npos);
+    EXPECT_NE(json.str().find("\"negotiated_min_rnr_timer\":12"), std::string::npos);
+    EXPECT_NE(json.str().find("\"negotiated_rnr_retry\":7"), std::string::npos);
+    EXPECT_NE(json.str().find("\"receive_completion_empty_poll_calls\":8192"), std::string::npos);
+    EXPECT_NE(json.str().find("\"receive_completion_event_waits\":12"), std::string::npos);
+    EXPECT_NE(json.str().find("\"receive_completion_wait_seconds\":0.00025"), std::string::npos);
+}
+
+TEST(TreeTransferOptionsTest, TcpSourcePortPlanIsExplicitAndDownloadOnly) {
+    const char* args[]{"client", "--auth-probe", "--local-bind-address", "127.0.0.1",
+        "--host", "127.0.0.1", "--tcp-data-source-port-plan", "/tmp/cpnetflux-plan"};
+    auto result=cpnetflux::config::parseTreeTransferOptions(std::size(args),args,
+        cpnetflux::config::TreeTransferRole::Download);
+    ASSERT_TRUE(result.isOk()) << result.status().message();
+    auto upload=cpnetflux::config::parseTreeTransferOptions(std::size(args),args,
+        cpnetflux::config::TreeTransferRole::Upload);
+    EXPECT_FALSE(upload.isOk());
+}
+
+TEST(TreeTransferOptionsTest, RejectsAmbiguousTcpSourcePortPlanEndpoints) {
+ using cpnetflux::config::TreeTransferRole;
+ for (const char* local:{"::1",""}) {
+  const char* args[]{"client","--auth-probe","--local-bind-address",local,"--tcp-data-source-port-plan","plan"};
+  EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(args),args,TreeTransferRole::Download).isOk());
+ }
+ const char* rdma[]{"client","--auth-probe","--local-bind-address","127.0.0.1","--data-transport","rdma","--tcp-data-source-port-plan","plan"};
+ EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(rdma),rdma,TreeTransferRole::Download).isOk());
+ const char* dns[]{"client","--auth-probe","--local-bind-address","127.0.0.1","--host","localhost","--tcp-data-source-port-plan","plan"};
+ EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(dns),dns,TreeTransferRole::Download).isOk());
 }

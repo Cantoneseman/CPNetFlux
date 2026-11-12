@@ -2,6 +2,8 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/uio.h>
+#include <array>
 
 #include <cerrno>
 #include <algorithm>
@@ -450,18 +452,31 @@ common::Status readAtAll(const PosixFile& file, std::uint64_t offset, std::uint8
 }
 
 common::Status writeAtAll(const PosixFile& file, std::uint64_t offset, const std::uint8_t* data,
-                          std::size_t length, FileIoStats* stats) {
+                          std::size_t length, FileIoStats* stats, FileWriteObservation* observation) {
     FileIoContext context;
-    return writeAtAll(file, offset, data, length, context, stats);
+    return writeAtAll(file, offset, data, length, context, stats, observation);
 }
 
 common::Status writeAtAll(const PosixFile& file, std::uint64_t offset, const std::uint8_t* data,
-                          std::size_t length, const FileIoContext& context, FileIoStats* stats) {
+                          std::size_t length, const FileIoContext& context, FileIoStats* stats,
+                          FileWriteObservation* observation) {
+    const bool measure = stats != nullptr || observation != nullptr;
+    const auto start = measure ? std::chrono::steady_clock::now()
+                               : std::chrono::steady_clock::time_point{};
+    const auto recordObservation = [&](const common::Status& result,
+                                       std::chrono::steady_clock::time_point end) {
+        if (!observation || length == 0) return;
+        ++observation->writeAtAllCalls;
+        observation->writeAtAllBytes += length;
+        observation->writeAtAllSeconds += std::chrono::duration<double>(end - start).count();
+        if (!result.isOk()) ++observation->writeAtAllFailures;
+    };
     const common::Status available = context.validateAvailable();
     if (!available.isOk()) {
+        recordObservation(available, measure ? std::chrono::steady_clock::now()
+                                             : std::chrono::steady_clock::time_point{});
         return available;
     }
-    const auto start = std::chrono::steady_clock::now();
     common::Status status;
     switch (context.backend()) {
         case FileIoBackendKind::Posix:
@@ -471,11 +486,79 @@ common::Status writeAtAll(const PosixFile& file, std::uint64_t offset, const std
             status = ioUringWriteAtAll(file, offset, data, length, context.config(), stats);
             break;
     }
-    const auto end = std::chrono::steady_clock::now();
+    const auto end = measure ? std::chrono::steady_clock::now()
+                             : std::chrono::steady_clock::time_point{};
     if (stats != nullptr && length > 0) {
         stats->recordWrite(length, end - start);
     }
+    recordObservation(status, end);
     return status;
+}
+
+common::Status writeGatheredAtAll(const PosixFile& file, std::uint64_t offset,
+    std::span<const FileWriteSlice> slices, FileIoStats* stats, FileWriteObservation* observation) {
+    if (slices.size() > 2)
+        return common::Status::invalidArgument("gathered write supports at most two slices");
+    std::array<iovec, 2> vectors{};
+    std::size_t count = 0, length = 0;
+    const auto maxOffset = static_cast<std::uint64_t>(std::numeric_limits<off_t>::max());
+    for (const auto& slice : slices) {
+        if (slice.size == 0) continue;
+        if (!slice.data || offset > maxOffset || slice.size > maxOffset - offset ||
+            length > maxOffset - offset - slice.size ||
+            slice.size > static_cast<std::size_t>(std::numeric_limits<ssize_t>::max()) - length)
+            return common::Status::invalidArgument("invalid gathered write slice or offset range");
+        vectors[count++] = iovec{const_cast<std::uint8_t*>(slice.data), slice.size};
+        length += slice.size;
+    }
+    if (!length) return common::Status::ok();
+    if (!file.isValid()) return common::Status::invalidArgument("file is not open");
+    const bool measure = stats || observation;
+    const auto start = measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    const auto run = [&]() -> common::Status {
+        std::size_t completed = 0, first = 0;
+        while (completed < length) {
+            const auto bytes = ::pwritev(file.fd(), vectors.data() + first,
+                static_cast<int>(count - first), static_cast<off_t>(offset + completed));
+            if (bytes > 0) {
+                auto written = static_cast<std::size_t>(bytes);
+                if (written > length - completed)
+                    return common::Status::runtimeError("pwritev exceeded requested bytes");
+                if (stats) {
+                    stats->recordPosixWriteSyscall(written);
+                    if (written < length - completed) stats->recordPosixWriteShort();
+                }
+                completed += written;
+                while (first < count && written >= vectors[first].iov_len) {
+                    written -= vectors[first].iov_len;
+                    ++first;
+                }
+                if (written) {
+                    vectors[first].iov_base = static_cast<std::uint8_t*>(vectors[first].iov_base) + written;
+                    vectors[first].iov_len -= written;
+                }
+                continue;
+            }
+            if (bytes < 0 && (errno == EINTR || errno == EAGAIN)) {
+                if (stats) stats->recordPosixWriteRetry();
+                continue;
+            }
+            if (bytes < 0) return systemStatus("pwritev", errno);
+            if (stats) stats->recordPosixWriteZero();
+            return common::Status::runtimeError("pwritev returned zero bytes");
+        }
+        return common::Status::ok();
+    };
+    const auto result = run();
+    const auto end = measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    if (stats) stats->recordWrite(length, end - start);
+    if (observation) {
+        ++observation->writeAtAllCalls;
+        observation->writeAtAllBytes += length;
+        observation->writeAtAllSeconds += std::chrono::duration<double>(end - start).count();
+        if (!result.isOk()) ++observation->writeAtAllFailures;
+    }
+    return result;
 }
 
 BufferedFileWriter::BufferedFileWriter(const PosixFile& file, const FileIoConfig& config,
@@ -500,19 +583,19 @@ bool BufferedFileWriter::canAppend(std::uint64_t offset, std::size_t length) con
 }
 
 common::Status BufferedFileWriter::write(std::uint64_t offset, const std::uint8_t* data,
-                                         std::size_t length) {
+                                         std::size_t length, FileWriteObservation* observation) {
     if (length == 0) {
         return common::Status::ok();
     }
     if (buffer_.empty() || length > buffer_.size()) {
-        const common::Status flushStatus = flush();
+        const common::Status flushStatus = flush(observation);
         if (!flushStatus.isOk()) {
             return flushStatus;
         }
-        return writeAtAll(file_, offset, data, length, context_, stats_);
+        return writeAtAll(file_, offset, data, length, context_, stats_, observation);
     }
     if (!canAppend(offset, length)) {
-        const common::Status flushStatus = flush();
+        const common::Status flushStatus = flush(observation);
         if (!flushStatus.isOk()) {
             return flushStatus;
         }
@@ -522,17 +605,17 @@ common::Status BufferedFileWriter::write(std::uint64_t offset, const std::uint8_
     std::copy_n(data, length, buffer_.data() + buffered_);
     buffered_ += length;
     if (buffered_ == buffer_.size()) {
-        return flush();
+        return flush(observation);
     }
     return common::Status::ok();
 }
 
-common::Status BufferedFileWriter::flush() {
+common::Status BufferedFileWriter::flush(FileWriteObservation* observation) {
     if (buffered_ == 0) {
         return common::Status::ok();
     }
     const common::Status status =
-        writeAtAll(file_, bufferOffset_, buffer_.data(), buffered_, context_, stats_);
+        writeAtAll(file_, bufferOffset_, buffer_.data(), buffered_, context_, stats_, observation);
     if (!status.isOk()) {
         return status;
     }

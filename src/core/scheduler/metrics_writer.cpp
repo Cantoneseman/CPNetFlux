@@ -200,6 +200,12 @@ common::Status MetricsWriter::writeEvent(const SchedulerEventRecord& record) {
     output << "\"target_connections\":" << record.targetConnections << ",";
     output << "\"result\":\"" << jsonEscapeValue(record.result) << "\",";
     output << "\"message\":\"" << jsonEscapeValue(record.message) << "\"";
+    if (record.leaseId != 0) {
+        output << ",\"executor\":\"shared_v3\",\"lease_id\":" << record.leaseId
+               << ",\"worker_id\":" << record.workerId
+               << ",\"connection_epoch\":" << record.connectionEpoch
+               << ",\"generation\":" << record.generation << ",\"attempt\":" << record.attempt;
+    }
     output << "}\n";
     if (!output) {
         return common::Status::runtimeError("scheduler events write failed: " + paths_.eventsJsonl);

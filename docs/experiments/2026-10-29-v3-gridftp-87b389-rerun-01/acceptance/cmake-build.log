@@ -1,0 +1,153 @@
+[  1%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/checkpoint/download_manifest.cpp.o
+[  1%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/checkpoint/manifest_store.cpp.o
+[  2%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/checkpoint/transfer_manifest.cpp.o
+[  3%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/checksum/checksum.cpp.o
+[  4%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/checksum/crc32c.cpp.o
+[  4%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/checksum/crc32c_hw_x86.cpp.o
+[  5%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/common/throughput_counter.cpp.o
+[  6%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/common/version.cpp.o
+[  6%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/config/file_transfer_options.cpp.o
+[  7%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/config/file_download_options.cpp.o
+[  8%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/config/tree_transfer_options.cpp.o
+[  9%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/config/sink_options.cpp.o
+[  9%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/chunk/chunk_planner.cpp.o
+[ 10%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/chunk/range_planner.cpp.o
+[ 11%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/chunk/range_list.cpp.o
+[ 11%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/chunk/transfer_progress.cpp.o
+[ 12%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/connection_context.cpp.o
+[ 13%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/file_download_client.cpp.o
+[ 14%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/file_download_sender.cpp.o
+[ 14%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/unified_file_transfer.cpp.o
+[ 15%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/file_transfer_client.cpp.o
+[ 16%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/file_transfer_server.cpp.o
+[ 17%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/framed_data_socket.cpp.o
+[ 17%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/persistent_data_session.cpp.o
+[ 18%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/persistent_tree_transfer.cpp.o
+[ 19%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/payload_pipeline.cpp.o
+[ 19%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/dynamic_file_queue.cpp.o
+[ 20%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/work_executor.cpp.o
+[ 21%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/persistent_directory_batch.cpp.o
+[ 22%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/socket_utils.cpp.o
+[ 22%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/tcp_sink_client.cpp.o
+[ 23%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/tcp_sink_server.cpp.o
+[ 24%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/tls_socket.cpp.o
+[ 25%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/tree_pipeline_control_io.cpp.o
+[ 25%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/io/tree_transfer_client.cpp.o
+[ 26%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/metrics/error_code.cpp.o
+[ 27%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/metrics/event_log.cpp.o
+[ 27%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/metrics/transfer_phase_stats.cpp.o
+[ 28%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/protocol/compressed_data.cpp.o
+[ 29%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/protocol/frame.cpp.o
+[ 30%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/scheduler/compression_advisor.cpp.o
+[ 30%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/scheduler/feedback_controller.cpp.o
+[ 31%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/scheduler/link_manager.cpp.o
+[ 32%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/scheduler/link_set.cpp.o
+[ 33%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/scheduler/metrics_writer.cpp.o
+[ 33%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/scheduler/scheduler.cpp.o
+[ 34%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/scheduler/task_queue.cpp.o
+[ 35%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/scheduler/work_item_planner.cpp.o
+[ 35%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/session/download_session.cpp.o
+[ 36%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/session/commit_sync_policy.cpp.o
+[ 37%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/session/final_verify_policy.cpp.o
+[ 38%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/session/manifest_flush_policy.cpp.o
+[ 38%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/session/transfer_session.cpp.o
+[ 39%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/tree/tree_manifest.cpp.o
+[ 40%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/tree/tree_hash.cpp.o
+[ 40%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/tree/tree_manifest_writer.cpp.o
+[ 41%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/core/tree/tree_scan.cpp.o
+[ 42%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/protocol/control/control_command.cpp.o
+[ 43%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/protocol/control/control_auth.cpp.o
+[ 43%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/protocol/control/control_options.cpp.o
+[ 44%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/protocol/control/control_server.cpp.o
+[ 45%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/storage/file_io.cpp.o
+[ 46%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/storage/file_io_uring_stub.cpp.o
+[ 46%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/storage/posix_file.cpp.o
+[ 47%] Building CXX object CMakeFiles/cpnetflux_core.dir/src/storage/preallocate_mode.cpp.o
+[ 48%] Linking CXX static library libcpnetflux_core.a
+[ 48%] Built target cpnetflux_core
+[ 49%] Building CXX object CMakeFiles/cpnetflux.dir/src/main.cpp.o
+[ 49%] Building CXX object CMakeFiles/cpnetflux-server.dir/src/apps/cpnetflux_server.cpp.o
+[ 50%] Linking CXX executable cpnetflux-server
+[ 50%] Built target cpnetflux-server
+[ 51%] Building CXX object CMakeFiles/cpnetflux-client.dir/src/apps/cpnetflux_client.cpp.o
+[ 51%] Linking CXX executable cpnetflux-client
+[ 51%] Built target cpnetflux-client
+[ 52%] Building CXX object CMakeFiles/cpnetflux-file-server.dir/src/apps/cpnetflux_file_server.cpp.o
+[ 53%] Linking CXX executable cpnetflux-file-server
+[ 53%] Built target cpnetflux-file-server
+[ 54%] Building CXX object CMakeFiles/cpnetflux-file-client.dir/src/apps/cpnetflux_file_client.cpp.o
+[ 55%] Linking CXX executable cpnetflux-file-client
+[ 55%] Built target cpnetflux-file-client
+[ 55%] Building CXX object CMakeFiles/cpnetflux-file-download-client.dir/src/apps/cpnetflux_file_download_client.cpp.o
+[ 56%] Linking CXX executable cpnetflux
+[ 56%] Built target cpnetflux
+[ 57%] Building CXX object CMakeFiles/cpnetflux-tree-upload-client.dir/src/apps/cpnetflux_tree_upload_client.cpp.o
+[ 58%] Linking CXX executable cpnetflux-file-download-client
+[ 58%] Built target cpnetflux-file-download-client
+[ 59%] Building CXX object CMakeFiles/cpnetflux-tree-download-client.dir/src/apps/cpnetflux_tree_download_client.cpp.o
+[ 60%] Linking CXX executable cpnetflux-tree-upload-client
+[ 60%] Built target cpnetflux-tree-upload-client
+[ 61%] Building CXX object CMakeFiles/cpnetflux-auth-probe.dir/src/apps/cpnetflux_auth_probe.cpp.o
+[ 61%] Linking CXX executable cpnetflux-tree-download-client
+[ 61%] Built target cpnetflux-tree-download-client
+[ 62%] Building CXX object CMakeFiles/cpnetflux-checksum-bench.dir/src/apps/cpnetflux_checksum_bench.cpp.o
+[ 62%] Linking CXX executable cpnetflux-auth-probe
+[ 62%] Built target cpnetflux-auth-probe
+[ 62%] Building CXX object CMakeFiles/cpnetflux-storage-bench.dir/src/apps/cpnetflux_storage_bench.cpp.o
+[ 63%] Linking CXX executable cpnetflux-checksum-bench
+[ 63%] Built target cpnetflux-checksum-bench
+[ 63%] Building CXX object CMakeFiles/cpnetflux-gridftp-server.dir/src/apps/cpnetflux_gridftp_server.cpp.o
+[ 64%] Linking CXX executable cpnetflux-gridftp-server
+[ 64%] Built target cpnetflux-gridftp-server
+[ 65%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/checksum_test.cpp.o
+[ 66%] Linking CXX executable cpnetflux-storage-bench
+[ 66%] Built target cpnetflux-storage-bench
+[ 66%] Building CXX object CMakeFiles/cpnetflux_framed_socket_tests.dir/tests/unit/framed_data_socket_test.cpp.o
+[ 67%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/tree_hash_test.cpp.o
+[ 68%] Linking CXX executable cpnetflux_framed_socket_tests
+[ 68%] Built target cpnetflux_framed_socket_tests
+[ 68%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/chunk_planner_test.cpp.o
+[ 69%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/connection_context_test.cpp.o
+[ 70%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/control_auth_test.cpp.o
+[ 71%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/control_command_test.cpp.o
+[ 71%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/control_options_test.cpp.o
+[ 72%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/control_session_test.cpp.o
+[ 73%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/compressed_data_test.cpp.o
+[ 73%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/download_manifest_test.cpp.o
+[ 74%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/download_session_test.cpp.o
+[ 75%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/event_log_test.cpp.o
+[ 76%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/file_download_options_test.cpp.o
+[ 76%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/file_io_test.cpp.o
+[ 77%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/file_transfer_options_test.cpp.o
+[ 78%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/frame_test.cpp.o
+[ 78%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/range_planner_test.cpp.o
+[ 79%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/persistent_data_session_test.cpp.o
+[ 80%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/range_checkpoint_batch_test.cpp.o
+[ 81%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/dynamic_file_queue_test.cpp.o
+[ 81%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/hot_path_compression_test.cpp.o
+[ 82%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/manifest_store_test.cpp.o
+[ 83%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/posix_file_test.cpp.o
+[ 84%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/range_list_test.cpp.o
+[ 84%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/scheduler_compression_advisor_test.cpp.o
+[ 85%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/scheduler_feedback_controller_test.cpp.o
+[ 86%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/scheduler_link_manager_test.cpp.o
+[ 86%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/scheduler_link_set_test.cpp.o
+[ 87%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/scheduler_metrics_writer_test.cpp.o
+[ 88%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/scheduler_task_queue_test.cpp.o
+[ 89%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/scheduler_work_item_test.cpp.o
+[ 89%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/sink_options_test.cpp.o
+[ 90%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/socket_bind_test.cpp.o
+[ 91%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/throughput_counter_test.cpp.o
+[ 92%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/transfer_manifest_test.cpp.o
+[ 92%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/transfer_session_test.cpp.o
+[ 93%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/transfer_progress_test.cpp.o
+[ 94%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/tree_manifest_test.cpp.o
+[ 94%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/tree_manifest_writer_test.cpp.o
+[ 95%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/tree_scan_test.cpp.o
+[ 96%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/tree_transfer_options_test.cpp.o
+[ 97%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/tree_pipeline_control_io_test.cpp.o
+[ 97%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/tree_pipeline_state_test.cpp.o
+[ 98%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/tree_pipeline_identity_test.cpp.o
+[ 99%] Building CXX object CMakeFiles/cpnetflux_unit_tests.dir/tests/unit/version_test.cpp.o
+[100%] Linking CXX executable cpnetflux_unit_tests
+[100%] Built target cpnetflux_unit_tests

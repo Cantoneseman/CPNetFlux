@@ -1,0 +1,393 @@
+{
+  "implementation_commit": "42718ac26be24d53ec17525a7b1b3bcb1e340931",
+  "files": [
+    {
+      "path": "2026-11-12-whole-file-retry-68-result.md",
+      "bytes": 4253,
+      "sha256": "505377327aa1f64cac1469d218e7dbc91df7094e905d1753590e05fa8887f9e5"
+    },
+    {
+      "path": "build-green.log",
+      "bytes": 374,
+      "sha256": "113f93263762c2f2065d7537592805d837a4475010c5eae6d88ae6d9ff7b6e8f"
+    },
+    {
+      "path": "build-red.log",
+      "bytes": 158,
+      "sha256": "229c9c99e2bb7e2e0e7582185770b9b74a2576a11d5e133a38ff964866b39bda"
+    },
+    {
+      "path": "ctest-command.json",
+      "bytes": 437,
+      "sha256": "d573d0134c0a1c65b7f32994e78873b86abceba7e285992893eecf520633d698"
+    },
+    {
+      "path": "ctest-protocol-r1.log",
+      "bytes": 18681,
+      "sha256": "683b14bf6bef1fbc858149c3389820649ba1b875dc5ad4833f5bf63b6ec9ee44"
+    },
+    {
+      "path": "ctest-r1-final.log",
+      "bytes": 19068,
+      "sha256": "76221fbc4fa8ee688f3a70deb002d2ee9c9be56b18f7b251a93eaab5a507d9cc"
+    },
+    {
+      "path": "ctest-r1.log",
+      "bytes": 26116,
+      "sha256": "8e0722a6670314a2f3302a97e938528ccbee8ebbda13f8b9d1dd772cedae93fa"
+    },
+    {
+      "path": "early-boundary-trace/pair1-control-reset/cert.pem",
+      "bytes": 1143,
+      "sha256": "a73aab42b337fe8cef097a88033c33d48d64f57a272081987274e931cd77bff3"
+    },
+    {
+      "path": "early-boundary-trace/pair1-control-reset/client-0.log",
+      "bytes": 8355,
+      "sha256": "1db0b815ad73f38bbf17090faaed8e2ea2f53af0afc4f9b819e117784f5906df"
+    },
+    {
+      "path": "early-boundary-trace/pair1-control-reset/output-0/large.bin.cpnetflux.download.manifest",
+      "bytes": 1000,
+      "sha256": "260ab4465d2cc294928e486441c253e8cbab7684c2783acce613bf6c4d37638a"
+    },
+    {
+      "path": "early-boundary-trace/pair1-control-reset/output-0/small.bin.cpnetflux.download.manifest",
+      "bytes": 957,
+      "sha256": "29b99d209c1fca9084beed92088b6914aece76cc482de7863121f4a2fd0a76dc"
+    },
+    {
+      "path": "early-boundary-trace/pair1-control-reset/output-0.cpnetflux.tree.download.manifest",
+      "bytes": 371,
+      "sha256": "06a30e8d955feaaf16e254c337ffa85179e72abd3ff9fc58f928f6ac35ae0567"
+    },
+    {
+      "path": "early-boundary-trace/pair1-control-reset/plan.txt",
+      "bytes": 12841,
+      "sha256": "ce4db04e6c35eb674d6f267ddd829fc69f16ddb714901df16af689a7ee6acb92"
+    },
+    {
+      "path": "early-boundary-trace/pair1-control-reset/proxy.jsonl",
+      "bytes": 2644,
+      "sha256": "db2eefede5a5555df4daef98da9c8c4ba36b9722b666828483ee9f6e70322f6d"
+    },
+    {
+      "path": "early-boundary-trace/pair1-control-reset/server.log",
+      "bytes": 45579,
+      "sha256": "7533624e6ea04a96742315849b34deae3417ae7dcffd98a475e095ed7769744a"
+    },
+    {
+      "path": "early-boundary-trace/pair1-control-reset/summary-0.json",
+      "bytes": 5904,
+      "sha256": "78e07d9a5eae29b3e4be730fbb060be9332f231362485d3b40af8d44653b5ba0"
+    },
+    {
+      "path": "early-boundary-trace/pair1-data-reset/cert.pem",
+      "bytes": 1143,
+      "sha256": "37dca49ef2f3bf2e3eca019dd4ff75935f6cd4dc14cc6bb1978836ef59875e62"
+    },
+    {
+      "path": "early-boundary-trace/pair1-data-reset/client-0.log",
+      "bytes": 6559,
+      "sha256": "0c0d5d4642de70f858f1a6b2f1e28f096f74e0d0bcbca9e57bcbf1959ce7e442"
+    },
+    {
+      "path": "early-boundary-trace/pair1-data-reset/output-0/large.bin.cpnetflux.download.manifest",
+      "bytes": 988,
+      "sha256": "25ca5ceccc31f071d29ed8fb528f84f3afb6bd297c165207b0dd7090f81113ab"
+    },
+    {
+      "path": "early-boundary-trace/pair1-data-reset/output-0/small.bin.cpnetflux.download.manifest",
+      "bytes": 945,
+      "sha256": "8f3ff3df2ee046a3685b3e151659d7d1b1eb70ea54a5f306f0fcb5da713dfe2b"
+    },
+    {
+      "path": "early-boundary-trace/pair1-data-reset/output-0.cpnetflux.tree.download.manifest",
+      "bytes": 371,
+      "sha256": "6704f155e8f972e38d9a62bd7a36bf98a0e6aaacdf68036bdddca304543c476e"
+    },
+    {
+      "path": "early-boundary-trace/pair1-data-reset/plan.txt",
+      "bytes": 12841,
+      "sha256": "02696f1ef18ddfc4ce2d6430db35244265cc60d8d1c1b160c6500b526ef0ef9d"
+    },
+    {
+      "path": "early-boundary-trace/pair1-data-reset/proxy.jsonl",
+      "bytes": 2595,
+      "sha256": "19f24abac58bd4b9a606b6fac443aede4fcd2986a65ff523274c7ed013afae52"
+    },
+    {
+      "path": "early-boundary-trace/pair1-data-reset/server.log",
+      "bytes": 44755,
+      "sha256": "cd7847f60cec3fdd04ad53f6e0698236e014b07d4e2c8e0f40dd17713f1ad1a6"
+    },
+    {
+      "path": "early-boundary-trace/pair1-data-reset/summary-0.json",
+      "bytes": 5900,
+      "sha256": "1468234af3efcd2100c5a1a1e86cb389d471683cff5f58ac44cc0c3cfe16f1fb"
+    },
+    {
+      "path": "early-boundary-trace/pair2-control-reset/cert.pem",
+      "bytes": 1143,
+      "sha256": "e791650c049350a05009c84fe47d8721a2d6d38a0013e683774f7e2ef44f58a1"
+    },
+    {
+      "path": "early-boundary-trace/pair2-control-reset/client-0.log",
+      "bytes": 8355,
+      "sha256": "97ecdc52980a50409c18c0223eecb08bbd2f9153edde61e5bfeb23af170963e0"
+    },
+    {
+      "path": "early-boundary-trace/pair2-control-reset/output-0/large.bin.cpnetflux.download.manifest",
+      "bytes": 1000,
+      "sha256": "769633aee950bd9580103340d8614be0c4b26f2dcd7c44ade6c22527f75f8c84"
+    },
+    {
+      "path": "early-boundary-trace/pair2-control-reset/output-0/small.bin.cpnetflux.download.manifest",
+      "bytes": 957,
+      "sha256": "0ca035f7f4818287c7f31cb2bd7ee64441102be110a5576452cdd161bcbdf52e"
+    },
+    {
+      "path": "early-boundary-trace/pair2-control-reset/output-0.cpnetflux.tree.download.manifest",
+      "bytes": 371,
+      "sha256": "ad71ecab32885c12e610a8ec2bcff5ba026bf579ca76da81cf811696dbd4d820"
+    },
+    {
+      "path": "early-boundary-trace/pair2-control-reset/plan.txt",
+      "bytes": 12841,
+      "sha256": "98ef99cd5b2c5093ac3576b760d7cf52f2e81d67b33200a812830323ac0cc19c"
+    },
+    {
+      "path": "early-boundary-trace/pair2-control-reset/proxy.jsonl",
+      "bytes": 2646,
+      "sha256": "01667b1f77e93ee0812a902a89cb8de07a7268c1e3f64bf6ec56dbce9e686b77"
+    },
+    {
+      "path": "early-boundary-trace/pair2-control-reset/server.log",
+      "bytes": 45555,
+      "sha256": "a621e8e06fb72694557de7491312fc6276cd27f930ea2be4544aed02740c09cc"
+    },
+    {
+      "path": "early-boundary-trace/pair2-control-reset/summary-0.json",
+      "bytes": 5906,
+      "sha256": "5bbff815a8787ff03f3a5b09512a852254a250bdb691be3ab051818cb7539439"
+    },
+    {
+      "path": "early-boundary-trace/pair2-data-reset/cert.pem",
+      "bytes": 1143,
+      "sha256": "4f02eb862754e2c4c1438b517305bf8206d06c650c3c4be1c82662f96dd4e8cc"
+    },
+    {
+      "path": "early-boundary-trace/pair2-data-reset/client-0.log",
+      "bytes": 6559,
+      "sha256": "f6395c9ff2faedb18781ce1fb436e24aaab4bf1339233d0b583034e0acea69ed"
+    },
+    {
+      "path": "early-boundary-trace/pair2-data-reset/output-0/large.bin.cpnetflux.download.manifest",
+      "bytes": 988,
+      "sha256": "278687066e236685c0fec628d37e7efc7ec86adcee67cc9b888eb8f0eea27760"
+    },
+    {
+      "path": "early-boundary-trace/pair2-data-reset/output-0/small.bin.cpnetflux.download.manifest",
+      "bytes": 945,
+      "sha256": "586dda8bb97b96641fc367b474908461746cf98e25b58a40e74f39e3b32acd36"
+    },
+    {
+      "path": "early-boundary-trace/pair2-data-reset/output-0.cpnetflux.tree.download.manifest",
+      "bytes": 371,
+      "sha256": "95ee4a8a6605289a96d48137b045010f0e37e3e5eabda1f28498d405d4eee575"
+    },
+    {
+      "path": "early-boundary-trace/pair2-data-reset/plan.txt",
+      "bytes": 12841,
+      "sha256": "2c57a122f29f05f1db4764069f46d96319661bbe2f87f43a1a85ac54a3b44921"
+    },
+    {
+      "path": "early-boundary-trace/pair2-data-reset/proxy.jsonl",
+      "bytes": 2595,
+      "sha256": "053399991005d2cc4ef3913cd34ea69931b7ba1b82b5172af2719e6bfe2ea2e4"
+    },
+    {
+      "path": "early-boundary-trace/pair2-data-reset/server.log",
+      "bytes": 44749,
+      "sha256": "078487045a5427a3b232141cac0cba90d79d253607d504a222d7b14ed6e4609e"
+    },
+    {
+      "path": "early-boundary-trace/pair2-data-reset/summary-0.json",
+      "bytes": 5900,
+      "sha256": "0297df86dd85b149f4268bb177486555f81e80ae877a6ae71b8c5fda96f962cf"
+    },
+    {
+      "path": "early-boundary-trace/pair3-control-reset/cert.pem",
+      "bytes": 1143,
+      "sha256": "8374a50c1fb6025b57bf4c4ac229047f295af4fbb90de74b63d66d88073ba87a"
+    },
+    {
+      "path": "early-boundary-trace/pair3-control-reset/client-0.log",
+      "bytes": 8354,
+      "sha256": "73b5f5c8f21ee6766b5abbc9c258b7c071ddfc990558c0ebfc91403be7ecd67e"
+    },
+    {
+      "path": "early-boundary-trace/pair3-control-reset/output-0/large.bin.cpnetflux.download.manifest",
+      "bytes": 1000,
+      "sha256": "f1ccff48b306f749c90a0b21958dd24492adb475b88f2a2584533d96b716057a"
+    },
+    {
+      "path": "early-boundary-trace/pair3-control-reset/output-0/small.bin.cpnetflux.download.manifest",
+      "bytes": 957,
+      "sha256": "c6f9815856db4133c921de08fc5ebc46b43f11ce06c16ec9f19338090abb4ae7"
+    },
+    {
+      "path": "early-boundary-trace/pair3-control-reset/output-0.cpnetflux.tree.download.manifest",
+      "bytes": 371,
+      "sha256": "ea5fd83118d7b58ba506aa3a22a4c6cb764681d47866d9e17a3549d5bb38cc35"
+    },
+    {
+      "path": "early-boundary-trace/pair3-control-reset/plan.txt",
+      "bytes": 12841,
+      "sha256": "797275b7f3202b5579f8760d2c845ba4eedc380e04ad0942bffd609672f100aa"
+    },
+    {
+      "path": "early-boundary-trace/pair3-control-reset/proxy.jsonl",
+      "bytes": 2647,
+      "sha256": "ad028092e11b4f56cdc6d4f8cd905cd1b1815c7c840b51b68df1057802b8d74f"
+    },
+    {
+      "path": "early-boundary-trace/pair3-control-reset/server.log",
+      "bytes": 45555,
+      "sha256": "36c3437ead310bffebb9564747b98c0b3a3f34b5df911672656c8321266718dc"
+    },
+    {
+      "path": "early-boundary-trace/pair3-control-reset/summary-0.json",
+      "bytes": 5904,
+      "sha256": "c23633ceed910069f27d5045bf7da86eee3c001df4919ecfb9765e3544dca63e"
+    },
+    {
+      "path": "early-boundary-trace/pair3-data-reset/cert.pem",
+      "bytes": 1143,
+      "sha256": "9f43abcad05a2f0f1187fd1750355a3b48de94e4cd2ff707f7108aa478ef4474"
+    },
+    {
+      "path": "early-boundary-trace/pair3-data-reset/client-0.log",
+      "bytes": 6559,
+      "sha256": "74dda283daef2b4dd8d625c049cdef22cca17413d867cae6fcfee94eefc6299d"
+    },
+    {
+      "path": "early-boundary-trace/pair3-data-reset/output-0/large.bin.cpnetflux.download.manifest",
+      "bytes": 988,
+      "sha256": "00caf80e315ade57bcbde3d73cf2fbae01c8af106b9bd901cd4f865945a22ad6"
+    },
+    {
+      "path": "early-boundary-trace/pair3-data-reset/output-0/small.bin.cpnetflux.download.manifest",
+      "bytes": 945,
+      "sha256": "2ca605be149a276dede8f8c207213f68b976389a0d7af9112124d23cdeca365f"
+    },
+    {
+      "path": "early-boundary-trace/pair3-data-reset/output-0.cpnetflux.tree.download.manifest",
+      "bytes": 371,
+      "sha256": "abba48bf863fb4088f92e9e7accae7d3cdeeeeaf68ae6afb1434e30d133aefc5"
+    },
+    {
+      "path": "early-boundary-trace/pair3-data-reset/plan.txt",
+      "bytes": 12841,
+      "sha256": "4d5b41b397c5db8aa2152ed4d9140c95ca5a685e7514a10137e7fd75f8efe25b"
+    },
+    {
+      "path": "early-boundary-trace/pair3-data-reset/proxy.jsonl",
+      "bytes": 2598,
+      "sha256": "ba0982b5db9a320702c9433fdbaa0dd1e1cda065d7003762840fcb8f68d2ab9d"
+    },
+    {
+      "path": "early-boundary-trace/pair3-data-reset/server.log",
+      "bytes": 44752,
+      "sha256": "a8d373170b2bf35344bf88d81bafccbc01594a0663f67206b91d5d282c736233"
+    },
+    {
+      "path": "early-boundary-trace/pair3-data-reset/summary-0.json",
+      "bytes": 5900,
+      "sha256": "62b8324c7a5ce2001c87a5e71e218332b67e4ff6ab6c346a76468117fe9fa383"
+    },
+    {
+      "path": "early-boundary-trace.json",
+      "bytes": 58815,
+      "sha256": "1558b9589395794e85af79147744e742cb022ec0f979dc13e9e0db053a0f6c1c"
+    },
+    {
+      "path": "early_boundary_trace68.py",
+      "bytes": 2012,
+      "sha256": "15508bcbc50131281f82aaebd54d8686ac7e0dba267fa6e02918b7f33018765d"
+    },
+    {
+      "path": "green.log",
+      "bytes": 1464,
+      "sha256": "3753dff60d0feefc4862d9680723cb0306ff1a2cda10481740dd847025396b3c"
+    },
+    {
+      "path": "implementation-backup.json",
+      "bytes": 399,
+      "sha256": "8edbde3f95484650ef2feb5c339091265e03115509c109c06985e9d830171569"
+    },
+    {
+      "path": "input.json",
+      "bytes": 197,
+      "sha256": "af8be3eedbfcc8664cb5acf1c43038ff0c099abea9f421d10231153e498489cd"
+    },
+    {
+      "path": "integration-test-review.json",
+      "bytes": 320,
+      "sha256": "31851c739593677965fc06a6cf394266accaed380c1a8b63a818f553c8ce61c0"
+    },
+    {
+      "path": "peer-r2/build-r2.log",
+      "bytes": 482,
+      "sha256": "548cc81daec0112553e8fab793266308d73257456948aef6f9e68cade7369dc1"
+    },
+    {
+      "path": "peer-r2/ctest-protocol-r2.log",
+      "bytes": 18681,
+      "sha256": "213876581ec88e9b80863c4b577e7b211d9bc018fe6a683907b28b15980939c3"
+    },
+    {
+      "path": "peer-r2/ctest-r2-final.log",
+      "bytes": 19068,
+      "sha256": "7182726725a894b791963dd3cb017cd6040d9af1ebb8700ab6d474d1d1af05cb"
+    },
+    {
+      "path": "peer-r2/final-r2.json",
+      "bytes": 126,
+      "sha256": "71cd97d1b24a5ab01b5e255ac4ccbf7e192691e5bbfa84378aee3cbeea1d7fe4"
+    },
+    {
+      "path": "peer-r2/pinned-receipt-r2.json",
+      "bytes": 1446,
+      "sha256": "67809fc2d70be82d80c9eb5e0c47f44fcd52064c7c45176bb87f3cbf14ce6d7b"
+    },
+    {
+      "path": "pinned-receipt-r1.json",
+      "bytes": 1446,
+      "sha256": "c98b61841aa3d92c57dff5f8d1a070bd7aa46eb4d1ca54769205ab8be6af3cdd"
+    },
+    {
+      "path": "protocol-command.json",
+      "bytes": 86,
+      "sha256": "73d792773691a953134e3a3b10d4d06de78ba66c5277a202a7da373b91c4d3cc"
+    },
+    {
+      "path": "red.log",
+      "bytes": 3001,
+      "sha256": "60494d44423f3d86cf04f265f22379c2e8805d5f8873e2abbc9afe66adf97537"
+    },
+    {
+      "path": "source-plan-smoke-before-midfile.py",
+      "bytes": 6222,
+      "sha256": "33b9f44e1637db80bc197269b864cdaa39f66ab2dcdebdff89b123bf889745dc"
+    },
+    {
+      "path": "verify68.py",
+      "bytes": 1659,
+      "sha256": "501419de95f0559a6954af50134f54eb58e92b69933ecb29caeaaa9d9fc585fa"
+    }
+  ],
+  "tests_per_node": 156,
+  "candidate_default": "OFF",
+  "goal_complete": false
+}

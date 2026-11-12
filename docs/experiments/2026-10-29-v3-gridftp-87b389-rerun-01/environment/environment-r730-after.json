@@ -1,0 +1,94 @@
+{
+  "epoch": 1793245439.7973144,
+  "hostname": "r730",
+  "commands": {
+    "clock": {
+      "exit": 0,
+      "stdout": "2026-10-29T03:43:59,798618123+00:00\n",
+      "stderr": ""
+    },
+    "kernel": {
+      "exit": 0,
+      "stdout": "Linux r730 5.15.0-198-generic #208-Ubuntu SMP Fri Sep 4 10:22:38 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\n",
+      "stderr": ""
+    },
+    "cpu": {
+      "exit": 0,
+      "stdout": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           46 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  48\nOn-line CPU(s) list:                     0-47\nVendor ID:                               GenuineIntel\nModel name:                              Intel(R) Xeon(R) CPU E5-2680 v3 @ 2.50GHz\nCPU family:                              6\nModel:                                   63\nThread(s) per core:                      2\nCore(s) per socket:                      12\nSocket(s):                               2\nStepping:                                2\nCPU max MHz:                             3300.0000\nCPU min MHz:                             1200.0000\nBogoMIPS:                                4999.65\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm cpuid_fault epb invpcid_single pti ssbd ibrs ibpb stibp tpr_shadow vnmi flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid cqm xsaveopt cqm_llc cqm_occup_llc dtherm ida arat pln pts md_clear flush_l1d ibpb_exit_to_user\nVirtualization:                          VT-x\nL1d cache:                               768 KiB (24 instances)\nL1i cache:                               768 KiB (24 instances)\nL2 cache:                                6 MiB (24 instances)\nL3 cache:                                60 MiB (2 instances)\nNUMA node(s):                            2\nNUMA node0 CPU(s):                       0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46\nNUMA node1 CPU(s):                       1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43,45,47\nVulnerability Gather data sampling:      Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             KVM: Mitigation: VMX disabled\nVulnerability L1tf:                      Mitigation; PTE Inversion; VMX conditional cache flushes, SMT vulnerable\nVulnerability Mds:                       Mitigation; Clear CPU buffers; SMT vulnerable\nVulnerability Meltdown:                  Mitigation; PTI\nVulnerability Mmio stale data:           Mitigation; Clear CPU buffers; SMT vulnerable\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl and seccomp\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Retpolines; IBPB conditional; IBRS_FW; STIBP conditional; RSB filling; PBRSB-eIBRS Not affected; BHI Not affected\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+      "stderr": ""
+    },
+    "memory": {
+      "exit": 0,
+      "stdout": "               total        used        free      shared  buff/cache   available\nMem:     67408855040  6028079104 48992636928     6004736 12388139008 60680101888\nSwap:     8589930496           0  8589930496\n",
+      "stderr": ""
+    },
+    "disks": {
+      "exit": 0,
+      "stdout": "NAME                         TYPE   SIZE ROTA MOUNTPOINTS       MODEL\nloop0                        loop  63.8M    1 /snap/core20/2866 \nloop1                        loop  63.8M    1 /snap/core20/2922 \nloop2                        loop    74M    1 /snap/core22/2955 \nloop3                        loop  91.7M    1 /snap/lxd/38800   \nloop4                        loop 115.2M    1 /snap/lxd/40911   \nloop5                        loop  49.3M    1 /snap/snapd/26865 \nloop6                        loop  44.7M    1 /snap/snapd/28254 \nsda                          disk   931G    1                   PERC H730 Mini\n\u251c\u2500sda1                       part     1M    1                   \n\u251c\u2500sda2                       part     2G    1                   \n\u2514\u2500sda3                       part   929G    1                   \n  \u2514\u2500ubuntu--vg-ubuntu--lv    lvm    100G    1                   \nsdb                          disk   7.3T    1                   PERC H730 Mini\n\u251c\u2500sdb1                       part     1G    1 /boot/efi         \n\u251c\u2500sdb2                       part     2G    1 /boot             \n\u2514\u2500sdb3                       part   7.3T    1                   \n  \u2514\u2500ubuntu--vg--1-ubuntu--lv lvm    100G    1 /                 \n",
+      "stderr": ""
+    },
+    "space": {
+      "exit": 0,
+      "stdout": "Filesystem                              1B-blocks        Used   Available Use% Mounted on\n/dev/mapper/ubuntu--vg--1-ubuntu--lv 105089261568 42225139712 57478635520  43% /\n",
+      "stderr": ""
+    },
+    "mount": {
+      "exit": 0,
+      "stdout": "TARGET SOURCE                               FSTYPE OPTIONS\n/      /dev/mapper/ubuntu--vg--1-ubuntu--lv ext4   rw,relatime\n",
+      "stderr": ""
+    },
+    "interface": {
+      "exit": 0,
+      "stdout": "4: enp130s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc mq state UP mode DEFAULT group default qlen 1000\n    link/ether 08:c0:eb:dc:3c:52 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 640 numrxqueues 96 gso_max_size 65536 gso_max_segs 65535 portname p0 switchid 523cdc0003ebc008 parentbus pci parentdev 0000:82:00.0 \n    RX:    bytes  packets errors dropped  missed   mcast           \n       362894271  4389551      0       0       0     175 \n    TX:    bytes  packets errors dropped carrier collsns           \n    168845842258 20547730      0       0       0       0 \n",
+      "stderr": ""
+    },
+    "addresses": {
+      "exit": 0,
+      "stdout": "[{\"ifindex\":4,\"ifname\":\"enp130s0np0\",\"flags\":[\"BROADCAST\",\"MULTICAST\",\"UP\",\"LOWER_UP\"],\"mtu\":9000,\"qdisc\":\"mq\",\"operstate\":\"UP\",\"group\":\"default\",\"txqlen\":1000,\"link_type\":\"ether\",\"address\":\"08:c0:eb:dc:3c:52\",\"broadcast\":\"ff:ff:ff:ff:ff:ff\",\"addr_info\":[{\"family\":\"inet\",\"local\":\"192.168.100.1\",\"prefixlen\":30,\"broadcast\":\"192.168.100.3\",\"scope\":\"global\",\"label\":\"enp130s0np0\",\"valid_life_time\":4294967295,\"preferred_life_time\":4294967295},{\"family\":\"inet6\",\"local\":\"fe80::ac0:ebff:fedc:3c52\",\"prefixlen\":64,\"scope\":\"link\",\"valid_life_time\":4294967295,\"preferred_life_time\":4294967295}]}]\n",
+      "stderr": ""
+    },
+    "link": {
+      "exit": 0,
+      "stdout": "Settings for enp130s0np0:\n\tSupported ports: [ Backplane ]\n\tSupported link modes:   1000baseKX/Full\n\t                        10000baseKR/Full\n\t                        40000baseKR4/Full\n\t                        40000baseCR4/Full\n\t                        40000baseSR4/Full\n\t                        40000baseLR4/Full\n\t                        25000baseCR/Full\n\t                        25000baseKR/Full\n\t                        25000baseSR/Full\n\t                        50000baseCR2/Full\n\t                        50000baseKR2/Full\n\t                        100000baseKR4/Full\n\t                        100000baseSR4/Full\n\t                        100000baseCR4/Full\n\t                        100000baseLR4_ER4/Full\n\tSupported pause frame use: Symmetric\n\tSupports auto-negotiation: Yes\n\tSupported FEC modes: None\t RS\t BASER\n\tAdvertised link modes:  1000baseKX/Full\n\t                        10000baseKR/Full\n\t                        40000baseKR4/Full\n\t                        40000baseCR4/Full\n\t                        40000baseSR4/Full\n\t                        40000baseLR4/Full\n\t                        25000baseCR/Full\n\t                        25000baseKR/Full\n\t                        25000baseSR/Full\n\t                        50000baseCR2/Full\n\t                        50000baseKR2/Full\n\t                        100000baseKR4/Full\n\t                        100000baseSR4/Full\n\t                        100000baseCR4/Full\n\t                        100000baseLR4_ER4/Full\n\tAdvertised pause frame use: Symmetric\n\tAdvertised auto-negotiation: Yes\n\tAdvertised FEC modes: RS\n\tLink partner advertised link modes:  Not reported\n\tLink partner advertised pause frame use: No\n\tLink partner advertised auto-negotiation: Yes\n\tLink partner advertised FEC modes: Not reported\n\tSpeed: 100000Mb/s\n\tDuplex: Full\n\tAuto-negotiation: on\n\tPort: Direct Attach Copper\n\tPHYAD: 0\n\tTransceiver: internal\n        Current message level: 0x00000004 (4)\n                               link\n\tLink detected: yes\n",
+      "stderr": "netlink error: Operation not permitted\n"
+    },
+    "network_driver": {
+      "exit": 0,
+      "stdout": "driver: mlx5_core\nversion: 5.15.0-198-generic\nfirmware-version: 16.35.8002 (MT_0000000011)\nexpansion-rom-version: \nbus-info: 0000:82:00.0\nsupports-statistics: yes\nsupports-test: yes\nsupports-eeprom-access: no\nsupports-register-dump: no\nsupports-priv-flags: yes\n",
+      "stderr": ""
+    },
+    "gridftp_client": {
+      "exit": 1,
+      "stdout": "",
+      "stderr": "globus-url-copy: 10.10\n"
+    },
+    "gridftp_server": {
+      "error": "[Errno 2] No such file or directory: 'globus-gridftp-server'"
+    },
+    "page_size": {
+      "exit": 0,
+      "stdout": "4096\n",
+      "stderr": ""
+    },
+    "clock_ticks": {
+      "exit": 0,
+      "stdout": "100\n",
+      "stderr": ""
+    },
+    "tcp_settings": {
+      "exit": 0,
+      "stdout": "net.ipv4.tcp_rmem = 4096\t131072\t6291456\nnet.ipv4.tcp_wmem = 4096\t16384\t4194304\nnet.core.rmem_max = 212992\nnet.core.wmem_max = 212992\nnet.ipv4.tcp_congestion_control = cubic\n",
+      "stderr": ""
+    },
+    "ca": {
+      "exit": 0,
+      "stdout": "subject=O = XioTransfer, OU = SimpleCA, CN = XioTransferCA\nnotBefore=Apr  9 06:24:55 2026 GMT\nnotAfter=Apr  6 06:24:55 2036 GMT\nsha256 Fingerprint=27:CF:F2:C9:87:FE:D3:AB:E8:F6:61:0A:60:30:76:12:C6:23:52:50:E5:63:CC:7D:FA:6E:DC:33:2D:78:EC:5C\n",
+      "stderr": ""
+    },
+    "proxy": {
+      "exit": 0,
+      "stdout": "subject  : /O=XioTransfer/OU=SimpleCA/CN=Su/CN=1543178162\nissuer   : /O=XioTransfer/OU=SimpleCA/CN=Su\nidentity : /O=XioTransfer/OU=SimpleCA/CN=Su\ntype     : RFC 3820 compliant impersonation proxy\nstrength : 2048 bits\npath     : /tmp/cpnetflux-runs/V3-GRIDFTP-87B389-RERUN-01/credentials/x509up_u1002\ntimeleft : 11:35:18\n",
+      "stderr": ""
+    }
+  }
+}

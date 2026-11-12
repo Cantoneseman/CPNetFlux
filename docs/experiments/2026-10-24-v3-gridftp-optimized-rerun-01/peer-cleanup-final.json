@@ -1,0 +1,18 @@
+{
+  "host": "R750",
+  "epoch": 1792828855.1334312,
+  "root": "/tmp/cpnetflux-runs/V3-GRIDFTP-OPTIMIZED-RERUN-01/20261024T071000Z-aa20229",
+  "free_before": 73073983488,
+  "removed": [
+    "payload",
+    "v3-server-root",
+    "gridftp/server-root",
+    "credentials",
+    "tls"
+  ],
+  "experiment_ports_closed": true,
+  "free_after": 73074020352,
+  "payload_removed": true,
+  "credentials_removed": true,
+  "private_tls_removed": true
+}

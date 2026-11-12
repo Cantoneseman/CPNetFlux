@@ -1,0 +1,47 @@
+{
+  "input_commit": "aa20229e0844aa2a5ec80c5b372d5448931b856d",
+  "formal_valid_samples": {
+    "formal-v3-no-summary": 12,
+    "formal-v3": 12,
+    "formal-gridftp": 12
+  },
+  "tuning_valid_samples": 14,
+  "input_identical_to_20261022": true,
+  "expected_tree_sha256": {
+    "dense": {
+      "tree_hash": "ad346cee658b0a9b8f4e335a9f1bf3b347e53e90b5ed9499a2bd9ce890598daa",
+      "file_count": 2048,
+      "bytes": 134217728
+    },
+    "large-random": {
+      "tree_hash": "649250e372687696fc702f4535a2f9b398a46daacdb4b3890c62e16f6804b84d",
+      "file_count": 1,
+      "bytes": 4294967296
+    },
+    "large-repeated": {
+      "tree_hash": "f18d7817026b858fad7e032c582afad09acb0f1ac27e4c8ab39d7e33ce0c7ec5",
+      "file_count": 1,
+      "bytes": 4294967296
+    },
+    "mixed": {
+      "tree_hash": "269752c8bf2f0eda36a8185bfb0a50e56df50dbff63bc5d23b3720c3b81b8d1a",
+      "file_count": 514,
+      "bytes": 2151677952
+    }
+  },
+  "nic_errors_and_drops_delta_zero": true,
+  "v3_control_and_data_connects": 4,
+  "v3_transport": "v3",
+  "v3_mode": "persistent_tree",
+  "v3_scheduling": "dynamic",
+  "compression": "off",
+  "v3_summary_hash_source": "verified_chunks",
+  "gsi_gridftp": "private",
+  "archive_sha256": "514c6c927999f3c698225546c1c2e1e5f45cfd732fac62fe11aa987e21ec9c5a",
+  "timing_scope": "client process wall excludes independent receiver SHA256; concurrent stage sums overlap",
+  "page_cache": "not cleared; sampled source physical reads zero",
+  "iperf3": {
+    "single": 32.688050518054524,
+    "p8": 28.655057983361697
+  }
+}

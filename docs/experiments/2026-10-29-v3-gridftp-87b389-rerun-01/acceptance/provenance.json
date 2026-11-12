@@ -1,0 +1,40 @@
+{
+  "implementation_commit": "87b389fc34615d1c43ccb36b5064beda2f47d1f6",
+  "source_files_checked_against_git_blobs": 665,
+  "source_archive_sha256": "eac263310902ffd48d18bf1cb92c6598ebd5ef0724907275d00504fad47a6ff8",
+  "clean_release_build_binary_sha256": {
+    "cpnetflux-gridftp-server": "336b2f21f610fa25c9c5dfb3afa95ac163e4ffda735a18014e290c69e25194b3",
+    "cpnetflux-tree-upload-client": "9708f90109d008cd7c7e57dcdb121abb6210c8f46adad95ee527df6614611e58"
+  },
+  "same_binary_hashes_on_r730_and_r750": true,
+  "cmake_build_info": {
+    "project": "CPNetFlux",
+    "version": "0.1.0+git.source-archi",
+    "source_revision": "source-archive",
+    "tls": 1,
+    "desktop": "OFF",
+    "architecture": "x86_64",
+    "public_release_ready": false
+  },
+  "cmake_flags": {
+    "build_type": "Release",
+    "tls": true,
+    "io_uring_compiled": false,
+    "desktop": false
+  },
+  "exact_targeted_ctest": {
+    "passed": 11,
+    "failed": 0
+  },
+  "full_ctest": {
+    "total": 467,
+    "passed": 466,
+    "skipped": 1,
+    "failed": 0
+  },
+  "analysis_unit_tests": {
+    "passed": 6,
+    "failed": 0
+  },
+  "lab_archive_sha256": "fa04ed82faa397335845fdbab353713f7d4d87afa31b051cfb06d5edcb0ea0bc"
+}

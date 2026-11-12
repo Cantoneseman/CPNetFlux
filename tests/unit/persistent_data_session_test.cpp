@@ -1,14 +1,27 @@
 #include "cpnetflux/core/io/persistent_data_session.h"
 
+#include <algorithm>
 #include <gtest/gtest.h>
+#include <array>
+#include <future>
 #include <string>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <thread>
+#include <sys/resource.h>
+#include <poll.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <unistd.h>
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/payload_pipeline.h"
+#include "cpnetflux/core/io/persistent_directory_batch.h"
+#include "cpnetflux/core/io/work_executor.h"
+#include "cpnetflux/core/io/detail/persistent_transfer_lifetime.h"
+#include <tuple>
 #include "cpnetflux/checkpoint/transfer_manifest.h"
 #include "cpnetflux/checkpoint/manifest_store.h"
 #include "cpnetflux/core/session/transfer_session.h"
@@ -25,6 +38,35 @@ struct SocketPair {
         if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) throw std::runtime_error("socketpair");
         sender = FramedDataSocket(UniqueFd(fds[0]));
         receiver = FramedDataSocket(UniqueFd(fds[1]));
+    }
+};
+struct LoopbackTcpPair {
+    FramedDataSocket sender, receiver;
+    LoopbackTcpPair() {
+        auto listener = createListener("127.0.0.1", 0, 1);
+        if (!listener.isOk()) throw std::runtime_error(listener.status().message());
+        sockaddr_in address{};
+        socklen_t length = sizeof(address);
+        if (::getsockname(listener.value().get(), reinterpret_cast<sockaddr*>(&address), &length) != 0)
+            throw std::runtime_error("TCP test listener address");
+        auto connection = connectBlockingSocket("127.0.0.1", ntohs(address.sin_port));
+        if (!connection.isOk()) throw std::runtime_error(connection.status().message());
+        sender = FramedDataSocket(std::move(connection.value()));
+        receiver = FramedDataSocket(UniqueFd(::accept4(listener.value().get(), nullptr, nullptr, SOCK_CLOEXEC)));
+        if (!receiver.valid()) throw std::runtime_error("TCP test accept");
+    }
+};
+struct ScopedEnvironment {
+    std::string name;
+    std::string previous;
+    bool hadPrevious = false;
+    ScopedEnvironment(const char* key, const char* value) : name(key) {
+        if (const auto* current = std::getenv(key)) { previous = current; hadPrevious = true; }
+        if (::setenv(key, value, 1) != 0) throw std::runtime_error("setenv");
+    }
+    ~ScopedEnvironment() {
+        if (hadPrevious) (void)::setenv(name.c_str(), previous.c_str(), 1);
+        else (void)::unsetenv(name.c_str());
     }
 };
 struct TempRoot {
@@ -50,6 +92,109 @@ static FrameHeader beginHeader(std::uint64_t size) {
     h.totalSize = size;
     h.payloadSize = 1;
     return h;
+}
+
+TEST(PersistentSessionTest, NegotiatedLargeDataRoundTripsIncludingCrcAndTail) {
+    SocketPair pair;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.receiver.configureDataFrameBytes(262144).isOk());
+    EXPECT_FALSE(pair.sender.configureDataFrameBytes(65532).isOk());
+    PersistentFileIdentity id{1,1,262161,"large.bin","large",1048576,0,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    std::vector<std::uint8_t> payload(262144,0xa5);
+    auto writing=std::async(std::launch::async,[&]{
+        auto status=PersistentDataSession::writeData(&pair.sender,id,0,payload.data(),payload.size());
+        if (!status.isOk()) return status;
+        return PersistentDataSession::writeData(&pair.sender,id,262144,payload.data(),17);
+    });
+    auto full=PersistentDataSession::readNext(&pair.receiver,262148);
+    ASSERT_TRUE(full.isOk()) << full.status().message();
+    EXPECT_EQ(full.value().payload.size(),262148U);
+    EXPECT_TRUE(std::equal(payload.begin(),payload.end(),full.value().payload.begin()+4));
+    auto tail=PersistentDataSession::readNext(&pair.receiver,262148);
+    ASSERT_TRUE(tail.isOk());EXPECT_EQ(tail.value().header.offset,262144U);
+    EXPECT_EQ(tail.value().payload.size(),21U);EXPECT_TRUE(writing.get().isOk());
+    EXPECT_FALSE(PersistentDataSession::writeData(&pair.sender,id,1048575,payload.data(),2).isOk());
+}
+
+TEST(PersistentSessionTest, TcpReceiveBufferIsExplicitBoundedAndReported) {
+    LoopbackTcpPair pair;
+    EXPECT_FALSE(pair.receiver.configureTcpReceiveBuffer(2097152).isOk());
+    ASSERT_TRUE(pair.receiver.configureTcpReceiveBuffer(0).isOk());
+    EXPECT_GT(pair.receiver.tcpReceiveBufferBytes(),0U);
+    ASSERT_TRUE(pair.receiver.configureTcpReceiveBuffer(1048576).isOk());
+    EXPECT_GE(pair.receiver.tcpReceiveBufferBytes(),1048576U);
+    EXPECT_LE(pair.receiver.tcpReceiveBufferBytes(),2097152U);
+    FramedDataSocket invalid;
+    EXPECT_FALSE(invalid.configureTcpReceiveBuffer(1048576).isOk());
+}
+
+TEST(PersistentSessionTest, LargeDataDoesNotEnlargeControlsOrAcceptUnnegotiatedData) {
+    for (const auto type : {FrameType::FileBegin,FrameType::Data}) {
+        SocketPair pair;
+        if (type==FrameType::FileBegin) ASSERT_TRUE(pair.receiver.configureDataFrameBytes(262144).isOk());
+        auto h=beginHeader(1048576);h.type=type;h.payloadSize=262148;h.flags=type==FrameType::Data?kDataChecksum:0;
+        const auto wire=encodeFrameHeader(h);
+        ASSERT_TRUE(pair.sender.writeAll(wire.data(),wire.size()).isOk());
+        // No payload or EOF is sent: rejection must happen before allocation/read.
+        EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver,pair.receiver.dataPayloadLimit()).isOk());
+    }
+}
+
+TEST(PersistentSessionTest, LargeDataRejectsMissingChecksumAndTruncation) {
+    for (bool truncated : {false,true}) {
+        SocketPair pair;ASSERT_TRUE(pair.receiver.configureDataFrameBytes(262144).isOk());
+        auto h=beginHeader(1048576);h.type=FrameType::Data;h.payloadSize=262148;
+        h.flags=truncated?kDataChecksum:0;
+        const auto wire=encodeFrameHeader(h);
+        ASSERT_TRUE(pair.sender.writeAll(wire.data(),wire.size()).isOk());
+        if (truncated) { const std::uint8_t bytes[]{0,1};
+            ASSERT_TRUE(pair.sender.writeAll(bytes,sizeof(bytes)).isOk());pair.sender.close(); }
+        PersistentFrame frame;EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver,262148,&frame).isOk());
+        EXPECT_TRUE(frame.payload.empty());
+    }
+}
+
+TEST(PersistentSessionTest, LargeDataRejectsCrossChunkWithoutAdvancingState) {
+    PersistentDataSession state(false,262148);
+    PersistentFileIdentity id{1,1,2097152,"a","chunk",1048576,0,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    ASSERT_TRUE(state.begin(beginHeader(id.totalSize),id).isOk());
+    std::vector<std::uint8_t> bytes(262144,'x');
+    auto data=beginHeader(id.totalSize);data.type=FrameType::Data;data.payloadSize=262144;
+    for (unsigned i=0;i<3;++i) {data.offset=i*262144;
+        ASSERT_TRUE(state.data(data,bytes.size(),bytes.data()).isOk());}
+    data.offset=786432;data.payloadSize=262143;
+    ASSERT_TRUE(state.data(data,262143,bytes.data()).isOk());
+    data.offset=1048575;data.payloadSize=2;
+    EXPECT_FALSE(state.data(data,2,bytes.data()).isOk());EXPECT_EQ(state.receivedBytes(),1048575U);
+}
+
+TEST(PersistentSessionTest, CorruptLargeDataCannotCertifyOrPublishChunk) {
+    SocketPair pair;TempRoot source,destination;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.receiver.configureDataFrameBytes(262144).isOk());
+    std::ofstream(source.path/"bad.bin")<<std::string(1048576,'A');
+    struct stat st{};ASSERT_EQ(::stat((source.path/"bad.bin").c_str(),&st),0);
+    PersistentFileIdentity id{1,7,1048576,"bad.bin","large-bad-checksum",1048576,st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    cpnetflux::config::FileTransferOptions options;
+    options.path=(source.path/"bad.bin").string();options.hasCorruptChunk=true;options.corruptChunk=0;
+    PersistentTreeStats received,sent;cpnetflux::common::Status result;
+    PersistentTransferPolicy policy;
+    policy.options.finalVerifyPolicy=cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks;
+    auto context=makePersistentTransferContext(policy);
+    std::jthread receiver([&]{
+        result=receivePersistentTree(&pair.receiver,destination.path.string(),false,"",&received,
+            {},1,0,1,kUnknownPersistentFileCount,false,false,context);
+        pair.receiver.shutdown();
+    });
+    auto status=sendPersistentTree(&pair.sender,source.path.string(),{id},&sent,{},1,0,1,nullptr,&options);
+    receiver.join();EXPECT_FALSE(status.isOk());EXPECT_FALSE(result.isOk());
+    auto checkpoint=cpnetflux::checkpoint::ManifestStore::load(
+        cpnetflux::checkpoint::manifestPathForOutput((destination.path/"bad.bin").string()));
+    ASSERT_TRUE(checkpoint.isOk());EXPECT_TRUE(checkpoint.value().verifiedChunks.empty());
+    EXPECT_FALSE(std::filesystem::exists(destination.path/"bad.bin"));
 }
 
 TEST(PersistentSessionTest, RejectsWrongDataOffsetWithoutAdvancing) {
@@ -118,6 +263,16 @@ TEST(PersistentSessionTest, CarriesChecksumAlgorithmAndFileEndDigest) {
     auto logicalHeader=data.value().header;
     auto prefix=(logicalHeader.flags&kDataChecksum)?4U:0U;
     logicalHeader.flags=0;logicalHeader.payloadSize-=prefix;
+    ASSERT_EQ(data.value().header.flags & kDataChecksum, kDataChecksum);
+    ASSERT_EQ(data.value().payload.size(), sizeof(bytes) + 4U);
+    const auto& wirePayload = data.value().payload;
+    const std::uint32_t wireCrc =
+        (static_cast<std::uint32_t>(wirePayload[0]) << 24U) |
+        (static_cast<std::uint32_t>(wirePayload[1]) << 16U) |
+        (static_cast<std::uint32_t>(wirePayload[2]) << 8U) |
+        static_cast<std::uint32_t>(wirePayload[3]);
+    EXPECT_EQ(wireCrc, expected.value);
+    EXPECT_TRUE(std::equal(wirePayload.begin() + 4, wirePayload.end(), bytes));
     ASSERT_TRUE(state.data(logicalHeader, data.value().payload.size()-prefix,
         data.value().payload.data()+prefix).isOk());
     ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, expected).isOk());
@@ -127,6 +282,230 @@ TEST(PersistentSessionTest, CarriesChecksumAlgorithmAndFileEndDigest) {
     ASSERT_TRUE(completed.isOk()) << completed.status().message();
     EXPECT_EQ(completed.value().checksum.algorithm, expected.algorithm);
     EXPECT_EQ(completed.value().checksum.value, expected.value);
+}
+
+TEST(PersistentSessionTest, BuildsFileEndChecksumFromVerifiedFrameChecksums) {
+    PersistentFileIdentity id{1, 1, 7, "combined.bin", "combined-transfer"};
+    id.checksumAlgorithm = cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(beginHeader(7), id).isOk());
+
+    const std::uint8_t bytes[]{'a', 'b', 'c', 'd', 'e', 'f', 'g'};
+    const std::array<std::size_t, 2> lengths{2, 5};
+    std::size_t offset = 0;
+    for (const auto length : lengths) {
+        auto header = beginHeader(7);
+        header.type = FrameType::Data;
+        header.offset = offset;
+        header.payloadSize = length;
+        cpnetflux::checksum::ChecksumComputer frame(id.checksumAlgorithm);
+        frame.update(bytes + offset, length);
+        ASSERT_TRUE(state.dataWithChecksum(header, length, frame.finalize()).isOk());
+        offset += length;
+    }
+
+    cpnetflux::checksum::ChecksumComputer expected(id.checksumAlgorithm);
+    expected.update(bytes, sizeof(bytes));
+    const auto digest = expected.finalize();
+    const std::uint8_t digestBytes[]{static_cast<std::uint8_t>(digest.value >> 24U),
+        static_cast<std::uint8_t>(digest.value >> 16U),
+        static_cast<std::uint8_t>(digest.value >> 8U), static_cast<std::uint8_t>(digest.value)};
+    auto end = beginHeader(7);
+    end.type = FrameType::FileEnd;
+    end.offset = 7;
+    end.payloadSize = sizeof(digestBytes);
+    auto completed = state.end(end, digestBytes, sizeof(digestBytes));
+    ASSERT_TRUE(completed.isOk()) << completed.status().message();
+    EXPECT_EQ(completed.value().checksum.value, digest.value);
+}
+
+TEST(PersistentSessionTest, ChecksumAlgorithmMismatchDoesNotAdvanceSession) {
+    PersistentFileIdentity id{1, 1, 3, "mismatch.bin", "mismatch-transfer"};
+    id.checksumAlgorithm = cpnetflux::checksum::ChecksumAlgorithm::Crc32c;
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(beginHeader(3), id).isOk());
+
+    const std::uint8_t bytes[]{'x', 'y', 'z'};
+    auto header = beginHeader(3);
+    header.type = FrameType::Data;
+    header.payloadSize = sizeof(bytes);
+    EXPECT_FALSE(state.dataWithChecksum(header, sizeof(bytes),
+        cpnetflux::checksum::ChecksumValue{cpnetflux::checksum::ChecksumAlgorithm::None, 0}).isOk());
+    EXPECT_EQ(state.receivedBytes(), 0U);
+
+    cpnetflux::checksum::ChecksumComputer frame(id.checksumAlgorithm);
+    frame.update(bytes, sizeof(bytes));
+    ASSERT_TRUE(state.dataWithChecksum(header, sizeof(bytes), frame.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), sizeof(bytes));
+}
+
+TEST(PersistentSessionTest, MissingChecksumPayloadDoesNotAdvanceSession) {
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(beginHeader(3), "missing.bin",
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c).isOk());
+    auto header = beginHeader(3);
+    header.type = FrameType::Data;
+    header.payloadSize = 3;
+    EXPECT_FALSE(state.data(header, 3).isOk());
+    EXPECT_EQ(state.receivedBytes(), 0U);
+    const std::uint8_t bytes[]{'x', 'y', 'z'};
+    ASSERT_TRUE(state.data(header, sizeof(bytes), bytes).isOk());
+    EXPECT_EQ(state.receivedBytes(), sizeof(bytes));
+}
+
+TEST(PersistentSessionTest, CombinesOnlyMissingRangeFramesInTransferOrder) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    PersistentFileIdentity id{1, 1, 16, "sparse.bin", "sparse-crc", 4, 0,
+        ChecksumAlgorithm::Crc32c, {}, 2, 4, 8, 2};
+    auto header = beginHeader(id.totalSize);
+    header.rangeId = id.rangeId;
+    header.flags = kFileResume;
+    PersistentDataSession state;
+    ASSERT_TRUE(state.begin(header, id).isOk());
+    ASSERT_TRUE(state.setMissingRanges({{4, 6}, {9, 12}}).isOk());
+    const std::uint8_t missing[]{'e', 'f', 'j', 'k', 'l'};
+    ChecksumComputer first(ChecksumAlgorithm::Crc32c);
+    first.update(missing, 2);
+    header.type = FrameType::Data;
+    header.flags = 0;
+    header.payloadSize = 2;
+    header.offset = 9;
+    EXPECT_FALSE(state.dataWithChecksum(header, 2, first.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), 4U);
+    header.offset = 4;
+    ASSERT_TRUE(state.dataWithChecksum(header, 2, first.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), 9U);
+    EXPECT_FALSE(state.dataWithChecksum(header, 2, first.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), 9U);
+    ChecksumComputer second(ChecksumAlgorithm::Crc32c);
+    second.update(missing + 2, 3);
+    header.offset = 9;
+    header.payloadSize = 3;
+    ASSERT_TRUE(state.dataWithChecksum(header, 3, second.finalize()).isOk());
+    EXPECT_EQ(state.receivedBytes(), 12U);
+
+    ChecksumComputer expected(ChecksumAlgorithm::Crc32c);
+    expected.update(missing, sizeof(missing));
+    const auto value = expected.finalize().value;
+    std::uint8_t digest[]{static_cast<std::uint8_t>(value >> 24U),
+        static_cast<std::uint8_t>(value >> 16U),
+        static_cast<std::uint8_t>(value >> 8U), static_cast<std::uint8_t>(value)};
+    header.type = FrameType::FileEnd;
+    header.offset = 12;
+    header.payloadSize = sizeof(digest);
+    digest[0] ^= 0xffU;
+    EXPECT_FALSE(state.end(header, digest, sizeof(digest)).isOk());
+    EXPECT_TRUE(state.active());
+    digest[0] ^= 0xffU;
+    auto completed = state.end(header, digest, sizeof(digest));
+    ASSERT_TRUE(completed.isOk()) << completed.status().message();
+    EXPECT_EQ(completed.value().checksum.value, value);
+}
+
+
+TEST(PersistentSessionTest, CallerOwnedFrameReusesStorageAcrossShortAndControlFrames) {
+    SocketPair pair;
+    PersistentFrame frame;
+    PersistentFileIdentity id{1, 1, 65536, "reuse.bin", "reuse"};
+    const std::vector<std::uint8_t> full(65536, 0xa5);
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+    ASSERT_TRUE(PersistentDataSession::decodeBegin(frame).isOk());
+    for (const auto size : {50000U, 60000U, 65536U}) {
+        ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, full.data(), size).isOk());
+        ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+        EXPECT_EQ(frame.payload.size(), size);
+        EXPECT_LE(frame.payload.capacity(), 65536U) << "growth must stay within the wire bound";
+        EXPECT_TRUE(std::equal(frame.payload.begin(), frame.payload.end(), full.begin()));
+    }
+    const auto* storage = frame.payload.data();
+    const auto capacity = frame.payload.capacity();
+    const std::uint8_t shortPayload[]{0x12, 0x34, 0x56};
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, shortPayload, 3).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+    EXPECT_EQ(frame.payload, (std::vector<std::uint8_t>{0x12, 0x34, 0x56}));
+    EXPECT_EQ(frame.payload.data(), storage);
+    ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 0, &frame).isOk());
+    EXPECT_EQ(frame.header.type, FrameType::FileEnd);
+    EXPECT_TRUE(frame.payload.empty());
+    EXPECT_EQ(frame.payload.capacity(), capacity);
+    ASSERT_TRUE(PersistentDataSession::writeDirectoryEnd(&pair.sender, 1).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 0, &frame).isOk());
+    EXPECT_EQ(frame.header.type, FrameType::DirectoryEnd);
+    EXPECT_TRUE(frame.payload.empty());
+    // A new file uses the same storage; previous short/control sizes leave no tail.
+    ++id.fileId; ++id.generation;
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, full.data(), full.size()).isOk());
+    ASSERT_TRUE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+    EXPECT_EQ(frame.payload, full);
+    EXPECT_EQ(frame.payload.data(), storage);
+    EXPECT_EQ(frame.payload.capacity(), capacity);
+}
+
+TEST(PersistentSessionTest, CallerOwnedFrameRejectsInvalidHeadersBeforeGrowingStorage) {
+    for (const auto invalidMagic : {false, true}) {
+        SocketPair pair;
+        PersistentFrame frame;
+        frame.payload.assign(37, 0xa5);
+        const auto capacity = frame.payload.capacity();
+        auto header = beginHeader(1);
+        header.payloadSize = invalidMagic ? 1 : PersistentDataSession::kMaxPayload + 1;
+        if (invalidMagic) header.magic = 0;
+        const auto wire = encodeFrameHeader(header);
+        ASSERT_TRUE(pair.sender.writeAll(wire.data(), wire.size()).isOk());
+        EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+        EXPECT_TRUE(frame.payload.empty());
+        EXPECT_EQ(frame.header.payloadSize, 0U);
+        EXPECT_EQ(frame.payload.capacity(), capacity);
+    }
+    PersistentFrame frame;
+    frame.payload.assign(37, 0xa5);
+    EXPECT_FALSE(PersistentDataSession::readNext(nullptr, 65536, &frame).isOk());
+    EXPECT_TRUE(frame.payload.empty());
+    SocketPair pair;
+    EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver, 65537, &frame).isOk());
+    EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver, 65536, nullptr).isOk());
+}
+
+TEST(PersistentSessionTest, CallerOwnedFrameClearsTruncatedHeaderOrPayload) {
+    for (const auto partialHeader : {false, true}) {
+        SocketPair pair;
+        PersistentFrame frame;
+        frame.payload.assign(65536, 0xa5);
+        auto header = beginHeader(65536);
+        header.type = FrameType::Data;
+        header.payloadSize = 65536;
+        const auto wire = encodeFrameHeader(header);
+        ASSERT_TRUE(pair.sender.writeAll(wire.data(), partialHeader ? 7 : wire.size()).isOk());
+        if (!partialHeader) {
+            const std::uint8_t partial[]{1, 2, 3};
+            ASSERT_TRUE(pair.sender.writeAll(partial, sizeof(partial)).isOk());
+        }
+        pair.sender.close();
+        EXPECT_FALSE(PersistentDataSession::readNext(&pair.receiver, 65536, &frame).isOk());
+        EXPECT_TRUE(frame.payload.empty());
+        EXPECT_EQ(frame.header.payloadSize, 0U);
+        EXPECT_EQ(frame.payload.capacity(), 65536U);
+    }
+}
+
+TEST(PersistentSessionTest, CallerOwnedFrameShutdownWakesReadAndInvalidatesPayload) {
+    SocketPair pair;
+    PersistentFrame frame;
+    frame.payload.assign(65536, 0xa5);
+    auto read = std::async(std::launch::async, [&] {
+        return PersistentDataSession::readNext(&pair.receiver, 65536, &frame);
+    });
+    pair.receiver.shutdown();
+    EXPECT_EQ(read.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    pair.sender.close(); // Ensure cleanup can finish even if shutdown regresses.
+    EXPECT_FALSE(read.get().isOk());
+    EXPECT_TRUE(frame.payload.empty());
+    EXPECT_EQ(frame.header.payloadSize, 0U);
 }
 
 TEST(PersistentSessionTest, OversizedFrameRejectedBeforePayloadRead) {
@@ -178,7 +557,7 @@ TEST(PersistentSessionTest, DisconnectRetainsOnlyCompletedCheckpointRanges) {
     EXPECT_EQ(resumed.value().bytesCompleted(), 65536U);
 }
 
-TEST(PersistentSessionTest, InterruptedDownloadCheckpointIsAcceptedByLegacyResume) {
+TEST(PersistentSessionTest, InterruptedDownloadCheckpointIsAcceptedByV3Resume) {
     SocketPair pair;
     TempRoot root;
     PersistentFileIdentity id{1, 1, 131072, "partial", "download-interrupt", 65536};
@@ -245,7 +624,7 @@ TEST(PersistentSessionTest, ReceiverDrainsFailedMiddleFileAndCommitsNext) {
         ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id).isOk());
         auto status = PersistentDataSession::readResult(&pair.sender, id);
         ASSERT_TRUE(status.isOk());
-        EXPECT_EQ(status.value(), i == 2 ? FrameStatusCode::WriteFailed : FrameStatusCode::Ok);
+        EXPECT_EQ(status.value(), i == 2 ? FrameStatusCode::OutputExists : FrameStatusCode::Ok);
     }
     ASSERT_TRUE(PersistentDataSession::writeDirectoryEnd(&pair.sender, 3).isOk());
     receiver.join();
@@ -260,7 +639,7 @@ TEST(PersistentSessionTest, ReceiverDrainsFailedMiddleFileAndCommitsNext) {
 }
 
 TEST(PersistentSessionTest, StableFileIdsMapToExactlyOneBoundedChannel) {
-    for (const std::uint32_t channelCount : {1U, 2U, 4U, 8U}) {
+    for (const std::uint32_t channelCount : {1U, 2U, 4U, 8U, 10U}) {
         for (std::uint32_t fileId = 1; fileId <= 128; ++fileId) {
             std::uint32_t matches = 0;
             for (std::uint32_t channel = 0; channel < channelCount; ++channel)
@@ -271,6 +650,92 @@ TEST(PersistentSessionTest, StableFileIdsMapToExactlyOneBoundedChannel) {
     EXPECT_FALSE(persistentFileAssignedToChannel(0, 0, 4));
     EXPECT_FALSE(persistentFileAssignedToChannel(1, 4, 4));
     EXPECT_FALSE(persistentFileAssignedToChannel(1, 0, 0));
+}
+
+TEST(PersistentSessionTest, ReceiverRejectsInvalidWakePolicyBeforeCreatingCheckpoint) {
+    ScopedEnvironment setting("CPNETFLUX_RECEIVER_PIPELINE_WAKE", "invalid");
+    SocketPair pair;
+    TempRoot root;
+    PersistentTreeStats stats;
+    const PersistentFileIdentity id{1, 1, 1, "invalid-wake.bin", "invalid-wake"};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    const auto status = receivePersistentTree(&pair.receiver, root.path.string(), false, "", &stats);
+    EXPECT_FALSE(status.isOk());
+    EXPECT_NE(status.message().find("CPNETFLUX_RECEIVER_PIPELINE_WAKE"), std::string::npos);
+    EXPECT_TRUE(std::filesystem::is_empty(root.path));
+    EXPECT_EQ(stats.payloadBytes, 0U);
+}
+
+TEST(PersistentSessionTest, ReceiverRejectsInvalidWriteBatchBeforeCreatingCheckpoint) {
+    ScopedEnvironment setting("CPNETFLUX_RECEIVER_WRITE_BATCH", "3");
+    SocketPair pair;
+    TempRoot root;
+    PersistentTreeStats stats;
+    const PersistentFileIdentity id{1, 1, 1, "invalid-write.bin", "invalid-write"};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    const auto status = receivePersistentTree(&pair.receiver, root.path.string(), false, "", &stats);
+    EXPECT_FALSE(status.isOk());
+    EXPECT_NE(status.message().find("CPNETFLUX_RECEIVER_WRITE_BATCH"), std::string::npos);
+    EXPECT_TRUE(std::filesystem::is_empty(root.path));
+    EXPECT_EQ(stats.payloadBytes, 0U);
+}
+
+TEST(PersistentSessionTest, ReceiverRejectsInvalidPayloadExecutionBeforeCreatingCheckpoint) {
+    ScopedEnvironment setting("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", "invalid");
+    SocketPair pair;
+    TempRoot root;
+    PersistentTreeStats stats;
+    const PersistentFileIdentity id{1, 1, 1, "invalid-execution.bin", "invalid-execution"};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    const auto status = receivePersistentTree(&pair.receiver, root.path.string(), false, "", &stats);
+    EXPECT_FALSE(status.isOk());
+    EXPECT_NE(status.message().find("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION"), std::string::npos);
+    EXPECT_TRUE(std::filesystem::is_empty(root.path));
+    EXPECT_EQ(stats.payloadBytes, 0U);
+}
+
+TEST(PersistentSessionTest, WriteBatchPreservesWholeFileCrcAndHonorsBufferedExclusion) {
+    ScopedEnvironment setting("CPNETFLUX_RECEIVER_WRITE_BATCH", "2");
+    for (const bool buffered : {false, true}) {
+        SocketPair pair;
+        TempRoot source, destination;
+        std::string content(524305, '\0');
+        for (std::size_t i = 0; i < content.size(); ++i) content[i] = static_cast<char>((i * 31) % 251);
+        std::ofstream(source.path / "gathered.bin", std::ios::binary) << content;
+        struct stat st{};
+        ASSERT_EQ(::stat((source.path / "gathered.bin").c_str(), &st), 0);
+        PersistentFileIdentity id{1, 1, content.size(), "gathered.bin", "gathered-unit", 65536,
+            st.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+        PersistentTransferPolicy policy;
+        policy.options.finalVerifyPolicy = cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks;
+        if (buffered) policy.options.fileIo.bufferSize = 131072;
+        auto context = makePersistentTransferContext(policy);
+        PersistentTreeStats received, sent;
+        received.phaseTiming = true;
+        cpnetflux::common::Status result;
+        std::jthread receiver([&] {
+            result = receivePersistentTree(&pair.receiver, destination.path.string(), false, "", &received,
+                {}, 1, 0, 1, 1, false, false, context);
+        });
+        const auto sentStatus = sendPersistentTree(&pair.sender, source.path.string(), {id}, &sent);
+        if (!sentStatus.isOk()) ::shutdown(pair.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        ASSERT_TRUE(sentStatus.isOk()) << sentStatus.message();
+        ASSERT_TRUE(result.isOk()) << result.message();
+        EXPECT_EQ(received.payloadBytes, content.size());
+        std::ifstream input(destination.path / "gathered.bin", std::ios::binary);
+        EXPECT_EQ(std::string((std::istreambuf_iterator<char>(input)), {}), content);
+        const auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+            cpnetflux::checkpoint::manifestPathForOutput((destination.path / "gathered.bin").string()));
+        ASSERT_TRUE(manifest.isOk()) << manifest.status().message();
+        EXPECT_EQ(manifest.value().verifiedChunks.size(), 9U);
+        std::ostringstream exported;
+        appendPersistentFileTimings(exported, received.fileTimings);
+        EXPECT_NE(exported.str().find(buffered ? "\"receiver_write_batch_limit\":1" :
+            "\"receiver_write_batch_limit\":2"), std::string::npos);
+    }
 }
 
 TEST(PersistentSessionTest, ReceiverRejectsFileAssignedToAnotherChannel) {
@@ -384,40 +849,192 @@ TEST(PersistentSessionTest, SkipsAlreadyCompletedRangeWithoutPayload) {
 }
 
 
-TEST(PersistentTreeRangeTest, LoopbackTransfersTwoRangesAndPublishesAfterFinalRange) {
+TEST(PersistentTreeRecoveryTest, DirectoryEndCountsFilesOnCurrentConnectionAfterReconnect) {
     SocketPair pair;
     TempRoot source;
     TempRoot destination;
-    const std::string content = "ABCDEFGH";
+    const std::string content = "retry payload";
     {
-        std::ofstream output(source.path / "large.bin", std::ios::binary);
+        std::ofstream output(source.path / "retry.bin", std::ios::binary);
         output << content;
     }
     struct stat sourceStat{};
-    ASSERT_EQ(::stat((source.path / "large.bin").c_str(), &sourceStat), 0);
-    std::vector<PersistentFileIdentity> ranges;
-    for (std::uint64_t index = 0; index < 2; ++index) {
-        ranges.push_back(PersistentFileIdentity{1, 7, content.size(), "large.bin", "range-loopback",
-            4, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
-            index + 1, index * 4, 4, 2, 1});
-    }
+    ASSERT_EQ(::stat((source.path / "retry.bin").c_str(), &sourceStat), 0);
+    PersistentFileIdentity file{1, 2, content.size(), "retry.bin", "retry-count",
+        65536, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None};
     PersistentTreeStats receivedStats;
     cpnetflux::common::Status receiveStatus;
     std::jthread receiver([&] {
         receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
-            &receivedStats, {}, 2, 0, 1, 1, false, false);
+            &receivedStats);
     });
     PersistentTreeStats sentStats;
-    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), ranges, &sentStats,
+    sentStats.files = 1;  // The previous data connection completed one file.
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {file}, &sentStats);
+    receiver.join();
+    EXPECT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    EXPECT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(sentStats.files, 2U);  // Cumulative reporting remains intact.
+    EXPECT_EQ(receivedStats.files, 1U);  // This connection carried one file.
+}
+
+TEST(PersistentTreeRangeTest, LoopbackTransfersTwoRangesAndPublishesAfterFinalRange) {
+    for (const auto* execution : {"queued", "inline"}) {
+        SCOPED_TRACE(execution);
+        ScopedEnvironment senderMode("CPNETFLUX_SENDER_PAYLOAD_EXECUTION", execution);
+        SocketPair pair;
+        TempRoot source;
+        TempRoot destination;
+        const std::string content = "ABCDEFGH";
+        {
+            std::ofstream output(source.path / "large.bin", std::ios::binary);
+            output << content;
+        }
+        struct stat sourceStat{};
+        ASSERT_EQ(::stat((source.path / "large.bin").c_str(), &sourceStat), 0);
+        std::vector<PersistentFileIdentity> ranges;
+        for (std::uint64_t index = 0; index < 2; ++index) {
+            ranges.push_back(PersistentFileIdentity{1, 7, content.size(), "large.bin", "range-loopback",
+                4, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
+                index + 1, index * 4, 4, 2, 1});
+        }
+        PersistentTreeStats receivedStats;
+        cpnetflux::common::Status receiveStatus;
+        std::jthread receiver([&] {
+            receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+                &receivedStats, {}, 2, 0, 1, 1, false, false);
+        });
+        PersistentTreeStats sentStats;
+        sentStats.phaseTiming = true;
+        const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), ranges, &sentStats,
+            {}, 2, 0, 1, nullptr);
+        receiver.join();
+        ASSERT_TRUE(sendStatus.isOk()) << "send=" << sendStatus.message() << " receive=" << receiveStatus.message();
+        ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+        EXPECT_EQ(sentStats.files, 1U);
+        EXPECT_EQ(receivedStats.files, 1U);
+        const bool inlinePayload = std::string_view(execution) == "inline";
+        if (inlinePayload) {
+            EXPECT_EQ(sentStats.payloadPipelineBudgetBytes, 0U);
+            EXPECT_EQ(sentStats.payloadPipelineHighWatermarkBytes, 0U);
+        } else {
+            EXPECT_GT(sentStats.payloadPipelineBudgetBytes, 0U);
+            EXPECT_GT(sentStats.payloadPipelineHighWatermarkBytes, 0U);
+        }
+        EXPECT_LE(sentStats.payloadPipelineHighWatermarkBytes, sentStats.payloadPipelineBudgetBytes);
+        ASSERT_EQ(sentStats.fileTimings.size(), 2U);
+        for (const auto& timing : sentStats.fileTimings) {
+            EXPECT_EQ(timing.senderInlinePayload, inlinePayload);
+            if (inlinePayload) {
+                EXPECT_EQ(timing.payloadPipelineDepth, 0U);
+                EXPECT_EQ(timing.producerThreadCpuSeconds, 0);
+                EXPECT_EQ(timing.payloadBufferAllocations, 1U);
+                EXPECT_EQ(timing.payloadBufferOwnershipBudgetBytes, 65532U);
+            }
+        }
+        std::ifstream input(destination.path / "large.bin", std::ios::binary);
+        std::string actual((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        EXPECT_EQ(actual, content);
+    }
+}
+
+
+TEST(PersistentTreeRangeTest, RangeWriteBatchExportsEffectiveBufferAndPreservesData) {
+    SocketPair pair;
+    TempRoot source, destination;
+    const std::string content(262144, 'B');
+    std::ofstream(source.path / "batched.bin", std::ios::binary) << content;
+    struct stat sourceStat{};
+    ASSERT_EQ(::stat((source.path / "batched.bin").c_str(), &sourceStat), 0);
+    std::vector<PersistentFileIdentity> ranges;
+    for (std::uint64_t index = 0; index < 2; ++index) {
+        ranges.push_back(PersistentFileIdentity{1, 8, content.size(), "batched.bin", "range-batch",
+            131072, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
+            index + 1, index * 131072, 131072, 2, 1});
+    }
+    ScopedEnvironment batchSetting("CPNETFLUX_RANGE_WRITE_BATCH_BYTES", "131072");
+    PersistentTransferPolicy policy;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received;
+    received.phaseTiming = true;
+    PersistentTreeStats sent;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 2, 0, 1, 1, false, false, context);
+    });
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), ranges, &sent,
         {}, 2, 0, 1, nullptr);
     receiver.join();
-    ASSERT_TRUE(sendStatus.isOk()) << "send=" << sendStatus.message() << " receive=" << receiveStatus.message();
+    ASSERT_TRUE(sendStatus.isOk()) << sendStatus.message();
     ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
-    EXPECT_EQ(sentStats.files, 1U);
-    EXPECT_EQ(receivedStats.files, 1U);
-    std::ifstream input(destination.path / "large.bin", std::ios::binary);
-    std::string actual((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    EXPECT_EQ(actual, content);
+    ASSERT_EQ(received.fileTimings.size(), 2U);
+    for (const auto& timing : received.fileTimings) {
+        EXPECT_EQ(timing.rangeObservation.rangeWriteBatchBytes, 131072U);
+        EXPECT_EQ(timing.rangeObservation.dataFrameCount, 3U);
+        EXPECT_EQ(timing.rangeObservation.writerCallCount, 3U);
+        EXPECT_EQ(timing.rangeObservation.fileWrite.writeAtAllCalls, 1U);
+    }
+    std::ostringstream exported;
+    appendPersistentFileTimings(exported, received.fileTimings);
+    EXPECT_NE(exported.str().find("\"range_write_batch_bytes\":131072"), std::string::npos);
+    std::ifstream input(destination.path / "batched.bin", std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(input)), {}), content);
+}
+
+
+TEST(PersistentTreeRangeTest, RejectsOutOfRangeWriteBatchBeforeDataIsWritten) {
+    SocketPair pair;
+    TempRoot source, destination;
+    std::ofstream(source.path / "invalid-batch.bin") << "DATA";
+    struct stat sourceStat{};
+    ASSERT_EQ(::stat((source.path / "invalid-batch.bin").c_str(), &sourceStat), 0);
+    PersistentFileIdentity id{1, 9, 4, "invalid-batch.bin", "invalid-batch", 4,
+        sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
+        1, 0, 4, 1, 1};
+    ScopedEnvironment batchSetting("CPNETFLUX_RANGE_WRITE_BATCH_BYTES", "4096");
+    PersistentTransferPolicy policy;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received, sent;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, false, false, context);
+    });
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {id}, &sent);
+    receiver.join();
+    EXPECT_FALSE(sendStatus.isOk());
+    EXPECT_FALSE(receiveStatus.isOk());
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "invalid-batch.bin"));
+}
+
+
+TEST(PersistentTreeRangeTest, DirectWriteStrategyOverridesRangeBatchEnvironment) {
+    SocketPair pair;
+    TempRoot source, destination;
+    std::ofstream(source.path / "direct.bin") << "DATA";
+    struct stat sourceStat{};
+    ASSERT_EQ(::stat((source.path / "direct.bin").c_str(), &sourceStat), 0);
+    PersistentFileIdentity id{1, 10, 4, "direct.bin", "direct-batch-override", 4,
+        sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::None, {},
+        1, 0, 4, 1, 1};
+    ScopedEnvironment batchSetting("CPNETFLUX_RANGE_WRITE_BATCH_BYTES", "invalid");
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received, sent;
+    received.phaseTiming = true;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, false, false, context);
+    });
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {id}, &sent);
+    receiver.join();
+    ASSERT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    ASSERT_EQ(received.fileTimings.size(), 1U);
+    EXPECT_EQ(received.fileTimings.front().rangeObservation.rangeWriteBatchBytes, 0U);
 }
 
 TEST(PersistentTreeRangeTest, IncompleteCoverageCannotPublishDespiteMatchingRangeCount) {
@@ -438,17 +1055,23 @@ TEST(PersistentTreeRangeTest, IncompleteCoverageCannotPublishDespiteMatchingRang
     EXPECT_FALSE(std::filesystem::exists(destination.path / "gap.bin"));
 }
 
-TEST(PersistentTreeRangeTest, DisconnectReleasesTransactionAndResumeRechecksCorruptCheckpoint) {
+class PersistentReceiverPolicyIntegrityTest : public ::testing::TestWithParam<
+    cpnetflux::core::session::FinalVerifyPolicy> {};
+
+TEST_P(PersistentReceiverPolicyIntegrityTest, DisconnectReleasesTransactionAndResumeRechecksCorruptCheckpoint) {
     TempRoot source, destination;
     std::ofstream(source.path/"resume.bin")<<"ABCDEFGH";
     struct stat st{}; ASSERT_EQ(::stat((source.path/"resume.bin").c_str(),&st),0);
     PersistentFileIdentity a{1,7,8,"resume.bin","resume-range",4,st.st_mtim.tv_sec,
         cpnetflux::checksum::ChecksumAlgorithm::Crc32c,{},1,0,4,2};
     auto b=a; b.rangeId=2; b.rangeOffset=4;
+    PersistentTransferPolicy policy;
+    policy.options.finalVerifyPolicy = GetParam();
     {
         SocketPair pair; PersistentTreeStats stats; cpnetflux::common::Status result;
+        auto context = makePersistentTransferContext(policy);
         std::jthread receiver([&] {result=receivePersistentTree(&pair.receiver,destination.path.string(),
-            false,"",&stats,{},1,0,1,1,true,false);});
+            false,"",&stats,{},1,0,1,1,true,false,context);});
         ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender,a).isOk());
         auto response=PersistentDataSession::readResumeResponse(&pair.sender,a);
         ASSERT_TRUE(response.isOk());
@@ -469,11 +1092,13 @@ TEST(PersistentTreeRangeTest, DisconnectReleasesTransactionAndResumeRechecksCorr
     { std::fstream partial(saved.value().tempPath,std::ios::in|std::ios::out|std::ios::binary);
       partial.put('X'); }
     SocketPair pair; PersistentTreeStats received,sent; cpnetflux::common::Status result;
+    auto context = makePersistentTransferContext(policy);
     std::jthread receiver([&] {result=receivePersistentTree(&pair.receiver,destination.path.string(),
-        false,"",&received,{},1,0,1,1,true,true);});
+        false,"",&received,{},1,0,1,1,true,true,context);});
     auto status=sendPersistentTree(&pair.sender,source.path.string(),{a,b},&sent);
     ::shutdown(pair.sender.fd(),SHUT_RDWR); receiver.join();
     ASSERT_TRUE(status.isOk())<<status.message(); ASSERT_TRUE(result.isOk())<<result.message();
+    EXPECT_EQ(sent.payloadBytes, 8U);
     std::ifstream output(destination.path/"resume.bin");
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),"ABCDEFGH");
 }
@@ -547,7 +1172,7 @@ TEST(PersistentTreeRangeTest, UnifiedPolicySupportsCompressionBufferedIoPrealloc
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),content);
 }
 
-TEST(PersistentTreeRangeTest, RangeResumeConsumesLegacyChunkManifestAndSendsOnlyMissingBytes) {
+TEST(PersistentTreeRangeTest, RangeResumeConsumesCurrentChunkManifestAndSendsOnlyMissingBytes) {
     TempRoot source,destination;std::ofstream(source.path/"old.bin")<<"ABCDEFGH";
     struct stat st{};ASSERT_EQ(::stat((source.path/"old.bin").c_str(),&st),0);
     auto session=cpnetflux::core::session::TransferSession::createNew(
@@ -573,7 +1198,47 @@ TEST(PersistentTreeRangeTest, RangeResumeConsumesLegacyChunkManifestAndSendsOnly
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),"ABCDEFGH");
 }
 
-TEST(PersistentTreeRangeTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
+TEST(PersistentTreeRangeTest, FramesCrossingChunkBoundariesKeepPerChunkChecksums) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    SocketPair pair;
+    TempRoot destination;
+    PersistentFileIdentity id{1, 1, 10, "cross-chunk.bin", "cross-chunk", 4, 0,
+        ChecksumAlgorithm::Crc32c};
+    const std::uint8_t bytes[]{'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'};
+    ASSERT_TRUE(PersistentDataSession::setTimeout(&pair.receiver, 2).isOk());
+    ASSERT_TRUE(PersistentDataSession::setTimeout(&pair.sender, 2).isOk());
+    PersistentTreeStats stats;
+    cpnetflux::common::Status result;
+    std::jthread receiver([&] {
+        result = receivePersistentTree(&pair.receiver, destination.path.string(), false, "", &stats);
+    });
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, bytes, 6).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 6, bytes + 6, 4).isOk());
+    ChecksumComputer whole(id.checksumAlgorithm);
+    whole.update(bytes, sizeof(bytes));
+    ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, whole.finalize()).isOk());
+    auto completed = PersistentDataSession::readResult(&pair.sender, id);
+    ASSERT_TRUE(completed.isOk()) << completed.status().message();
+    EXPECT_EQ(completed.value(), FrameStatusCode::Ok);
+    ASSERT_TRUE(PersistentDataSession::writeDirectoryEnd(&pair.sender, 1).isOk());
+    receiver.join();
+    ASSERT_TRUE(result.isOk()) << result.message();
+    auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+        cpnetflux::checkpoint::manifestPathForOutput((destination.path / id.relativePath).string()));
+    ASSERT_TRUE(manifest.isOk()) << manifest.status().message();
+    ASSERT_EQ(manifest.value().verifiedChunks.size(), 3U);
+    for (const auto& record : manifest.value().verifiedChunks) {
+        ChecksumComputer chunk(id.checksumAlgorithm);
+        chunk.update(bytes + record.offset, record.length);
+        EXPECT_EQ(record.checksum.value, chunk.finalize().value);
+    }
+    std::ifstream output(destination.path / id.relativePath, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), "abcdefghij");
+}
+
+TEST_P(PersistentReceiverPolicyIntegrityTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
     SocketPair pair;TempRoot source,destination;
     std::ofstream(source.path/"bad.bin")<<std::string(65536,'A');
     struct stat st{};ASSERT_EQ(::stat((source.path/"bad.bin").c_str(),&st),0);
@@ -582,8 +1247,12 @@ TEST(PersistentTreeRangeTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
     cpnetflux::config::FileTransferOptions options;
     options.path=(source.path/"bad.bin").string();options.hasCorruptChunk=true;options.corruptChunk=0;
     PersistentTreeStats received,sent;cpnetflux::common::Status result;
+    PersistentTransferPolicy policy;
+    policy.options.finalVerifyPolicy = GetParam();
+    auto context = makePersistentTransferContext(policy);
     std::jthread receiver([&] {
-        result=receivePersistentTree(&pair.receiver,destination.path.string(),false,"",&received);
+        result=receivePersistentTree(&pair.receiver,destination.path.string(),false,"",&received,
+            {},1,0,1,kUnknownPersistentFileCount,false,false,context);
         ::shutdown(pair.receiver.fd(),SHUT_RDWR);
     });
     auto status=sendPersistentTree(&pair.sender,source.path.string(),{id},&sent,{},1,0,1,nullptr,&options);
@@ -593,6 +1262,68 @@ TEST(PersistentTreeRangeTest, BadDataChecksumNeverBecomesAResumeCheckpoint) {
     ASSERT_TRUE(checkpoint.isOk());EXPECT_TRUE(checkpoint.value().verifiedChunks.empty());
     EXPECT_FALSE(std::filesystem::exists(destination.path/"bad.bin"));
 }
+
+INSTANTIATE_TEST_SUITE_P(FinalVerificationPolicies, PersistentReceiverPolicyIntegrityTest,
+    ::testing::Values(cpnetflux::core::session::FinalVerifyPolicy::Full,
+                      cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks));
+
+class PersistentReceiverSizeIntegrityTest : public ::testing::TestWithParam<
+    std::tuple<bool, cpnetflux::checksum::ChecksumAlgorithm>> {};
+
+TEST_P(PersistentReceiverSizeIntegrityTest, CannotPublishTruncatedOutputWithVerifiedChunksRequested) {
+    const auto [download, algorithm] = GetParam();
+    SocketPair pair;
+    TempRoot destination;
+    ASSERT_TRUE(PersistentDataSession::setTimeout(&pair.receiver, 2).isOk());
+    ASSERT_TRUE(PersistentDataSession::setTimeout(&pair.sender, 2).isOk());
+    PersistentTransferPolicy policy;
+    policy.options.finalVerifyPolicy = cpnetflux::core::session::FinalVerifyPolicy::VerifiedChunks;
+    policy.options.manifestFlushIntervalChunks = 1;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received;
+    cpnetflux::common::Status result;
+    PersistentFileIdentity id{1, 1, 4, "readback.bin", "no-checksum-readback", 4, 0,
+        algorithm};
+    std::jthread receiver([&] {
+        result = receivePersistentTree(&pair.receiver, destination.path.string(), download, "remote", &received,
+            {}, 1, 0, 1, 1, false, false, context);
+    });
+    const std::uint8_t bytes[]{'D', 'A', 'T', 'A'};
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+    ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, bytes, sizeof(bytes)).isOk());
+    std::string temporaryPath;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto completedPath = [](const auto& manifest) -> std::string {
+            return manifest.isOk() && manifest.value().verifiedChunks.size() == 1
+                ? manifest.value().tempPath : "";
+        };
+        const auto output = (destination.path / id.relativePath).string();
+        temporaryPath = download
+            ? completedPath(cpnetflux::checkpoint::loadDownloadManifest(
+                cpnetflux::checkpoint::downloadManifestPathForOutput(output)))
+            : completedPath(cpnetflux::checkpoint::ManifestStore::load(
+                cpnetflux::checkpoint::manifestPathForOutput(output)));
+        if (!temporaryPath.empty()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_FALSE(temporaryPath.empty());
+    std::filesystem::resize_file(temporaryPath, 0);
+    cpnetflux::checksum::ChecksumComputer checksum(algorithm);
+    checksum.update(bytes, sizeof(bytes));
+    ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, checksum.finalize()).isOk());
+    auto response = PersistentDataSession::readResult(&pair.sender, id);
+    ASSERT_TRUE(response.isOk()) << response.status().message();
+    EXPECT_NE(response.value(), FrameStatusCode::Ok);
+    (void)PersistentDataSession::writeDirectoryEnd(&pair.sender, 1);
+    ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    EXPECT_FALSE(std::filesystem::exists(destination.path / id.relativePath));
+}
+
+INSTANTIATE_TEST_SUITE_P(ReceivingRolesAndChecksums, PersistentReceiverSizeIntegrityTest,
+    ::testing::Combine(::testing::Bool(), ::testing::Values(
+        cpnetflux::checksum::ChecksumAlgorithm::None, cpnetflux::checksum::ChecksumAlgorithm::Crc32c)));
 
 
 TEST(PersistentTreeLeaseTest, ReopenedWorkerUsesCurrentEpochThroughActualSender) {
@@ -631,4 +1362,1285 @@ TEST(PersistentTreeLeaseTest, ReopenedWorkerUsesCurrentEpochThroughActualSender)
     EXPECT_FALSE(queue.commit(*first.value()).isOk());
     std::ifstream output(destination.path / "retry.bin");
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), "ABCDEFGH");
+}
+
+TEST(PersistentLifetimeTest, ResultTimeoutWakesBlockedReader) {
+    SocketPair pair;
+    PersistentTransferLimits limits;
+    limits.resultTimeout = std::chrono::milliseconds(60);
+    detail::PersistentTransferLifetime lifetime(&pair.sender, limits);
+    PersistentFileIdentity file;
+    (void)lifetime.beginResult(file);
+    auto reader = std::async(std::launch::async, [&] {
+        return PersistentDataSession::readNext(&pair.sender, PersistentDataSession::kMaxPayload);
+    });
+    const auto ready = reader.wait_for(std::chrono::milliseconds(750));
+    pair.sender.shutdown();
+    EXPECT_EQ(ready, std::future_status::ready);
+    EXPECT_FALSE(reader.get().isOk());
+    EXPECT_FALSE(lifetime.status().isOk());
+}
+
+TEST(PersistentTreeLeaseTest, IncomingLeaseEntersResultPhaseBeforeFinalCallback) {
+    TempRoot source, destination;
+    std::ofstream(source.path / "commit.bin") << "ABCDEFGH";
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "commit.bin").c_str(), &st), 0);
+    PersistentFileIdentity file{1, 7, 8, "commit.bin", "incoming-result", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    file.rangeId = 1; file.rangeLength = 8; file.rangeCount = 1;
+    DynamicFileQueue incoming(std::vector<WorkItem>{}, 1, 1, 1);
+    const auto owner = incoming.worker(0).value();
+    SocketPair pair;
+    PersistentTreeStats sent, received;
+    cpnetflux::common::Status receiveStatus;
+    bool observed = false;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false,
+            "", &received, [&](const auto&, const auto&, bool complete) {
+                if (complete) {
+                    auto active = incoming.active(owner);
+                    EXPECT_TRUE(active.isOk());
+                    if (active.isOk() && active.value().size() == 1) {
+                        const auto& lease = active.value().front();
+                        EXPECT_EQ(lease.state, WorkLeaseState::CommitPending);
+                        EXPECT_GT(lease.deadline, WorkClock::now() + std::chrono::minutes(4));
+                        observed = true;
+                    }
+                }
+                return cpnetflux::common::Status::ok();
+            }, 1, 0, 1, 1, true, false, {}, &incoming);
+    });
+    auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {file}, &sent);
+    pair.sender.shutdown();
+    receiver.join();
+    EXPECT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    EXPECT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_TRUE(observed);
+    EXPECT_EQ(incoming.active(owner).value().size(), 0U);
+}
+
+TEST(PersistentLifetimeTest, TaskDeadlineBoundsLongResultBudget) {
+    SocketPair pair;
+    PersistentTransferLimits limits;
+    limits.taskDeadline = WorkClock::now() + std::chrono::milliseconds(60);
+    detail::PersistentTransferLifetime lifetime(&pair.sender, limits);
+    PersistentFileIdentity file;
+    EXPECT_EQ(lifetime.beginResult(file), *limits.taskDeadline);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    EXPECT_FALSE(lifetime.status().isOk());
+}
+
+TEST(PersistentLifetimeTest, ActualSenderBoundsDelayedReceiverResult) {
+    TempRoot source, destination;
+    std::ofstream(source.path / "delayed.bin") << "ABCDEFGH";
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "delayed.bin").c_str(), &st), 0);
+    PersistentFileIdentity file{1, 7, 8, "delayed.bin", "delayed-result", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    file.rangeId = 1; file.rangeLength = 8; file.rangeCount = 1;
+    SocketPair pair;
+    PersistentTreeStats sent, received;
+    std::jthread receiver([&] {
+        (void)receivePersistentTree(&pair.receiver, destination.path.string(), false,
+            "", &received, [](const auto&, const auto&, bool complete) {
+                if (complete) std::this_thread::sleep_for(std::chrono::milliseconds(180));
+                return cpnetflux::common::Status::ok();
+            });
+    });
+    PersistentTransferLimits limits;
+    limits.resultTimeout = std::chrono::milliseconds(60);
+    const auto sentStatus = sendPersistentTree(&pair.sender, source.path.string(), {file},
+        &sent, {}, 1, 0, 1, nullptr, nullptr, false, 3, limits);
+    EXPECT_FALSE(sentStatus.isOk());
+    EXPECT_EQ(sentStatus.message(), "V3 result/commit deadline exceeded");
+    pair.sender.shutdown();
+    receiver.join();
+}
+
+TEST(PersistentTreeLeaseTest, ResultWaitBeyondThirtySecondsCompletesActualTcpLane) {
+    TempRoot source, destination;
+    std::ofstream(source.path / "long-commit.bin") << "ABCDEFGH";
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "long-commit.bin").c_str(), &st), 0);
+    PersistentFileIdentity file{1, 7, 8, "long-commit.bin", "long-commit", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    file.rangeId = 1; file.rangeLength = 8; file.rangeCount = 1;
+    DynamicFileQueue outgoing(std::vector<PersistentFileIdentity>{file}, 1, 1, 1);
+    DynamicFileQueue incoming(std::vector<WorkItem>{}, 1, 1, 1);
+    LoopbackTcpPair pair;
+    PersistentTreeStats sent, received;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false,
+            "", &received, [](const auto&, const auto&, bool complete) {
+                if (complete) std::this_thread::sleep_for(std::chrono::seconds(31));
+                return cpnetflux::common::Status::ok();
+            }, 1, 0, 1, 1, true, false, {}, &incoming);
+    });
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), {}, &sent,
+        {}, 1, 0, 1, &outgoing);
+    pair.sender.shutdown();
+    receiver.join();
+    EXPECT_TRUE(sendStatus.isOk()) << sendStatus.message();
+    EXPECT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(outgoing.outstanding(), 0U);
+    EXPECT_TRUE(incoming.active(incoming.worker(0).value()).value().empty());
+}
+
+TEST(PersistentLifetimeTest, CompletedResultsDoNotExpireHealthyLane) {
+    SocketPair pair;
+    PersistentTransferLimits limits;
+    limits.resultTimeout = std::chrono::milliseconds(50);
+    detail::PersistentTransferLifetime lifetime(&pair.sender, limits);
+    PersistentFileIdentity file;
+    (void)lifetime.beginResult(file);
+    lifetime.finishResult(file);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    EXPECT_TRUE(lifetime.status().isOk());
+}
+
+namespace {
+class PersistentRecoveryTest : public ::testing::TestWithParam<std::tuple<bool, bool>> {};
+}
+
+TEST_P(PersistentRecoveryTest, ReopenedTransportSendsOnlyManifestMissingPayload) {
+    const auto [download, ranged] = GetParam();
+    TempRoot source, destination;
+    const auto sourcePath = source.path / "recover.bin";
+    std::ofstream(sourcePath, std::ios::binary) << "ABCDEFGH";
+    struct stat st{}; ASSERT_EQ(::stat(sourcePath.c_str(), &st), 0);
+    PersistentFileIdentity id{1, 7, 8, "recover.bin", "recover-transfer", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    // A single full-file range still uses the range coordinator and sparse handshake.
+    if (ranged) { id.rangeId = 1; id.rangeLength = 8; id.rangeCount = 1; }
+    DynamicFileQueue queue(std::vector<PersistentFileIdentity>{id}, 1, 1, 1);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    auto next = executor.claim(); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    ASSERT_TRUE(executor.begin(*next.value()).isOk());
+    {
+        SocketPair broken;
+        PersistentTreeStats partial;
+        cpnetflux::common::Status interrupted;
+        std::jthread receiver([&] {
+            interrupted = receivePersistentTree(&broken.receiver, destination.path.string(),
+                download, "remote/tree", &partial, {}, 1, 0, 1, 1, true);
+        });
+        ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, id).isOk());
+        if (ranged) {
+            auto missing = PersistentDataSession::readResumeResponse(&broken.sender, id);
+            ASSERT_TRUE(missing.isOk());
+        }
+        const std::uint8_t bytes[]{'A', 'B', 'C', 'D'};
+        ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender, id, 0, bytes, sizeof(bytes)).isOk());
+        ::shutdown(broken.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        EXPECT_FALSE(interrupted.isOk());
+        EXPECT_EQ(partial.payloadBytes, 4U);
+    } // Old sockets closed and receiver joined before disconnect/recover.
+    const auto output = (destination.path / "recover.bin").string();
+    if (download) {
+        auto manifest = cpnetflux::checkpoint::loadDownloadManifest(
+            cpnetflux::checkpoint::downloadManifestPathForOutput(output));
+        ASSERT_TRUE(manifest.isOk()); ASSERT_EQ(manifest.value().verifiedChunks.size(), 1U);
+        EXPECT_EQ(manifest.value().verifiedChunks.front().length, 4U);
+    } else {
+        auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+            cpnetflux::checkpoint::manifestPathForOutput(output));
+        ASSERT_TRUE(manifest.isOk()); ASSERT_EQ(manifest.value().verifiedChunks.size(), 1U);
+        EXPECT_EQ(manifest.value().verifiedChunks.front().length, 4U);
+    }
+    ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+    auto recovered = executor.recover({{*next.value(), WorkRecoveryDisposition::Missing}}, 1);
+    ASSERT_TRUE(recovered.isOk()) << recovered.status().message();
+    EXPECT_EQ(recovered.value().epoch.value, 2U);
+    EXPECT_FALSE(executor.commit(*next.value()).isOk());
+
+    SocketPair resumed;
+    PersistentTreeStats sent, received;
+    DynamicFileQueue incoming(std::vector<WorkItem>{}, 1, 1, 1);
+    ASSERT_TRUE(incoming.setConnectionEpoch({2}).isOk());
+    cpnetflux::common::Status receiverStatus;
+    std::jthread receiver([&] {
+        receiverStatus = receivePersistentTree(&resumed.receiver, destination.path.string(),
+            download, "remote/tree", &received, {}, 1, 0, 1, 1, true, true, {}, &incoming);
+    });
+    cpnetflux::config::FileTransferOptions options; options.resume = true;
+    std::uint64_t completedAttempt = 0;
+    auto senderStatus = sendPersistentTree(&resumed.sender, source.path.string(), {}, &sent,
+        [&](const PersistentFileIdentity& file, const cpnetflux::common::Status& status, bool complete) {
+            if (complete && status.isOk()) completedAttempt = file.attempt;
+            return cpnetflux::common::Status::ok();
+        }, 1, 0, 1, &queue, &options);
+    ::shutdown(resumed.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(senderStatus.isOk()) << senderStatus.message();
+    ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+    EXPECT_EQ(sent.payloadBytes, 4U);
+    EXPECT_EQ(sent.skippedBytes, 4U);
+    EXPECT_EQ(received.payloadBytes, 4U);
+    EXPECT_EQ(completedAttempt, 1U);
+    EXPECT_EQ(queue.outstanding(), 0U);
+    EXPECT_EQ(incoming.outstanding(), 0U);
+    std::ifstream file(output, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), "ABCDEFGH");
+}
+
+TEST_P(PersistentRecoveryTest, RequeuedWorkResumesWithoutGlobalOrLaneResumeFlag) {
+    const auto [download, ranged] = GetParam();
+    TempRoot source, destination;
+    const auto sourcePath = source.path / "recover.bin";
+    std::ofstream(sourcePath, std::ios::binary) << "ABCDEFGH";
+    struct stat st{}; ASSERT_EQ(::stat(sourcePath.c_str(), &st), 0);
+    PersistentFileIdentity id{1, 7, 8, "recover.bin", "recover-transfer", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    // A single full-file range still uses the range coordinator and sparse handshake.
+    if (ranged) { id.rangeId = 1; id.rangeLength = 8; id.rangeCount = 1; }
+    DynamicFileQueue queue(std::vector<PersistentFileIdentity>{id}, 2, 1, 1);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    auto next = executor.claim(); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    ASSERT_TRUE(executor.begin(*next.value()).isOk());
+    {
+        SocketPair broken;
+        PersistentTreeStats partial;
+        cpnetflux::common::Status interrupted;
+        std::jthread receiver([&] {
+            interrupted = receivePersistentTree(&broken.receiver, destination.path.string(),
+                download, "remote/tree", &partial, {}, 1, 0, 1, 1, true);
+        });
+        ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, id).isOk());
+        if (ranged) {
+            auto missing = PersistentDataSession::readResumeResponse(&broken.sender, id);
+            ASSERT_TRUE(missing.isOk());
+        }
+        const std::uint8_t bytes[]{'A', 'B', 'C', 'D'};
+        ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender, id, 0, bytes, sizeof(bytes)).isOk());
+        ::shutdown(broken.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        EXPECT_FALSE(interrupted.isOk());
+        EXPECT_EQ(partial.payloadBytes, 4U);
+    } // Old sockets closed and receiver joined before disconnect/recover.
+    const auto output = (destination.path / "recover.bin").string();
+    if (download) {
+        auto manifest = cpnetflux::checkpoint::loadDownloadManifest(
+            cpnetflux::checkpoint::downloadManifestPathForOutput(output));
+        ASSERT_TRUE(manifest.isOk()); ASSERT_EQ(manifest.value().verifiedChunks.size(), 1U);
+        EXPECT_EQ(manifest.value().verifiedChunks.front().length, 4U);
+    } else {
+        auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+            cpnetflux::checkpoint::manifestPathForOutput(output));
+        ASSERT_TRUE(manifest.isOk()); ASSERT_EQ(manifest.value().verifiedChunks.size(), 1U);
+        EXPECT_EQ(manifest.value().verifiedChunks.front().length, 4U);
+    }
+    ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+    ASSERT_TRUE(queue.requeue(*next.value()).isOk());
+    EXPECT_EQ(queue.worker(1).value().epoch.value, 1U);
+    EXPECT_FALSE(executor.commit(*next.value()).isOk());
+
+    SocketPair resumed;
+    PersistentTreeStats sent, received;
+    DynamicFileQueue incoming(std::vector<WorkItem>{}, 2, 1, 1);
+    cpnetflux::common::Status receiverStatus;
+    std::jthread receiver([&] {
+        receiverStatus = receivePersistentTree(&resumed.receiver, destination.path.string(),
+            download, "remote/tree", &received, {}, 1, 1, 2, 1, true, false, {}, &incoming);
+    });
+    cpnetflux::config::FileTransferOptions options;
+    options.resume = false;
+    options.reconnectAttempt = 0; // Healthy lane; the work lease owns attempt1.
+    std::uint64_t completedAttempt = 0;
+    auto senderStatus = sendPersistentTree(&resumed.sender, source.path.string(), {}, &sent,
+        [&](const PersistentFileIdentity& file, const cpnetflux::common::Status& status, bool complete) {
+            if (complete && status.isOk()) completedAttempt = file.attempt;
+            return cpnetflux::common::Status::ok();
+        }, 1, 1, 2, &queue, &options);
+    ::shutdown(resumed.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(senderStatus.isOk()) << senderStatus.message();
+    ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+    EXPECT_EQ(sent.payloadBytes, 4U);
+    EXPECT_EQ(sent.skippedBytes, 4U);
+    EXPECT_EQ(received.payloadBytes, 4U);
+    EXPECT_EQ(completedAttempt, 1U);
+    EXPECT_EQ(queue.outstanding(), 0U);
+    EXPECT_EQ(incoming.outstanding(), 0U);
+    std::ifstream file(output, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), "ABCDEFGH");
+}
+
+
+INSTANTIATE_TEST_SUITE_P(UploadDownloadWholeAndRange, PersistentRecoveryTest,
+    ::testing::Combine(::testing::Bool(), ::testing::Bool()));
+
+TEST(PersistentTreeLeaseTest, UnreadResultReconcilesCommittedManifestWithoutPayloadRetry) {
+    for (const bool download : {false, true}) {
+        TempRoot destination;
+        PersistentFileIdentity id{1, 7, 8, "committed.bin", "lost-result-transfer", 4, 12,
+            cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+        DynamicFileQueue queue(std::vector<PersistentFileIdentity>{id}, 1, 1, 1);
+        WorkExecutor executor(queue, queue.worker(0).value());
+        auto lease = executor.claim(); ASSERT_TRUE(lease.isOk()); ASSERT_TRUE(lease.value());
+        ASSERT_TRUE(executor.begin(*lease.value()).isOk());
+        {
+            SocketPair pair;
+            PersistentTreeStats received;
+            cpnetflux::common::Status receiverStatus;
+            std::jthread receiver([&] {
+                receiverStatus = receivePersistentTree(&pair.receiver, destination.path.string(),
+                    download, "remote/tree", &received, {}, 1, 0, 1, 1, true);
+            });
+            const std::uint8_t payload[]{'A','B','C','D','E','F','G','H'};
+            cpnetflux::checksum::ChecksumComputer digest(id.checksumAlgorithm);
+            digest.update(payload, sizeof(payload));
+            ASSERT_TRUE(PersistentDataSession::writeBegin(&pair.sender, id).isOk());
+            ASSERT_TRUE(PersistentDataSession::writeData(&pair.sender, id, 0, payload, sizeof(payload)).isOk());
+            ASSERT_TRUE(PersistentDataSession::writeEnd(&pair.sender, id, digest.finalize()).isOk());
+            ASSERT_TRUE(executor.awaitResult(*lease.value()).isOk());
+            ASSERT_TRUE(PersistentDataSession::writeDirectoryEnd(&pair.sender, 1).isOk());
+            receiver.join();
+            ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+            // Leave FILE_RESULT unread: sender has no terminal acknowledgement.
+        }
+        const auto output = (destination.path / id.relativePath).string();
+        if (download) {
+            auto manifest = cpnetflux::checkpoint::loadDownloadManifest(
+                cpnetflux::checkpoint::downloadManifestPathForOutput(output));
+            ASSERT_TRUE(manifest.isOk());
+            EXPECT_EQ(manifest.value().state, cpnetflux::checkpoint::ManifestState::Committed);
+        } else {
+            auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+                cpnetflux::checkpoint::manifestPathForOutput(output));
+            ASSERT_TRUE(manifest.isOk());
+            EXPECT_EQ(manifest.value().state, cpnetflux::checkpoint::ManifestState::Committed);
+        }
+        std::ifstream file(output, std::ios::binary);
+        ASSERT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), "ABCDEFGH");
+        ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+        ASSERT_TRUE(executor.recover({{*lease.value(), WorkRecoveryDisposition::Committed}}, 0).isOk());
+        auto empty = executor.claim(); ASSERT_TRUE(empty.isOk()); EXPECT_FALSE(empty.value());
+        EXPECT_EQ(queue.outstanding(), 0U);
+        EXPECT_FALSE(executor.commit(*lease.value()).isOk());
+    }
+}
+
+namespace {
+class PersistentMultiRangeRecoveryTest : public ::testing::TestWithParam<bool> {};
+}
+
+TEST_P(PersistentMultiRangeRecoveryTest, PublishesAfterMissingRangeWhenPriorRangeIsAlreadyVerified) {
+    const bool download = GetParam();
+    TempRoot source, destination;
+    std::ofstream(source.path / "ranges.bin", std::ios::binary) << "ABCDEFGHIJKLMNOP";
+    struct stat st{}; ASSERT_EQ(::stat((source.path / "ranges.bin").c_str(), &st), 0);
+    PersistentFileIdentity first{1, 7, 16, "ranges.bin", "multirange-recovery", 4,
+        st.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c, {}, 1, 0, 8, 2};
+    auto second = first; second.rangeId = 2; second.rangeOffset = 8;
+    DynamicFileQueue queue(std::vector<PersistentFileIdentity>{first, second}, 1, 1, 2, true);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    std::optional<WorkLease> interruptedLease;
+    {
+        SocketPair broken;
+        PersistentTreeStats partial;
+        cpnetflux::common::Status interrupted;
+        std::jthread receiver([&] {
+            interrupted = receivePersistentTree(&broken.receiver, destination.path.string(),
+                download, "remote/tree", &partial, {}, 1, 0, 1, 1, true);
+        });
+        auto a = executor.claim(); ASSERT_TRUE(a.isOk()); ASSERT_TRUE(a.value());
+        ASSERT_EQ(a.value()->file.rangeId, 1U);
+        ASSERT_TRUE(executor.begin(*a.value()).isOk());
+        ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, a.value()->file).isOk());
+        ASSERT_TRUE(PersistentDataSession::readResumeResponse(&broken.sender, a.value()->file).isOk());
+        const std::uint8_t bytes[]{'A','B','C','D','E','F','G','H','I','J','K','L'};
+        cpnetflux::checksum::ChecksumComputer digest(first.checksumAlgorithm);
+        digest.update(bytes, 8);
+        for (std::uint64_t offset : {0U, 4U}) {
+            ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender,
+                a.value()->file, offset, bytes + offset, 4).isOk());
+        }
+        ASSERT_TRUE(PersistentDataSession::writeEnd(&broken.sender, a.value()->file, digest.finalize()).isOk());
+        ASSERT_TRUE(executor.awaitResult(*a.value()).isOk());
+        auto result = PersistentDataSession::readResult(&broken.sender, a.value()->file);
+        ASSERT_TRUE(result.isOk()); ASSERT_EQ(result.value(), FrameStatusCode::Ok);
+        ASSERT_TRUE(executor.finalize(*a.value(), cpnetflux::common::Status::ok()).isOk());
+        auto b = executor.claim(); ASSERT_TRUE(b.isOk()); ASSERT_TRUE(b.value());
+        interruptedLease = *b.value();
+        ASSERT_EQ(b.value()->file.rangeId, 2U);
+        ASSERT_TRUE(executor.begin(*b.value()).isOk());
+        ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, b.value()->file).isOk());
+        ASSERT_TRUE(PersistentDataSession::readResumeResponse(&broken.sender, b.value()->file).isOk());
+        ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender,
+            b.value()->file, 8, bytes + 8, 4).isOk());
+        ::shutdown(broken.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        EXPECT_FALSE(interrupted.isOk());
+        EXPECT_EQ(partial.payloadBytes, 12U);
+    }
+    ASSERT_TRUE(interruptedLease.has_value());
+    ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+    ASSERT_TRUE(executor.recover({{*interruptedLease, WorkRecoveryDisposition::Missing}}, 1).isOk());
+
+    SocketPair resumed;
+    PersistentTreeStats sent, received;
+    cpnetflux::common::Status receiverStatus;
+    std::jthread receiver([&] {
+        receiverStatus = receivePersistentTree(&resumed.receiver, destination.path.string(),
+            download, "remote/tree", &received, {}, 1, 0, 1, 1, true, true);
+    });
+    cpnetflux::config::FileTransferOptions options; options.resume = true;
+    auto sentStatus = sendPersistentTree(&resumed.sender, source.path.string(), {}, &sent,
+        {}, 1, 0, 1, &queue, &options);
+    ::shutdown(resumed.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(sentStatus.isOk()) << sentStatus.message();
+    ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+    EXPECT_EQ(sent.payloadBytes, 4U);
+    EXPECT_EQ(sent.skippedBytes, 4U);
+    const auto output = destination.path / "ranges.bin";
+    ASSERT_TRUE(std::filesystem::exists(output)) << "complete verified coverage must publish the file";
+    std::ifstream file(output, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), "ABCDEFGHIJKLMNOP");
+
+}
+
+TEST_P(PersistentMultiRangeRecoveryTest, ReplaysVerifiedPartitionAfterFirstSkipPublishes) {
+    const bool download = GetParam();
+    TempRoot source, destination;
+    std::ofstream(source.path / "ranges.bin", std::ios::binary) << "ABCDEFGHIJKLMNOP";
+    struct stat st{}; ASSERT_EQ(::stat((source.path / "ranges.bin").c_str(), &st), 0);
+    PersistentFileIdentity first{1, 7, 16, "ranges.bin", "verified-partition", 4,
+        st.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c, {}, 1, 0, 8, 2};
+    auto second = first; second.rangeId = 2; second.rangeOffset = 8;
+    {
+        SocketPair broken;
+        PersistentTreeStats partial;
+        cpnetflux::common::Status interrupted;
+        std::jthread receiver([&] {
+            interrupted = receivePersistentTree(&broken.receiver, destination.path.string(),
+                download, "remote/tree", &partial, {}, 1, 0, 1, 1, true);
+        });
+        const std::uint8_t bytes[]{'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P'};
+        for (const auto& id : {first, second}) {
+            ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, id).isOk());
+            ASSERT_TRUE(PersistentDataSession::readResumeResponse(&broken.sender, id).isOk());
+            for (auto offset = id.rangeOffset; offset < id.rangeOffset + id.rangeLength; offset += 4)
+                ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender, id, offset, bytes + offset, 4).isOk());
+            if (id.rangeId == first.rangeId) {
+                cpnetflux::checksum::ChecksumComputer digest(id.checksumAlgorithm);
+                digest.update(bytes, 8);
+                ASSERT_TRUE(PersistentDataSession::writeEnd(&broken.sender, id, digest.finalize()).isOk());
+                auto result = PersistentDataSession::readResult(&broken.sender, id);
+                ASSERT_TRUE(result.isOk()); ASSERT_EQ(result.value(), FrameStatusCode::Ok);
+            }
+        }
+        // All chunks were checkpointed, but the final range END was lost.
+        ::shutdown(broken.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        ASSERT_FALSE(interrupted.isOk());
+        ASSERT_EQ(partial.payloadBytes, 16U);
+        ASSERT_FALSE(std::filesystem::exists(destination.path / "ranges.bin"));
+    }
+    // Replay the original partition. The first skip can publish full coverage;
+    // the later slot must still receive an empty missing-set and finish safely.
+    cpnetflux::config::FileTransferOptions options; options.resume = true;
+    SocketPair committed;
+    PersistentTreeStats skipped, validated;
+    DynamicFileQueue replay(std::vector<PersistentFileIdentity>{first, second}, 1, 1, 2, true);
+    cpnetflux::common::Status replayReceiverStatus;
+    std::jthread replayReceiver([&] {
+        replayReceiverStatus = receivePersistentTree(&committed.receiver, destination.path.string(),
+            download, "remote/tree", &validated, {}, 1, 0, 1, 1, true, true);
+    });
+    auto replayStatus = sendPersistentTree(&committed.sender, source.path.string(), {}, &skipped,
+        {}, 1, 0, 1, &replay, &options);
+    ::shutdown(committed.sender.fd(), SHUT_RDWR);
+    replayReceiver.join();
+    ASSERT_TRUE(replayStatus.isOk()) << replayStatus.message();
+    ASSERT_TRUE(replayReceiverStatus.isOk()) << replayReceiverStatus.message();
+    EXPECT_EQ(skipped.payloadBytes, 0U); EXPECT_EQ(skipped.skippedBytes, 16U);
+    EXPECT_EQ(validated.payloadBytes, 0U);
+}
+
+
+TEST(PersistentDirectoryBatchTest, DetectsDataResetDuringPeerReadyWaitAndAllowsReattach) {
+    PersistentDirectoryBatch batch(1,2);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    ASSERT_TRUE(batch.attach(1).isOk());
+    SocketPair failedLane;
+    batch.bind(0,-1,failedLane.sender.fd(),true);
+
+    const auto started=std::chrono::steady_clock::now();
+    failedLane.receiver=FramedDataSocket{};
+    const auto failed=batch.waitReady(0,std::chrono::seconds(1));
+    const auto elapsed=std::chrono::steady_clock::now()-started;
+    ASSERT_EQ(failed.code(),cpnetflux::common::StatusCode::TransportError) << failed.message();
+    EXPECT_LT(elapsed,std::chrono::milliseconds(500));
+    EXPECT_TRUE(batch.status().isOk());
+
+    SocketPair reattachedLane;
+    ASSERT_TRUE(batch.attach(0).isOk());
+    batch.bind(0,-1,reattachedLane.sender.fd(),true);
+    batch.bind(1,-1,-1,true);
+    EXPECT_TRUE(batch.waitReady(0,std::chrono::milliseconds(50)).isOk());
+}
+
+TEST(PersistentDirectoryBatchTest, ReattachesOnlyFailedChannelAndKeepsCommittedRanges) {
+    PersistentDirectoryBatch batch(2, 2);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    ASSERT_TRUE(batch.attach(1).isOk());
+    batch.bind(0, -1, -1, true);
+    batch.bind(1, -1, -1, true);
+    ASSERT_TRUE(batch.waitReady(0,std::chrono::milliseconds(50)).isOk());
+
+    PersistentFileIdentity failed{1, 1, 1, "failed.bin", "failed-transfer"};
+    PersistentFileIdentity healthy{2, 1, 1, "healthy.bin", "healthy-transfer"};
+    ASSERT_TRUE(batch.fileEvent(0, failed, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(1, healthy, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(1, healthy, cpnetflux::common::Status::ok(), true).isOk());
+
+    ASSERT_TRUE(batch.failChannel(0, cpnetflux::common::Status::transportError("data reset")).isOk());
+    batch.unbind(0);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    batch.bind(0, -1, -1, true);
+    ASSERT_TRUE(batch.waitReady(0,std::chrono::milliseconds(50)).isOk());
+
+    failed.attempt = 1;
+    ASSERT_TRUE(batch.fileEvent(0, failed, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(0, failed, cpnetflux::common::Status::ok(), true).isOk());
+
+    cpnetflux::common::Status healthyFinish, failedFinish;
+    std::jthread healthyThread([&] {
+        healthyFinish = batch.finish(1, std::chrono::seconds(1));
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    failedFinish = batch.finish(0, std::chrono::seconds(1));
+    healthyThread.join();
+    EXPECT_TRUE(failedFinish.isOk()) << failedFinish.message();
+    EXPECT_TRUE(healthyFinish.isOk()) << healthyFinish.message();
+    EXPECT_TRUE(batch.status().isOk());
+}
+
+TEST(PersistentDirectoryBatchTest, HealthyLaneFinishesBeforeFailedLaneReattach) {
+    int oldControlFds[2], retryControlFds[2], healthyControlFds[2];
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, oldControlFds), 0);
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, retryControlFds), 0);
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, healthyControlFds), 0);
+    UniqueFd oldControl(oldControlFds[0]), oldControlPeer(oldControlFds[1]);
+    UniqueFd retryControl(retryControlFds[0]), retryControlPeer(retryControlFds[1]);
+    UniqueFd healthyControl(healthyControlFds[0]), healthyControlPeer(healthyControlFds[1]);
+
+    PersistentDirectoryBatch batch(1, 2);
+    ASSERT_TRUE(batch.attach(0).isOk());
+    ASSERT_TRUE(batch.attach(1).isOk());
+    batch.bind(0, oldControl.get(), -1, true);
+    batch.bind(1, healthyControl.get(), -1, true);
+
+    PersistentFileIdentity first{1, 1, 8, "ranges.bin", "ranges-transfer", 4};
+    first.rangeId = 1;
+    first.rangeOffset = 0;
+    first.rangeLength = 4;
+    first.rangeCount = 2;
+    auto second = first;
+    second.rangeId = 2;
+    second.rangeOffset = 4;
+
+    ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(1, second, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(1, second, cpnetflux::common::Status::ok(), true).isOk());
+    ASSERT_TRUE(batch.failChannel(
+        0, cpnetflux::common::Status::transportError("data reset")).isOk());
+    // A retry may attach before the failed control thread finishes cleanup.
+    ASSERT_TRUE(batch.attach(0).isOk());
+    batch.bind(0, retryControl.get(), -1, true);
+    // Cleanup from the old control handler must not erase the newly attached lane.
+    batch.unbind(0, oldControl.get());
+
+    // The healthy lane must not wait for the failed lane's 30-second batch timeout.
+    ASSERT_TRUE(batch.finish(1, std::chrono::seconds(1)).isOk());
+    batch.unbind(1, healthyControl.get());
+
+    ASSERT_TRUE(batch.waitReady(0,std::chrono::milliseconds(50)).isOk());
+    first.attempt = 1;
+    ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), false).isOk());
+    ASSERT_TRUE(batch.fileEvent(0, first, cpnetflux::common::Status::ok(), true).isOk());
+    EXPECT_TRUE(batch.finish(0, std::chrono::seconds(1)).isOk());
+    EXPECT_TRUE(batch.status().isOk());
+}
+
+INSTANTIATE_TEST_SUITE_P(UploadDownload, PersistentMultiRangeRecoveryTest, ::testing::Bool());
+
+TEST(PersistentSessionTest, LogicalLinkMatrixRangesPartitionSourceExactlyOnce) {
+    for (const std::uint32_t lanes : {1U, 2U, 4U, 8U, 10U}) {
+        PersistentFileIdentity file{1, 1, (lanes * 16ULL + 1) * 1024 * 1024 + 19,
+                                    "large.bin", "partition"};
+        file.chunkSize = 65536;
+        auto ranges = expandPersistentFileRanges({file}, lanes);
+        ASSERT_TRUE(ranges.isOk()) << ranges.status().message();
+        if (lanes == 1) {
+            ASSERT_EQ(ranges.value().size(), 1U);
+            EXPECT_EQ(ranges.value()[0].rangeId, 0U);
+            continue;
+        }
+        std::uint64_t offset = 0;
+        std::vector<unsigned> work(lanes);
+        for (const auto& range : ranges.value()) {
+            EXPECT_EQ(range.rangeOffset, offset);
+            EXPECT_GT(range.rangeLength, 0U);
+            EXPECT_EQ(range.rangeCount, ranges.value().size());
+            EXPECT_EQ(range.rangeOffset % file.chunkSize, 0U);
+            ++work[(range.rangeId - 1) % lanes];
+            offset += range.rangeLength;
+        }
+        EXPECT_EQ(offset, file.totalSize);
+        for (auto count : work) EXPECT_GT(count, 0U);
+    }
+}
+
+
+TEST(BoundedPayloadPipelineTest, PreservesReceiverLogicalViewMetadata) {
+    using cpnetflux::core::io::BoundedPayloadPipeline;
+    using cpnetflux::core::io::PreparedPayload;
+    BoundedPayloadPipeline pipeline(16, 2);
+    PreparedPayload prepared;
+    prepared.offset = 4096;
+    prepared.bytes = {0xaa, 0xbb, 0x01, 0x02, 0x03, 0x04};
+    prepared.logicalOffset = 2;
+    prepared.logicalBytes = 4;
+    prepared.frameChecksum = 0x12345678;
+    prepared.checksumPresent = true;
+    ASSERT_TRUE(pipeline.push(std::move(prepared)).isOk());
+    pipeline.close();
+    auto next = pipeline.pop();
+    ASSERT_TRUE(next.isOk() && next.value());
+    EXPECT_EQ(next.value()->offset, 4096U);
+    EXPECT_EQ(next.value()->logicalOffset, 2U);
+    EXPECT_EQ(next.value()->logicalBytes, 4U);
+    EXPECT_EQ(next.value()->frameChecksum, 0x12345678U);
+    EXPECT_TRUE(next.value()->checksumPresent);
+    EXPECT_EQ(std::vector<std::uint8_t>(next.value()->bytes.begin() + next.value()->logicalOffset,
+                                        next.value()->bytes.begin() + next.value()->logicalOffset + next.value()->logicalBytes),
+              (std::vector<std::uint8_t>{1, 2, 3, 4}));
+}
+
+TEST(BoundedPayloadPipelineTest, BlocksAtByteBudgetAndWakesWhenConsumerPops) {
+    using cpnetflux::core::io::BoundedPayloadPipeline;
+    using cpnetflux::core::io::PreparedPayload;
+    BoundedPayloadPipeline pipeline(8, 2);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, std::vector<std::uint8_t>(8, 1)}).isOk());
+    auto waiting = std::async(std::launch::async, [&] {
+        return pipeline.push(PreparedPayload{8, std::vector<std::uint8_t>(1, 2)});
+    });
+    EXPECT_EQ(waiting.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    auto first = pipeline.pop();
+    ASSERT_TRUE(first.isOk());
+    ASSERT_TRUE(first.value());
+    EXPECT_EQ(first.value()->bytes.size(), 8U);
+    ASSERT_TRUE(waiting.get().isOk());
+    EXPECT_EQ(pipeline.highWatermarkBytes(), 8U);
+    EXPECT_GT(pipeline.producerWaitCount(), 0U);
+}
+
+TEST(BoundedPayloadPipelineTest, EmptyQueuePolicyWakesBlockedProducerOnlyAfterDrain) {
+    BoundedPayloadPipeline pipeline(8, 2, true, ProducerWakePolicy::EmptyQueue);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1,2,3,4}}).isOk());
+    ASSERT_TRUE(pipeline.push(PreparedPayload{4, {5,6,7,8}}).isOk());
+    auto producer = std::async(std::launch::async, [&] {
+        return pipeline.push(PreparedPayload{8, {9,10,11,12}});
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!pipeline.producerWaitCount() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::yield();
+    EXPECT_EQ(pipeline.producerWaitCount(), 1U);
+    auto first = pipeline.pop();
+    EXPECT_TRUE(first.isOk() && first.value() && first.value()->offset == 0);
+    EXPECT_EQ(producer.wait_for(std::chrono::milliseconds(30)), std::future_status::timeout);
+    auto second = pipeline.pop();
+    EXPECT_TRUE(second.isOk() && second.value() && second.value()->offset == 4);
+    EXPECT_EQ(producer.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    pipeline.close(); // releases the future even if a regression left it waiting
+    EXPECT_TRUE(producer.get().isOk());
+    auto third = pipeline.pop();
+    EXPECT_TRUE(third.isOk() && third.value() && third.value()->offset == 8);
+    EXPECT_LE(pipeline.highWatermarkBytes(), 8U);
+    EXPECT_TRUE(pipeline.pop().isOk());
+}
+
+TEST(BoundedPayloadPipelineTest, EmptyQueuePolicyDoesNotWaitToFillOrReorderVariablePayloads) {
+    BoundedPayloadPipeline pipeline(8, 3, false, ProducerWakePolicy::EmptyQueue);
+    EXPECT_TRUE(pipeline.push(PreparedPayload{0, {1}}).isOk());
+    auto first = pipeline.pop();
+    ASSERT_TRUE(first.isOk() && first.value());
+    EXPECT_EQ(first.value()->offset, 0U);
+    EXPECT_TRUE(pipeline.push(PreparedPayload{1, {2,3,4}}).isOk());
+    EXPECT_TRUE(pipeline.push(PreparedPayload{4, {5,6,7,8,9}}).isOk());
+    pipeline.close();
+    for (auto offset : {1U, 4U}) {
+        auto next = pipeline.pop();
+        ASSERT_TRUE(next.isOk() && next.value());
+        EXPECT_EQ(next.value()->offset, offset);
+    }
+    auto end = pipeline.pop();
+    EXPECT_TRUE(end.isOk() && !end.value());
+    EXPECT_EQ(pipeline.producerWaitCount(), 0U);
+    EXPECT_EQ(pipeline.highWatermarkBytes(), 8U);
+}
+
+TEST(BoundedPayloadPipelineTest, EmptyQueuePolicyCloseAndCancelWakePartialDrain) {
+    for (const bool cancel : {false, true}) {
+        BoundedPayloadPipeline pipeline(8, 2, true, ProducerWakePolicy::EmptyQueue);
+        ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1,2,3,4}}).isOk());
+        ASSERT_TRUE(pipeline.push(PreparedPayload{4, {5,6,7,8}}).isOk());
+        auto producer = std::async(std::launch::async, [&] {
+            return pipeline.push(PreparedPayload{8, {9,10,11,12}});
+        });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!pipeline.producerWaitCount() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
+        EXPECT_EQ(pipeline.producerWaitCount(), 1U);
+        EXPECT_TRUE(pipeline.pop().isOk());
+        if (cancel) pipeline.cancel(cpnetflux::common::Status::transportError("handoff cancelled"));
+        else pipeline.close();
+        EXPECT_EQ(producer.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+        EXPECT_FALSE(producer.get().isOk());
+        auto remaining = pipeline.pop();
+        if (cancel) {
+            EXPECT_FALSE(remaining.isOk());
+            EXPECT_EQ(pipeline.queuedBytes(), 0U);
+        } else {
+            EXPECT_TRUE(remaining.isOk() && remaining.value() && remaining.value()->offset == 4);
+            auto end = pipeline.pop();
+            EXPECT_TRUE(end.isOk() && !end.value());
+        }
+    }
+}
+
+TEST(BoundedPayloadPipelineTest, CancellationWakesProducerAndConsumerWithoutLeakingBytes) {
+    using cpnetflux::core::io::BoundedPayloadPipeline;
+    using cpnetflux::core::io::PreparedPayload;
+    BoundedPayloadPipeline pipeline(4, 1);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, std::vector<std::uint8_t>(4, 1)}).isOk());
+    auto waiting = std::async(std::launch::async, [&] {
+        return pipeline.push(PreparedPayload{4, std::vector<std::uint8_t>(1, 2)});
+    });
+    EXPECT_EQ(waiting.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    pipeline.cancel(cpnetflux::common::Status::transportError("pipeline cancelled"));
+    EXPECT_FALSE(waiting.get().isOk());
+    EXPECT_FALSE(pipeline.pop().isOk());
+    EXPECT_EQ(pipeline.queuedBytes(), 0U);
+    EXPECT_EQ(pipeline.status().message(), "pipeline cancelled");
+}
+
+TEST(BoundedPayloadPipelineTest, CloseDrainsQueuedChunksAndThenReturnsEndOfStream) {
+    using cpnetflux::core::io::BoundedPayloadPipeline;
+    using cpnetflux::core::io::PreparedPayload;
+    BoundedPayloadPipeline pipeline(16, 2);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1, 2, 3}}).isOk());
+    ASSERT_TRUE(pipeline.push(PreparedPayload{3, {4}}).isOk());
+    pipeline.close();
+    auto first = pipeline.pop();
+    auto second = pipeline.pop();
+    ASSERT_TRUE(first.isOk());
+    ASSERT_TRUE(second.isOk());
+    ASSERT_TRUE(first.value());
+    ASSERT_TRUE(second.value());
+    auto end = pipeline.pop();
+    ASSERT_TRUE(end.isOk());
+    EXPECT_FALSE(end.value());
+}
+
+TEST(BoundedPayloadPipelineTest, RecyclesOnlyAfterExplicitConsumerHandback) {
+    BoundedPayloadPipeline pipeline(16, 2);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1, 2, 3, 4}}).isOk());
+    auto first = pipeline.pop();
+    ASSERT_TRUE(first.isOk() && first.value());
+    const auto* original = first.value()->bytes.data();
+    std::vector<std::uint8_t> reusable;
+    ASSERT_TRUE(pipeline.push(PreparedPayload{4, {5, 6, 7, 8}}, &reusable).isOk());
+    EXPECT_TRUE(reusable.empty());
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+    auto second = pipeline.pop(std::move(first.value()->bytes));
+    ASSERT_TRUE(second.isOk() && second.value());
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 4U);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{8, {9}}, &reusable).isOk());
+    EXPECT_EQ(reusable.data(), original);
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+    std::fill(reusable.begin(), reusable.end(), 0xffU);
+    EXPECT_EQ(second.value()->bytes, (std::vector<std::uint8_t>{5, 6, 7, 8}));
+}
+
+TEST(BoundedPayloadPipelineTest, CacheLimitsAllocatedCapacityAndBufferCount) {
+    BoundedPayloadPipeline bytes(8, 4);
+    for (unsigned i = 0; i < 4; ++i) {
+        ASSERT_TRUE(bytes.push(PreparedPayload{i, {1}}).isOk());
+        ASSERT_TRUE(bytes.pop(std::vector<std::uint8_t>(4)).isOk());
+        EXPECT_EQ(bytes.recycledCapacityBytes(), std::min<std::size_t>((i + 1) * 4, 8));
+    }
+    BoundedPayloadPipeline count(16, 2);
+    for (unsigned i = 0; i < 4; ++i) {
+        ASSERT_TRUE(count.push(PreparedPayload{i, {1}}).isOk());
+        ASSERT_TRUE(count.pop(std::vector<std::uint8_t>(1)).isOk());
+        EXPECT_EQ(count.recycledCapacityBytes(), std::min<std::size_t>(i + 1, 3));
+    }
+    BoundedPayloadPipeline oversized(8, 2);
+    ASSERT_TRUE(oversized.push(PreparedPayload{0, {1}}).isOk());
+    std::vector<std::uint8_t> large(1);
+    large.reserve(32);
+    ASSERT_TRUE(oversized.pop(std::move(large)).isOk());
+    EXPECT_EQ(oversized.recycledCapacityBytes(), 0U);
+}
+
+TEST(BoundedPayloadPipelineTest, CloseDiscardsCacheButDrainsPayloadWithoutRetainingReturns) {
+    BoundedPayloadPipeline pipeline(8, 2);
+    ASSERT_TRUE(pipeline.push(PreparedPayload{0, {1}}).isOk());
+    ASSERT_TRUE(pipeline.pop(std::vector<std::uint8_t>(4)).isOk());
+    ASSERT_TRUE(pipeline.push(PreparedPayload{1, {2, 3}}).isOk());
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 4U);
+    pipeline.close();
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+    auto last = pipeline.pop(std::vector<std::uint8_t>(8));
+    ASSERT_TRUE(last.isOk() && last.value());
+    EXPECT_EQ(last.value()->bytes, (std::vector<std::uint8_t>{2, 3}));
+    auto end = pipeline.pop(std::move(last.value()->bytes));
+    ASSERT_TRUE(end.isOk());
+    EXPECT_FALSE(end.value());
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+}
+
+TEST(BoundedPayloadPipelineTest, CancelDropsCacheAndWakesRecyclingProducerAndConsumer) {
+    BoundedPayloadPipeline full(8, 1);
+    ASSERT_TRUE(full.push(PreparedPayload{0, {1}}).isOk());
+    ASSERT_TRUE(full.pop(std::vector<std::uint8_t>(4)).isOk());
+    ASSERT_TRUE(full.push(PreparedPayload{1, std::vector<std::uint8_t>(8)}).isOk());
+    auto producer = std::async(std::launch::async, [&] {
+        std::vector<std::uint8_t> reusable;
+        return full.push(PreparedPayload{9, {2}}, &reusable);
+    });
+    EXPECT_EQ(producer.wait_for(std::chrono::milliseconds(30)), std::future_status::timeout);
+    full.cancel(cpnetflux::common::Status::transportError("cancel recycling producer"));
+    EXPECT_FALSE(producer.get().isOk());
+    EXPECT_EQ(full.queuedBytes(), 0U);
+    EXPECT_EQ(full.recycledCapacityBytes(), 0U);
+    BoundedPayloadPipeline empty(8, 1);
+    auto consumer = std::async(std::launch::async, [&] { return empty.pop(std::vector<std::uint8_t>(8)); });
+    EXPECT_EQ(consumer.wait_for(std::chrono::milliseconds(30)), std::future_status::timeout);
+    empty.cancel(cpnetflux::common::Status::transportError("cancel recycling consumer"));
+    EXPECT_FALSE(consumer.get().isOk());
+    EXPECT_EQ(empty.recycledCapacityBytes(), 0U);
+}
+
+TEST(BoundedPayloadPipelineTest, ReusesBoundedBuffersAcrossConcurrentVariableLengthFrames) {
+    for (const auto wake : {ProducerWakePolicy::AvailableCapacity, ProducerWakePolicy::EmptyQueue}) {
+    SCOPED_TRACE(wake == ProducerWakePolicy::EmptyQueue ? "empty" : "available");
+    BoundedPayloadPipeline pipeline(32, 2, false, wake);
+    std::size_t allocations = 0;
+    cpnetflux::common::Status produced;
+    std::jthread producer([&] {
+        std::vector<std::uint8_t> buffer;
+        for (unsigned frame = 0; frame < 1000; ++frame) {
+            if (buffer.capacity() < 16) { buffer.reserve(16); ++allocations; }
+            buffer.resize(frame % 16 + 1);
+            std::fill(buffer.begin(), buffer.end(), static_cast<std::uint8_t>(frame));
+            produced = pipeline.push(PreparedPayload{frame, std::move(buffer)}, &buffer);
+            if (!produced.isOk()) return;
+        }
+        pipeline.close();
+    });
+    std::vector<std::uint8_t> reusable;
+    unsigned frames = 0;
+    for (;;) {
+        auto next = pipeline.pop(std::move(reusable));
+        if (!next.isOk() || !next.value()) break;
+        EXPECT_EQ(next.value()->offset, frames);
+        EXPECT_EQ(next.value()->bytes.size(), frames % 16 + 1);
+        for (const auto byte : next.value()->bytes) EXPECT_EQ(byte, static_cast<std::uint8_t>(frames));
+        reusable = std::move(next.value()->bytes);
+        ++frames;
+    }
+    producer.join();
+    EXPECT_TRUE(produced.isOk());
+    EXPECT_EQ(frames, 1000U);
+    EXPECT_LE(allocations, 4U);
+    EXPECT_LE(pipeline.highWatermarkBytes(), 32U);
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 0U);
+    }
+}
+
+TEST(PersistentTreeResourceTest, ReleasesCommittedFileDescriptorsUnderDefaultLimit) {
+    constexpr std::size_t fileCount = 2048;
+    constexpr std::size_t fileSize = 64 * 1024;
+    TempRoot source;
+    TempRoot destination;
+    const std::vector<std::uint8_t> contents(fileSize, 0x5a);
+    std::vector<PersistentFileIdentity> files;
+    files.reserve(fileCount);
+    for (std::size_t index = 0; index < fileCount; ++index) {
+        const auto relative = "file-" + std::to_string(index) + ".bin";
+        const auto path = source.path / relative;
+        {
+            std::ofstream output(path, std::ios::binary);
+            ASSERT_TRUE(output.is_open()) << path;
+            output.write(reinterpret_cast<const char*>(contents.data()),
+                         static_cast<std::streamsize>(contents.size()));
+            ASSERT_TRUE(output.good()) << path;
+        }
+        struct stat sourceStat {};
+        ASSERT_EQ(::stat(path.c_str(), &sourceStat), 0) << path;
+        files.emplace_back(index + 1, index + 1, fileSize, relative, "fd-release-batch",
+            fileSize, sourceStat.st_mtim.tv_sec, cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
+    }
+
+    struct rlimit previousLimit {};
+    ASSERT_EQ(::getrlimit(RLIMIT_NOFILE, &previousLimit), 0);
+    if (previousLimit.rlim_cur < 1024) GTEST_SKIP() << "soft RLIMIT_NOFILE is below 1024";
+    struct rlimit testLimit = previousLimit;
+    testLimit.rlim_cur = 1024;
+    ASSERT_EQ(::setrlimit(RLIMIT_NOFILE, &testLimit), 0);
+    struct RestoreLimit {
+        struct rlimit previous;
+        ~RestoreLimit() { (void)::setrlimit(RLIMIT_NOFILE, &previous); }
+    } restoreLimit{previousLimit};
+
+    auto countDestinationFds = [&](const std::filesystem::path& root) {
+        std::size_t count = 0;
+        std::error_code error;
+        for (std::filesystem::directory_iterator it("/proc/self/fd", error), end;
+             !error && it != end; it.increment(error)) {
+            std::error_code linkError;
+            auto target = std::filesystem::read_symlink(it->path(), linkError);
+            if (linkError) continue;
+            auto targetText = target.string();
+            constexpr char deletedSuffix[] = " (deleted)";
+            if (targetText.size() >= sizeof(deletedSuffix) - 1 &&
+                targetText.compare(targetText.size() - (sizeof(deletedSuffix) - 1),
+                    sizeof(deletedSuffix) - 1, deletedSuffix) == 0) {
+                targetText.resize(targetText.size() - (sizeof(deletedSuffix) - 1));
+            }
+            const auto normalized = std::filesystem::path(targetText).lexically_normal();
+            const auto prefix = root.lexically_normal().string() + "/";
+            if (normalized.string().compare(0, prefix.size(), prefix) == 0) ++count;
+        }
+        return count;
+    };
+
+    SocketPair pair;
+    auto context = makePersistentTransferContext();
+    PersistentTreeStats receivedStats;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &receivedStats, {}, 1, 0, 1, static_cast<std::uint32_t>(fileCount), false, false,
+            context);
+        if (!receiveStatus.isOk()) ::shutdown(pair.receiver.fd(), SHUT_RDWR);
+    });
+    PersistentTreeStats sentStats;
+    const auto sendStatus = sendPersistentTree(&pair.sender, source.path.string(), files, &sentStats);
+    receiver.join();
+
+    ASSERT_TRUE(sendStatus.isOk()) << "send: " << sendStatus.message()
+                                   << "; receive: " << receiveStatus.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(receivedStats.files, fileCount);
+    EXPECT_EQ(countDestinationFds(destination.path), 0U)
+        << "completed transactions must not retain destination file descriptors";
+
+    const auto auditStatus = verifyCommittedPersistentOutputs(context);
+    ASSERT_TRUE(auditStatus.isOk()) << auditStatus.message();
+    EXPECT_EQ(countDestinationFds(destination.path), 0U)
+        << "batch audit must close each output after checking it";
+
+    for (const auto index : {std::size_t{0}, fileCount - 1}) {
+        const auto output = destination.path / ("file-" + std::to_string(index) + ".bin");
+        EXPECT_EQ(std::filesystem::file_size(output), fileSize);
+    }
+}
+
+TEST(BoundedPayloadPipelineTest, MeasuresRealProducerAndConsumerWaitIncludingCancellation) {
+    BoundedPayloadPipeline full(4, 1, true);
+    ASSERT_TRUE(full.push(PreparedPayload{0,{1,2,3,4}}).isOk());
+    auto producer = std::async(std::launch::async,[&] { return full.push(PreparedPayload{4,{5}}); });
+    EXPECT_EQ(producer.wait_for(std::chrono::milliseconds(50)),std::future_status::timeout);
+    ASSERT_TRUE(full.pop().isOk());
+    ASSERT_TRUE(producer.get().isOk());
+    EXPECT_GE(full.producerWaitSeconds(),0.03);
+    EXPECT_EQ(full.consumerWaitSeconds(),0);
+    BoundedPayloadPipeline empty(4, 1, true);
+    auto consumer = std::async(std::launch::async,[&] { return empty.pop(); });
+    EXPECT_EQ(consumer.wait_for(std::chrono::milliseconds(50)),std::future_status::timeout);
+    empty.cancel(cpnetflux::common::Status::runtimeError("observed cancellation"));
+    EXPECT_FALSE(consumer.get().isOk());
+    EXPECT_GE(empty.consumerWaitSeconds(),0.03);
+    EXPECT_EQ(empty.producerWaitSeconds(),0);
+}
+
+TEST(BoundedPayloadPipelineTest, DisabledObservationKeepsWaitCountersWithoutTiming) {
+    BoundedPayloadPipeline empty(4,1);
+    auto consumer = std::async(std::launch::async,[&] { return empty.pop(); });
+    EXPECT_EQ(consumer.wait_for(std::chrono::milliseconds(30)),std::future_status::timeout);
+    empty.close();
+    ASSERT_TRUE(consumer.get().isOk());
+    EXPECT_EQ(empty.consumerWaitCount(),1U);
+    EXPECT_EQ(empty.consumerWaitSeconds(),0);
+}
+
+TEST(PersistentTreeRangeTest, RejectsUnboundedDiagnosticDepthBeforeWritingAnyFrame) {
+    SocketPair pair;
+    PersistentTreeStats stats;
+    const auto* previous = std::getenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
+    const std::optional<std::string> saved = previous ? std::optional<std::string>(previous) : std::nullopt;
+    ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH","999999999",1);
+    const auto status=sendPersistentTree(&pair.sender,"",{},&stats);
+    if (saved) ::setenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH",saved->c_str(),1);
+    else ::unsetenv("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH");
+    EXPECT_FALSE(status.isOk());
+    EXPECT_NE(status.message().find("CPNETFLUX_PAYLOAD_PIPELINE_DEPTH"),std::string::npos);
+    EXPECT_EQ(stats.payloadBytes,0U);
+}
+
+TEST(PersistentResumeMaskTest, CompactsLargeAdjacentMaskWithinExistingFrameLimit) {
+    SocketPair pair;
+    constexpr std::uint64_t chunkSize = 1048576;
+    constexpr std::uint64_t begin = 8ULL * 1024 * 1024 * 1024;
+    PersistentFileIdentity id{1, 1, 2 * begin, "large.bin", "large-mask", chunkSize};
+    id.rangeId = 2; id.rangeOffset = begin; id.rangeLength = begin;
+    std::vector<cpnetflux::core::chunk::CompletedRange> missing;
+    for (std::uint64_t i = 0; i < 8192; ++i)
+        missing.push_back({begin + i * chunkSize, begin + (i + 1) * chunkSize});
+    const auto status = PersistentDataSession::writeResumeResponse(&pair.sender, id, missing);
+    ASSERT_TRUE(status.isOk()) << status.message();
+    auto response = PersistentDataSession::readResumeResponse(&pair.receiver, id);
+    ASSERT_TRUE(response.isOk()) << response.status().message();
+    EXPECT_EQ(response.value().statusCode, FrameStatusCode::Ok);
+    ASSERT_EQ(response.value().missingRanges.size(), 1U);
+    EXPECT_EQ(response.value().missingRanges[0].begin, begin);
+    EXPECT_EQ(response.value().missingRanges[0].end, 2 * begin);
+}
+
+TEST(PersistentResumeMaskTest, CoalescingPreservesVerifiedHoles) {
+    SocketPair pair;
+    PersistentFileIdentity id{1, 1, 20, "holes.bin", "holes", 1};
+    ASSERT_TRUE(PersistentDataSession::writeResumeResponse(&pair.sender, id,
+        {{2, 3}, {3, 5}, {7, 8}, {8, 10}, {12, 13}}).isOk());
+    auto response = PersistentDataSession::readResumeResponse(&pair.receiver, id);
+    ASSERT_TRUE(response.isOk()) << response.status().message();
+    const auto& missing = response.value().missingRanges;
+    ASSERT_EQ(missing.size(), 3U);
+    EXPECT_EQ(missing[0].begin, 2U); EXPECT_EQ(missing[0].end, 5U);
+    EXPECT_EQ(missing[1].begin, 7U); EXPECT_EQ(missing[1].end, 10U);
+    EXPECT_EQ(missing[2].begin, 12U); EXPECT_EQ(missing[2].end, 13U);
+}
+
+TEST(PersistentResumeMaskTest, PaginatesFragmentedMaskAtFrameBoundary) {
+    for (std::uint64_t count : {4095U, 4096U, 8192U}) {
+        SocketPair pair;
+        PersistentFileIdentity id{1, 1, 2 * count, "fragmented.bin", "fragmented", 1};
+        std::vector<cpnetflux::core::chunk::CompletedRange> missing;
+        for (std::uint64_t i = 0; i < count; ++i) missing.push_back({2 * i, 2 * i + 1});
+        const auto status = PersistentDataSession::writeResumeResponse(&pair.sender, id, missing);
+        ASSERT_TRUE(status.isOk()) << "count=" << count << " " << status.message();
+        pollfd readable{pair.receiver.fd(), POLLIN, 0};
+        ASSERT_EQ(::poll(&readable, 1, 500), 1) << "peer must receive a response, not time out";
+        auto response = PersistentDataSession::readResumeResponse(&pair.receiver, id);
+        ASSERT_TRUE(response.isOk()) << response.status().message();
+        EXPECT_EQ(response.value().statusCode, FrameStatusCode::Ok);
+        ASSERT_EQ(response.value().missingRanges.size(), count);
+        for (std::uint64_t i = 0; i < count; ++i) {
+            EXPECT_EQ(response.value().missingRanges[i].begin, 2 * i);
+            EXPECT_EQ(response.value().missingRanges[i].end, 2 * i + 1);
+        }
+    }
+}
+
+TEST(PersistentResumeMaskTest, InvalidMasksNeverBroadenRequestedCoverage) {
+    const std::vector<std::vector<cpnetflux::core::chunk::CompletedRange>> invalid{
+        {{4, 4}}, {{4, 6}, {5, 8}}, {{6, 7}, {4, 5}}, {{3, 5}}, {{11, 13}}};
+    for (const auto& missing : invalid) {
+        SocketPair pair;
+        PersistentFileIdentity id{1, 1, 16, "invalid.bin", "invalid", 1};
+        id.rangeId = 1; id.rangeOffset = 4; id.rangeLength = 8;
+        EXPECT_FALSE(PersistentDataSession::writeResumeResponse(&pair.sender, id, missing).isOk());
+        pollfd readable{pair.receiver.fd(), POLLIN, 0};
+        ASSERT_EQ(::poll(&readable, 1, 500), 1);
+        auto response = PersistentDataSession::readResumeResponse(&pair.receiver, id);
+        ASSERT_TRUE(response.isOk()) << response.status().message();
+        EXPECT_EQ(response.value().statusCode, FrameStatusCode::InvalidFrame);
+        EXPECT_TRUE(response.value().missingRanges.empty());
+    }
+}
+
+
+TEST(PersistentResumeMaskTest, LargeCompactedRangeRetainsEveryChunkChecksum) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    SocketPair pair;
+    TempRoot source, destination;
+    std::string content(8192, '\0');
+    for (std::size_t i = 0; i < content.size(); ++i) content[i] = static_cast<char>(i % 251);
+    std::ofstream(source.path / "chunks.bin", std::ios::binary) << content;
+    struct stat st{};
+    ASSERT_EQ(::stat((source.path / "chunks.bin").c_str(), &st), 0);
+    PersistentFileIdentity id{1, 1, content.size(), "chunks.bin", "compacted-chunks", 1,
+        st.st_mtim.tv_sec, ChecksumAlgorithm::Crc32c, {}, 1, 0, content.size(), 1, 1};
+    PersistentTransferPolicy policy;
+    policy.rangeCheckpointBatchChunks = 16;
+    auto context = makePersistentTransferContext(policy);
+    PersistentTreeStats received, sent;
+    cpnetflux::common::Status receiveStatus;
+    std::jthread receiver([&] {
+        receiveStatus = receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, false, false, context);
+    });
+    const auto status = sendPersistentTree(&pair.sender, source.path.string(), {id}, &sent);
+    if (!status.isOk()) ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(status.isOk()) << status.message();
+    ASSERT_TRUE(receiveStatus.isOk()) << receiveStatus.message();
+    EXPECT_EQ(sent.payloadBytes, content.size());
+    EXPECT_EQ(received.payloadBytes, content.size());
+    EXPECT_TRUE(verifyCommittedPersistentOutputs(context).isOk());
+    std::ifstream output(destination.path / id.relativePath, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)), {}), content);
+    auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+        cpnetflux::checkpoint::manifestPathForOutput((destination.path / id.relativePath).string()));
+    ASSERT_TRUE(manifest.isOk()) << manifest.status().message();
+    ASSERT_EQ(manifest.value().verifiedChunks.size(), content.size());
+    for (const auto& record : manifest.value().verifiedChunks) {
+        ASSERT_LT(record.offset, content.size());
+        EXPECT_EQ(record.length, 1U);
+        ChecksumComputer checksum(ChecksumAlgorithm::Crc32c);
+        checksum.update(reinterpret_cast<const std::uint8_t*>(content.data() + record.offset), 1);
+        EXPECT_EQ(record.checksum.value, checksum.finalize().value);
+    }
+}
+
+TEST(PersistentResumeMaskTest, FragmentedCheckpointIsPaginatedBeforeDataPhase) {
+    using cpnetflux::checksum::ChecksumAlgorithm;
+    using cpnetflux::checksum::ChecksumComputer;
+    SocketPair pair;
+    TempRoot destination;
+    PersistentFileIdentity id{1, 1, 8192, "fragmented.bin", "fragmented-resume", 1,
+        0, ChecksumAlgorithm::Crc32c, {}, 1, 0, 8192, 1, 1};
+    const auto output = (destination.path / id.relativePath).string();
+    auto session = cpnetflux::core::session::TransferSession::createNew(
+        output, id.transferId, id.totalSize, id.chunkSize, id.checksumAlgorithm);
+    ASSERT_TRUE(session.isOk()) << session.status().message();
+    const std::uint8_t byte = 'V';
+    ChecksumComputer checksum(ChecksumAlgorithm::Crc32c);
+    checksum.update(&byte, 1);
+    std::ofstream(session.value().manifest().tempPath, std::ios::binary) << std::string(8192, 'V');
+    for (std::uint64_t i = 1; i < id.totalSize; i += 2)
+        ASSERT_TRUE(session.value().recordVerifiedChunk(i, i, 1, checksum.finalize()).isOk());
+    ASSERT_TRUE(session.value().markFailed().isOk());
+    PersistentTreeStats received;
+    std::promise<cpnetflux::common::Status> result;
+    auto finished = result.get_future();
+    std::jthread receiver([&] {
+        result.set_value(receivePersistentTree(&pair.receiver, destination.path.string(), false, "",
+            &received, {}, 1, 0, 1, 1, false, true));
+    });
+    const auto started = PersistentDataSession::writeBegin(&pair.sender, id, true);
+    pollfd readable{pair.sender.fd(), POLLIN, 0};
+    const auto ready = started.isOk() ? ::poll(&readable, 1, 5000) : 0;
+    if (ready != 1) {
+        ::shutdown(pair.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        FAIL() << "fragmented checkpoint must be rejected on the wire";
+    }
+    auto response = PersistentDataSession::readResumeResponse(&pair.sender, id);
+    const auto exited = finished.wait_for(std::chrono::seconds(2));
+    if (exited != std::future_status::ready) ::shutdown(pair.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    EXPECT_NE(exited, std::future_status::ready);
+    const auto status = finished.get();
+    EXPECT_FALSE(status.isOk());
+    ASSERT_TRUE(response.isOk()) << response.status().message();
+    EXPECT_EQ(response.value().statusCode, FrameStatusCode::Ok);
+    EXPECT_EQ(response.value().missingRanges.size(), 4096U);
+    EXPECT_EQ(received.payloadBytes, 0U);
+    EXPECT_FALSE(std::filesystem::exists(output));
+    auto saved = cpnetflux::checkpoint::ManifestStore::load(cpnetflux::checkpoint::manifestPathForOutput(output));
+    ASSERT_TRUE(saved.isOk()) << saved.status().message();
+    EXPECT_EQ(saved.value().verifiedChunks.size(), 4096U);
+}
+
+
+TEST(BoundedPayloadPipelineTest, BatchPopsAvailableOwnersInOrderWithoutWaitingToFill) {
+    BoundedPayloadPipeline pipeline(32,2);
+    PreparedPayload a{1,{1,2,3}},b{4,{4,5}};
+    const auto* pa=a.bytes.data();const auto* pb=b.bytes.data();
+    ASSERT_TRUE(pipeline.push(std::move(a)).isOk());ASSERT_TRUE(pipeline.push(std::move(b)).isOk());
+    std::array<PreparedPayload,2> slots;
+    auto count=pipeline.popBatch(slots);ASSERT_TRUE(count.isOk())<<count.status().message();
+    ASSERT_EQ(count.value(),2U);EXPECT_EQ(slots[0].bytes.data(),pa);EXPECT_EQ(slots[1].bytes.data(),pb);
+    EXPECT_EQ(slots[0].offset,1U);EXPECT_EQ(slots[1].offset,4U);EXPECT_EQ(pipeline.queuedBytes(),0U);
+    PreparedPayload c{6,{6}};ASSERT_TRUE(pipeline.push(std::move(c)).isOk());
+    auto single=pipeline.popBatch(slots);ASSERT_TRUE(single.isOk());EXPECT_EQ(single.value(),1U);
+    EXPECT_EQ(slots[0].offset,6U);EXPECT_LE(pipeline.recycledCapacityBytes(),48U);
+    pipeline.close();auto end=pipeline.popBatch(slots);ASSERT_TRUE(end.isOk());EXPECT_EQ(end.value(),0U);
+}
+TEST(BoundedPayloadPipelineTest, BatchDrainsCloseAndCancellationWakesWaiter) {
+    BoundedPayloadPipeline pipeline(8,2);ASSERT_TRUE(pipeline.push(PreparedPayload{1,{1,2}}).isOk());
+    pipeline.close();std::array<PreparedPayload,2> slots;
+    auto count=pipeline.popBatch(slots);ASSERT_TRUE(count.isOk());ASSERT_EQ(count.value(),1U);
+    EXPECT_EQ(slots[0].bytes,(std::vector<std::uint8_t>{1,2}));
+    auto end=pipeline.popBatch(slots);ASSERT_TRUE(end.isOk());EXPECT_EQ(end.value(),0U);
+    BoundedPayloadPipeline cancelled(8,2);
+    auto waiting=std::async(std::launch::async,[&]{std::array<PreparedPayload,2> items;return cancelled.popBatch(items);});
+    cancelled.cancel(cpnetflux::common::Status::runtimeError("batch cancelled"));
+    ASSERT_EQ(waiting.wait_for(std::chrono::seconds(1)),std::future_status::ready);
+    EXPECT_FALSE(waiting.get().isOk());
+    EXPECT_FALSE(cancelled.popBatch(std::span<PreparedPayload>{}).isOk());
+}
+TEST(BoundedPayloadPipelineTest, BatchReusesConcurrentVariablePayloadsWithinOwnershipBudget) {
+    BoundedPayloadPipeline pipeline(32,2);
+    std::size_t allocations=0;cpnetflux::common::Status produced;
+    std::jthread producer([&]{
+        std::vector<std::uint8_t> buffer;
+        for(unsigned frame=0;frame<2000;++frame){
+            if(buffer.capacity()<16){buffer.reserve(16);++allocations;}
+            buffer.resize(frame%16+1);std::fill(buffer.begin(),buffer.end(),static_cast<std::uint8_t>(frame));
+            produced=pipeline.push(PreparedPayload{frame,std::move(buffer)},&buffer);
+            if(!produced.isOk())return;
+        }
+        pipeline.close();
+    });
+    std::array<PreparedPayload,2> slots;unsigned seen=0;
+    for(;;){
+        auto count=pipeline.popBatch(slots);
+        if(!count.isOk()){
+            pipeline.cancel(count.status());producer.join();
+            FAIL()<<count.status().message();return;
+        }
+        if(!count.value())break;
+        for(std::size_t i=0;i<count.value();++i){
+            EXPECT_EQ(slots[i].offset,seen);EXPECT_EQ(slots[i].bytes.size(),seen%16+1);
+            for(auto byte:slots[i].bytes)EXPECT_EQ(byte,static_cast<std::uint8_t>(seen));
+            ++seen;
+        }
+    }
+    producer.join();EXPECT_TRUE(produced.isOk());EXPECT_EQ(seen,2000U);
+    EXPECT_LE(allocations,5U);EXPECT_LE(pipeline.highWatermarkBytes(),32U);
+    EXPECT_EQ(pipeline.recycledCapacityBytes(),0U);
+}
+
+TEST(BoundedPayloadPipelineTest, BatchRetainsFourIdleOwnersWithinDepthPlusThreeBudget) {
+    BoundedPayloadPipeline pipeline(32, 2);
+    std::array<PreparedPayload, 2> slots;
+    for (auto& slot : slots) slot.bytes.resize(16);
+    for (int i = 0; i < 2; ++i) {
+        PreparedPayload item; item.bytes.resize(16);
+        ASSERT_TRUE(pipeline.push(std::move(item)).isOk());
+    }
+    auto first = pipeline.popBatch(slots);
+    ASSERT_TRUE(first.isOk()); ASSERT_EQ(first.value(), 2U);
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 32U);
+    auto waiting = std::async(std::launch::async, [&] { return pipeline.popBatch(slots); });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (pipeline.consumerWaitCount() == 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::yield();
+    EXPECT_EQ(pipeline.consumerWaitCount(), 1U);
+    // Two returned owners plus two already idle owners. The fifth is the producer.
+    EXPECT_EQ(pipeline.recycledCapacityBytes(), 64U);
+    pipeline.close();
+    auto end = waiting.get();
+    ASSERT_TRUE(end.isOk()); EXPECT_EQ(end.value(), 0U);
 }

@@ -1,10 +1,12 @@
 #include "cpnetflux/config/tree_transfer_options.h"
 
+#include <arpa/inet.h>
 #include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <netdb.h>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -56,6 +58,43 @@ common::Result<double> parsePositiveDouble(std::string_view value, std::string_v
 common::Status requireValue(int argc, int index, std::string_view option) {
     if (index + 1 >= argc) {
         return common::Status::invalidArgument(std::string(option) + " requires a value");
+    }
+    return common::Status::ok();
+}
+
+common::Status appendLocalBindAddresses(std::vector<std::string>* addresses,
+                                          std::string_view value,
+                                          const std::string& option = "--local-bind-addresses") {
+    if (value.empty()) {
+        return common::Status::invalidArgument(option + " must not be empty");
+    }
+    std::size_t start = 0;
+    while (start <= value.size()) {
+        const auto comma = value.find(',', start);
+        const auto token = value.substr(start, comma == std::string_view::npos
+            ? value.size() - start : comma - start);
+        if (token.empty()) {
+            return common::Status::invalidArgument(
+                option + " contains an empty address");
+        }
+        addrinfo hints{};
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_flags = AI_NUMERICHOST;
+        addrinfo* result = nullptr;
+        const int status = ::getaddrinfo(std::string(token).c_str(), nullptr, &hints, &result);
+        if (status != 0) {
+            return common::Status::invalidArgument(
+                option + " requires numeric IPv4/IPv6 addresses");
+        }
+        ::freeaddrinfo(result);
+        addresses->emplace_back(token);
+        if (comma == std::string_view::npos) break;
+        start = comma + 1;
+    }
+    if (addresses->size() > 10) {
+        return common::Status::invalidArgument(
+            option + " supports at most 10 lane addresses");
     }
     return common::Status::ok();
 }
@@ -185,6 +224,16 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         }
         const std::string_view value(argv[index + 1]);
 
+        const bool receiverOption = option == "--manifest-flush-policy" ||
+            option == "--manifest-flush-interval-chunks" || option == "--final-verify-policy" ||
+            option == "--commit-sync-policy" || option == "--preallocate" ||
+            option == "--range-checkpoint-batch-chunks" ||
+            option == "--file-io-buffer-size" || option == "--posix-write-strategy";
+        if (receiverOption && role != TreeTransferRole::Download) {
+            return common::Status::invalidArgument(std::string(option) +
+                " is download-only; configure the upload receiver on the server");
+        }
+
         if (option == "--host") {
             if (value.empty()) {
                 return common::Status::invalidArgument("--host must not be empty");
@@ -199,6 +248,16 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return common::Status::invalidArgument("--port must be in range 1..65535");
             }
             options.port = static_cast<std::uint16_t>(parsed.value());
+        } else if (option == "--peer-addresses") {
+            const auto status = appendLocalBindAddresses(&options.peerAddresses, value, "--peer-addresses");
+            if (!status.isOk()) return status;
+        } else if (option == "--local-bind-address" || option == "--local-bind-addresses") {
+            const auto status = appendLocalBindAddresses(&options.localBindAddresses, value);
+            if (!status.isOk()) return status;
+        } else if (option == "--tcp-data-source-port-plan") {
+            if (role != TreeTransferRole::Download || value.empty() || !options.tcpDataSourcePortPlan.empty())
+                return common::Status::invalidArgument("--tcp-data-source-port-plan is explicit, unique and download-only");
+            options.tcpDataSourcePortPlan=std::string(value);
         } else if (option == "--source-dir") {
             if (value.empty()) {
                 return common::Status::invalidArgument("--source-dir must not be empty");
@@ -230,19 +289,44 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                     "--file-parallelism must be in range 1..16");
             }
             options.fileParallelism = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--reconnect-attempts") {
+            auto parsed = parseUnsigned(value, option);
+            if (!parsed.isOk() || parsed.value() > 10)
+                return common::Status::invalidArgument("--reconnect-attempts must be in range 0..10");
+            options.reconnectAttempts = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--transfer-timeout-ms") {
+            auto parsed = parseUnsigned(value, option);
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 86400000)
+                return common::Status::invalidArgument("--transfer-timeout-ms must be in range 1..86400000");
+            options.transferTimeoutMs = parsed.value();
         } else if (option == "--data-session-reuse") {
             if (value != "off" && value != "tree")
                 return common::Status::invalidArgument("--data-session-reuse must be off or tree");
-            options.reuseDataSession = value == "tree";
+            options.reuseDataSession = true;
         } else if (option == "--file-scheduling") {
             if (value != "static" && value != "dynamic")
                 return common::Status::invalidArgument("--file-scheduling must be static or dynamic");
             options.dynamicFileScheduling = value == "dynamic";
         } else if (option == "--data-pending-window") {
-            auto parsed = parseUnsigned(value, "--data-pending-window");
-            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 16)
-                return common::Status::invalidArgument("--data-pending-window must be in range 1..16");
-            options.dataPendingWindow = static_cast<std::uint32_t>(parsed.value());
+            if (value == "auto") {
+                options.dataPendingWindow = 0;
+            } else {
+                auto parsed = parseUnsigned(value, "--data-pending-window");
+                if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 16)
+                    return common::Status::invalidArgument("--data-pending-window must be in range 1..16");
+                options.dataPendingWindow = static_cast<std::uint32_t>(parsed.value());
+            }
+        } else if (option == "--link-set-links") {
+            auto parsed = parseUnsigned(value, "--link-set-links");
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 10)
+                return common::Status::invalidArgument("--link-set-links must be in range 1..10");
+            options.linkSetLinks = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--link-set-capabilities") {
+            auto parsed = parseUnsigned(value, "--link-set-capabilities");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.linkSetCapabilityBits = parsed.value();
         } else if (option == "--control-reuse") {
             auto parsed = parseControlReuseMode(value);
             if (!parsed.isOk()) {
@@ -267,6 +351,11 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                     "--chunk-size must be in range 1..1099511627776");
             }
             options.chunkSize = parsed.value();
+        } else if (option == "--data-frame-bytes") {
+            auto parsed = parseUnsigned(value, "--data-frame-bytes");
+            if (!parsed.isOk() || (parsed.value() != 65532 && parsed.value() != 262144))
+                return common::Status::invalidArgument("--data-frame-bytes must be 65532 or 262144");
+            options.dataFrameBytes = static_cast<std::uint32_t>(parsed.value());
         } else if (option == "--buffer-size") {
             auto parsed = parseUnsigned(value, "--buffer-size");
             if (!parsed.isOk()) {
@@ -289,15 +378,51 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return parsed.status();
             }
             options.checksumBackend = parsed.value();
+        } else if (option == "--manifest-flush-policy") {
+            auto parsed = core::session::parseManifestFlushPolicy(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.manifestFlushPolicy = parsed.value();
+        } else if (option == "--manifest-flush-interval-chunks") {
+            auto parsed = parseUnsigned(value, option);
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 65536)
+                return common::Status::invalidArgument(
+                    "--manifest-flush-interval-chunks must be in range 1..65536");
+            options.manifestFlushIntervalChunks = parsed.value();
+        } else if (option == "--final-verify-policy") {
+            auto parsed = core::session::parseFinalVerifyPolicy(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.finalVerifyPolicy = parsed.value();
+        } else if (option == "--commit-sync-policy") {
+            auto parsed = core::session::parseCommitSyncPolicy(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.commitSyncPolicy = parsed.value();
+        } else if (option == "--preallocate") {
+            auto parsed = storage::parsePreallocateMode(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.preallocateMode = parsed.value();
+        } else if (option == "--file-io-buffer-size") {
+            auto parsed = parseUnsigned(value, option);
+            if (!parsed.isOk() || parsed.value() > 67108864)
+                return common::Status::invalidArgument(
+                    "--file-io-buffer-size must be in range 0..67108864");
+            options.fileIo.bufferSize = parsed.value();
+        } else if (option == "--posix-write-strategy") {
+            auto parsed = storage::parsePosixWriteStrategy(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.fileIo.posixWriteStrategy = parsed.value();
+        } else if (option == "--range-checkpoint-batch-chunks") {
+            if (value == "auto") {
+                options.rangeCheckpointBatchChunks = 0;
+            } else {
+                auto parsed = parseUnsigned(value, option);
+                if (!parsed.isOk() || (parsed.value() != 1 && parsed.value() != 4 && parsed.value() != 16))
+                    return common::Status::invalidArgument(
+                        "--range-checkpoint-batch-chunks must be auto, 1, 4 or 16");
+                options.rangeCheckpointBatchChunks = static_cast<std::uint32_t>(parsed.value());
+            }
         } else if (option == "--max-files") {
-            auto parsed = parseUnsigned(value, "--max-files");
-            if (!parsed.isOk()) {
-                return parsed.status();
-            }
-            if (parsed.value() == 0) {
-                return common::Status::invalidArgument("--max-files must be greater than zero");
-            }
-            options.maxFiles = parsed.value();
+            return common::Status::invalidArgument(
+                "--max-files is not supported by the V3 tree executor");
         } else if (option == "--auth-mode") {
             auto parsed = protocol::control::parseAuthMode(value);
             if (!parsed.isOk()) {
@@ -348,6 +473,20 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                     "--control-pipeline-depth must be one of 0, 1, 2, or 4");
             }
             options.controlPipelineDepth = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--tree-manifest-event-threshold") {
+            auto parsed = parseUnsigned(value, "--tree-manifest-event-threshold");
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 65536) {
+                return common::Status::invalidArgument(
+                    "--tree-manifest-event-threshold must be in range 1..65536");
+            }
+            options.treeManifestEventThreshold = static_cast<std::uint32_t>(parsed.value());
+        } else if (option == "--tree-manifest-max-delay-ms") {
+            auto parsed = parseUnsigned(value, "--tree-manifest-max-delay-ms");
+            if (!parsed.isOk() || parsed.value() == 0 || parsed.value() > 500) {
+                return common::Status::invalidArgument(
+                    "--tree-manifest-max-delay-ms must be in range 1..500");
+            }
+            options.treeManifestMaxDelayMs = static_cast<std::uint32_t>(parsed.value());
         } else if (option == "--scheduler") {
             auto parsed = parseTreeSchedulerMode(value);
             if (!parsed.isOk()) {
@@ -444,12 +583,25 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
                 return parsed.status();
             }
             options.dataTlsMode = parsed.value();
+        } else if (option == "--data-transport") {
+            auto parsed = core::io::parseDataTransport(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.dataTransport = parsed.value();
         } else {
             return common::Status::invalidArgument("unknown option: " + std::string(option));
         }
         index += 2;
     }
 
+    if (options.dataFrameBytes != 65532 &&
+        (options.dataTransport != core::io::DataTransport::Tcp ||
+         options.dataTlsMode != core::io::DataTlsMode::Off || options.tls.mode != core::io::TlsMode::Off ||
+         options.compressionMode != CompressionMode::Off || options.hotPathCompression.enabled ||
+         options.chunkSize != 1048576 || options.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
+         !options.reuseDataSession || options.controlReuseMode != ControlReuseMode::Worker))
+        return common::Status::invalidArgument("large DATA requires V3 worker reuse, TCP, TLS/compression off, CRC32C and 1MiB chunks");
+    const auto fileIoStatus = storage::validateFileIoConfig(options.fileIo);
+    if (!fileIoStatus.isOk()) return fileIoStatus;
     if (!options.authProbe && !hasSourceDir) {
         return common::Status::invalidArgument("--source-dir is required");
     }
@@ -472,9 +624,15 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     if (options.reuseDataSession &&
         options.fileParallelism > core::io::kPersistentTreeMaxChannels) {
         return common::Status::invalidArgument(
-            "persistent tree channels are limited to 8");
+            "persistent tree channels are limited to " +
+            std::to_string(core::io::kPersistentTreeMaxChannels));
     }
     options.requestedReuseDataSession = options.reuseDataSession;
+    if (options.reuseDataSession && options.schedulerMode == TreeSchedulerMode::Global &&
+        !options.dynamicFileScheduling) {
+        return common::Status::invalidArgument(
+            "persistent global scheduler requires dynamic file scheduling");
+    }
     if (options.controlPipelineDepth != 0) {
         if (options.controlPipelineDepth != 1 && options.controlPipelineDepth != 2 &&
             options.controlPipelineDepth != 4) {
@@ -485,25 +643,13 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             // Persistent V3 owns the data worker and its bounded dispatch queue.
             // The requested depth becomes a shared prefetch window; no second
             // control-pipeline state machine is created.
-            if (options.schedulerMode != TreeSchedulerMode::Off || options.maxFiles != 0 ||
-                !options.dynamicFileScheduling) {
+            if (options.maxFiles != 0 || !options.dynamicFileScheduling) {
                 return common::Status::invalidArgument(
-                    "persistent control pipeline requires dynamic scheduling, scheduler off, "
-                    "and no --max-files");
+                    "persistent control pipeline requires dynamic scheduling");
             }
         } else {
-            // Keep the legacy per-file pipeline available when persistent sessions
-            // are explicitly disabled.
-            if (options.controlReuseMode != ControlReuseMode::Worker ||
-                options.schedulerMode != TreeSchedulerMode::Off || options.resume) {
-                return common::Status::invalidArgument(
-                    "--control-pipeline-depth with --data-session-reuse off requires "
-                    "worker control reuse, scheduler off, and no resume");
-            }
-            if (options.maxFiles != 0) {
-                return common::Status::invalidArgument(
-                    "--control-pipeline-depth does not support --max-files");
-            }
+            return common::Status::invalidArgument(
+                "V3 control pipeline requires persistent tree execution");
         }
     }
     if (!options.authProbe && role == TreeTransferRole::Upload) {
@@ -530,6 +676,24 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             }
         }
     }
+    if (options.peerAddresses.size() > 1 && options.peerAddresses.size() != options.linkSetLinks) {
+        return common::Status::invalidArgument(
+            "--peer-addresses must contain one address or exactly --link-set-links addresses");
+    }
+    if (options.localBindAddresses.size() > 1 &&
+        options.localBindAddresses.size() != options.linkSetLinks) {
+        return common::Status::invalidArgument(
+            "--local-bind-addresses must contain one address or exactly --link-set-links addresses");
+    }
+    if (!options.tcpDataSourcePortPlan.empty()) {
+        in_addr address{};
+        const auto& peer=options.peerAddresses.empty()?options.host:options.peerAddresses.front();
+        if (options.dataTransport!=core::io::DataTransport::Tcp || options.linkSetLinks!=1 ||
+            options.localBindAddresses.size()!=1 || options.peerAddresses.size()>1 ||
+            ::inet_pton(AF_INET,options.localBindAddresses.front().c_str(),&address)!=1 ||
+            ::inet_pton(AF_INET,peer.c_str(),&address)!=1)
+            return common::Status::invalidArgument("--tcp-data-source-port-plan requires single-link TCP and explicit numeric IPv4 local/peer addresses");
+    }
     const common::Status schedulerMetricsStatus = validateSchedulerMetricsDir(options, role);
     if (!schedulerMetricsStatus.isOk()) {
         return schedulerMetricsStatus;
@@ -548,30 +712,52 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
     if (!dataTlsStatus.isOk()) {
         return dataTlsStatus;
     }
+    if (options.dataTransport == core::io::DataTransport::Rdma &&
+        options.dataTlsMode != core::io::DataTlsMode::Off) {
+        return common::Status::invalidArgument("--data-transport rdma cannot be combined with data TLS");
+    }
+    if (options.reconnectAttempts > 0) {
+        if (options.checksumAlgorithm == checksum::ChecksumAlgorithm::None)
+            return common::Status::invalidArgument("automatic reconnect requires verified checksums");
+        if (!options.reuseDataSession || !options.dynamicFileScheduling)
+            return common::Status::invalidArgument("automatic reconnect requires persistent dynamic scheduling");
+        if (options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
+    }
+    if (!options.tcpDataSourcePortPlan.empty() && options.transferTimeoutMs==0) options.transferTimeoutMs=300000;
     return options;
 }
 
 std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
     const char* sourceText = role == TreeTransferRole::Upload ? "<local_dir>" : "<remote_dir>";
     const char* destText = role == TreeTransferRole::Upload ? "<remote_dir>" : "<local_dir>";
+    const std::string receiverUsage = role == TreeTransferRole::Download
+        ? " [--tcp-data-source-port-plan <path>] [--final-verify-policy full|verified_chunks] "
+          "[--manifest-flush-policy every_n_chunks|final_only] "
+          "[--manifest-flush-interval-chunks 1..65536] "
+          "[--commit-sync-policy none|fsync_file|fsync_file_and_dir] [--preallocate off|full] "
+          "[--range-checkpoint-batch-chunks auto|1|4|16] "
+          "[--file-io-buffer-size 0..67108864] [--posix-write-strategy auto|direct|coalesced]"
+        : "";
     return std::string("Usage: ") + programName +
            " --host <server-ip> --port <port> --source-dir " + sourceText + " --dest-dir " +
            destText +
            " [--connections <N>] [--file-parallelism <N>] [--chunk-size <bytes>] "
-           "[--buffer-size <bytes>] [--checksum <crc32c|none>] "
-           "[--checksum-backend <auto|software|hardware>] [--resume] [--max-files <N>] "
-           "[--auth-probe] "
-           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window 1..16] [--compression off|auto] [--planner-preset <name>] "
+           "[--buffer-size <bytes>] [--data-frame-bytes 65532|262144] [--checksum <crc32c|none>] "
+           "[--checksum-backend <auto|software|hardware>] [--reconnect-attempts 0..10] [--transfer-timeout-ms N] [--resume] "
+           "[--auth-probe] [--local-bind-address <numeric-ip>] [--local-bind-addresses <ip,ip,...>] [--peer-addresses <ip,ip,...>] "
+           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window auto|1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] [--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
-           "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] [--scheduler off|global] "
+           "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] "
+           "[--tree-manifest-event-threshold 1..65536] "
+           "[--tree-manifest-max-delay-ms 1..500] [--scheduler off|global] "
            "[--scheduler-policy fixed|adaptive] [--scheduler-metrics-dir <dir>] "
            "[--scheduler-link-id <id>] [--scheduler-capacity-gbps <float>] "
            "[--scheduler-workitem-min-bytes <N>] [--scheduler-workitem-max-bytes <N>] "
            "[--scheduler-default-rtt-ms <N>] [--scheduler-min-compress-gbps <float>] "
            "[--tls-mode off|required] [--tls-server-name <name>] [--tls-ca-file <path>] "
            "[--tls-cert-file <path>] [--tls-key-file <path>] "
-           "[--data-tls-mode off|required]";
+           "[--data-tls-mode off|required] [--data-transport tcp|rdma]" + receiverUsage;
 }
 
 }  // namespace cpnetflux::config

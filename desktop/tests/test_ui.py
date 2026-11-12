@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory() as tmp:
         s.sendall((json.dumps(dict(jsonrpc="2.0",id="ui-task",method="transfer.create",params=params))+"\n").encode())
         assert json.loads(stream.readline())["result"]["snapshot"]["state"]=="queued"
         stream.close(); s.close()
-        for page in range(7):
+        for page in range(8):
             for width, height in [(1180, 780), (900, 650), (760, 560)]:
                 screenshot=root/(str(page)+"-"+str(width)+".png")
                 result=subprocess.run([binary,"--socket",str(path),"--page",str(page),"--window-width",str(width),"--window-height",str(height),"--smoke-ms","900","--screenshot",str(screenshot)] + (["--layout-report"] if page == 2 else []), env=env, capture_output=True, text=True, timeout=8)
@@ -40,11 +40,11 @@ with tempfile.TemporaryDirectory() as tmp:
                     assert content > viewport, "detail body must scroll: " + values
                 for marker in ["TypeError", "ReferenceError", "is not installed", "Cannot assign", "Binding loop", "failed to load"]:
                     assert marker not in result.stderr, result.stderr
-                if screenshot.exists() and screenshot.stat().st_size:
-                    assert screenshot.read_bytes()[:8]==b"\x89PNG\r\n\x1a\n"
-        # Closing seven UI processes must not cancel the queued agent task.
+                assert screenshot.exists() and screenshot.stat().st_size, "missing rendered screenshot"
+                assert screenshot.read_bytes()[:8]==b"\x89PNG\r\n\x1a\n"
+        # Closing eight UI processes must not cancel the queued agent task.
         assert p.poll() is None, "UI shutdown killed agent"
-        print("7 Qt pages rendered at 1180, 900, and 760 px; subscription synced; UI exit kept agent alive")
+        print("8 Qt pages rendered at 1180, 900, and 760 px; subscription synced; UI exit kept agent alive")
     finally:
         p.terminate(); p.communicate(timeout=5)
 

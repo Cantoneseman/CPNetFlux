@@ -1,25 +1,55 @@
 #pragma once
 
 #include <functional>
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
+#include "cpnetflux/core/session/verified_chunk_record_stats.h"
 #include "cpnetflux/config/file_transfer_options.h"
 #include <memory>
 #include <cstdint>
 #include <vector>
 #include <optional>
 #include <iosfwd>
+#include "cpnetflux/storage/file_io.h"
+#include "cpnetflux/storage/mapped_file_window.h"
 #include "cpnetflux/core/io/dynamic_file_queue.h"
+#include "cpnetflux/core/io/member_work_profile.h"
+#include "cpnetflux/core/io/sender_work_profile.h"
 #include "cpnetflux/core/io/persistent_data_session.h"
 #include "cpnetflux/core/tree/tree_scan.h"
 
 namespace cpnetflux::core::io {
+struct PersistentTransferLimits {
+    SocketDeadline taskDeadline;
+    std::chrono::milliseconds resultTimeout = std::chrono::minutes(5);
+};
 struct PersistentTransferPolicy {
     config::FileTransferOptions options;
     std::string outputPath;
+    // Internal policy override; 0 selects the tested default/environment setting.
+    std::uint32_t rangeCheckpointBatchChunks = 0;
+    // Internal S2 experiment; 0 keeps the existing direct/explicit file-IO policy.
+    std::uint64_t rangeWriteBatchBytes = 0;
+    bool experimentalMappedDownload = false;
+    PersistentTransferLimits limits;
 };
 struct PersistentTransferContext;
+struct PersistentTreeChunkCrc {
+    std::string relativePath;
+    std::uint64_t totalSize = 0, offset = 0, length = 0;
+    std::uint32_t crc32c = 0;
+};
+struct PersistentTreeFileMetadata {
+    std::string relativePath;
+    std::uint64_t size = 0, device = 0, inode = 0;
+    std::int64_t mtimeNanoseconds = 0, ctimeNanoseconds = 0;
+};
 [[nodiscard]] std::shared_ptr<PersistentTransferContext> makePersistentTransferContext(
     const PersistentTransferPolicy& policy = {});
-inline constexpr std::uint32_t kPersistentTreeMaxChannels = 8;
+[[nodiscard]] common::Status verifyCommittedPersistentOutputs(
+    const std::shared_ptr<PersistentTransferContext>& context);
+[[nodiscard]] std::vector<PersistentTreeFileMetadata> persistentTreePublishedFiles(
+    const std::shared_ptr<PersistentTransferContext>& context);
+inline constexpr std::uint32_t kPersistentTreeMaxChannels = 10;
 inline constexpr std::uint32_t kUnifiedFileMaxChannels = 64;
 inline constexpr std::uint32_t kUnknownPersistentFileCount = UINT32_MAX;
 
@@ -29,10 +59,100 @@ inline constexpr std::uint32_t kUnknownPersistentFileCount = UINT32_MAX;
         (fileId - 1) % channelCount == channelIndex;
 }
 
+struct RangeObservation {
+    std::uint64_t dataFrameCount = 0, effectiveDataBytes = 0;
+    std::uint64_t rangeWriteBatchBytes = 0;
+    std::uint64_t entryLockCalls = 0, offsetWriteCalls = 0, chunkFlushCalls = 0;
+    std::uint64_t parallelDirectWriteCalls = 0, reclaimWaitCalls = 0;
+    std::uint64_t serializedDirectWriteCalls = 0, boundedDirectWriteCalls = 0;
+    std::uint32_t directWriteConcurrency = 0;
+    double directWriteWaitSeconds = 0, reclaimWaitSeconds = 0;
+    std::uint64_t writerCallCount = 0, dataFlushCalls = 0;
+    std::uint64_t recordUpdateCalls = 0, checkpointManifestFlushCalls = 0;
+    double entryLockWaitSeconds = 0, entryLockHoldSeconds = 0;
+    double offsetWriteSeconds = 0, chunkFlushSeconds = 0, chunkChecksumSeconds = 0;
+    double writerCallSeconds = 0, dataFlushSeconds = 0;
+    double recordUpdateSeconds = 0, checkpointManifestFlushSeconds = 0;
+    double checkpointSeconds = 0;
+    double backgroundCheckpointCpuSeconds = 0; // separate thread; attributed at receiver boundaries
+    storage::FileWriteObservation fileWrite;
+    checkpoint::ManifestSaveStats manifestSave;
+};
+struct WholeFileObservation {
+    checkpoint::ManifestSaveStats manifestSave;
+    session::VerifiedChunkRecordStats records;
+};
+struct ReceiverPayloadObservation {
+    std::uint64_t dataFrameCount = 0, framePayloadAllocations = 0;
+    std::uint64_t framePayloadBytes = 0, framePayloadCapacityBytes = 0;
+    std::uint64_t framePayloadReuses = 0, framePayloadAllocatedCapacityBytes = 0;
+    std::uint64_t framePayloadPeakCapacityBytes = 0;
+    std::uint64_t logicalBufferAllocations = 0, logicalCopyBytes = 0;
+    std::uint64_t prefixShiftCalls = 0, prefixShiftBytes = 0;
+    std::uint64_t decompressionCalls = 0, frameCrcBytes = 0;
+    double logicalCopySeconds = 0, prefixShiftSeconds = 0;
+    double decompressionSeconds = 0, frameCrcSeconds = 0;
+    storage::FileWriteObservation wholeFileWrite;
+};
+struct SenderCpuObservation {
+    bool enabled = false;
+    std::uint64_t readCalls = 0, readBytes = 0, checksumCalls = 0, checksumBytes = 0;
+    std::uint64_t pushCalls = 0, pushBytes = 0, popCalls = 0;
+    std::uint64_t leaseStartCalls = 0, leaseFinishCalls = 0, socketCalls = 0, socketLogicalBytes = 0;
+    double readCpuSeconds = 0, checksumCpuSeconds = 0, pushCpuSeconds = 0, popCpuSeconds = 0;
+    double prepareCpuSeconds = 0, leaseCpuSeconds = 0, socketCpuSeconds = 0;
+};
+struct ReceiverCpuObservation {
+    bool enabled = false;
+    bool localWorkExecutor = false;
+    std::uint64_t socketReadCalls = 0, crcCalls = 0, crcBytes = 0, stateCalls = 0;
+    std::uint64_t leaseStartCalls = 0, leaseFinishCalls = 0;
+    std::uint64_t writeCalls = 0, writeLogicalBytes = 0, rangeCalls = 0;
+    std::uint64_t physicalWriteCalls = 0, physicalWriteBytes = 0, pushCalls = 0, popCalls = 0;
+    double socketReadCpuSeconds = 0, crcCpuSeconds = 0, stateCpuSeconds = 0;
+    double leaseCpuSeconds = 0, writeCpuSeconds = 0, rangeCpuSeconds = 0;
+    double physicalWriteCpuSeconds = 0, pushCpuSeconds = 0, popCpuSeconds = 0;
+};
 struct PersistentFileTiming {
     PersistentFileIdentity file;
     std::uint32_t channel = 0;
     bool sender = false;
+    SenderCpuObservation senderCpuObservation;
+    ReceiverCpuObservation receiverCpuObservation;
+    bool rangeObservationEnabled = false;
+    bool wholeFileObservationEnabled = false;
+    WholeFileObservation wholeFileObservation;
+    bool receiverPayloadObservationEnabled = false;
+    ReceiverPayloadObservation receiverPayloadObservation;
+    bool rdmaReceiveObservationAvailable = false;
+    RdmaTransportStats rdmaTransportStats;
+    RangeObservation rangeObservation;
+    std::uint32_t stageReadConcurrency = 0, stageWriteConcurrency = 0, stageNetworkLanes = 0;
+    std::uint64_t stageBufferBudgetBytes = 0, stageOwnershipBoundBytes = 0;
+    std::uint64_t stageReadCalls = 0, stageWriteCalls = 0;
+    double stageReadWaitSeconds = 0, stageWriteWaitSeconds = 0;
+    bool stageWritePool = false;
+    double stageWritePoolCpuSeconds = 0;
+    std::uint32_t payloadPipelineDepth = 0;
+    bool senderInlinePayload = false;
+    bool receiverInlinePayload = false;
+    bool receiverMappedPayload = false;
+    storage::MappedWriteStats mappedWrite;
+    bool receiverEmptyQueueWake = false;
+    std::uint32_t receiverWriteBatchLimit = 1;
+    // Actual two-frame wrapper attempts; may include failed writes, never certified bytes.
+    std::uint64_t gatheredWriteCalls = 0, gatheredWriteFrames = 0, gatheredWriteBytes = 0;
+    std::uint64_t pipelineBudgetBytes = 0, pipelineHighWatermarkBytes = 0;
+    std::uint64_t payloadBufferAllocations = 0, payloadBufferReuses = 0;
+    std::uint64_t payloadBufferAllocatedCapacityBytes = 0, payloadBufferOwnershipBudgetBytes = 0;
+    std::uint64_t pipelineProducerWaits = 0, pipelineConsumerWaits = 0;
+    double pipelineProducerWaitSeconds = 0, pipelineConsumerWaitSeconds = 0;
+    double producerThreadCpuSeconds = 0, laneThreadCpuSeconds = 0, receiverWriterThreadCpuSeconds = 0;
+    // Whole-file receiver begin only; included in file wall and lane CPU totals.
+    std::uint64_t preallocateCalls = 0, preallocateRequestedBytes = 0;
+    double preallocateSeconds = 0, preallocateCpuSeconds = 0;
+    double framePrepareSeconds = 0, socketWriteSeconds = 0;
+    std::uint64_t socketWriteCalls = 0;
     std::optional<double> queueWaitSeconds, firstPayloadSeconds;
     double readSeconds = 0, writeSeconds = 0, payloadIoSeconds = 0;
     double fileResultSeconds = 0, manifestSeconds = 0, checksumSeconds = 0,
@@ -41,19 +161,30 @@ struct PersistentFileTiming {
     std::uint64_t rawFallbackFrames = 0, compressionFailures = 0;
 };
 void appendPersistentFileTimings(std::ostream& out, const std::vector<PersistentFileTiming>& files);
+void appendRangeObservationContract(std::ostream& out);
 struct PersistentTreeStats {
     bool phaseTiming = false;
+    MemberWorkProfile memberWorkProfile;
+    SenderWorkProfile senderWorkProfile;
     std::vector<PersistentFileTiming> fileTimings;
     std::uint64_t files = 0;
+    std::uint64_t rangeCompletions = 0;
+    std::uint32_t receiverRangeCheckpointBatchChunks = 0; // 0 means no range observed.
     std::uint64_t bytes = 0;
     std::uint64_t payloadBytes = 0, skippedBytes = 0, loadedVerifiedChunks = 0, removedCorruptChunks = 0;
     storage::FileIoStats fileIoStats;
+    std::vector<PersistentTreeChunkCrc> verifiedChunkCrcs;
+    std::vector<PersistentTreeFileMetadata> verifiedFileMetadata;
     TransferRuntimeMetrics runtime;
     std::uint64_t wireBytes = 0;  // Application frames, both directions; excludes TCP/IP.
     double completeWaitSeconds = 0;
     double queueWaitSeconds = 0;
     std::uint32_t pendingWindow = 1;
     std::uint32_t pendingHighWatermark = 0;
+    std::uint64_t payloadPipelineBudgetBytes = 0;
+    std::uint64_t payloadPipelineHighWatermarkBytes = 0;
+    std::uint64_t payloadPipelineProducerWaits = 0;
+    std::uint64_t payloadPipelineConsumerWaits = 0;
 };
 using PersistentFileCallback = std::function<common::Status(
     const PersistentFileIdentity&, const common::Status&, bool complete)>;
@@ -67,12 +198,15 @@ using PersistentFileCallback = std::function<common::Status(
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},
     std::uint32_t pendingWindow = 1, std::uint32_t channelIndex = 0,
     std::uint32_t channelCount = 1, DynamicFileQueue* ready = nullptr,
-    const config::FileTransferOptions* options = nullptr);
+    const config::FileTransferOptions* options = nullptr,
+    bool continueAfterFileFailure = false, std::uint32_t maxRetries = 3,
+    const PersistentTransferLimits& limits = {});
 [[nodiscard]] common::Status receivePersistentTree(FramedDataSocket* socket,
     const std::string& root, bool download, const std::string& remoteRoot,
     PersistentTreeStats* stats, const PersistentFileCallback& callback = {},
     std::uint32_t pendingWindow = 1, std::uint32_t channelIndex = 0,
     std::uint32_t channelCount = 1,
     std::uint32_t expectedFileCount = kUnknownPersistentFileCount, bool dynamic = false,
-    bool resume = false, std::shared_ptr<PersistentTransferContext> context = {});
+    bool resume = false, std::shared_ptr<PersistentTransferContext> context = {},
+    DynamicFileQueue* ready = nullptr, std::uint32_t maxRetries = 3);
 }  // namespace cpnetflux::core::io

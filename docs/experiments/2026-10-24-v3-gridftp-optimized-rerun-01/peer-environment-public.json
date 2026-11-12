@@ -1,0 +1,96 @@
+{
+  "epoch": 1792828518.6392536,
+  "hostname": "PowerEdge-R750",
+  "commands": {
+    "clock": {
+      "exit": 0,
+      "stdout": "2026-10-24T15:55:18,640284235+08:00\n",
+      "stderr": ""
+    },
+    "kernel": {
+      "exit": 0,
+      "stdout": "Linux PowerEdge-R750 6.8.0-124-generic #124~22.04.1-Ubuntu SMP PREEMPT_DYNAMIC Tue May 26 21:05:19 UTC  x86_64 x86_64 x86_64 GNU/Linux\n",
+      "stderr": ""
+    },
+    "cpu": {
+      "exit": 0,
+      "stdout": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           46 bits physical, 57 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  64\nOn-line CPU(s) list:                     0-63\nVendor ID:                               GenuineIntel\nModel name:                              Intel(R) Xeon(R) Silver 4314 CPU @ 2.40GHz\nCPU family:                              6\nModel:                                   106\nThread(s) per core:                      2\nCore(s) per socket:                      16\nSocket(s):                               2\nStepping:                                6\nCPU max MHz:                             2400.0000\nCPU min MHz:                             800.0000\nBogoMIPS:                                4800.00\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb cat_l3 intel_ppin ssbd mba ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb intel_pt avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local split_lock_detect wbnoinvd dtherm arat pln pts vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg tme avx512_vpopcntdq la57 rdpid fsrm md_clear pconfig flush_l1d arch_capabilities\nVirtualization:                          VT-x\nL1d cache:                               1.5 MiB (32 instances)\nL1i cache:                               1 MiB (32 instances)\nL2 cache:                                40 MiB (32 instances)\nL3 cache:                                48 MiB (2 instances)\nNUMA node(s):                            2\nNUMA node0 CPU(s):                       0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62\nNUMA node1 CPU(s):                       1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43,45,47,49,51,53,55,57,59,61,63\nVulnerability Gather data sampling:      Mitigation; Microcode\nVulnerability Indirect target selection: Mitigation; Aligned branch/return thunks\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Mitigation; Clear CPU buffers; SMT vulnerable\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI SW loop, KVM SW loop\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Not affected\n",
+      "stderr": ""
+    },
+    "memory": {
+      "exit": 0,
+      "stdout": "               total        used        free      shared  buff/cache   available\nMem:     269868150784 12590403584 253791182848   706822144  3486564352 254947848192\nSwap:     2147479552           0  2147479552\n",
+      "stderr": ""
+    },
+    "disks": {
+      "exit": 0,
+      "stdout": "NAME                                                                                                  TYPE   SIZE ROTA MOUNTPOINTS                         MODEL\nloop0                                                                                                 loop     4K    0 /snap/bare/5                        \nloop1                                                                                                 loop 494.2M    0 /snap/code/242                      \nloop2                                                                                                 loop 494.2M    0 /snap/code/243                      \nloop3                                                                                                 loop  63.8M    0 /snap/core20/2769                   \nloop4                                                                                                 loop  63.8M    0 /snap/core20/2866                   \nloop5                                                                                                 loop    74M    0 /snap/core22/2411                   \nloop6                                                                                                 loop    74M    0 /snap/core22/2339                   \nloop7                                                                                                 loop  66.8M    0 /snap/core24/1587                   \nloop8                                                                                                 loop 248.5M    0 /snap/firefox/8387                  \nloop9                                                                                                 loop  66.8M    0 /snap/core24/1643                   \nloop10                                                                                                loop 346.3M    0 /snap/gnome-3-38-2004/119           \nloop11                                                                                                loop 248.6M    0 /snap/firefox/8417                  \nloop12                                                                                                loop 349.7M    0 /snap/gnome-3-38-2004/143           \nloop13                                                                                                loop 531.4M    0 /snap/gnome-42-2204/247             \nloop14                                                                                                loop 516.2M    0 /snap/gnome-42-2204/226             \nloop15                                                                                                loop 606.1M    0 /snap/gnome-46-2404/153             \nloop16                                                                                                loop  91.7M    0 /snap/gtk-common-themes/1535        \nloop17                                                                                                loop   395M    0 /snap/mesa-2404/1165                \nloop18                                                                                                loop  12.2M    0 /snap/snap-store/1216               \nloop19                                                                                                loop  12.3M    0 /snap/snap-store/959                \nloop20                                                                                                loop  48.4M    0 /snap/snapd/26382                   \nloop21                                                                                                loop  49.3M    0 /snap/snapd/26865                   \nloop22                                                                                                loop   580K    0 /snap/snapd-desktop-integration/357 \nloop23                                                                                                loop   580K    0 /snap/snapd-desktop-integration/361 \nsda                                                                                                   disk   3.6T    1                                     PERC H755 Adp\nsdb                                                                                                   disk   3.6T    1                                     PERC H755 Adp\n\u2514\u2500ceph--219849c9--6bd7--433d--b766--7fbbf9785f9a-osd--block--bd3f3e75--10af--4bc9--b560--acec6153cb92 lvm    3.6T    1                                     \nsdc                                                                                                   disk   1.7T    0                                     PERC H755 Adp\n\u2514\u2500ceph--59318174--37a1--440a--ae0e--0b972736a695-osd--block--925e5fa0--4912--4322--906c--0e25d8934c76 lvm    1.7T    0                                     \nsdd                                                                                                   disk   1.7T    0 /mnt/aim_sdd                        PERC H755 Adp\nsde                                                                                                   disk   1.7T    0 /mnt/aim_sdc                        PERC H755 Adp\nsdf                                                                                                   disk   7.3T    1 /mnt/sas                            PERC H755 Adp\nsdg                                                                                                   disk 893.8G    0                                     PERC H755 Adp\n\u251c\u2500sdg1                                                                                                part   512M    0 /boot/efi                           \n\u2514\u2500sdg2                                                                                                part 893.2G    0 /                                   \nsr0                                                                                                   rom    384K    1                                     DVDRAM GU40N\nnvme0n1                                                                                               disk 698.6G    0                                     INTEL SSDPED1K750GA\n\u2514\u2500ceph--1bdf49af--cca8--4a6f--a9cf--ceda77f9f708-osd--block--6ae098dd--fdb5--4d53--8e65--966fcf63652e lvm  698.6G    0                                     \npmem1                                                                                                 disk   124G    0                                     \npmem0                                                                                                 disk   124G    0 /mnt/aim_pmem0                      \n",
+      "stderr": ""
+    },
+    "space": {
+      "exit": 0,
+      "stdout": "Filesystem        1B-blocks         Used   Available Use% Mounted on\n/dev/sdg2      942910771200 821864067072 73074040832  92% /\n",
+      "stderr": ""
+    },
+    "mount": {
+      "exit": 0,
+      "stdout": "TARGET SOURCE    FSTYPE OPTIONS\n/      /dev/sdg2 ext4   rw,relatime,errors=remount-ro,stripe=64\n",
+      "stderr": ""
+    },
+    "interface": {
+      "exit": 0,
+      "stdout": "10: enp177s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc mq state UP mode DEFAULT group default qlen 1000\n    link/ether 08:c0:eb:76:12:7a brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 760 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 portname p0 switchid 7a12760003ebc008 parentbus pci parentdev 0000:b1:00.0 \n    RX:    bytes  packets errors dropped  missed   mcast           \n    169548516310 20631323      0       0       0       0 \n    TX:    bytes  packets errors dropped carrier collsns           \n       387091269  4311107      0       0       0       0 \n",
+      "stderr": ""
+    },
+    "addresses": {
+      "exit": 0,
+      "stdout": "[{\"ifindex\":10,\"ifname\":\"enp177s0np0\",\"flags\":[\"BROADCAST\",\"MULTICAST\",\"UP\",\"LOWER_UP\"],\"mtu\":9000,\"qdisc\":\"mq\",\"operstate\":\"UP\",\"group\":\"default\",\"txqlen\":1000,\"link_type\":\"ether\",\"address\":\"08:c0:eb:76:12:7a\",\"broadcast\":\"ff:ff:ff:ff:ff:ff\",\"addr_info\":[{\"family\":\"inet\",\"local\":\"192.168.100.2\",\"prefixlen\":30,\"broadcast\":\"192.168.100.3\",\"scope\":\"global\",\"noprefixroute\":true,\"label\":\"enp177s0np0\",\"valid_life_time\":4294967295,\"preferred_life_time\":4294967295},{\"family\":\"inet6\",\"local\":\"fe80::ac0:ebff:fe76:127a\",\"prefixlen\":64,\"scope\":\"link\",\"valid_life_time\":4294967295,\"preferred_life_time\":4294967295}]}]\n",
+      "stderr": ""
+    },
+    "link": {
+      "exit": 0,
+      "stdout": "Settings for enp177s0np0:\n\tSupported ports: [ Backplane ]\n\tSupported link modes:   1000baseKX/Full\n\t                        10000baseKR/Full\n\t                        40000baseKR4/Full\n\t                        40000baseCR4/Full\n\t                        40000baseSR4/Full\n\t                        40000baseLR4/Full\n\t                        25000baseCR/Full\n\t                        25000baseKR/Full\n\t                        25000baseSR/Full\n\t                        50000baseCR2/Full\n\t                        50000baseKR2/Full\n\t                        100000baseKR4/Full\n\t                        100000baseSR4/Full\n\t                        100000baseCR4/Full\n\t                        100000baseLR4_ER4/Full\n\tSupported pause frame use: Symmetric\n\tSupports auto-negotiation: Yes\n\tSupported FEC modes: None\t RS\t BASER\n\tAdvertised link modes:  1000baseKX/Full\n\t                        10000baseKR/Full\n\t                        40000baseKR4/Full\n\t                        40000baseCR4/Full\n\t                        40000baseSR4/Full\n\t                        40000baseLR4/Full\n\t                        25000baseCR/Full\n\t                        25000baseKR/Full\n\t                        25000baseSR/Full\n\t                        50000baseCR2/Full\n\t                        50000baseKR2/Full\n\t                        100000baseKR4/Full\n\t                        100000baseSR4/Full\n\t                        100000baseCR4/Full\n\t                        100000baseLR4_ER4/Full\n\tAdvertised pause frame use: Symmetric\n\tAdvertised auto-negotiation: Yes\n\tAdvertised FEC modes: RS\n\tLink partner advertised link modes:  Not reported\n\tLink partner advertised pause frame use: No\n\tLink partner advertised auto-negotiation: Yes\n\tLink partner advertised FEC modes: Not reported\n\tSpeed: 100000Mb/s\n\tDuplex: Full\n\tAuto-negotiation: on\n\tPort: Direct Attach Copper\n\tPHYAD: 0\n\tTransceiver: internal\n\tLink detected: yes\n",
+      "stderr": "netlink error: Operation not permitted\n"
+    },
+    "network_driver": {
+      "exit": 0,
+      "stdout": "driver: mlx5_core\nversion: 6.8.0-124-generic\nfirmware-version: 16.35.8002 (MT_0000000011)\nexpansion-rom-version: \nbus-info: 0000:b1:00.0\nsupports-statistics: yes\nsupports-test: yes\nsupports-eeprom-access: no\nsupports-register-dump: no\nsupports-priv-flags: yes\n",
+      "stderr": ""
+    },
+    "gridftp_client": {
+      "exit": 1,
+      "stdout": "",
+      "stderr": "globus-url-copy: 10.10\n"
+    },
+    "gridftp_server": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": "[xfer driver] activated\n[xfer driver] deactivated\n[xfer driver] activated\n[xfer driver] deactivated\nglobus_gridftp_server: 13.22 (1629915172-0)\n[70689] Sat Oct 24 15:55:18 2026 :: Unable to load xfer driver:\nglobus_xio: Invalid Driver, driver lookup failed\n\n"
+    },
+    "page_size": {
+      "exit": 0,
+      "stdout": "4096\n",
+      "stderr": ""
+    },
+    "clock_ticks": {
+      "exit": 0,
+      "stdout": "100\n",
+      "stderr": ""
+    },
+    "tcp_settings": {
+      "exit": 0,
+      "stdout": "net.ipv4.tcp_rmem = 4096\t131072\t6291456\nnet.ipv4.tcp_wmem = 4096\t16384\t4194304\nnet.core.rmem_max = 268435456\nnet.core.wmem_max = 268435456\nnet.ipv4.tcp_congestion_control = cubic\n",
+      "stderr": ""
+    },
+    "ca": {
+      "exit": 0,
+      "stdout": "subject=O = XioTransfer, OU = SimpleCA, CN = XioTransferCA\nnotBefore=Apr  9 06:24:55 2026 GMT\nnotAfter=Apr  6 06:24:55 2036 GMT\nsha256 Fingerprint=27:CF:F2:C9:87:FE:D3:AB:E8:F6:61:0A:60:30:76:12:C6:23:52:50:E5:63:CC:7D:FA:6E:DC:33:2D:78:EC:5C\n",
+      "stderr": ""
+    },
+    "proxy": {
+      "exit": 1,
+      "stdout": "",
+      "stderr": "\nERROR: Couldn't find a valid proxy.\n       globus_sysconfig: File does not exist: /tmp/cpnetflux-runs/V3-GRIDFTP-OPTIMIZED-RERUN-01/20261024T071000Z-aa20229/credentials/x509up_u1002 is not a valid file\n\nUse -debug for further information.\n"
+    }
+  }
+}

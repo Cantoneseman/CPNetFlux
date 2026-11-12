@@ -1,12 +1,15 @@
 #include "cpnetflux/core/io/tcp_sink_server.h"
 
+#include <poll.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 #include "cpnetflux/common/throughput_counter.h"
@@ -18,14 +21,31 @@ namespace {
 
 struct ListenerToken {};
 
+struct ThreadTransferResult {
+    common::Status status = common::Status::ok();
+    std::uint64_t bytes = 0;
+    common::ThroughputCounter::TimePoint start{};
+    common::ThroughputCounter::TimePoint end{};
+    bool started = false;
+};
+
 common::Status systemStatus(const char* operation, int errorNumber) {
     return common::Status::systemError(std::string(operation) + ": " + std::strerror(errorNumber),
                                        errorNumber);
 }
 
-}  // namespace
+void printServerResult(std::uint64_t bytes, common::ThroughputCounter::TimePoint start,
+                       common::ThroughputCounter::TimePoint end) {
+    common::ThroughputCounter counter;
+    counter.start(start);
+    counter.addBytes(bytes);
+    counter.stop(end);
+    std::cout << "server received_bytes=" << bytes
+              << " elapsed_seconds=" << counter.elapsedSeconds(end)
+              << " throughput_gbps=" << counter.gigabitsPerSecond(end) << '\n';
+}
 
-common::Status runTcpSinkServer(const config::SinkOptions& options) {
+common::Status runTcpSinkServerEpoll(const config::SinkOptions& options) {
     auto listenerResult =
         createListener(options.host.c_str(), options.port, static_cast<int>(options.connections));
     if (!listenerResult.isOk()) {
@@ -71,7 +91,7 @@ common::Status runTcpSinkServer(const config::SinkOptions& options) {
             if (events[index].data.ptr == &listenerToken) {
                 while (accepting) {
                     const int acceptedFd =
-                        ::accept4(listener.get(), nullptr, nullptr, SOCK_NONBLOCK);
+                        ::accept4(listener.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
                     if (acceptedFd < 0) {
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
                             break;
@@ -168,6 +188,117 @@ common::Status runTcpSinkServer(const config::SinkOptions& options) {
               << " throughput_gbps=" << counter.gigabitsPerSecond(end) << '\n';
 
     return common::Status::ok();
+}
+
+common::Status runTcpSinkServerThreaded(const config::SinkOptions& options) {
+    auto listenerResult =
+        createListener(options.host.c_str(), options.port, static_cast<int>(options.connections));
+    if (!listenerResult.isOk()) {
+        return listenerResult.status();
+    }
+    UniqueFd listener = std::move(listenerResult.value());
+
+    std::vector<UniqueFd> connections;
+    connections.reserve(options.connections);
+    while (connections.size() < options.connections) {
+        pollfd descriptor{listener.get(), POLLIN, 0};
+        const int ready = ::poll(&descriptor, 1, -1);
+        if (ready < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return systemStatus("poll", errno);
+        }
+        if ((descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+            return common::Status::runtimeError("listener failed while accepting threaded sink");
+        }
+
+        const int acceptedFd = ::accept4(listener.get(), nullptr, nullptr, SOCK_CLOEXEC);
+        if (acceptedFd >= 0) {
+            connections.emplace_back(acceptedFd);
+            continue;
+        }
+        if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+            continue;
+        }
+        return systemStatus("accept4", errno);
+    }
+    listener.reset();
+
+    std::vector<ThreadTransferResult> results(options.connections);
+    std::vector<std::thread> workers;
+    workers.reserve(options.connections);
+    for (std::uint32_t index = 0; index < options.connections; ++index) {
+        workers.emplace_back([&, index] {
+            auto& result = results[index];
+            std::vector<char> buffer(options.bufferSize);
+            for (;;) {
+                const ssize_t received =
+                    ::recv(connections[index].get(), buffer.data(), buffer.size(), 0);
+                if (received > 0) {
+                    if (!result.started) {
+                        result.start = common::ThroughputCounter::Clock::now();
+                        result.started = true;
+                    }
+                    result.bytes += static_cast<std::uint64_t>(received);
+                    continue;
+                }
+                if (received == 0) {
+                    result.end = common::ThroughputCounter::Clock::now();
+                    return;
+                }
+                if (errno == EINTR) {
+                    continue;
+                }
+                result.status = systemStatus("threaded recv", errno);
+                result.end = common::ThroughputCounter::Clock::now();
+                return;
+            }
+        });
+    }
+
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    std::uint64_t totalReceived = 0;
+    bool hasPayload = false;
+    auto first = common::ThroughputCounter::Clock::now();
+    auto last = first;
+    for (const auto& result : results) {
+        if (!result.status.isOk()) {
+            return result.status;
+        }
+        totalReceived += result.bytes;
+        if (result.bytes > 0) {
+            if (!hasPayload || result.start < first) {
+                first = result.start;
+            }
+            if (!hasPayload || result.end > last) {
+                last = result.end;
+            }
+            hasPayload = true;
+        }
+    }
+    if (totalReceived != options.bytes) {
+        return common::Status::runtimeError("threaded sink received " + std::to_string(totalReceived) +
+                                            " bytes, expected " + std::to_string(options.bytes));
+    }
+    if (!hasPayload) {
+        return common::Status::runtimeError("threaded sink received no payload");
+    }
+
+    printServerResult(totalReceived, first, last);
+    return common::Status::ok();
+}
+
+}  // namespace
+
+common::Status runTcpSinkServer(const config::SinkOptions& options) {
+    if (options.ioMode == config::SinkIoMode::Threaded) {
+        return runTcpSinkServerThreaded(options);
+    }
+    return runTcpSinkServerEpoll(options);
 }
 
 }  // namespace cpnetflux::core::io

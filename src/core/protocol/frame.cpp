@@ -183,7 +183,7 @@ common::Status validateFrameHeader(const FrameHeader& header, std::uint32_t maxP
     if (header.magic != kFrameMagic) {
         return common::Status::invalidArgument("invalid frame magic");
     }
-    if (header.version != kFrameVersion) {
+    if (header.version != kFrameSchemaVersion) {
         return common::Status::invalidArgument("invalid frame version");
     }
     if (header.headerSize != kFrameHeaderSize) {
@@ -458,15 +458,21 @@ common::Result<FileBeginMetadata> decodeFileBeginMetadata(const std::uint8_t* da
 
 common::Result<std::vector<std::uint8_t>> encodeResumeResponsePayload(
     const ResumeResponsePayload& payload) {
-    if (payload.missingRanges.size() > (std::numeric_limits<std::uint32_t>::max() - 8ULL) / 16ULL) {
+    if (payload.pageCount == 0 || payload.pageIndex >= payload.pageCount)
+        return common::Status::invalidArgument("invalid resume response page metadata");
+    if (payload.missingRanges.size() > (std::numeric_limits<std::uint32_t>::max() - 16ULL) / 16ULL) {
         return common::Status::invalidArgument("too many missing ranges");
     }
 
     std::vector<std::uint8_t> encoded;
-    encoded.reserve(8 + payload.missingRanges.size() * 16);
+    encoded.reserve(16 + payload.missingRanges.size() * 16);
     appendU32(encoded, static_cast<std::uint32_t>(payload.statusCode));
     appendU32(encoded, static_cast<std::uint32_t>(payload.missingRanges.size()));
+    appendU32(encoded, payload.pageIndex);
+    appendU32(encoded, payload.pageCount);
     for (const core::chunk::CompletedRange& range : payload.missingRanges) {
+        if (range.begin >= range.end)
+            return common::Status::invalidArgument("missing range must be non-empty");
         appendU64(encoded, range.begin);
         appendU64(encoded, range.end - range.begin);
     }
@@ -475,7 +481,7 @@ common::Result<std::vector<std::uint8_t>> encodeResumeResponsePayload(
 
 common::Result<ResumeResponsePayload> decodeResumeResponsePayload(const std::uint8_t* data,
                                                                   std::size_t size) {
-    if (size < 8 || (size - 8) % 16 != 0) {
+    if (size < 16 || (size - 16) % 16 != 0) {
         return common::Status::invalidArgument("invalid resume response payload size");
     }
 
@@ -485,20 +491,26 @@ common::Result<ResumeResponsePayload> decodeResumeResponsePayload(const std::uin
     }
 
     const std::uint32_t rangeCount = readPayloadU32(data, 4);
-    if (size != 8ULL + static_cast<std::uint64_t>(rangeCount) * 16ULL) {
+    const std::uint32_t pageIndex = readPayloadU32(data, 8);
+    const std::uint32_t pageCount = readPayloadU32(data, 12);
+    if (pageCount == 0 || pageIndex >= pageCount) {
+        return common::Status::invalidArgument("invalid resume response page metadata");
+    }
+    if (size != 16ULL + static_cast<std::uint64_t>(rangeCount) * 16ULL) {
         return common::Status::invalidArgument("resume response range count mismatch");
     }
 
     ResumeResponsePayload payload;
     payload.statusCode = static_cast<FrameStatusCode>(status);
+    payload.pageIndex = pageIndex;
+    payload.pageCount = pageCount;
     payload.missingRanges.reserve(rangeCount);
     for (std::uint32_t index = 0; index < rangeCount; ++index) {
-        const std::size_t offset = 8ULL + static_cast<std::size_t>(index) * 16ULL;
+        const std::size_t offset = 16ULL + static_cast<std::size_t>(index) * 16ULL;
         const std::uint64_t begin = readPayloadU64(data, offset);
         const std::uint64_t length = readPayloadU64(data, offset + 8);
         if (length == 0) {
-            return common::Status::invalidArgument(
-                "missing range length must be greater than zero");
+            return common::Status::invalidArgument("missing range length must be greater than zero");
         }
         if (begin > std::numeric_limits<std::uint64_t>::max() - length) {
             return common::Status::invalidArgument("missing range overflows uint64");

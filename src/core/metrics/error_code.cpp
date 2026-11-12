@@ -123,7 +123,8 @@ ErrorCode classifyStatus(const common::Status& status) {
     if (status.isOk()) {
         return ErrorCode::Ok;
     }
-    if (status.code() == common::StatusCode::SystemError) {
+    if (status.code() == common::StatusCode::SystemError ||
+        status.code() == common::StatusCode::TransportError) {
         return ErrorCode::IoError;
     }
     return classifyMessage(status.message());

@@ -1,27 +1,53 @@
-> 2026-10-11：单文件 STOR/RETR 与目录已统一使用 V3 事务内核；V1 引擎及 SessionInit/ChunkComplete wire 已删除。旧 CLI --data-session-reuse off 仅选择同一内核的 per-file 编排；旧 wire 明确拒绝，客户端与服务端须同步升级。checksum/resume/TLS/压缩/IO/提交策略保留，功能和实验边界见 docs/tasks/2026-10-11-v1-retire-01.md。
-
 # CPNetFlux
 
-CPNetFlux 是面向算力网的大规模可靠数据传输底座。它提供 GridFTP 风格控制接口，并在内部使用自研的分块、校验、断点恢复和目录编排引擎。
+最新取证：[阶段72：TCP序列与NAPI](docs/tasks/2026-11-12-tcp-napi-sequence-72-result.md)。一次有探针1GiB内容/资源/网络通过，双向序列从SYN到FIN覆盖完整、无观测重传；本次未复现OOB，不能宣布根因关闭或新性能。下一步串行重新做无探针五对CP/GridFTP，任一硬门失败停止；正式比较待验收、稳定性NOT_RUN、上机NOT_READY。前序69/70/71失败保留。
 
-## 当前定位
+最新开发补项：[阶段68：工作租约迁移恢复修复](docs/tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](docs/tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。该阶段未新增性能成绩；其后1GiB验收已由阶段69执行并失败，下一步以页首为准。比较仍NO-GO、上机NOT_READY。
 
-这是从 2026-09-16 云端半成品提取的长期开发工作区。历史实验结果已保存在外部备份目录；本仓库只保留源码、测试、工具和必要文档。
+最新诊断：[阶段66：RX队列聚集隔离对照](docs/tasks/2026-11-12-rss-queue-control-66-result.md)。同速四流分散队列时OOB/missed为0；集中单队列触发各+310并停止。没有新增CP性能成绩，下一步验证软件TCP连接布局及恢复/端口复用；正式比较仍NO-GO、稳定性未开始、上机NOT_READY。
 
-## 技术基线
+前序观测交付：[阶段65：连接/接收队列观测补全](docs/tasks/2026-11-12-rss-flow-evidence-65-result.md)。12条低速probe的RSS预测全部验证；V3实际端口及最后CPU/NAPI已实现，双端各5项回归、一次0字节跨机功能核验通过。没有新增吞吐成绩，OOB因果尚未关闭；比较、稳定性和上机状态仍以下列阶段64失败边界为准。
 
-- C++20、CMake、Linux
-- epoll TCP 多流传输基线
-- POSIX 文件 IO，io_uring 为可选 file-IO-only 后端
-- GridFTP 风格控制面与 CPNetFlux framed data channel
-- manifest、chunk checksum、断点续传、目录级 file orchestration
+当前交付复核：[阶段64正式比较中止](docs/tasks/2026-11-12-field-trial-comparison-64-result.md)：固定版本仅1/5完整有效配对，第2对CP在R1触发OOB/missed各+1275；比较NO-GO、稳定性未开始、上机NOT_READY。代码与既有工程闭环保持，不发布速度倍数或稳定40G。
 
-## 开发入口
+开发闭环已验收：[阶段60结果](docs/tasks/2026-11-12-field-trial-closeout-60-result.md)。双端相关278项通过；后续比较/稳定性状态以阶段64为准。
 
-1. 从 [总指挥与五角色入口](docs/coordination/START_HERE.md) 接手，读取项目简报、环境和任务板。
-2. 按角色/任务读取 `docs/DESIGN.md`、`docs/ENGINEERING.md`、最近有效的决策及实验原始证据；旧 ROADMAP 保留历史，不能当作自动执行清单。
-3. 用户主要与总指挥沟通；总指挥派给架构、实验、实现、质量、运维五个独立角色。[六份完整初始 prompt](docs/coordination/START_HERE.md) 保存在仓库中。
-4. 修改前固定任务范围、输入提交和验收。Windows 本地开发；Linux 测试使用经过资源检查的云端隔离构建，未运行的测试不能宣称通过。
-5. 代码任务使用独立 `codex/<task-id>` 分支/worktree；协作规则见 `docs/AI_COLLABORATION.md`。
+CPNetFlux 面向超算中心节点间科学数据传输，提供分块校验、断点恢复和目录编排。运行时统一使用 V3 执行器、数据协议与工作租约；提供 GridFTP 风格控制接口及 CPNetFlux framed data channel，不是完整 GridFTP 实现。数据面支持 TCP 和显式选择的原生 RDMA SEND/RECV，控制面为 TCP/TLS。
 
-CPNetFlux 不等同于完整 GridFTP 实现；`GridFTP` 在文档中仅表示外部兼容协议和对照工具名称。
+## 当前入口
+
+当前按[阶段60](docs/tasks/2026-11-12-field-trial-closeout-60.md)保持性能、补齐开发闭环，并依次进行新版GridFTP对比和稳定性测试；实际测试完成前不宣称上机ready。
+
+- [性能路线图](docs/ROADMAP.md)：当前状态、推荐配置、未通过的门和下一项工作；当前性能以此页链接的固定提交结果为准。
+- [文档导航](docs/README.md)：设计、执行配置、环境、安全边界和历史实验结果。
+- [开发规则](AGENTS.md)：单人串行开发、版本同步、验收、提交与 GitHub 备份要求。
+
+当前主线是[完整 V3 大文件性能里程碑](docs/tasks/2026-11-10-v3-large-file-milestone-35.md)：256 KiB DATA与有界TCP接收缓冲已实现；[Milestone35的1 GiB完整任务](docs/tasks/2026-11-10-v3-large-file-milestone-35-result.md)分别获得中位27.33→35.82 Gbps、34.11→36.95 Gbps，保持显式实验选项。[M1-41结果](docs/tasks/2026-11-11-v3-large-file-m1-41-result.md)记录8 GiB矩阵首个control任务因host swap资源门中止，没有完整吞吐样本；8GiB正式门由[M1-44结果](docs/tasks/2026-11-11-v3-large-file-m1-44-result.md)通过：组合配置中位34.16Gbps；M1-41仍不重跑。
+
+[Task48源码核验](docs/tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)确认mlx5的rx_out_of_buffer为聚合计数，没有逐RQ/流归属；[Task49](docs/tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)的单路pwrite样本仍出现OOB/missed +171。[Task50与本阶段收尾](docs/tasks/2026-11-11-v3-sender-pacing-50-result.md)已完成显式、默认关闭的有界发送准入机制及回归。唯一1GiB四路TCP/tmpfs样本28.221Gbps，内容、资源和网络观察窗口通过，但未达40Gbps正式矩阵准入，未运行新8GiB矩阵；该单次结果不能与历史8GiB成绩直接算收益或退化。候选仅保留诊断能力，不作为性能推荐。
+
+Task50历史阶段状态为ENGINEERING CLOSED / M2 OPEN；40–50、70–85/100Gbps与长期稳定性仍未验收。原生RDMA优化继续暂停，仅完成重启价值、MR内存预算与数据所有权条件评估；统一工作单元/预算采样/策略记忆保持DEFERRED。冻结配置、精确版本、回归及下一步条件见[Task50结果](docs/tasks/2026-11-11-v3-sender-pacing-50-result.md)。
+
+最新[Task58 / 有界8GiB与正式M2](docs/tasks/2026-11-12-v3-private-m2-58-result.md)：矩阵驱动和有界后端已实现；唯一正式尝试在源准备时因host swap-out +1页停止，尚未网络传输、无新增有效吞吐。已补物理空闲内存分配前保护，两端最终专项各8项通过；M2资源门仍未通过，不重跑。历史[Task57](docs/tasks/2026-11-12-v3-private-setup-57-result.md)的1GiB完整目标40.865Gbps只作单次可行性准入，正式性能以[路线图](docs/ROADMAP.md)和固定提交结果为准。
+
+历史Task58工程[交付C](docs/tasks/2026-11-12-performance-delivery-c-task58.md)汇总最终配置、同版本回归、清理与RDMA重启边界；工程收口完成，M2正式资源门仍未通过。
+
+## 服务器与开发环境
+
+| 用途 | R770-1 | R770-2 |
+|---|---|---|
+| SSH alias / 管理地址 | `r770-1` / `192.168.1.109` | `r770-2` / `192.168.1.102` |
+| 角色 | 唯一权威源码、Git、开发和实验目录 | 同提交构建、测试和互传对端 |
+| 项目路径 / 用户 | `/home/Su/projects/CPNetFlux` / `Su` | `/home/Su/projects/CPNetFlux` / `Su` |
+| 数据网 | `eno17095np0` / `mlx5_0` / `192.168.100.1` | `eno17095np0` / `mlx5_0` / `192.168.100.2` |
+
+两端为 PowerEdge R770、Xeon 6515P、32 逻辑 CPU、约 30 GiB RAM；Ubuntu 26.04.1，g++ 15.2、CMake 4.2.3、Python 3.14.4。环境快照、构建方法与实验边界见 [R770 环境](docs/coordination/ENVIRONMENT.md)；动态值以实机为准。项目使用 C++20/CMake/Linux、POSIX 文件 I/O，可选 io_uring 仅用于文件 I/O。
+
+## 开发与证据
+
+1. 在 R770-1 项目根目录单人串行开发；R770-2 只接收固定提交。Windows `D:\Project\CPNetFlux` 用于连接、查看和应急回收，不另建并行工作区或使用子代理。
+2. 修改前记录范围、输入提交、非目标与验收；保留已有无关修改，只提交明确文件并推送已核实 GitHub remote、回读 SHA。
+3. 双机互传前核对同提交、构建配置与二进制 SHA-256；数据明确绑定直连接口，TCP 经该网卡不等于原生 verbs。
+4. 原始实验保存在 R770-1 `/home/Su/experiments/CPNetFlux`；Git 只保留代码、测试及结果说明，不提交凭据、大 payload 或构建产物。CPSS(DCC) 独立管理。
+
+历史结果按输入提交和环境解释，见[研究基线](docs/RESEARCH_BASELINE.md)；该历史基线不覆盖当前 V3 规则。迁移与旧环境来源见[迁移记录](docs/tasks/2026-10-30-r770-migration.md)。

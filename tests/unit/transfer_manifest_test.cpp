@@ -93,7 +93,7 @@ TEST(TransferManifestTest, RejectsModifiedBodyChecksum) {
     EXPECT_FALSE(cpnetflux::checkpoint::parseTransferManifest(corrupt).isOk());
 }
 
-TEST(TransferManifestTest, ParsesVersionOneManifestForChecksumNoneCompatibility) {
+TEST(TransferManifestTest, RejectsPreV3ManifestSchema) {
     const std::string manifest =
         "manifest_version=1\n"
         "transfer_id=phase2a\n"
@@ -107,9 +107,7 @@ TEST(TransferManifestTest, ParsesVersionOneManifestForChecksumNoneCompatibility)
         "completed_ranges=0-1024\n";
 
     const auto parsed = cpnetflux::checkpoint::parseTransferManifest(manifest);
-    ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
-    EXPECT_EQ(parsed.value().version, cpnetflux::checkpoint::kTransferManifestVersionV1);
-    EXPECT_EQ(parsed.value().checksumAlgorithm, cpnetflux::checksum::ChecksumAlgorithm::None);
-    ASSERT_EQ(parsed.value().completedRanges.size(), 1U);
-    EXPECT_TRUE(parsed.value().verifiedChunks.empty());
+    EXPECT_FALSE(parsed.isOk());
+    EXPECT_NE(parsed.status().message().find("unsupported manifest schema version"),
+              std::string::npos);
 }

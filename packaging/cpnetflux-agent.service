@@ -4,13 +4,11 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-Environment=CPNETFLUX_CORE_BIN_DIR=%h/.local/lib/cpnetflux
 ExecStart=/usr/bin/cpnetflux-agent
 Restart=on-failure
 RestartSec=2
 UMask=0077
 NoNewPrivileges=true
-PrivateTmp=true
 
 [Install]
 WantedBy=default.target

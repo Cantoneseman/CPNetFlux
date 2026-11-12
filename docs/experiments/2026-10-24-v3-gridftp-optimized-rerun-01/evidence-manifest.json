@@ -1,0 +1,70 @@
+{
+  "medians.csv": {
+    "bytes": 2054,
+    "sha256": "5ac2a5dba5f399690ad8509df6b46bcaafea91317962f83ec2b1542f9d185263"
+  },
+  "stage-medians.csv": {
+    "bytes": 1983,
+    "sha256": "41b706bf25584d948658c33cc29e4151368220a94d3a8e06e0b768ddacfa69ec"
+  },
+  "unit-summary.txt": {
+    "bytes": 136,
+    "sha256": "f3a38f818408ea898c9027a7e8e6045c217c1dba34a5fc941bae8f5fa752291c"
+  },
+  "tuning.csv": {
+    "bytes": 680,
+    "sha256": "7f8404ce525665d602ed0b1b3e121821c1b7602031b0e5c2657f77240b5d9812"
+  },
+  "sender-stages.csv": {
+    "bytes": 10265,
+    "sha256": "534018f2601e00f14e6bd1542541cd4797055ff589177bb6311d05d856b42ab3"
+  },
+  "peer-cleanup-final.json": {
+    "bytes": 436,
+    "sha256": "5cbc10614fb548658e855d2841dcf309136cb09ef644054a2b12694892df008d"
+  },
+  "analyzer-tests.txt": {
+    "bytes": 559,
+    "sha256": "dcd058cafb53ab18e03993c9d3fd83f2a443fac4a334b29d4cad0228bc362f90"
+  },
+  "audit.json": {
+    "bytes": 1540,
+    "sha256": "e4426668b457a8fc0a60514120cd98b66226446d971baf8b3e6017e6089874f1"
+  },
+  "cases.csv": {
+    "bytes": 5091,
+    "sha256": "2dced2118b3088d1c0627d10aeaaf6ddd5ff7690d5ee94c1ccb968d28ad17181"
+  },
+  "targeted-ctest.txt": {
+    "bytes": 1141,
+    "sha256": "bf4c98ef5f337d0fac53179822be6b5239af98df640e70eab937754488aa336a"
+  },
+  "provenance.json": {
+    "bytes": 1582,
+    "sha256": "23305479e03077e563c512cb21f8003450cc925e8795872fff74f99971c5a17f"
+  },
+  "diagnostics.json": {
+    "bytes": 154310,
+    "sha256": "8cc88c254767c564c450a66b1414bf9a99d65d7ef96992745df5907d11930344"
+  },
+  "comparison.csv": {
+    "bytes": 1198,
+    "sha256": "c05af97c57d471ba63f6bb43f838852b0d0e7cebb6ff0cabf5e017110fe24624"
+  },
+  "peer-environment-public.json": {
+    "bytes": 17134,
+    "sha256": "543eb376f05329ba3b95ff5573102708ad4f8a4ae9f01415b6b2e9d21467e36b"
+  },
+  "environment-public.json": {
+    "bytes": 11505,
+    "sha256": "9734942273fe1bbfbc3b952b686061cde92e7bc42d751530775c0f73ef5b766a"
+  },
+  "payload-manifest.json": {
+    "bytes": 614,
+    "sha256": "ba28495c72fd32af62dcacf337ffa41e9af5b2344f40dbf60f4b589aa3d32fdc"
+  },
+  "cleanup-final.json": {
+    "bytes": 430,
+    "sha256": "103f93683290e2867aa7bf07f3e5518547a3300aac142f1ac0d2663ea10dd5ff"
+  }
+}

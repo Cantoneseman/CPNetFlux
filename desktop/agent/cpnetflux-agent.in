@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 base=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-exec python3 "$base/@CMAKE_INSTALL_LIBEXECDIR@/cpnetflux/agent/cpnetflux_agent.py" "$@"
+exec python3 "$base/@CMAKE_INSTALL_LIBEXECDIR@/cpnetflux/agent/cpnetflux_agent.py" --core-bin-dir "${CPNETFLUX_CORE_BIN_DIR:-$base/@CMAKE_INSTALL_BINDIR@}" "$@"

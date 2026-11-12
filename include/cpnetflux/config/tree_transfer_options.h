@@ -1,13 +1,22 @@
 #pragma once
 
 #include <cstdint>
+#include <chrono>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "cpnetflux/checksum/checksum.h"
+#include "cpnetflux/storage/file_io.h"
+#include "cpnetflux/storage/preallocate_mode.h"
 #include "cpnetflux/common/status.h"
 #include "cpnetflux/core/io/hot_path_compression.h"
 #include "cpnetflux/core/io/tls_socket.h"
+#include "cpnetflux/core/io/data_transport.h"
+#include "cpnetflux/core/session/commit_sync_policy.h"
+#include "cpnetflux/core/session/final_verify_policy.h"
+#include "cpnetflux/core/session/manifest_flush_policy.h"
 #include "cpnetflux/core/scheduler/feedback_controller.h"
 
 namespace cpnetflux::config {
@@ -40,6 +49,10 @@ enum class CompressionMode {
 struct TreeTransferOptions {
     std::string host = "127.0.0.1";
     std::uint16_t port = 2121;
+    // One address applies to every lane; multiple addresses map by lane index.
+    std::vector<std::string> localBindAddresses;
+    std::vector<std::string> peerAddresses;
+    std::string tcpDataSourcePortPlan; // Explicit deployment experiment; no default port policy.
     bool authProbe = false;
     std::string sourceDir;
     std::string destDir;
@@ -48,14 +61,34 @@ struct TreeTransferOptions {
     ControlReuseMode controlReuseMode = ControlReuseMode::Off;
     std::uint64_t chunkSize = 1048576;
     std::uint32_t bufferSize = 65536;
+    std::uint32_t dataFrameBytes = 65532;
     checksum::ChecksumAlgorithm checksumAlgorithm = checksum::ChecksumAlgorithm::Crc32c;
     checksum::ChecksumBackend checksumBackend = checksum::ChecksumBackend::Auto;
+    // Local download receiver only; upload receiver policy belongs to the server.
+    core::session::ManifestFlushPolicy manifestFlushPolicy =
+        core::session::ManifestFlushPolicy::EveryNChunks;
+    std::uint64_t manifestFlushIntervalChunks = 16;
+    core::session::FinalVerifyPolicy finalVerifyPolicy = core::session::FinalVerifyPolicy::Full;
+    core::session::CommitSyncPolicy commitSyncPolicy = core::session::CommitSyncPolicy::None;
+    storage::PreallocateMode preallocateMode = storage::PreallocateMode::Off;
+    storage::FileIoConfig fileIo;
+    bool experimentalMappedDownload = false; // Set only by the opt-in download executable.
+    std::uint32_t rangeCheckpointBatchChunks = 0; // 0 preserves runtime environment/default.
     bool resume = false;
+    std::uint32_t reconnectAttempts = 0;
+    std::uint64_t transferTimeoutMs = 0;
+    // Runtime-only attempt identity and absolute deadline; not CLI identity input.
+    std::uint32_t reconnectAttempt = 0;
+    std::optional<std::chrono::steady_clock::time_point> transferDeadline;
     bool reuseDataSession = true;
     bool requestedReuseDataSession = true;
     std::string modeFallbackReason;
     bool dynamicFileScheduling = true;
+    // 0 selects the bounded small-file policy (currently 8 for >=10K files
+    // averaging <=64 KiB, otherwise the safe default of 2).
     std::uint32_t dataPendingWindow = 2;
+    std::uint32_t linkSetLinks = 1;
+    std::uint64_t linkSetCapabilityBits = 0;
     std::uint64_t maxFiles = 0;
     std::string authMode = "anonymous";
     std::string authTokenFile;
@@ -67,6 +100,9 @@ struct TreeTransferOptions {
     std::string eventLogPath;
     bool phaseTiming = false;
     std::uint32_t controlPipelineDepth = 0;
+    // Tree manifest snapshot event threshold; default preserves existing behavior.
+    std::uint32_t treeManifestEventThreshold = 32;
+    std::uint32_t treeManifestMaxDelayMs = 100;
     TreeSchedulerMode schedulerMode = TreeSchedulerMode::Off;
     core::scheduler::SchedulerPolicy schedulerPolicy =
         core::scheduler::SchedulerPolicy::Fixed;
@@ -81,6 +117,7 @@ struct TreeTransferOptions {
     core::io::HotPathCompressionOptions hotPathCompression;
     core::io::TlsConfig tls;
     core::io::DataTlsMode dataTlsMode = core::io::DataTlsMode::Off;
+    core::io::DataTransport dataTransport = core::io::DataTransport::Tcp;
 };
 
 [[nodiscard]] common::Result<TreeTransferOptions> parseTreeTransferOptions(

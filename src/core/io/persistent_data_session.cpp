@@ -1,6 +1,7 @@
 #include "cpnetflux/core/io/persistent_data_session.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <limits>
 #include <sys/socket.h>
@@ -125,13 +126,29 @@ common::Status PersistentDataSession::match(const protocol::FrameHeader& header)
 common::Status PersistentDataSession::data(const protocol::FrameHeader& header,
                                             std::size_t logicalBytes,
                                             const std::uint8_t* payload) {
+    return acceptData(header, logicalBytes, payload, nullptr);
+}
+
+common::Status PersistentDataSession::dataWithChecksum(const protocol::FrameHeader& header,
+                                                       std::size_t logicalBytes,
+                                                       checksum::ChecksumValue verifiedChecksum) {
+    return acceptData(header, logicalBytes, nullptr, &verifiedChecksum);
+}
+
+common::Status PersistentDataSession::acceptData(const protocol::FrameHeader& header,
+                                                std::size_t logicalBytes,
+                                                const std::uint8_t* payload,
+                                                const checksum::ChecksumValue* verifiedChecksum) {
     const common::Status identity = match(header);
     if (!identity.isOk()) {
         return identity;
     }
     const std::uint64_t rangeEnd = current_.rangeId == 0 ? current_.totalSize :
         current_.rangeOffset + current_.rangeLength;
-    if (!protocol::validateFrameHeader(header, kMaxPayload).isOk() ||
+    if ((dataPayloadLimit_ != kMaxPayload && dataPayloadLimit_ != 262148) ||
+        !protocol::validateFrameHeader(header, dataPayloadLimit_).isOk() ||
+        (dataPayloadLimit_ > kMaxPayload && (logicalBytes > 262144 ||
+            current_.chunkSize == 0 || logicalBytes > current_.chunkSize - header.offset % current_.chunkSize)) ||
         header.type != protocol::FrameType::Data || (header.flags & ~protocol::kDataCompressed) != 0 ||
         header.statusCode != protocol::FrameStatusCode::Ok ||
         header.offset != receivedBytes_ || logicalBytes == 0 || (header.flags == 0 && logicalBytes != header.payloadSize) ||
@@ -139,10 +156,17 @@ common::Status PersistentDataSession::data(const protocol::FrameHeader& header,
         receivedBytes_ > rangeEnd || logicalBytes > rangeEnd - receivedBytes_) {
         return common::Status::invalidArgument("persistent DATA exceeds file boundary");
     }
+    if (verifiedChecksum != nullptr) {
+        if (checksumAlgorithm_ == checksum::ChecksumAlgorithm::None ||
+            !checksumComputer_.combine(*verifiedChecksum, logicalBytes)) {
+            return common::Status::invalidArgument("persistent DATA checksum algorithm mismatch");
+        }
+    } else {
+        if (checksumAlgorithm_ != checksum::ChecksumAlgorithm::None && payload == nullptr)
+            return common::Status::invalidArgument("persistent checksum payload missing");
+        checksumComputer_.update(payload, logicalBytes);
+    }
     receivedBytes_ += logicalBytes;
-    if (checksumAlgorithm_ != checksum::ChecksumAlgorithm::None && payload == nullptr)
-        return common::Status::invalidArgument("persistent checksum payload missing");
-    checksumComputer_.update(payload, logicalBytes);
     if (sparse_ && receivedBytes_ == missing_[missingIndex_].end) {
         ++missingIndex_;
         receivedBytes_ = missingIndex_ == missing_.size()
@@ -220,7 +244,15 @@ common::Status readHeader(FramedDataSocket* socket, protocol::FrameHeader* heade
     if (!status.isOk()) return status;
     auto decoded = protocol::decodeFrameHeader(encoded);
     if (!decoded.isOk()) return decoded.status();
-    status = protocol::validateFrameHeader(decoded.value(), maxPayloadSize);
+    auto limit = decoded.value().type == protocol::FrameType::Data
+        ? std::min(maxPayloadSize, socket->dataPayloadLimit())
+        : std::min(maxPayloadSize, PersistentDataSession::kMaxPayload);
+    if (decoded.value().type == protocol::FrameType::FileBegin) limit = std::min(limit,8192U);
+    status = protocol::validateFrameHeader(decoded.value(), limit);
+    if (status.isOk() && socket->dataPayloadLimit() > PersistentDataSession::kMaxPayload &&
+        decoded.value().type == protocol::FrameType::Data &&
+        decoded.value().flags != protocol::kDataChecksum)
+        return common::Status::invalidArgument("large DATA requires uncompressed CRC32C");
     if (!status.isOk()) return status;
     *header = decoded.value();
     return common::Status::ok();
@@ -231,17 +263,35 @@ common::Status PersistentDataSession::writeFrame(FramedDataSocket* socket,
                                                   protocol::FrameHeader header,
                                                   const std::uint8_t* payload,
                                                   std::size_t length) {
-    if (socket == nullptr || !socket->valid() || length > kMaxPayload ||
+    return writeFrame(socket, header, nullptr, 0, payload, length);
+}
+
+common::Status PersistentDataSession::writeFrame(FramedDataSocket* socket,
+                                                  protocol::FrameHeader header,
+                                                  const std::uint8_t* prefix,
+                                                  std::size_t prefixLength,
+                                                  const std::uint8_t* payload,
+                                                  std::size_t length) {
+    const auto limit = socket && header.type == protocol::FrameType::Data
+        ? socket->dataPayloadLimit() : kMaxPayload;
+    if (socket == nullptr || !socket->valid() || prefixLength > limit ||
+        length > limit - prefixLength ||
+        (prefixLength != 0 && prefix == nullptr) ||
         (length != 0 && payload == nullptr)) {
         return common::Status::invalidArgument("invalid persistent frame output");
     }
-    header.payloadSize = static_cast<std::uint32_t>(length);
-    auto valid = protocol::validateFrameHeader(header, kMaxPayload);
+    header.payloadSize = static_cast<std::uint32_t>(prefixLength + length);
+    auto valid = protocol::validateFrameHeader(header, limit);
     if (!valid.isOk()) return valid;
     const auto encoded = protocol::encodeFrameHeader(header);
-    std::vector<std::uint8_t> bytes(encoded.begin(), encoded.end());
-    if (length != 0) bytes.insert(bytes.end(), payload, payload + length);
-    return socket->writeAll(bytes.data(), bytes.size());
+    if (prefixLength == 0 && socket->tlsEnabled()) {
+        // Preserve the existing single TLS write for these small metadata frames.
+        std::vector<std::uint8_t> bytes(encoded.begin(), encoded.end());
+        if (length != 0) bytes.insert(bytes.end(), payload, payload + length);
+        return socket->writeAll(bytes.data(), bytes.size());
+    }
+    return socket->writeFrame(encoded.data(), encoded.size(), prefix, prefixLength,
+                              payload, length);
 }
 
 common::Status PersistentDataSession::writeBegin(FramedDataSocket* socket,
@@ -288,7 +338,11 @@ common::Status PersistentDataSession::writeData(FramedDataSocket* socket,
                                                  const std::uint8_t* payload,
                                                  std::size_t length) {
     if (identity.fileId == 0 || identity.generation == 0 || (payload == nullptr && length != 0) ||
-        length == 0 || length > kMaxPayload ||
+        length == 0 || !socket || length > socket->dataPayloadLimit() -
+            (identity.checksumAlgorithm == checksum::ChecksumAlgorithm::None ? 0 : 4) ||
+        (socket->dataPayloadLimit() > kMaxPayload &&
+            (identity.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
+             identity.chunkSize != 1048576 || length > identity.chunkSize - offset % identity.chunkSize)) ||
         (identity.rangeId != 0 && (identity.rangeLength == 0 || offset < identity.rangeOffset ||
             offset > identity.rangeOffset + identity.rangeLength ||
             length > identity.rangeOffset + identity.rangeLength - offset)) ||
@@ -303,16 +357,15 @@ common::Status PersistentDataSession::writeData(FramedDataSocket* socket,
     header.attempt = identity.attempt;
     header.offset = offset;
     header.totalSize = identity.totalSize;
-    if (identity.checksumAlgorithm!=checksum::ChecksumAlgorithm::None) {
+    if (identity.checksumAlgorithm != checksum::ChecksumAlgorithm::None) {
         checksum::ChecksumComputer checksum(identity.checksumAlgorithm);
-        checksum.update(payload,length);
-        const auto value=checksum.finalize().value;
-        std::vector<std::uint8_t> protectedPayload{
-            static_cast<std::uint8_t>(value>>24),static_cast<std::uint8_t>(value>>16),
-            static_cast<std::uint8_t>(value>>8),static_cast<std::uint8_t>(value)};
-        protectedPayload.insert(protectedPayload.end(),payload,payload+length);
-        header.flags=protocol::kDataChecksum;
-        return writeFrame(socket,header,protectedPayload.data(),protectedPayload.size());
+        checksum.update(payload, length);
+        const auto value = checksum.finalize().value;
+        const std::array<std::uint8_t, 4> prefix{
+            static_cast<std::uint8_t>(value >> 24U), static_cast<std::uint8_t>(value >> 16U),
+            static_cast<std::uint8_t>(value >> 8U), static_cast<std::uint8_t>(value)};
+        header.flags = protocol::kDataChecksum;
+        return writeFrame(socket, header, prefix.data(), prefix.size(), payload, length);
     }
     return writeFrame(socket, header, payload, length);
 }
@@ -352,45 +405,83 @@ common::Status PersistentDataSession::writeEnd(FramedDataSocket* socket,
 common::Status PersistentDataSession::writeResumeResponse(
     FramedDataSocket* socket, const PersistentFileIdentity& identity,
     const std::vector<core::chunk::CompletedRange>& missingRanges, protocol::FrameStatusCode statusCode) {
-    protocol::ResumeResponsePayload payload;
-    payload.statusCode = statusCode;
-    payload.missingRanges = missingRanges;
-    auto encoded = protocol::encodeResumeResponsePayload(payload);
-    if (!encoded.isOk()) return encoded.status();
-    protocol::FrameHeader header;
-    header.type = protocol::FrameType::ResumeResponse;
-    header.streamId = identity.fileId;
-    header.chunkId = identity.generation;
-    header.rangeId = identity.rangeId;
-    header.attempt = identity.attempt;
-    header.totalSize = identity.totalSize;
-    return writeFrame(socket, header, encoded.value().data(), encoded.value().size());
+    constexpr std::size_t maxRangesPerPage = (kMaxPayload - 16) / 16;
+    constexpr std::uint32_t maxPages = 1U << 20;
+    std::vector<core::chunk::CompletedRange> normalized;
+    auto maskStatus = common::Status::ok();
+    const auto begin = identity.rangeId ? identity.rangeOffset : 0;
+    auto end = identity.totalSize;
+    if (identity.rangeId) {
+        if (begin > end || identity.rangeLength > end - begin)
+            maskStatus = common::Status::invalidArgument("resume mask has invalid range bounds");
+        else end = begin + identity.rangeLength;
+    }
+    if (statusCode != protocol::FrameStatusCode::Ok) {
+        maskStatus = common::Status::invalidArgument("resume response carries a non-success status");
+    } else if (maskStatus.isOk()) {
+        normalized.reserve(missingRanges.size());
+        std::uint64_t last = begin;
+        for (const auto& range : missingRanges) {
+            if (range.begin < last || range.begin >= range.end || range.end > end) {
+                maskStatus = common::Status::invalidArgument("resume mask exceeds claimed range");
+                break;
+            }
+            if (!normalized.empty() && range.begin == normalized.back().end)
+                normalized.back().end = range.end;
+            else
+                normalized.push_back(range);
+            last = range.end;
+        }
+    }
+    if (!maskStatus.isOk()) { normalized.clear(); statusCode = protocol::FrameStatusCode::InvalidFrame; }
+    const auto pageCountSize = std::max<std::size_t>(1, (normalized.size() + maxRangesPerPage - 1) / maxRangesPerPage);
+    if (pageCountSize > maxPages) return common::Status::invalidArgument("resume mask exceeds bounded page count");
+    const auto pageCount = static_cast<std::uint32_t>(pageCountSize);
+    for (std::uint32_t pageIndex = 0; pageIndex < pageCount; ++pageIndex) {
+        const auto first = static_cast<std::size_t>(pageIndex) * maxRangesPerPage;
+        const auto last = std::min(normalized.size(), first + maxRangesPerPage);
+        protocol::ResumeResponsePayload payload;
+        payload.statusCode = statusCode; payload.pageIndex = pageIndex; payload.pageCount = pageCount;
+        if (first < last) payload.missingRanges.assign(normalized.begin() + first, normalized.begin() + last);
+        auto encoded = protocol::encodeResumeResponsePayload(payload);
+        if (!encoded.isOk()) return encoded.status();
+        protocol::FrameHeader header;
+        header.type = protocol::FrameType::ResumeResponse; header.streamId = identity.fileId;
+        header.chunkId = identity.generation; header.rangeId = identity.rangeId; header.attempt = identity.attempt; header.totalSize = identity.totalSize;
+        const auto written = writeFrame(socket, header, encoded.value().data(), encoded.value().size());
+        if (!written.isOk()) return written;
+    }
+    return maskStatus;
 }
 
 common::Result<protocol::ResumeResponsePayload> PersistentDataSession::readResumeResponse(
     FramedDataSocket* socket, const PersistentFileIdentity& identity) {
-    auto frame = readNext(socket, kMaxPayload);
-    if (!frame.isOk()) return frame.status();
-    const auto& header = frame.value().header;
-    if (header.type != protocol::FrameType::ResumeResponse || header.streamId != identity.fileId ||
-        header.chunkId != identity.generation || header.rangeId != identity.rangeId ||
-        header.attempt != identity.attempt || header.totalSize != identity.totalSize)
-        return common::Status::invalidArgument("persistent range resume identity mismatch: " +
-            std::to_string(header.streamId) + ":" + std::to_string(header.chunkId) + ":" +
-            std::to_string(header.rangeId) + ":" + std::to_string(header.totalSize) + " expected " +
-            std::to_string(identity.fileId) + ":" + std::to_string(identity.generation) + ":" +
-            std::to_string(identity.rangeId) + ":" + std::to_string(identity.totalSize));
-    auto decoded = protocol::decodeResumeResponsePayload(frame.value().payload.data(), frame.value().payload.size());
-    if (!decoded.isOk()) return decoded.status();
-    const auto begin=identity.rangeId ? identity.rangeOffset : 0;
-    const auto end=identity.rangeId ? identity.rangeOffset+identity.rangeLength : identity.totalSize;
-    std::uint64_t last=begin;
-    for (const auto& r : decoded.value().missingRanges) {
-        if (r.begin<last || r.begin>=r.end || r.end>end)
-            return common::Status::invalidArgument("resume mask exceeds claimed range");
-        last=r.end;
+    constexpr std::uint32_t maxPages = 1U << 20;
+    protocol::ResumeResponsePayload combined;
+    const auto begin = identity.rangeId ? identity.rangeOffset : 0;
+    const auto end = identity.rangeId ? identity.rangeOffset + identity.rangeLength : identity.totalSize;
+    for (std::uint32_t expectedPage = 0;; ++expectedPage) {
+        auto frame = readNext(socket, kMaxPayload);
+        if (!frame.isOk()) return frame.status();
+        const auto& header = frame.value().header;
+        if (header.type != protocol::FrameType::ResumeResponse || header.streamId != identity.fileId || header.chunkId != identity.generation || header.rangeId != identity.rangeId || header.attempt != identity.attempt || header.totalSize != identity.totalSize)
+            return common::Status::invalidArgument("persistent range resume identity mismatch");
+        auto decoded = protocol::decodeResumeResponsePayload(frame.value().payload.data(), frame.value().payload.size());
+        if (!decoded.isOk()) return decoded.status();
+        const auto& page = decoded.value();
+        if (page.pageCount == 0 || page.pageCount > maxPages || page.pageIndex != expectedPage)
+            return common::Status::invalidArgument("invalid resume response page sequence");
+        if (expectedPage == 0) {
+            combined.statusCode = page.statusCode; combined.pageCount = page.pageCount; combined.pageIndex = 0;
+            if (page.statusCode != protocol::FrameStatusCode::Ok && page.pageCount != 1) return common::Status::invalidArgument("error resume response must be a single page");
+        } else if (page.statusCode != combined.statusCode || page.pageCount != combined.pageCount) return common::Status::invalidArgument("inconsistent resume response pages");
+        for (const auto& range : page.missingRanges) {
+            if (range.begin < begin || range.begin >= range.end || range.end > end || (!combined.missingRanges.empty() && range.begin <= combined.missingRanges.back().end))
+                return common::Status::invalidArgument("resume mask exceeds claimed range");
+            combined.missingRanges.push_back(range);
+        }
+        if (expectedPage + 1 == page.pageCount) return combined;
     }
-    return decoded;
 }
 
 common::Status PersistentDataSession::writeResult(FramedDataSocket* socket,
@@ -409,17 +500,39 @@ common::Status PersistentDataSession::writeResult(FramedDataSocket* socket,
 
 common::Result<PersistentFrame> PersistentDataSession::readNext(FramedDataSocket* socket,
                                                                   std::uint32_t maxPayloadSize) {
-    if (socket == nullptr || !socket->valid() || maxPayloadSize > kMaxPayload)
-        return common::Status::invalidArgument("invalid persistent input");
     PersistentFrame frame;
-    auto status = readHeader(socket, &frame.header, maxPayloadSize);
+    const auto status = readNext(socket, maxPayloadSize, &frame);
     if (!status.isOk()) return status;
-    frame.payload.resize(frame.header.payloadSize);
-    if (!frame.payload.empty()) {
-        status = socket->readAll(frame.payload.data(), frame.payload.size());
-        if (!status.isOk()) return status;
-    }
     return frame;
+}
+
+common::Status PersistentDataSession::readNext(FramedDataSocket* socket,
+                                               std::uint32_t maxPayloadSize,
+                                               PersistentFrame* frame) {
+    if (!frame) return common::Status::invalidArgument("missing persistent frame");
+    frame->header = {};
+    const auto fail = [&](common::Status status) {
+        frame->payload.clear();
+        return status;
+    };
+    if (!socket || !socket->valid() || maxPayloadSize > socket->dataPayloadLimit())
+        return fail(common::Status::invalidArgument("invalid persistent input"));
+    protocol::FrameHeader header;
+    auto status = readHeader(socket, &header, maxPayloadSize);
+    if (!status.isOk()) return fail(status);
+    if (header.payloadSize > frame->payload.capacity()) {
+        // Exact growth prevents vector::resize doubling capacity beyond the wire
+        // bound. Repeated full DATA frames neither allocate nor value-initialize.
+        std::vector<std::uint8_t>(header.payloadSize).swap(frame->payload);
+    } else {
+        frame->payload.resize(header.payloadSize);
+    }
+    if (!frame->payload.empty()) {
+        status = socket->readAll(frame->payload.data(), frame->payload.size());
+        if (!status.isOk()) return fail(status);
+    }
+    frame->header = header; // Publish only a complete, validated frame.
+    return common::Status::ok();
 }
 
 common::Result<PersistentFileIdentity> PersistentDataSession::decodeBegin(const PersistentFrame& frame) {
@@ -469,6 +582,7 @@ common::Status PersistentDataSession::writeDirectoryEnd(FramedDataSocket* socket
 common::Status PersistentDataSession::setTimeout(FramedDataSocket* socket, int seconds) {
     if (!socket || !socket->valid() || seconds < 1 || seconds > 3600)
         return common::Status::invalidArgument("invalid persistent timeout");
+    if (socket->transport() == DataTransport::Rdma) return common::Status::ok();
     timeval timeout{seconds, 0};
     if (::setsockopt(socket->fd(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
         ::setsockopt(socket->fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0)

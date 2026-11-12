@@ -1,0 +1,11 @@
+test_concurrent_intervals_are_not_added_as_wall (test_analyze.AnalysisContract) ... ok
+test_gridftp_zero_byte_file_is_a_real_file (test_analyze.AnalysisContract) ... ok
+test_invalid_interval_is_rejected (test_analyze.AnalysisContract) ... ok
+test_missing_sampling_is_not_zero_usage (test_analyze.AnalysisContract) ... ok
+test_percentile_interpolates (test_analyze.AnalysisContract) ... ok
+test_unknown_fields_stay_unknown (test_analyze.AnalysisContract) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.002s
+
+OK

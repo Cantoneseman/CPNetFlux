@@ -9,7 +9,7 @@ import stat
 
 FIELDS = {"enabled", "host", "port", "data_port_base", "connections", "root",
           "token_file", "tls_key_file", "tls_cert_file", "tls_ca_file", "access_policy"}
-OPTIONAL_FIELDS = {"tls_client_auth"}
+OPTIONAL_FIELDS = {"tls_client_auth", "data_transport", "data_tls_mode"}
 
 def check_file(path, private=False):
     if not isinstance(path, str) or not Path(path).is_absolute():
@@ -46,6 +46,12 @@ def load_options(path):
         raise ValueError("invalid tls client auth policy")
     if c["access_policy"] not in {"read-only","write-only","read-write"}:
         raise ValueError("invalid access policy")
+    data_transport = c.get("data_transport", "tcp")
+    data_tls_mode = c.get("data_tls_mode", "required")
+    if data_transport not in {"tcp", "rdma"} or data_tls_mode not in {"off", "required"}:
+        raise ValueError("invalid data transport or data TLS mode")
+    if data_transport == "rdma" and data_tls_mode != "off":
+        raise ValueError("RDMA mode currently requires data TLS off; control TLS and token authentication remain enabled")
     if not isinstance(c["root"],str) or not Path(c["root"]).is_absolute():
         raise ValueError("absolute data root required")
     root = Path(c["root"])
@@ -53,7 +59,8 @@ def load_options(path):
         raise ValueError("data root must be an existing directory")
     for key in ["token_file","tls_key_file","tls_cert_file","tls_ca_file"]:
         check_file(c[key], private=key in {"token_file","tls_key_file"})
-    options = ["--tls-mode","required","--tls-client-auth",tls_client_auth,"--data-tls-mode","required",
+    options = ["--tls-mode","required","--tls-client-auth",tls_client_auth,
+               "--data-tls-mode",data_tls_mode,"--data-transport",data_transport,
                "--auth-mode","token","--checksum","crc32c","--final-verify-policy","full",
                "--commit-sync-policy","fsync_file_and_dir"]
     for key in ["host","port","data_port_base","connections","root","access_policy",

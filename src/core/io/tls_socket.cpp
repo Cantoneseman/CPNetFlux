@@ -12,6 +12,8 @@
 #include <utility>
 
 #include <sys/socket.h>
+#include <poll.h>
+#include <algorithm>
 #include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -69,11 +71,15 @@ common::Status tlsIoStatus(SSL* ssl, int result, const char* operation) {
         return common::Status::runtimeError(std::string(operation) + " would block");
     }
     if (error == SSL_ERROR_ZERO_RETURN) {
-        return common::Status::runtimeError("control connection closed");
+        return common::Status::transportError("control connection closed");
     }
     if (error == SSL_ERROR_SYSCALL && errno != 0) {
-        return systemStatus(operation, errno);
+        return common::Status::transportError(operation, errno);
     }
+#ifdef SSL_R_UNEXPECTED_EOF_WHILE_READING
+    if (error == SSL_ERROR_SSL && ERR_GET_REASON(ERR_peek_error()) == SSL_R_UNEXPECTED_EOF_WHILE_READING)
+        return common::Status::transportError("TLS peer closed unexpectedly");
+#endif
     return opensslStatus(operation);
 }
 
@@ -300,9 +306,9 @@ common::Status TlsConnection::writeAll(const char* data, std::size_t size) {
                 continue;
             }
             if (sent < 0) {
-                return systemStatus("send control", errno);
+                return common::Status::transportError("send control", errno);
             }
-            return common::Status::runtimeError("control send returned zero bytes");
+            return common::Status::transportError("control send returned zero bytes");
         }
 
         const std::size_t remaining = size - completed;
@@ -331,12 +337,12 @@ common::Result<std::size_t> TlsConnection::readSome(char* data, std::size_t size
             return static_cast<std::size_t>(received);
         }
         if (received == 0) {
-            return common::Status::runtimeError("control connection closed");
+            return common::Status::transportError("control connection closed");
         }
         if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
             return std::size_t{0};
         }
-        return systemStatus("recv control", errno);
+        return common::Status::transportError("recv control", errno);
     }
 
     const int request = size > static_cast<std::size_t>(INT_MAX) ? INT_MAX : static_cast<int>(size);
@@ -492,7 +498,7 @@ common::Result<TlsClientContext> TlsClientContext::create(const TlsConfig& confi
 }
 
 common::Result<TlsConnection> TlsClientContext::connect(UniqueFd fd,
-                                                        const std::string& host) const {
+                                                        const std::string& host, SocketDeadline deadline) const {
     if (impl_ == nullptr || impl_->context == nullptr) {
         return TlsConnection::plain(std::move(fd));
     }
@@ -523,10 +529,25 @@ common::Result<TlsConnection> TlsClientContext::connect(UniqueFd fd,
     if (SSL_set_fd(ssl, fd.get()) != 1) {
         return opensslStatus("TLS bind fd");
     }
-    const int result = SSL_connect(ssl);
-    if (result != 1) {
-        return common::Status::runtimeError("TLS handshake failed");
+    const int flags = ::fcntl(fd.get(), F_GETFL, 0);
+    if (deadline && (flags < 0 || ::fcntl(fd.get(), F_SETFL, flags | O_NONBLOCK) < 0))
+        return systemStatus("TLS handshake nonblocking", errno);
+    for (;;) {
+        const int result = SSL_connect(ssl);
+        if (result == 1) break;
+        const int error = SSL_get_error(ssl, result);
+        if (!deadline || (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE))
+            return common::Status::runtimeError("TLS handshake failed");
+        auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+            *deadline - std::chrono::steady_clock::now()).count();
+        if (left <= 0) return common::Status::transportError("TLS handshake deadline exceeded", ETIMEDOUT);
+        pollfd descriptor{fd.get(), static_cast<short>(error == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT), 0};
+        const int ready = ::poll(&descriptor, 1, static_cast<int>(std::min<std::int64_t>(left, INT_MAX)));
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready <= 0) return common::Status::transportError("TLS handshake deadline exceeded", ETIMEDOUT);
     }
+    if (deadline && ::fcntl(fd.get(), F_SETFL, flags) < 0)
+        return systemStatus("TLS restore blocking", errno);
     return TlsConnection(std::move(fd), std::move(connectionImpl));
 }
 

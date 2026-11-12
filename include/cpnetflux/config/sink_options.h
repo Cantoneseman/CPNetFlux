@@ -12,12 +12,18 @@ enum class SinkRole {
     Client,
 };
 
+enum class SinkIoMode {
+    Epoll,
+    Threaded,
+};
+
 struct SinkOptions {
     std::string host;
     std::uint16_t port = 9000;
     std::uint32_t connections = 1;
     std::uint64_t bytes = 0;
     std::uint32_t bufferSize = 65536;
+    SinkIoMode ioMode = SinkIoMode::Epoll;
 };
 
 common::Result<SinkOptions> parseSinkOptions(int argc, const char* const* argv, SinkRole role);

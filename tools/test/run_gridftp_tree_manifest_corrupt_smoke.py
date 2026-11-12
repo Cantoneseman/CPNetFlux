@@ -37,7 +37,7 @@ def main() -> int:
                 "--connections",
                 "2",
             ]
-            run_checked(base_cmd + ["--max-files", "1"], expect_success=False)
+            run_checked(base_cmd)
             manifest = Path(str(source) + ".cpnetflux.tree.upload.manifest")
             text = manifest.read_text(encoding="utf-8")
             manifest.write_text(text.replace("mode=upload", "mode=download"), encoding="utf-8")

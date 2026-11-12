@@ -13,7 +13,7 @@
 namespace cpnetflux::core::protocol {
 
 inline constexpr std::uint32_t kFrameMagic = 0x47465831U;
-inline constexpr std::uint16_t kFrameVersion = 1;
+inline constexpr std::uint16_t kFrameSchemaVersion = 1;
 inline constexpr std::uint16_t kFrameHeaderSize = 64;
 inline constexpr std::uint16_t kDataCompressed = 0x0001U;
 inline constexpr std::uint16_t kRangeSkipped = 0x0002U;
@@ -49,7 +49,7 @@ enum class FrameStatusCode : std::uint32_t {
 
 struct FrameHeader {
     std::uint32_t magic = kFrameMagic;
-    std::uint16_t version = kFrameVersion;
+    std::uint16_t version = kFrameSchemaVersion;
     std::uint16_t headerSize = kFrameHeaderSize;
     FrameType type = FrameType::Data;
     std::uint16_t flags = 0;
@@ -83,6 +83,9 @@ struct FileBeginMetadata {
 
 struct ResumeResponsePayload {
     FrameStatusCode statusCode = FrameStatusCode::Ok;
+    // A response is explicitly paged so fragmented masks remain recoverable.
+    std::uint32_t pageIndex = 0;
+    std::uint32_t pageCount = 1;
     std::vector<core::chunk::CompletedRange> missingRanges;
 };
 

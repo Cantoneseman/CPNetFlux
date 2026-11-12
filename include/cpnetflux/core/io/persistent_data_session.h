@@ -38,7 +38,8 @@ struct PersistentFrame {
 
 class PersistentDataSession {
    public:
-    explicit PersistentDataSession(bool unordered = false) : unordered_(unordered) {}
+    explicit PersistentDataSession(bool unordered = false, std::uint32_t dataPayloadLimit = 65536)
+        : unordered_(unordered), dataPayloadLimit_(dataPayloadLimit) {}
     static constexpr std::uint32_t kMaxPayload = 65536;
     [[nodiscard]] common::Status begin(const protocol::FrameHeader& header,
                                        const std::string& relativePath,
@@ -49,6 +50,10 @@ class PersistentDataSession {
     [[nodiscard]] common::Status data(const protocol::FrameHeader& header,
                                       std::size_t logicalBytes,
                                       const std::uint8_t* payload = nullptr);
+    // The caller must validate the frame CRC against its logical payload first.
+    [[nodiscard]] common::Status dataWithChecksum(const protocol::FrameHeader& header,
+                                                  std::size_t logicalBytes,
+                                                  checksum::ChecksumValue verifiedChecksum);
     [[nodiscard]] common::Result<PersistentFileIdentity> end(const protocol::FrameHeader& header,
                                                              const std::uint8_t* digest = nullptr,
                                                              std::size_t digestSize = 0);
@@ -72,6 +77,11 @@ class PersistentDataSession {
                                                     protocol::FrameStatusCode status);
     [[nodiscard]] static common::Result<PersistentFrame> readNext(FramedDataSocket* socket,
                                                                   std::uint32_t maxPayloadSize);
+    // Reuses caller-owned storage (<= kMaxPayload for an initially empty frame).
+    // All views must be consumed before the next read; failures clear valid data.
+    [[nodiscard]] static common::Status readNext(FramedDataSocket* socket,
+                                                 std::uint32_t maxPayloadSize,
+                                                 PersistentFrame* frame);
     [[nodiscard]] static common::Result<PersistentFileIdentity> decodeBegin(const PersistentFrame& frame);
     [[nodiscard]] static common::Result<protocol::FrameStatusCode> readResult(
         FramedDataSocket* socket, const PersistentFileIdentity& identity);
@@ -84,14 +94,25 @@ class PersistentDataSession {
     [[nodiscard]] std::uint64_t receivedBytes() const noexcept { return receivedBytes_; }
 
    private:
+    [[nodiscard]] common::Status acceptData(const protocol::FrameHeader& header,
+                                            std::size_t logicalBytes,
+                                            const std::uint8_t* payload,
+                                            const checksum::ChecksumValue* verifiedChecksum);
     [[nodiscard]] common::Status match(const protocol::FrameHeader& header) const;
     [[nodiscard]] static bool safeRelativePath(const std::string& path) noexcept;
     [[nodiscard]] static common::Status writeFrame(FramedDataSocket* socket,
                                                    protocol::FrameHeader header,
                                                    const std::uint8_t* payload,
                                                    std::size_t length);
+    [[nodiscard]] static common::Status writeFrame(FramedDataSocket* socket,
+                                                   protocol::FrameHeader header,
+                                                   const std::uint8_t* prefix,
+                                                   std::size_t prefixLength,
+                                                   const std::uint8_t* payload,
+                                                   std::size_t length);
 
     bool unordered_ = false;
+    const std::uint32_t dataPayloadLimit_;
     std::unordered_set<std::uint32_t> seenFiles_;
     std::unordered_set<std::uint64_t> seenGenerations_;
     std::unordered_set<std::string> seenRangeIdentities_;

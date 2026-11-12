@@ -1,0 +1,97 @@
+# S1B Summary Default Gate23
+
+Date:2026-11-09. Status: driver implemented; preparation resource gate blocked.
+No performance samples and no default promotion. See
+[result](2026-11-09-v3-summary-default-gate-23-result.md).
+Input experiment/source20aef478eda71764eb1876e8196518c1c60e87e1;
+Input HEAD76cd3dd466dc055594b9fd12950d87be7221fb35 (pushed S1 result).
+S1 opt-in passed three filesystem-read cases and a reuse negative control;
+shared default remains original. See [result](2026-11-09-v3-summary-path-22-result.md).
+
+## Scope, Non-Goals And Files
+
+Close the outstanding matched large-file/default-promotion gate. This is a
+regression check of summary selection, not a new large-file throughput mechanism.
+R770-1 sole writer, R2 fixed-commit build/source peer. No agents/worktrees,
+network/THP/NUMA changes, RDMA, compression, queue tuning or production changes.
+No pending-window correction or member aggregation in this gate.
+
+First inspect the existing scope17 fixture and current CLI restrictions to set
+exact reproducible commands; do not rely on old external helper assumptions.
+Expected files: this task/result, a bounded regression driver or the existing
+experiment helper, relevant selector/default tests and route docs. Only if the
+gate passes, a minimal client selector fallback change may propose default cached.
+Exact implementation files: tools/perf/run_summary_default_gate.py,
+tools/test/run_summary_default_gate_test.py, tools/perf/run_small_file_baseline.py
+(narrow explicit mapped-download option), CMakeLists.txt (analysis test), this
+task/result. Conditional promotion only: src/core/io/tree_transfer_client.cpp,
+tools/test/run_cpnetflux_summary_path_smoke.py, README.md,
+docs/README.md and docs/ROADMAP.md. Inspect each route
+document before editing. No new protocol fields.
+
+Use installed libc mincore through Python ctypes for read-only residency proof
+(fincore is absent); a private file mapping does not touch/prepopulate pages.
+Source is a fully materialized 8GiB file, one random8MiB block repeated1024,
+compression off. Seed/hash/residency are outside T_ready. Basic phase summaries
+remain enabled to check eight1GiB mmap ranges, 64MiB per-lane/256MiB concurrent
+window bounds and8192 verified chunks; detailed range/CPU timers remain off.
+Acceptance commands: new driver unit test, related CTest group on both peers,
+then fixed-commit run_summary_default_gate.py --action matrix. No sample retries.
+
+Preflight: 7 new checks pass. Initial related group18/19 passed; the unchanged
+mapped_lifecycle diagnostic failed at its collapse/pattern subcase with
+MADV_COLLAPSE ENOMEM. Collapse is not selected in S1B and its prior LF4 candidate
+was rejected. Record this host-sensitive diagnostic separately; do not weaken its
+test or change host memory policy. Normal mapped fault and unobserved tests pass.
+
+First fixed-commit preparation (0e25ab0) aborted in the seed resource guard,
+before any transfer or performance sample; owned partial payload/root removed
+on both nodes. The old combined assertion did not distinguish memory/swap.
+Add persistent seed diagnostics and allow one bounded preparation recheck on
+the corrected driver; keep the failed launch/evidence. Never lower resource gates
+or retry completed performance samples to chase CV.
+
+Corrected preparation067fd29 aborted at5,217,714,176 materialized bytes:
+MemAvailable minimum25,059,221,504, owned VmSwap0, host pswpout delta1 page.
+Both launches stopped before transfer, all owned roots removed. Default stays
+original; cached remains opt-in. Add a seed-abort evidence regression test.
+Next scoped handoff is docs/tasks/2026-11-09-v3-small-file-fixed-work-24.md;
+it can collect independent small-file attribution while promotion remains held.
+
+## Regression Before Promotion
+
+Use the existing accepted8GiB resident-source/new-target four-TCP memory-file
+scope: queued sender/inline experimental mmap receiver, CRC32C/verified_chunks,
+checkpoint16, TLS off and commit_sync=none. This is the explicit8GiB exception
+to the small-file1GiB matrix bound, not64GiB or disk-persistence testing.
+At most one source/output per endpoint; MemAvailable>=12GiB, owned VmSwap0,
+pswpout delta0. Warm/source SHA outside, fresh output each time, full T_ready
+using the corrected independent exit timestamp. Clean owned data per sample.
+
+At least five interleaved original/cached pairs on the same pushed commit and
+matching config/version/binaries, explicit .2/.1 bind and route/counter evidence.
+Both arms expected verified_chunks/effective not_used; validate that fact.
+Gate: corrected full-task median regression<=5%, arm CV<=5%, complete independent
+SHA/CRC/manifests/V3 terminals/resources and no recovery regression. Report
+descriptive p95 and all samples; no sample deletion/repeated CV chasing.
+Historical27.3Gbps is context only, never the unmatched denominator.
+
+If passed, change only the CLI selector's unset fallback, update default behavior
+tests/docs, then commit/push/sync/rebuild/hash-check and run a default-versus-
+explicit-cached correctness smoke. Keep explicit original as the control.
+Recheck failure/recovery and small-file summary behavior. If this gate fails,
+retain the opt-in candidate and old default, record the reason and stop promotion.
+
+## Subsequent Development
+
+After closing the default decision, take one bounded CPU/fixed-work attribution
+of the optimized4KiB x10K path (pre-summary still about1.0s). Keep receiver detail
+timers off in baseline; their measured overhead was18%. Separate manifest writer
+CPU/serialization, metadata/open/publish work and sender ACK waits. Existing sums
+overlap and cannot by themselves justify member microbatch's>=20% wall budget.
+
+Then design fixed-member batches only with a new mechanism/budget and per-member
+identity/CRC, failure isolation, resume and atomic publish. Adaptive follows an
+independently accepted fixed mechanism. Larger TCP zero-copy/RDMA ownership
+designs and big DATA/CRC remain separate gated directions, RDMA still paused.
+All future gains use matched same-contract full tasks;100G remains unachieved.

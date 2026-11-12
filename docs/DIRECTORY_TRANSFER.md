@@ -58,11 +58,24 @@ files. The data channel, framed STOR/RETR protocol, checksum behavior, and
 resume semantics stay unchanged. JSON summaries now also record:
 
 - `control_reuse_mode`
-- `control_connect_count`
-- `control_reconnect_count`
+- `control_connect_count`: successful control-session connections, including lane-local reconnects.
+- `control_reconnect_count`: control sessions rebuilt by a whole-batch retry.
+- `lane_control_reconnect_count`: reconnect attempts for one failed persistent lane.
+- `lane_local_recovery_count`: retries confined to one persistent lane, whether its data connection alone or both lane connections failed.
 - `data_transfer_count`
 - `planner_preset`
 
+Automatic reconnect is available for persistent dynamic tree transfers when
+checksums are enabled. `--reconnect-attempts N` is one shared limit for the
+whole transfer: recovering a lane or rebuilding the whole batch each uses one
+attempt. A value of `0` disables automatic reconnect. When the limit is used,
+the transfer fails with `reconnect attempt budget exhausted`; it does not keep
+reconnecting in a different layer.
+
+JSON summaries include `reconnect_attempt_budget` (the configured limit) and
+`recovery_attempts_used` (the actual number of recovery actions). The older
+`reconnect_attempts` field continues to report whole-batch retry epochs;
+lane-only recoveries are reflected by `lane_local_recovery_count`.
 Phase 5B makes `--file-parallelism` active: it controls how many files are
 processed concurrently. The default remains `1`. Each file worker opens its own
 control session and each file still uses `--connections` for per-file framed
@@ -70,6 +83,16 @@ data connections; the directory scheduler never reimplements chunk transfer
 logic.
 
 ## Manifests
+
+Research-only selector `CPNETFLUX_TREE_MANIFEST_SERIALIZER=original|buffered`
+is frozen once before connecting. The default is `original`; `buffered` failed
+the [Runtime26 full-task performance gate](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)
+and is retained for explicit reproduction, not recommended as a faster setting.
+It affects all client tree-manifest save attempts, including preflight/reconnect
+and finish; member checkpoints, on-disk bytes/CRC and save cadence are unchanged.
+JSON `tree_manifest_serializer_requested/effective` records the selected routing,
+not successful persistence of every attempt. Shared programmatic APIs default to
+original independently of this environment variable.
 
 Directory transfer adds a file-level manifest:
 

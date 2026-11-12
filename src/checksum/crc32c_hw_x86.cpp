@@ -8,7 +8,9 @@
 namespace cpnetflux::checksum {
 
 bool crc32cHardwareAvailable() noexcept {
-#if defined(__GNUC__) || defined(__clang__)
+#if CPNETFLUX_HAS_ISAL
+    return true;
+#elif defined(__GNUC__) || defined(__clang__)
     __builtin_cpu_init();
     return __builtin_cpu_supports("sse4.2");
 #else
@@ -24,6 +26,9 @@ std::uint32_t crc32cUpdateHardware(std::uint32_t state, const std::uint8_t* data
     if (!crc32cHardwareAvailable()) {
         return crc32cUpdateSoftware(state, data, size);
     }
+#if CPNETFLUX_HAS_ISAL
+    return crc32cUpdateIsal(state, data, size);
+#else
 
 #if defined(__x86_64__) || defined(_M_X64)
     std::uint64_t crc = state;
@@ -45,6 +50,7 @@ std::uint32_t crc32cUpdateHardware(std::uint32_t state, const std::uint8_t* data
         --size;
     }
     return crc32;
+#endif
 }
 
 }  // namespace cpnetflux::checksum

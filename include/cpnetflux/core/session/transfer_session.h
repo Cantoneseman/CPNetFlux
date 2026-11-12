@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
 
 #include "cpnetflux/checkpoint/transfer_manifest.h"
 #include "cpnetflux/checksum/checksum.h"
@@ -11,6 +12,8 @@
 #include "cpnetflux/core/metrics/transfer_phase_stats.h"
 #include "cpnetflux/core/session/manifest_flush_policy.h"
 #include "cpnetflux/core/session/transfer_session_config.h"
+#include "cpnetflux/core/session/verified_chunk_record_stats.h"
+#include "cpnetflux/core/session/verified_chunk_append_watermark.h"
 #include "cpnetflux/storage/posix_file.h"
 
 namespace cpnetflux::core::session {
@@ -45,9 +48,13 @@ class TransferSession {
     [[nodiscard]] common::Status save();
     [[nodiscard]] common::Status flushManifest();
     [[nodiscard]] common::Status recordCompletedRange(std::uint64_t offset, std::uint64_t length);
+    // A batching owner may defer autosave; it must flush before acknowledging completion.
     [[nodiscard]] common::Status recordVerifiedChunk(std::uint64_t chunkId, std::uint64_t offset,
                                                      std::uint64_t length,
-                                                     checksum::ChecksumValue checksumValue);
+                                                     checksum::ChecksumValue checksumValue,
+                                                     bool deferManifestFlush = false);
+    // Serialized caller query, not a reservation; UINT64_MAX means exhausted.
+    [[nodiscard]] std::uint64_t nextVerifiedChunkId() const noexcept;
     [[nodiscard]] common::Status verifyTempChunks(const storage::PosixFile& tempFile);
     [[nodiscard]] common::Status markFailed();
     [[nodiscard]] common::Status markCommitted();
@@ -61,11 +68,14 @@ class TransferSession {
     [[nodiscard]] std::uint64_t manifestFlushIntervalChunks() const noexcept;
     [[nodiscard]] const checkpoint::TransferManifest& manifest() const noexcept;
     [[nodiscard]] const std::string& manifestPath() const noexcept;
+    void setManifestSaveStats(checkpoint::ManifestSaveStats* stats) noexcept { manifestSaveStats_ = stats; }
+    void setRecordStats(VerifiedChunkRecordStats* stats) noexcept { recordStats_ = stats; }
     void setPhaseStats(metrics::TransferPhaseStats* phaseStats) noexcept;
 
    private:
     checkpoint::TransferManifest manifest_;
     chunk::RangeList completed_;
+    VerifiedChunkAppendWatermark recordWatermark_;
     std::string manifestPath_;
     checksum::ChecksumBackend checksumBackend_ = checksum::ChecksumBackend::Software;
     ManifestFlushPolicy manifestFlushPolicy_ = ManifestFlushPolicy::EveryNChunks;
@@ -73,6 +83,8 @@ class TransferSession {
     std::uint64_t dirtyVerifiedChunks_ = 0;
     TransferSessionStats stats_;
     metrics::TransferPhaseStats* phaseStats_ = nullptr;
+    checkpoint::ManifestSaveStats* manifestSaveStats_ = nullptr;
+    VerifiedChunkRecordStats* recordStats_ = nullptr;
 };
 
 }  // namespace cpnetflux::core::session

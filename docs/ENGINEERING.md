@@ -11,7 +11,7 @@ CPNetFlux/
 │   ├── DESIGN.md
 │   ├── ROADMAP.md
 │   ├── PROJECT_STATE.md
-│   ├── GridFTP传输源码学习笔记.md
+│   ├── DESIGN.md
 │   └── ENGINEERING.md
 ├── src/
 │   ├── core/engine/

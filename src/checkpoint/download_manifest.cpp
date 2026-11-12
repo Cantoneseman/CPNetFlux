@@ -15,6 +15,7 @@
 
 #include "cpnetflux/checksum/crc32c.h"
 #include "cpnetflux/storage/posix_file.h"
+#include "manifest_record_serialization.h"
 
 namespace cpnetflux::checkpoint {
 namespace {
@@ -109,7 +110,14 @@ common::Status requireKey(const std::unordered_map<std::string, std::string>& va
     return common::Status::ok();
 }
 
-std::vector<ChunkChecksumRecord> sortedRecords(const std::vector<ChunkChecksumRecord>& records) {
+std::vector<ChunkChecksumRecord> sortedRecords(const std::vector<ChunkChecksumRecord>& records,
+                                             ManifestSaveStats* stats = nullptr) {
+    OptionalManifestTimer preparation(stats ? &stats->recordPreparationSeconds : nullptr);
+    if (stats) {
+        ++stats->recordPreparationCalls;
+        ++stats->recordSortCalls;
+        stats->recordCopyItems += records.size();
+    }
     std::vector<ChunkChecksumRecord> sorted = records;
     std::sort(sorted.begin(), sorted.end(),
               [](const ChunkChecksumRecord& left, const ChunkChecksumRecord& right) {
@@ -128,21 +136,6 @@ std::string serializeRanges(const std::vector<core::chunk::CompletedRange>& rang
             output << ',';
         }
         output << ranges[index].begin << '-' << ranges[index].end;
-    }
-    return output.str();
-}
-
-std::string serializeVerifiedChunks(const std::vector<ChunkChecksumRecord>& records) {
-    std::ostringstream output;
-    const std::vector<ChunkChecksumRecord> sorted = sortedRecords(records);
-    for (std::size_t index = 0; index < sorted.size(); ++index) {
-        if (index != 0) {
-            output << ',';
-        }
-        output << sorted[index].chunkId << ':' << sorted[index].offset << ':'
-               << sorted[index].length << ':'
-               << checksum::checksumAlgorithmName(sorted[index].checksum.algorithm) << ':'
-               << hex32(sorted[index].checksum.value);
     }
     return output.str();
 }
@@ -254,9 +247,12 @@ common::Result<std::vector<ChunkChecksumRecord>> parseVerifiedChunks(
 }
 
 common::Result<core::chunk::RangeList> completedFromVerified(
-    const std::vector<ChunkChecksumRecord>& records, std::uint64_t totalSize) {
+    const std::vector<ChunkChecksumRecord>& records, std::uint64_t totalSize,
+    ManifestSaveStats* stats = nullptr) {
     core::chunk::RangeList completed;
-    for (const ChunkChecksumRecord& record : sortedRecords(records)) {
+    const auto sorted = sortedRecords(records, stats);
+    OptionalManifestTimer validation(stats ? &stats->rangeValidationSeconds : nullptr);
+    for (const ChunkChecksumRecord& record : sorted) {
         const common::Status insertStatus =
             completed.insert(record.offset, record.length, totalSize);
         if (!insertStatus.isOk()) {
@@ -267,7 +263,9 @@ common::Result<core::chunk::RangeList> completedFromVerified(
 }
 
 std::string buildManifestBody(const DownloadManifest& manifest,
-                              const std::vector<core::chunk::CompletedRange>& ranges) {
+                              const std::vector<core::chunk::CompletedRange>& ranges,
+                              const std::vector<ChunkChecksumRecord>& records,
+                              ManifestSaveStats* stats) {
     std::ostringstream output;
     output << "manifest_version=" << manifest.version << '\n';
     output << "transfer_id=" << manifest.transferId << '\n';
@@ -282,7 +280,7 @@ std::string buildManifestBody(const DownloadManifest& manifest,
     output << "updated_at_unix_ns=" << manifest.updatedAtUnixNanos << '\n';
     output << "state=" << manifestStateName(manifest.state) << '\n';
     output << "completed_ranges=" << serializeRanges(ranges) << '\n';
-    output << "verified_chunks=" << serializeVerifiedChunks(manifest.verifiedChunks) << '\n';
+    output << "verified_chunks=" << detail::serializeOrderedRecords(records, stats) << '\n';
     return output.str();
 }
 
@@ -321,8 +319,8 @@ std::string downloadTempPathForOutput(const std::string& outputPath,
     return outputPath + ".part." + transferId;
 }
 
-common::Result<std::string> serializeDownloadManifest(const DownloadManifest& manifest) {
-    if (manifest.version != kDownloadManifestVersion) {
+common::Result<std::string> serializeDownloadManifest(const DownloadManifest& manifest, ManifestSaveStats* stats) {
+    if (manifest.version != kDownloadManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported download manifest version");
     }
     if (!isValidTransferId(manifest.transferId)) {
@@ -336,13 +334,16 @@ common::Result<std::string> serializeDownloadManifest(const DownloadManifest& ma
             "download manifest chunk_size must be greater than zero");
     }
 
-    auto completed = completedFromVerified(manifest.verifiedChunks, manifest.totalSize);
+    const detail::OrderedManifestRecords records(manifest.verifiedChunks, stats);
+    auto completed = detail::completedFromOrderedRecords(records.records(), manifest.totalSize, stats);
     if (!completed.isOk()) {
         return completed.status();
     }
-    const std::string body = buildManifestBody(manifest, completed.value().ranges());
+    const std::string body = buildManifestBody(manifest, completed.value().ranges(), records.records(), stats);
+    OptionalManifestTimer bodyCrc(stats ? &stats->bodyCrcSeconds : nullptr);
     const std::uint32_t bodyChecksum =
         checksum::crc32c(reinterpret_cast<const std::uint8_t*>(body.data()), body.size());
+    bodyCrc.stop();
     return body + "manifest_body_crc32c=" + hex32(bodyChecksum) + '\n';
 }
 
@@ -388,7 +389,7 @@ common::Result<DownloadManifest> parseDownloadManifest(const std::string& text) 
     if (!version.isOk()) {
         return version.status();
     }
-    if (version.value() != kDownloadManifestVersion) {
+    if (version.value() != kDownloadManifestSchemaVersion) {
         return common::Status::invalidArgument("unsupported download manifest version");
     }
     auto parsedExpected = parseHex32(expectedBodyChecksum, "manifest_body_crc32c");
@@ -493,11 +494,18 @@ common::Result<DownloadManifest> parseDownloadManifest(const std::string& text) 
 }
 
 common::Status saveDownloadManifestAtomic(const std::string& path,
-                                          const DownloadManifest& manifest) {
-    auto serialized = serializeDownloadManifest(manifest);
+                                          const DownloadManifest& manifest, ManifestSaveStats* stats) {
+    ManifestSaveAttempt attempt(stats);
+    OptionalManifestTimer wholeSave(stats ? &stats->saveSeconds : nullptr);
+    OptionalManifestTimer serialization(stats ? &stats->serializeSeconds : nullptr);
+    if (stats) ++stats->serializeCalls;
+    auto serialized = serializeDownloadManifest(manifest, stats);
+    serialization.stop();
     if (!serialized.isOk()) {
         return serialized.status();
     }
+    if (stats) stats->serializedBytes += serialized.value().size();
+    OptionalManifestTimer tempWrite(stats ? &stats->tempWriteSeconds : nullptr);
 
     const std::string tempPath = path + ".tmp." + std::to_string(::getpid());
     const int fd = ::open(tempPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
@@ -505,6 +513,7 @@ common::Status saveDownloadManifestAtomic(const std::string& path,
         return systemStatus("open download manifest temp", errno);
     }
 
+    if (stats) ++stats->tempWriteCalls;
     const common::Status writeStatus =
         writeAll(fd, serialized.value().data(), serialized.value().size());
     if (!writeStatus.isOk()) {
@@ -517,11 +526,17 @@ common::Status saveDownloadManifestAtomic(const std::string& path,
         (void)storage::PosixFile::removePath(tempPath);
         return systemStatus("close download manifest temp", closeError);
     }
+    tempWrite.stop();
+    if (stats) { ++stats->renameCalls; ++stats->publishCalls; }
+    OptionalManifestTimer renaming(stats ? &stats->renameSeconds : nullptr);
     const common::Status renameStatus = storage::PosixFile::renamePath(tempPath, path);
+    renaming.stop();
     if (!renameStatus.isOk()) {
         (void)storage::PosixFile::removePath(tempPath);
         return renameStatus;
     }
+    attempt.succeed();
+    if (stats) ++stats->publishSuccesses;
     return common::Status::ok();
 }
 

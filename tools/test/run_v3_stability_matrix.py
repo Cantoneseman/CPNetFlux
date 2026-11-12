@@ -332,6 +332,23 @@ def persistent_tls_composition(binary: Path, temp: Path) -> None:
             "state=committed" not in path.read_text() for path in upload_manifests
         ):
             raise AssertionError("persistent TLS upload did not commit every manifest")
+        # TLS uses the synchronous FILE_RESULT reader. Its semantic failures
+        # must survive the same batch cancellation as the plain TCP reader.
+        conflict_source = temp / "tls-conflict-source"
+        conflict_source.mkdir()
+        (conflict_source / "small.txt").write_bytes(b"must not replace existing target")
+        conflict_summary = temp / "tls-conflict-summary.json"
+        conflict = subprocess.run([
+            str(binary.parent / "cpnetflux-tree-upload-client"), *common,
+            "--source-dir", str(conflict_source), "--dest-dir", "persistent-tls",
+            "--json-summary", str(conflict_summary),
+        ], capture_output=True, text=True, timeout=30, check=False)
+        conflict_data = json.loads(conflict_summary.read_text())
+        if (conflict.returncode == 0 or conflict_data.get("result") != "fail" or
+                "already exists" not in conflict_data.get("error", {}).get("message", "")):
+            raise AssertionError(f"TLS target conflict lost its semantic error: {conflict_data}")
+        if tree_hash(root / "persistent-tls") != expected:
+            raise AssertionError("TLS target conflict changed the committed target")
         resumed_upload_summary = temp / "persistent-tls-upload-resume.json"
         run_checked([
             str(binary.parent / "cpnetflux-tree-upload-client"), *common,

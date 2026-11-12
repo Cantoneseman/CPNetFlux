@@ -1,0 +1,12 @@
+{
+  "formal_pass": 36,
+  "tuning_pass": 14,
+  "input_matches_20261024": true,
+  "evidence_files_verified": 441,
+  "formal_and_tuning_nic_error_drop_delta": 0,
+  "source_sha256_excluded_from_wall": true,
+  "destination_sha256_excluded_from_wall": true,
+  "transport": "TCP/TLS over Ethernet",
+  "native_verbs": false,
+  "numa_pinning": false
+}

@@ -4,7 +4,9 @@ import json
 import os
 import re
 import socket
+import socketserver
 import struct
+import threading
 import subprocess
 import tempfile
 import time
@@ -12,6 +14,24 @@ from pathlib import Path
 
 from tree_smoke_common import free_port, make_tree, tree_hash, wait_for_control, stop_server
 from gridftp_port_window import clamp_passive_data_port_base
+
+
+class RejectV3Handler(socketserver.StreamRequestHandler):
+    def handle(self):
+        self.wfile.write(b'220 test peer ready\r\n')
+        while line := self.rfile.readline():
+            command = line.strip().upper()
+            if command.startswith(b'USER '):
+                reply = b'331 password required\r\n'
+            elif command.startswith(b'PASS '):
+                reply = b'230 logged in\r\n'
+            elif command == b'TYPE I' or command.startswith(b'OPTS PARALLELISM='):
+                reply = b'200 accepted\r\n'
+            elif command.startswith(b'XCPNETFLUX '):
+                reply = b'502 V3 tree capability unavailable\r\n'
+            else:
+                reply = b'500 unsupported command\r\n'
+            self.wfile.write(reply)
 
 
 def unique_json_object(pairs):
@@ -48,26 +68,40 @@ def main():
             with socket.create_connection(('127.0.0.1', port), timeout=3) as sock:
                 control = sock.makefile('rwb', buffering=0)
                 assert control.readline().startswith(b'220')
-                control.write(b'XCPNETFLUX V2\r\n')
+                control.write(b'XCPNETFLUX V3\r\n')
                 assert control.readline().startswith(b'530'), 'negotiation requires authentication'
                 control.close()
 
             def socket_fd_count(pid):
                 descriptor_dir = Path(f'/proc/{pid}/fd')
-                return sum(
-                    os.readlink(descriptor).startswith('socket:[')
-                    for descriptor in descriptor_dir.iterdir()
-                )
+                count = 0
+                for descriptor in descriptor_dir.iterdir():
+                    try:
+                        count += os.readlink(descriptor).startswith('socket:[')
+                    except FileNotFoundError:
+                        # A connection can close between directory listing and readlink.
+                        continue
+                return count
 
             baseline_sockets = socket_fd_count(server.pid)
             with socket.create_connection(('127.0.0.1', port), timeout=3) as sock:
                 control = sock.makefile('rwb', buffering=0)
                 assert control.readline().startswith(b'220')
-                for command, prefix in (('USER cpnetflux', b'331'), ('PASS cpnetflux', b'230'),
-                                        ('TYPE I', b'200'), ('OPTS PARALLELISM=1', b'200'),
-                                        ('XCPNETFLUX V2 WINDOW=2 CHANNELS=4', b'200')):
+                for command, prefix in (('USER cpnetflux', b'331'), ('PASS cpnetflux', b'230')):
                     control.write(command.encode() + b'\r\n')
                     assert control.readline().startswith(prefix), command
+                control.write(b'XCPNETFLUX V2\r\n')
+                old_reply = control.readline()
+                assert old_reply.startswith(b'502'), f'old V2 greeting must be rejected: {old_reply!r}'
+                control.write(b'XDIR PUT legacy-request-must-not-run\r\n')
+                assert control.readline().startswith(b'504'), 'old greeting must not enable V3 transfer'
+                for command, prefix in (('TYPE I', b'200'), ('OPTS PARALLELISM=1', b'200'),
+                                        ('XCPNETFLUX V3 WINDOW=2 CHANNELS=4', b'200')):
+                    control.write(command.encode() + b'\r\n')
+                    reply = control.readline()
+                    assert reply.startswith(prefix), command
+                    if command.startswith('XCPNETFLUX V3'):
+                        assert reply.startswith(b'200 CPNetFlux V3 file-transactions/1 '), reply
                 control.write(b'EPSV\r\n')
                 passive_reply = control.readline()
                 assert passive_reply.startswith(b'229')
@@ -159,11 +193,11 @@ def main():
             assert parallel_failed['data_connect_count'] == 4
             assert (parallel_collision / 'alpha.txt').read_bytes() == b'keep-existing'
             baseline = run('upload', source, 'baseline', 'baseline', ['--data-session-reuse', 'off'])
-            assert baseline['data_session_reuse_mode'] == 'off'
+            assert baseline['data_session_reuse_mode'] == 'tree'
             assert tree_hash(server_root / 'baseline') == expected
             resumed = run('download', 'uploaded', downloaded, 'resume',
-                          ['--resume', '--data-session-reuse', 'off'])
-            assert resumed['data_session_reuse_mode'] == 'off'
+                          ['--resume', '--data-session-reuse', 'off', '--file-scheduling', 'dynamic'])
+            assert resumed['data_session_reuse_mode'] == 'tree'
             assert tree_hash(downloaded) == expected
 
             collision = server_root / 'collision'
@@ -185,7 +219,7 @@ def main():
                 assert cmd('PASS cpnetflux').startswith(b'230')
                 assert cmd('TYPE I').startswith(b'200')
                 assert cmd('OPTS PARALLELISM=1').startswith(b'200')
-                assert cmd('XCPNETFLUX V2').startswith(b'200')
+                assert cmd('XCPNETFLUX V3').startswith(b'200')
                 reply = cmd('EPSV')
                 passive = int(re.search(rb'\(\|\|\|(\d+)\|\)', reply)[1])
                 assert cmd('XDIR PUT interrupted').startswith(b'150')
@@ -206,7 +240,9 @@ def main():
                 partial = server_root / 'interrupted' / 'partial.bin'
                 checkpoint = Path(str(partial) + '.cpnetflux.manifest')
                 assert checkpoint.exists(), 'V2 checkpoint must survive disconnect'
-                assert 'state=failed\n' in checkpoint.read_text()
+                interrupted_checkpoint = checkpoint.read_text()
+                assert 'state=failed\n' in interrupted_checkpoint, (
+                    f'terminal failure reply preceded failed checkpoint: {interrupted_checkpoint}')
                 original = root / 'resume-source.bin'
                 original.write_bytes(bytes([19]) * 65536 + bytes([27]) * 65536)
                 passive = int(re.search(rb'\(\|\|\|(\d+)\|\)', cmd('EPSV'))[1])
@@ -261,22 +297,26 @@ def main():
         finally:
             stop_server(server, log)
 
-        # Explicit capability rejection must take the original path before payload.
-        port = free_port()
-        with log.open('w') as output:
-            server = subprocess.Popen([
-                str(args.build_dir / 'cpnetflux-gridftp-server'), '--host', '127.0.0.1',
-                '--port', str(port), '--data-port-base', str(data_port),
-                '--root', str(server_root), '--checksum', 'none', '--commit-sync-policy', 'fsync_file',
-            ], stdout=output, stderr=subprocess.STDOUT)
+        # An explicit capability rejection must fail before payload transfer.
+        class RejectV3Server(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+            daemon_threads = True
+
+        peer = RejectV3Server(('127.0.0.1', 0), RejectV3Handler)
+        port = peer.server_address[1]
+        peer_thread = threading.Thread(target=peer.serve_forever, daemon=True)
+        peer_thread.start()
         try:
             wait_for_control(port)
-            fallback = run('upload', source, 'unsupported-fallback', 'unsupported-fallback',
-                           ['--data-session-reuse', 'off'])
-            assert fallback['data_session_reuse_mode'] == 'off'
-            assert tree_hash(server_root / 'unsupported-fallback') == expected
+            rejected = run('upload', source, 'unsupported-v3', 'unsupported-v3',
+                           ['--data-session-reuse', 'off'], success=False)
+            assert rejected['result'] == 'fail'
+            assert rejected['actual_mode'] == 'unknown'
+            assert not (server_root / 'unsupported-v3').exists()
         finally:
-            stop_server(server, log)
+            peer.shutdown()
+            peer.server_close()
+            peer_thread.join(timeout=3)
 
 
 if __name__ == '__main__':

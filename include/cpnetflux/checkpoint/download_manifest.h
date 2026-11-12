@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include "cpnetflux/checkpoint/manifest_save_stats.h"
 #include <vector>
 
 #include "cpnetflux/checkpoint/transfer_manifest.h"
@@ -11,10 +12,10 @@
 
 namespace cpnetflux::checkpoint {
 
-inline constexpr std::uint32_t kDownloadManifestVersion = 1;
+inline constexpr std::uint32_t kDownloadManifestSchemaVersion = 1;
 
 struct DownloadManifest {
-    std::uint32_t version = kDownloadManifestVersion;
+    std::uint32_t version = kDownloadManifestSchemaVersion;
     std::string transferId;
     std::string sourcePath;
     std::string targetPath;
@@ -34,10 +35,10 @@ struct DownloadManifest {
                                                     const std::string& transferId);
 
 [[nodiscard]] common::Result<std::string> serializeDownloadManifest(
-    const DownloadManifest& manifest);
+    const DownloadManifest& manifest, ManifestSaveStats* stats = nullptr);
 [[nodiscard]] common::Result<DownloadManifest> parseDownloadManifest(const std::string& text);
 [[nodiscard]] common::Status saveDownloadManifestAtomic(const std::string& path,
-                                                        const DownloadManifest& manifest);
+                                                        const DownloadManifest& manifest, ManifestSaveStats* stats = nullptr);
 [[nodiscard]] common::Result<DownloadManifest> loadDownloadManifest(const std::string& path);
 
 }  // namespace cpnetflux::checkpoint

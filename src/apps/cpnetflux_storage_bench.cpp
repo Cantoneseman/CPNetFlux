@@ -3,11 +3,13 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstdint>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "cpnetflux/checksum/checksum.h"
 #include "cpnetflux/common/status.h"
 #include "cpnetflux/storage/file_io.h"
 #include "cpnetflux/storage/posix_file.h"
@@ -77,6 +79,7 @@ void usage(const char* program) {
                  "[--file-io-queue-depth <N>] [--file-io-batch-size <N>] "
                  "[--file-io-advice <off|sequential|noreuse|dontneed|sequential_dontneed>] "
                  "[--posix-write-strategy <auto|direct|coalesced>] "
+                 "[--read-checksum <none|crc32c>] "
                  "[--keep-file]\n";
 }
 
@@ -97,6 +100,7 @@ struct Options {
     bool keepFile = false;
     bool hasFileIoQueueDepth = false;
     bool hasFileIoBatchSize = false;
+    cpnetflux::checksum::ChecksumAlgorithm readChecksum = cpnetflux::checksum::ChecksumAlgorithm::None;
 };
 
 cpnetflux::common::Result<Options> parseOptions(int argc, char** argv) {
@@ -156,6 +160,10 @@ cpnetflux::common::Result<Options> parseOptions(int argc, char** argv) {
                            : parsed.status();
             }
             options.iterations = parsed.value();
+        } else if (option == "--read-checksum") {
+            auto parsed = cpnetflux::checksum::parseChecksumAlgorithm(value);
+            if (!parsed.isOk()) return parsed.status();
+            options.readChecksum = parsed.value();
         } else if (option == "--preallocate") {
             auto parsed = cpnetflux::storage::parsePreallocateMode(value);
             if (!parsed.isOk()) {
@@ -216,6 +224,10 @@ cpnetflux::common::Result<Options> parseOptions(int argc, char** argv) {
     }
     if (!hasPath) {
         return cpnetflux::common::Status::invalidArgument("--path is required");
+    }
+    if (options.readChecksum != cpnetflux::checksum::ChecksumAlgorithm::None &&
+        options.mode != BenchMode::Read) {
+        return cpnetflux::common::Status::invalidArgument("--read-checksum requires --mode read");
     }
     if (options.hasFileIoQueueDepth && !options.hasFileIoBatchSize) {
         options.fileIoBatchSize = options.fileIoQueueDepth;
@@ -290,8 +302,14 @@ cpnetflux::common::Status writeSequential(const Options& options,
     return file.resize(options.bytes);
 }
 
+struct ReadProcessing {
+    std::uint64_t bytes = 0;
+    double checksumSeconds = 0;
+    cpnetflux::checksum::ChecksumValue digest;
+};
+
 cpnetflux::common::Status readSequential(const Options& options, std::vector<std::uint8_t>* buffer,
-                                        cpnetflux::storage::FileIoStats* stats) {
+                                        cpnetflux::storage::FileIoStats* stats, ReadProcessing* processing) {
     auto fileResult = cpnetflux::storage::PosixFile::openReadOnly(options.path);
     if (!fileResult.isOk()) {
         return fileResult.status();
@@ -312,6 +330,7 @@ cpnetflux::common::Status readSequential(const Options& options, std::vector<std
     config.advice = options.fileIoAdvice;
     config.posixWriteStrategy = options.posixWriteStrategy;
     cpnetflux::storage::FileIoContext context(config);
+    cpnetflux::checksum::ChecksumComputer checksum(options.readChecksum);
     while (completed < options.bytes) {
         const std::size_t size = static_cast<std::size_t>(
             std::min<std::uint64_t>(buffer->size(), options.bytes - completed));
@@ -320,9 +339,20 @@ cpnetflux::common::Status readSequential(const Options& options, std::vector<std
         if (!status.isOk()) {
             return status;
         }
+        if (options.readChecksum != cpnetflux::checksum::ChecksumAlgorithm::None) {
+            const auto started = std::chrono::steady_clock::now();
+            cpnetflux::checksum::ChecksumComputer block(options.readChecksum);
+            block.update(buffer->data(), size);
+            if (!checksum.combine(block.finalize(), size))
+                return cpnetflux::common::Status::runtimeError("read checksum combine failed");
+            processing->checksumSeconds += std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - started).count();
+        }
+        processing->bytes += size;
         sink ^= (*buffer)[0];
         completed += size;
     }
+    processing->digest = checksum.finalize();
     if (sink == 255U) {
         std::cout << "";
     }
@@ -331,12 +361,12 @@ cpnetflux::common::Status readSequential(const Options& options, std::vector<std
 
 cpnetflux::common::Status runOperation(const Options& options, BenchMode operation,
                                       std::vector<std::uint8_t>* buffer,
-                                      cpnetflux::storage::FileIoStats* stats) {
+                                      cpnetflux::storage::FileIoStats* stats, ReadProcessing* processing) {
     switch (operation) {
         case BenchMode::Write:
             return writeSequential(options, *buffer, true, stats);
         case BenchMode::Read:
-            return readSequential(options, buffer, stats);
+            return readSequential(options, buffer, stats, processing);
         case BenchMode::Rewrite:
             return writeSequential(options, *buffer, false, stats);
         case BenchMode::All:
@@ -347,7 +377,8 @@ cpnetflux::common::Status runOperation(const Options& options, BenchMode operati
 
 void printResult(BenchMode operation, const Options& options, std::uint64_t iteration,
                  double seconds, const cpnetflux::common::Status& status,
-                 const cpnetflux::storage::FileIoStats& stats, bool aggregate) {
+                 const cpnetflux::storage::FileIoStats& stats, const ReadProcessing& processing,
+                 bool aggregate) {
     const double bytesProcessed = static_cast<double>(options.bytes) *
                                   static_cast<double>(aggregate ? options.iterations : 1);
     const double gbps = seconds > 0.0 ? (bytesProcessed * 8.0 / seconds) / 1'000'000'000.0 : 0.0;
@@ -376,6 +407,11 @@ void printResult(BenchMode operation, const Options& options, std::uint64_t iter
               << cpnetflux::storage::posixWriteStrategyName(
                      cpnetflux::storage::effectivePosixWriteStrategy(fileIoConfig))
               << " read_call_count=" << stats.readCalls()
+              << " read_total_bytes=" << processing.bytes
+              << " read_checksum=" << cpnetflux::checksum::checksumAlgorithmName(options.readChecksum)
+              << " read_checksum_backend=" << cpnetflux::checksum::checksumBackendName(
+                     cpnetflux::checksum::ChecksumComputer(options.readChecksum).backend())
+              << " read_checksum_seconds=" << processing.checksumSeconds
               << " write_call_count=" << stats.writeCalls()
               << " write_syscall_count=" << stats.posixWriteSyscallCount()
               << " write_retry_count=" << stats.posixWriteRetryCount()
@@ -394,7 +430,14 @@ void printResult(BenchMode operation, const Options& options, std::uint64_t iter
               << " io_uring_partial_completion_count=" << stats.ioUringPartialCompletionCount()
               << " io_uring_retry_count=" << stats.ioUringRetryCount()
               << " io_uring_avg_bytes_per_sqe=" << stats.ioUringAverageBytesPerSqe()
-              << " result=" << (status.isOk() ? "pass" : "fail");
+              << " read_checksum_value=";
+    if (operation == BenchMode::Read && !aggregate && status.isOk() &&
+        options.readChecksum != cpnetflux::checksum::ChecksumAlgorithm::None) {
+        std::cout << std::hex << std::setfill('0') << std::setw(8) << processing.digest.value << std::dec;
+    } else {
+        std::cout << "not_applicable";
+    }
+    std::cout << " result=" << (status.isOk() ? "pass" : "fail");
     if (!status.isOk()) {
         std::cout << " error=" << status.message();
     }
@@ -406,13 +449,17 @@ int runConcreteOperation(const Options& options, BenchMode operation,
     const auto aggregateStart = std::chrono::steady_clock::now();
     cpnetflux::common::Status status = cpnetflux::common::Status::ok();
     cpnetflux::storage::FileIoStats aggregateStats;
+    ReadProcessing aggregateProcessing;
     for (std::uint64_t iteration = 0; iteration < options.iterations; ++iteration) {
         cpnetflux::storage::FileIoStats iterationStats;
+        ReadProcessing processing;
         const auto start = std::chrono::steady_clock::now();
-        status = runOperation(options, operation, buffer, &iterationStats);
+        status = runOperation(options, operation, buffer, &iterationStats, &processing);
         const auto end = std::chrono::steady_clock::now();
         printResult(operation, options, iteration, std::chrono::duration<double>(end - start).count(),
-                    status, iterationStats, false);
+                    status, iterationStats, processing, false);
+        aggregateProcessing.bytes += processing.bytes;
+        aggregateProcessing.checksumSeconds += processing.checksumSeconds;
         aggregateStats.mergeFrom(iterationStats);
         if (!status.isOk()) {
             break;
@@ -421,7 +468,7 @@ int runConcreteOperation(const Options& options, BenchMode operation,
     const auto aggregateEnd = std::chrono::steady_clock::now();
     printResult(operation, options, options.iterations,
                 std::chrono::duration<double>(aggregateEnd - aggregateStart).count(), status,
-                aggregateStats, true);
+                aggregateStats, aggregateProcessing, true);
     return status.isOk() ? 0 : 1;
 }
 
@@ -446,7 +493,7 @@ int main(int argc, char** argv) {
         result = runConcreteOperation(options, options.mode, &buffer);
     }
 
-    if (!options.keepFile) {
+    if (!options.keepFile && options.mode != BenchMode::Read) {
         (void)cpnetflux::storage::PosixFile::removePath(options.path);
     }
     return result;

@@ -21,6 +21,7 @@ TEST(SinkOptionsTest, AppliesServerDefaults) {
     EXPECT_EQ(result.value().connections, 1U);
     EXPECT_EQ(result.value().bytes, 1024U);
     EXPECT_EQ(result.value().bufferSize, 65536U);
+    EXPECT_EQ(result.value().ioMode, cpnetflux::config::SinkIoMode::Epoll);
 }
 
 TEST(SinkOptionsTest, AppliesClientDefaults) {
@@ -29,11 +30,13 @@ TEST(SinkOptionsTest, AppliesClientDefaults) {
 
     ASSERT_TRUE(result.isOk()) << result.status().message();
     EXPECT_EQ(result.value().host, "127.0.0.1");
+    EXPECT_EQ(result.value().ioMode, cpnetflux::config::SinkIoMode::Epoll);
 }
 
 TEST(SinkOptionsTest, ParsesAllOptions) {
     const auto result = parse({"cpnetflux-client", "--host", "<redacted>", "--port", "19000",
-                               "--connections", "8", "--bytes", "4096", "--buffer-size", "131072"},
+                               "--connections", "8", "--bytes", "4096", "--buffer-size",
+                               "131072", "--io-mode", "threaded"},
                               cpnetflux::config::SinkRole::Client);
 
     ASSERT_TRUE(result.isOk()) << result.status().message();
@@ -42,6 +45,7 @@ TEST(SinkOptionsTest, ParsesAllOptions) {
     EXPECT_EQ(result.value().connections, 8U);
     EXPECT_EQ(result.value().bytes, 4096U);
     EXPECT_EQ(result.value().bufferSize, 131072U);
+    EXPECT_EQ(result.value().ioMode, cpnetflux::config::SinkIoMode::Threaded);
 }
 
 TEST(SinkOptionsTest, RejectsMissingBytes) {
@@ -66,6 +70,13 @@ TEST(SinkOptionsTest, RejectsInvalidConnections) {
 
 TEST(SinkOptionsTest, RejectsInvalidBufferSize) {
     const auto result = parse({"cpnetflux-client", "--bytes", "1", "--buffer-size", "16777217"},
+                              cpnetflux::config::SinkRole::Client);
+
+    EXPECT_FALSE(result.isOk());
+}
+
+TEST(SinkOptionsTest, RejectsInvalidIoMode) {
+    const auto result = parse({"cpnetflux-client", "--bytes", "1", "--io-mode", "busy"},
                               cpnetflux::config::SinkRole::Client);
 
     EXPECT_FALSE(result.isOk());

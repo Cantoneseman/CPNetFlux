@@ -1,6 +1,6 @@
 # Linux 交付候选安装指南
 
-本包是内部安装候选，尚未选择项目 LICENSE，不公开发布或宣称生产就绪。包含已整合的 V3 单文件/目录引擎、TLS/token 服务、Qt 桌面和本地 agent。桌面 API2 的真实 adapter 当前支持通过 core tree client 执行 TLS/token 保护的真实目录上传/下载；单文件任务因 core file client 尚未提供统一 TLS/认证控制面，会明确返回 unsupported。只有显式 --demo 才模拟任务，demo 数据是合成状态，不能用于双机传输证明。
+本包是内部安装候选，尚未选择项目 LICENSE，不公开发布或宣称生产就绪。包含已整合的 V3 单文件/目录引擎、TLS/token 服务、Qt 桌面和本地 agent。桌面 API 3.0.0 的真实 adapter 当前支持通过 core tree client 执行 TLS/token 保护的真实目录上传/下载；单文件任务因 core file client 尚未提供统一 TLS/认证控制面，会明确返回 unsupported。只有显式 --demo 才模拟任务，demo 数据是合成状态，不能用于双机传输证明。
 
 ## 构建和打包
 
@@ -42,7 +42,7 @@ sudo cpnetflux-server-setup --dry-run \
 
 ## 桌面与 agent
 
-同一普通用户运行 cpnetflux-agent 和 cpnetflux-desktop。需要私有 XDG_RUNTIME_DIR；agent socket 0600、状态目录0700。可复制 user unit 到 ~/.config/systemd/user，再显式启动；不会启用 demo。UI 退出不停止 agent，不取消任务。
+同一普通用户运行 cpnetflux-agent 和 cpnetflux-desktop。需要私有 XDG_RUNTIME_DIR；agent socket 0600、状态目录0700。DEB 将 user unit 安装到 /usr/lib/systemd/user；可使用 systemctl --user daemon-reload 后显式启动 cpnetflux-agent。安装 wrapper 默认从同包 bin 目录发现核心，CPNETFLUX_CORE_BIN_DIR 或 --core-bin-dir 可显式覆盖；TGZ 从解压路径直接运行 wrapper 也使用同目录核心。不会启用 demo。UI 退出不停止 agent，不取消任务。
 
 首次连接其他节点时，优先让服务器管理员通过安全通道交付初始化向导生成的 `0600` `.cpnetflux` 节点包。在 UI 的“节点连接配置”点击“导入服务器节点包…”，选择该文件；客户端会校验包版本、节点地址、TLS server name、CA 和 token，并把 CA/token 写入当前用户私有目录（目录 0700、文件 0600），profile 只保存受限路径引用，不在界面显示 token。导入后点击“认证检查（不传输文件）”。
 

@@ -32,6 +32,16 @@ class ServiceSafety(unittest.TestCase):
         argv = self.argv()
         self.assertEqual(argv[argv.index("--tls-client-auth") + 1], "none")
 
+    def test_user_agent_uses_relocatable_wrapper_and_shared_user_paths(self):
+        packaging=Path(__file__).resolve().parents[1]
+        unit=(packaging/"cpnetflux-agent.service").read_text()
+        self.assertIn("ExecStart=/usr/bin/cpnetflux-agent",unit)
+        self.assertNotIn("PrivateTmp=true",unit)
+        self.assertNotIn(".local/lib/cpnetflux",unit)
+        wrapper=(packaging.parent/"desktop/agent/cpnetflux-agent.in").read_text()
+        self.assertIn('--core-bin-dir',wrapper)
+        self.assertIn('CPNETFLUX_CORE_BIN_DIR:-$base/@CMAKE_INSTALL_BINDIR@',wrapper)
+
     def test_secure_policy_is_explicit(self):
         argv = self.argv()
         for flag, value in [("--tls-mode","required"),("--tls-client-auth","required"),
@@ -39,6 +49,13 @@ class ServiceSafety(unittest.TestCase):
                             ("--checksum","crc32c"),("--commit-sync-policy","fsync_file_and_dir")]:
             self.assertEqual(argv[argv.index(flag)+1], value)
         self.assertNotIn("synthetic fixture", argv)
+    def test_rdma_data_transport_requires_data_tls_off_explicitly(self):
+        self.config["data_transport"] = "rdma"
+        with self.assertRaises(ValueError): self.argv()
+        self.config["data_tls_mode"] = "off"
+        argv = self.argv()
+        self.assertEqual(argv[argv.index("--data-transport") + 1], "rdma")
+        self.assertEqual(argv[argv.index("--data-tls-mode") + 1], "off")
     def test_disabled_or_missing_credentials_fail(self):
         self.config["enabled"] = False
         with self.assertRaises(ValueError): self.argv()

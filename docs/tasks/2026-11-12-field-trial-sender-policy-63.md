@@ -1,0 +1,16 @@
+# Stage63: expose existing application pacing in bounded private admission
+Input 44ba96a83bd9289ae06f8287a24c330b975b08bb, sole writer current development chat. Stage61 chat terminal and serially returned. Evidence under stage62 experiment root; no concurrent data processes.
+
+Problem: the frozen strongest 1GiB native/private/within_size/kernel ceiling run completed content/page/resource/cleanup gates but R1 OOB/missed +1344. One same-byte GridFTP 1GiB diagnostic had zero hardware/host swap increments; no formal paired comparison or soak accepted. Do not infer causality from aggregate counters or compare raw rates as a valid speedup.
+
+Scope: allow the already implemented fixed application DATA pacer (1500000000 B/s per lane, timerfd) as an explicit admission-only option in private Python/native supervisors and validate its existing full coverage receipts. Replace kernel ceiling, never combine mutually exclusive runtime policies. No new pacing mechanism/rate/lane scan or runtime/src/include modification. Default stays off, formal8GiB profiles unchanged/off and still NOT_RUN.
+
+Affected files: tools/perf/private_tmpfs.py, tools/perf/private_tmpfs_launcher.cpp, tools/perf/run_private_tmpfs_v3.py; new tools/test/run_private_sender_policy_test.py and CMake registration; bounded additions to native invalid-option tests if needed; this contract/result and current roadmap contradictory next-step line. Existing stage62 harness retained outside Git with hashes, failure receipts preserved.
+
+Acceptance before transfer: meaningful policy tests RED then GREEN; off remains compatible, reject invalid rates, application+kernel, non-V3 or formal profile app option before allocation. Forward only fixed enum via native helper and child, preserve privilege/lifecycle restrictions; exact four-lane DATA/timer/byte/spacing validation reused from run_sender_pacing.validate_receipts. CMake build and related tests both ends, commit/push/readback then R2 same revision/config/four SHA. No dirty-tree transfer.
+
+One bounded 1GiB hypothesis test after acceptance, fully materialized resident fixed bytes and fresh private target, actual PMD proof, setup+directory+launch-exit denominator, external SHA, zero swap/network, all cleanup. Do not retry same config for a lucky no-error result. If it fails, preserve failure and choose a demonstrably new cause/action; no rate/lane or system tuning scan. If it passes, only then formal five AB/BA comparisons and independent >=30min AND >=100 complete-task/persistent-service stability. Root goal remains open until actual comparisons, stability and field instructions verified.
+
+Development checkpoint: RED observed (old interface missing; invalid combinations accepted); GREEN 4 behavior tests including native unprivileged parser boundary. R1 configure/helper build and related CTest 7/7 passed. Three transfer binaries unchanged. R2 sync/build/tests, four-SHA proof and one app-policy hypothesis transfer remain pending.
+
+Final checkpoint: input db62ec6; both nodes 7/7, same configuration/four hashes. One 1GiB application-policy complete target task 39.9241028395Gbps, all content/network/resource/page/cleanup gates true. Formal M2 admission false (<40), no M2 claim. Formal comparison/soak still pending; see result and freeze.

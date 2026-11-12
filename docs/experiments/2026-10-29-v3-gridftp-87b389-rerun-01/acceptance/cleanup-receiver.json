@@ -1,0 +1,18 @@
+{
+  "role": "receiver",
+  "epoch": 1793246466.249796,
+  "root": "/tmp/cpnetflux-runs/V3-GRIDFTP-87B389-RERUN-01",
+  "deleted": [
+    "credentials",
+    "tls",
+    "payload",
+    "v3-server-root",
+    "gridftp/server-root"
+  ],
+  "task_ports_closed": true,
+  "task_processes": [],
+  "free_bytes_before": 73050112000,
+  "free_bytes_after": 73050148864,
+  "binaries_retained": true,
+  "evidence_retained": true
+}

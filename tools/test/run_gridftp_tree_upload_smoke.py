@@ -44,6 +44,8 @@ def main() -> int:
                     "dataset",
                     "--connections",
                     "2",
+                    "--local-bind-address",
+                    "127.0.0.1",
                 ]
             )
             expected, files, total = tree_hash(source)

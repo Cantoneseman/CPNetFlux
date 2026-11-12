@@ -4,7 +4,7 @@ project(
     CPNetFlux
     VERSION 0.1.0
     DESCRIPTION "GridFTP-compatible high-performance transfer foundation"
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -14,8 +14,11 @@ endif()
 option(CPNETFLUX_BUILD_DESKTOP "Build and package the Qt desktop and local agent" OFF)
 
 option(CPNETFLUX_BUILD_TESTS "Build CPNetFlux tests" ON)
+option(CPNETFLUX_ENABLE_ISAL "Enable Intel ISA-L CRC32C acceleration when available" ON)
 option(CPNETFLUX_ENABLE_IO_URING "Enable optional file-IO-only io_uring backend" OFF)
 option(CPNETFLUX_ENABLE_TLS "Enable optional OpenSSL control-plane TLS alpha support when available" ON)
+option(CPNETFLUX_ENABLE_RDMA "Enable native RDMA data transport when rdma-core is available" ON)
+option(CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS "Enable SSH-driven Shenzhen/Shanghai interoperability tests" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +38,25 @@ FetchContent_Declare(
     GIT_TAG v1.17.0
 )
 
+set(CPNETFLUX_HAS_ISAL 0)
+if(CPNETFLUX_ENABLE_ISAL AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i[3-6]86")
+    FetchContent_Declare(
+        isal
+        GIT_REPOSITORY https://github.com/intel/isa-l.git
+        GIT_TAG 7c3479e0a9dac17f448603ec1ad64c7c625f530c
+    )
+    set(ISAL_BUILD_TESTS OFF CACHE BOOL "Disable ISA-L tests in CPNetFlux" FORCE)
+    set(ISAL_BUILD_PERF_TESTS OFF CACHE BOOL "Disable ISA-L perf tests in CPNetFlux" FORCE)
+    set(ISAL_BUILD_FUZZ_TESTS OFF CACHE BOOL "Disable ISA-L fuzz tests in CPNetFlux" FORCE)
+    set(ISAL_BUILD_ISAL_SHIM OFF CACHE BOOL "Disable ISA-L shim in CPNetFlux" FORCE)
+    set(ISAL_BUILD_IGZIP_CLI OFF CACHE BOOL "Disable ISA-L CLI in CPNetFlux" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build ISA-L statically in CPNetFlux" FORCE)
+    FetchContent_MakeAvailable(isal)
+    if(TARGET isal)
+        set(CPNETFLUX_HAS_ISAL 1)
+        message(STATUS "CPNetFlux ISA-L CRC32C acceleration enabled")
+    endif()
+endif()
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
@@ -82,6 +104,21 @@ if(CPNETFLUX_ENABLE_TLS)
     endif()
 endif()
 
+set(CPNETFLUX_HAS_RDMA 0)
+if(CPNETFLUX_ENABLE_RDMA)
+    find_path(CPNETFLUX_RDMA_INCLUDE_DIR NAMES rdma/rdma_cma.h)
+    find_path(CPNETFLUX_IBVERBS_INCLUDE_DIR NAMES infiniband/verbs.h)
+    find_library(CPNETFLUX_RDMACM_LIBRARY NAMES rdmacm)
+    find_library(CPNETFLUX_IBVERBS_LIBRARY NAMES ibverbs)
+    if(CPNETFLUX_RDMA_INCLUDE_DIR AND CPNETFLUX_IBVERBS_INCLUDE_DIR AND
+       CPNETFLUX_RDMACM_LIBRARY AND CPNETFLUX_IBVERBS_LIBRARY)
+        set(CPNETFLUX_HAS_RDMA 1)
+        message(STATUS "CPNetFlux native RDMA data transport enabled")
+    else()
+        message(WARNING "CPNETFLUX_ENABLE_RDMA=ON but rdma-core development files were not found; building unavailable backend stub")
+    endif()
+endif()
+
 add_library(cpnetflux_core STATIC
     src/checkpoint/download_manifest.cpp
     src/checkpoint/manifest_store.cpp
@@ -89,6 +126,7 @@ add_library(cpnetflux_core STATIC
     src/checksum/checksum.cpp
     src/checksum/crc32c.cpp
     ${CPNETFLUX_CRC32C_HW_SOURCE}
+    src/checksum/crc32c_isal.cpp
     src/common/throughput_counter.cpp
     src/common/version.cpp
     src/config/file_transfer_options.cpp
@@ -106,10 +144,18 @@ add_library(cpnetflux_core STATIC
     src/core/io/file_transfer_client.cpp
     src/core/io/file_transfer_server.cpp
     src/core/io/framed_data_socket.cpp
+    src/core/io/data_transport.cpp
+    src/core/io/rdma_data_socket.cpp
     src/core/io/persistent_data_session.cpp
     src/core/io/persistent_tree_transfer.cpp
+    src/core/io/member_work_profile.cpp
+    src/core/io/sender_work_profile.cpp
+    src/core/io/payload_pipeline.cpp
+    src/core/io/transfer_stages.cpp
     src/core/io/dynamic_file_queue.cpp
+    src/core/io/work_executor.cpp
     src/core/io/persistent_directory_batch.cpp
+    src/core/io/tcp_source_port_plan.cpp
     src/core/io/socket_utils.cpp
     src/core/io/tcp_sink_client.cpp
     src/core/io/tcp_sink_server.cpp
@@ -124,6 +170,7 @@ add_library(cpnetflux_core STATIC
     src/core/scheduler/compression_advisor.cpp
     src/core/scheduler/feedback_controller.cpp
     src/core/scheduler/link_manager.cpp
+    src/core/scheduler/link_set.cpp
     src/core/scheduler/metrics_writer.cpp
     src/core/scheduler/scheduler.cpp
     src/core/scheduler/task_queue.cpp
@@ -134,12 +181,15 @@ add_library(cpnetflux_core STATIC
     src/core/session/manifest_flush_policy.cpp
     src/core/session/transfer_session.cpp
     src/core/tree/tree_manifest.cpp
+    src/core/tree/tree_hash.cpp
+    src/core/tree/tree_manifest_writer.cpp
     src/core/tree/tree_scan.cpp
     src/protocol/control/control_command.cpp
     src/protocol/control/control_auth.cpp
     src/protocol/control/control_options.cpp
     src/protocol/control/control_server.cpp
     src/storage/file_io.cpp
+    src/storage/mapped_file_window.cpp
     ${CPNETFLUX_FILE_IO_URING_SOURCE}
     src/storage/posix_file.cpp
     src/storage/preallocate_mode.cpp
@@ -159,11 +209,18 @@ target_link_libraries(cpnetflux_core
     PRIVATE
         ZLIB::ZLIB
 )
+if(CPNETFLUX_HAS_ISAL)
+    target_link_libraries(cpnetflux_core PRIVATE isal)
+endif()
+
 
 target_compile_definitions(cpnetflux_core
     PUBLIC
         CPNETFLUX_HAS_IO_URING=${CPNETFLUX_HAS_IO_URING}
+
+        CPNETFLUX_HAS_ISAL=${CPNETFLUX_HAS_ISAL}
         CPNETFLUX_HAS_TLS=${CPNETFLUX_HAS_TLS}
+        CPNETFLUX_HAS_RDMA=${CPNETFLUX_HAS_RDMA}
 )
 
 if(CPNETFLUX_HAS_IO_URING)
@@ -182,6 +239,17 @@ if(CPNETFLUX_HAS_TLS)
         PRIVATE
             OpenSSL::SSL
             OpenSSL::Crypto
+    )
+endif()
+
+if(CPNETFLUX_HAS_RDMA)
+    target_include_directories(cpnetflux_core PRIVATE
+        ${CPNETFLUX_RDMA_INCLUDE_DIR}
+        ${CPNETFLUX_IBVERBS_INCLUDE_DIR}
+    )
+    target_link_libraries(cpnetflux_core PRIVATE
+        ${CPNETFLUX_RDMACM_LIBRARY}
+        ${CPNETFLUX_IBVERBS_LIBRARY}
     )
 endif()
 
@@ -286,6 +354,37 @@ target_link_libraries(cpnetflux-storage-bench
         CPNetFlux::core
 )
 
+add_executable(cpnetflux-rdma-socket-bench
+    tools/perf/rdma_socket_bench.cpp
+)
+
+target_link_libraries(cpnetflux-rdma-socket-bench
+    PRIVATE
+        CPNetFlux::core
+)
+
+add_executable(cpnetflux-session-record-bench tools/perf/session_record_bench.cpp)
+target_link_libraries(cpnetflux-session-record-bench PRIVATE CPNetFlux::core)
+add_executable(cpnetflux-tree-manifest-serialization-bench tools/perf/tree_manifest_serialization_bench.cpp)
+target_link_libraries(cpnetflux-tree-manifest-serialization-bench PRIVATE CPNetFlux::core)
+
+add_executable(cpnetflux-tcp-frame-bench tools/perf/tcp_frame_bench.cpp)
+target_link_libraries(cpnetflux-tcp-frame-bench PRIVATE CPNetFlux::core)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(cpnetflux-private-tmpfs-launcher tools/perf/private_tmpfs_launcher.cpp)
+    target_compile_definitions(cpnetflux-private-tmpfs-launcher PRIVATE CPNETFLUX_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+    add_executable(cpnetflux-offset-write-bench tools/perf/offset_write_bench.cpp)
+    target_link_libraries(cpnetflux-offset-write-bench PRIVATE CPNetFlux::core)
+    add_executable(cpnetflux-mapped-cost-bench tools/perf/cpnetflux_mapped_cost_bench.cpp
+        tools/perf/mapped_window_lifecycle_bench.cpp)
+    target_link_libraries(cpnetflux-mapped-cost-bench PRIVATE CPNetFlux::core)
+    add_executable(cpnetflux-source-read-bench tools/perf/source_read_bench.cpp)
+    target_link_libraries(cpnetflux-source-read-bench PRIVATE CPNetFlux::core)
+    add_executable(cpnetflux-tcp-send-bench tools/perf/tcp_send_bench.cpp)
+    target_link_libraries(cpnetflux-tcp-send-bench PRIVATE CPNetFlux::core)
+endif()
+
 add_executable(cpnetflux-gridftp-server
     src/apps/cpnetflux_gridftp_server.cpp
 )
@@ -297,6 +396,10 @@ target_link_libraries(cpnetflux-gridftp-server
 
 if(CPNETFLUX_BUILD_TESTS)
     enable_testing()
+    add_test(NAME cpnetflux_session_record_bench_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_session_record_bench_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_session_record_bench_smoke PROPERTIES TIMEOUT 20)
     if(NOT GTest_FOUND)
         FetchContent_MakeAvailable(googletest)
     endif()
@@ -304,14 +407,18 @@ if(CPNETFLUX_BUILD_TESTS)
 
     add_executable(cpnetflux_unit_tests
         tests/unit/checksum_test.cpp
+        tests/unit/tree_hash_test.cpp
         tests/unit/chunk_planner_test.cpp
         tests/unit/connection_context_test.cpp
         tests/unit/control_auth_test.cpp
         tests/unit/control_command_test.cpp
         tests/unit/control_options_test.cpp
+        tests/unit/data_transport_test.cpp
+        tests/unit/rdma_buffer_pool_test.cpp
         tests/unit/control_session_test.cpp
         tests/unit/compressed_data_test.cpp
         tests/unit/download_manifest_test.cpp
+        tests/unit/manifest_serialization_work_test.cpp
         tests/unit/download_session_test.cpp
         tests/unit/event_log_test.cpp
         tests/unit/file_download_options_test.cpp
@@ -320,6 +427,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/frame_test.cpp
         tests/unit/range_planner_test.cpp
         tests/unit/persistent_data_session_test.cpp
+        tests/unit/range_checkpoint_batch_test.cpp
         tests/unit/dynamic_file_queue_test.cpp
         tests/unit/hot_path_compression_test.cpp
         tests/unit/manifest_store_test.cpp
@@ -328,15 +436,23 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/scheduler_compression_advisor_test.cpp
         tests/unit/scheduler_feedback_controller_test.cpp
         tests/unit/scheduler_link_manager_test.cpp
+        tests/unit/scheduler_link_set_test.cpp
         tests/unit/scheduler_metrics_writer_test.cpp
         tests/unit/scheduler_task_queue_test.cpp
         tests/unit/scheduler_work_item_test.cpp
         tests/unit/sink_options_test.cpp
+        tests/unit/tcp_source_port_plan_test.cpp
+        tests/unit/socket_bind_test.cpp
         tests/unit/throughput_counter_test.cpp
         tests/unit/transfer_manifest_test.cpp
         tests/unit/transfer_session_test.cpp
+        tests/unit/session_record_lookup_test.cpp
+        tests/unit/transfer_stages_test.cpp
         tests/unit/transfer_progress_test.cpp
         tests/unit/tree_manifest_test.cpp
+        tests/unit/tree_manifest_writer_test.cpp
+        tests/unit/member_work_profile_test.cpp
+        tests/unit/sender_work_profile_test.cpp
         tests/unit/tree_scan_test.cpp
         tests/unit/tree_transfer_options_test.cpp
         tests/unit/tree_pipeline_control_io_test.cpp
@@ -352,6 +468,164 @@ if(CPNETFLUX_BUILD_TESTS)
     )
 
     gtest_discover_tests(cpnetflux_unit_tests)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME cpnetflux_source_port_plan_smoke COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/tools/test/run_cpnetflux_source_port_plan_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_source_port_plan_smoke PROPERTIES TIMEOUT 90)
+    add_test(NAME cpnetflux_source_port_plan_generator COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/tools/test/test_cpnetflux_tcp_source_plan.py)
+
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_sources(cpnetflux_unit_tests PRIVATE tests/unit/gathered_write_test.cpp
+            tests/unit/persistent_range_write_test.cpp
+            tests/unit/mapped_file_window_test.cpp)
+        target_link_options(cpnetflux_unit_tests PRIVATE "-Wl,--wrap=pwritev" "-Wl,--wrap=pwrite" "-Wl,--wrap=mmap")
+        add_executable(cpnetflux_framed_socket_tests tests/unit/framed_data_socket_test.cpp)
+        target_link_libraries(cpnetflux_framed_socket_tests PRIVATE CPNetFlux::core GTest::gtest_main)
+        target_link_options(cpnetflux_framed_socket_tests PRIVATE
+            "-Wl,--wrap=sendmsg" "-Wl,--wrap=send" "-Wl,--wrap=readv"
+            "-Wl,--wrap=timerfd_settime" "-Wl,--wrap=read" "-Wl,--wrap=recv")
+        if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+            target_compile_definitions(cpnetflux_framed_socket_tests PRIVATE CPNETFLUX_TEST_WRAP_NEW=1)
+            target_link_options(cpnetflux_framed_socket_tests PRIVATE "-Wl,--wrap=_Znwm")
+        endif()
+        gtest_discover_tests(cpnetflux_framed_socket_tests)
+        add_executable(cpnetflux_publication_tests tests/unit/publication_recovery_test.cpp)
+        target_link_libraries(cpnetflux_publication_tests PRIVATE CPNetFlux::core GTest::gtest_main)
+        target_link_options(cpnetflux_publication_tests PRIVATE
+            "-Wl,--wrap=rename" "-Wl,--wrap=unlink" "-Wl,--wrap=fsync")
+        gtest_discover_tests(cpnetflux_publication_tests PROPERTIES TIMEOUT 30)
+        add_executable(cpnetflux_tcp_send_ownership_tests tests/unit/tcp_send_ownership_test.cpp)
+        target_link_libraries(cpnetflux_tcp_send_ownership_tests PRIVATE GTest::gtest_main)
+        gtest_discover_tests(cpnetflux_tcp_send_ownership_tests PROPERTIES TIMEOUT 30)
+        add_library(cpnetflux_tcp_send_fault_shim SHARED tools/test/tcp_send_fault_shim.cpp)
+        target_link_libraries(cpnetflux_tcp_send_fault_shim PRIVATE dl)
+        add_test(NAME cpnetflux_tcp_send_bench_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tcp_send_bench_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_tcp_send_bench_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    endif()
+
+    add_test(NAME cpnetflux_checksum_combine_bench_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_checksum_combine_bench_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_checksum_combine_bench_smoke PROPERTIES TIMEOUT 60)
+
+    add_test(NAME cpnetflux_tcp_frame_bench_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tcp_frame_bench_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_tcp_frame_bench_smoke PROPERTIES TIMEOUT 120)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME cpnetflux_direct_receive_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_direct_receive_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_direct_receive_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    endif()
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_library(cpnetflux_offset_write_fault_shim SHARED tools/test/offset_write_fault_shim.cpp)
+        add_library(cpnetflux_mapped_download_fault_shim SHARED tools/test/mapped_download_fault_shim.cpp)
+        target_link_libraries(cpnetflux_mapped_download_fault_shim PRIVATE ${CMAKE_DL_LIBS})
+        add_test(NAME cpnetflux_mapped_download_config_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_mapped_download_config_smoke.py
+                $<TARGET_FILE:cpnetflux-tree-download-client>)
+        add_test(NAME cpnetflux_mapped_download_fault_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_mapped_download_fault_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --fault-library $<TARGET_FILE:cpnetflux_mapped_download_fault_shim>)
+        set_tests_properties(cpnetflux_mapped_download_config_smoke PROPERTIES TIMEOUT 20)
+        set_tests_properties(cpnetflux_mapped_download_fault_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        foreach(mode IN ITEMS on off unobserved pwrite)
+            set(profile_args --profile 1)
+            if(mode STREQUAL "off")
+                set(profile_args --profile 0)
+            elseif(mode STREQUAL "unobserved")
+                list(APPEND profile_args --observation off)
+            elseif(mode STREQUAL "pwrite")
+                list(APPEND profile_args --backend pwrite)
+            endif()
+            add_test(NAME cpnetflux_mapped_profile_${mode}_smoke
+                COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_mapped_profile_smoke.py
+                    --build-dir ${CMAKE_BINARY_DIR} ${profile_args})
+            set_tests_properties(cpnetflux_mapped_profile_${mode}_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+        endforeach()
+        add_test(NAME cpnetflux_mapped_cost_bench_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_mapped_cost_bench_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_mapped_cost_bench_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_mapped_lifecycle_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_mapped_lifecycle_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_mapped_lifecycle_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_source_read_bench_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_source_read_bench_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --fault-library $<TARGET_FILE:cpnetflux_source_read_fault_shim>)
+        set_tests_properties(cpnetflux_source_read_bench_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_small_file_baseline_driver_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_small_file_baseline_test.py)
+        set_tests_properties(cpnetflux_small_file_baseline_driver_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_summary_path_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_summary_path_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_summary_path_smoke PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_tree_serializer_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_serializer_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_tree_serializer_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        add_test(NAME cpnetflux_tree_serializer_ab_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tree_serializer_ab_test.py)
+        set_tests_properties(cpnetflux_tree_serializer_ab_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_tree_state_budget_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tree_state_budget_test.py)
+        set_tests_properties(cpnetflux_tree_state_budget_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_member_work_budget_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_member_work_budget_test.py)
+        set_tests_properties(cpnetflux_member_work_budget_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_sender_credit_budget_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_sender_credit_budget_test.py)
+        set_tests_properties(cpnetflux_sender_credit_budget_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_summary_path_ab_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_summary_path_ab_test.py)
+        set_tests_properties(cpnetflux_summary_path_ab_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_summary_default_gate_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_summary_default_gate_test.py)
+        set_tests_properties(cpnetflux_summary_default_gate_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_owned_process_profile_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_owned_process_profile_test.py)
+        set_tests_properties(cpnetflux_owned_process_profile_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_small_file_fixed_work_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_small_file_fixed_work_test.py)
+        set_tests_properties(cpnetflux_small_file_fixed_work_test PROPERTIES TIMEOUT 20)
+        add_test(NAME cpnetflux_tree_manifest_serialization_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tree_manifest_serialization_test.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_tree_manifest_serialization_test PROPERTIES TIMEOUT 30)
+        add_library(cpnetflux_source_read_fault_shim SHARED tools/test/source_read_fault_shim.cpp)
+        target_link_libraries(cpnetflux_source_read_fault_shim PRIVATE ${CMAKE_DL_LIBS})
+        target_link_libraries(cpnetflux_offset_write_fault_shim PRIVATE ${CMAKE_DL_LIBS})
+        add_test(NAME cpnetflux_offset_write_bench_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_offset_write_bench_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_offset_write_bench_smoke PROPERTIES TIMEOUT 60)
+        add_test(NAME cpnetflux_offset_write_backend_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_offset_write_backend_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --fault-library $<TARGET_FILE:cpnetflux_offset_write_fault_shim>)
+        set_tests_properties(cpnetflux_offset_write_backend_smoke PROPERTIES TIMEOUT 90)
+    endif()
+
+    add_test(NAME cpnetflux_rdma_duplex_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_rdma_duplex_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_rdma_duplex_smoke PROPERTIES
+        SKIP_RETURN_CODE 77 TIMEOUT 240 RUN_SERIAL TRUE)
+
+    add_test(NAME cpnetflux_rdma_control_loss_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_rdma_control_loss_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_rdma_control_loss_smoke PROPERTIES
+        SKIP_RETURN_CODE 77 TIMEOUT 45 RUN_SERIAL TRUE)
+
     add_test(NAME cpnetflux_v1_retirement_gate
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/check_v1_retired.py)
 
@@ -413,6 +687,37 @@ if(CPNETFLUX_BUILD_TESTS)
         NAME cpnetflux_gridftp_data_tls_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_data_tls_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
+    add_test(NAME cpnetflux_reconnect_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_reconnect_smoke PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_data_fault_recovery_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --case upload-fixed-reset
+            --case download-adaptive-reset
+            --expect-lane-recovery
+            --transfer-timeout-ms 10000
+    )
+    set_tests_properties(cpnetflux_data_fault_recovery_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_committed_output_integrity_audit_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --case upload-fixed-corrupt
+            --transfer-timeout-ms 10000
+    )
+    set_tests_properties(cpnetflux_committed_output_integrity_audit_smoke PROPERTIES TIMEOUT 20 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_terminal_reply_recovery_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_reconnect_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --case upload-fixed-terminal
+            --case download-adaptive-terminal
+            --expect-global-recovery
+            --transfer-timeout-ms 10000
+    )
+    set_tests_properties(cpnetflux_terminal_reply_recovery_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_v3_stability_matrix
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_stability_matrix.py --build-dir ${CMAKE_BINARY_DIR} --rounds 8
@@ -425,6 +730,174 @@ if(CPNETFLUX_BUILD_TESTS)
         NAME cpnetflux_tree_upload_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_upload_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
+    add_test(
+        NAME cpnetflux_lane_recovery_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_lane_recovery_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_v3_logical_link_matrix
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_logical_link_matrix.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_v3_logical_link_matrix PROPERTIES TIMEOUT 420 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_peer_mapping_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_peer_mapping_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_peer_mapping_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_fault_proxy_unit
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/test_cpnetflux_fault_proxy.py
+    )
+    set_tests_properties(cpnetflux_fault_proxy_unit PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
+    if(CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS)
+        add_test(
+            NAME cpnetflux_lane_recovery_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-recovery-interop-evidence
+        )
+        set_tests_properties(cpnetflux_lane_recovery_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_control_recovery_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-control-recovery-interop-evidence
+                --fault-kind control
+        )
+        set_tests_properties(cpnetflux_lane_control_recovery_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_control_recovery_download_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-control-recovery-download-interop-evidence
+                --fault-kind control
+                --transfer download
+        )
+        set_tests_properties(cpnetflux_lane_control_recovery_download_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_recovery_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-recovery-budget-interop-evidence
+                --fault-kind control
+                --server-side both
+                --reconnect-attempts 1
+                --control-reset-data-connection 2
+                --control-reset-data-connection 3
+                --expect-budget-exhausted
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/bin
+        )
+        set_tests_properties(cpnetflux_lane_recovery_budget_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_recovery_budget_two_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-recovery-budget-two-interop-evidence
+                --fault-kind control
+                --server-side both
+                --reconnect-attempts 2
+                --control-reset-data-connection 2
+                --control-reset-data-connection 3
+                --control-reset-data-connection 4
+                --expect-budget-exhausted
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/bin
+        )
+        set_tests_properties(cpnetflux_lane_recovery_budget_two_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_recovery_budget_download_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-recovery-budget-download-interop-evidence
+                --fault-kind control
+                --server-side both
+                --transfer download
+                --reconnect-attempts 1
+                --control-reset-data-connection 2
+                --control-reset-data-connection 3
+                --expect-budget-exhausted
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/bin
+        )
+        set_tests_properties(cpnetflux_lane_recovery_budget_download_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_zero_recovery_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-zero-recovery-budget-interop-evidence
+                --fault-kind control
+                --server-side both
+                --reconnect-attempts 0
+                --control-reset-data-connection 2
+                --expect-no-recovery
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-RECOVERY-BUDGET-01/bin
+        )
+        set_tests_properties(cpnetflux_zero_recovery_budget_interop PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_multi_fault_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-multi-fault-budget-interop-evidence
+                --fault-kind multi-data
+                --server-side both
+                --transfer both
+                --multi-fault-budget-matrix
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-MULTI-FAULT-BUDGET-01/bin
+                --remote-root /tmp/cpnetflux-runs/V3-LANE-MULTI-FAULT-BUDGET-01/interop
+        )
+        set_tests_properties(cpnetflux_lane_multi_fault_budget_interop PROPERTIES TIMEOUT 1200 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_mixed_fault_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-mixed-fault-budget-interop-evidence
+                --fault-kind mixed
+                --server-side both
+                --transfer both
+                --mixed-fault-budget-matrix
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/bin
+                --remote-root /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-BUDGET-01/interop
+        )
+        set_tests_properties(cpnetflux_lane_mixed_fault_budget_interop PROPERTIES TIMEOUT 1200 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_fault_storm_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-fault-storm-budget-interop-evidence
+                --fault-kind sequential-data
+                --server-side both
+                --transfer both
+                --fault-storm-budget-matrix
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-FAULT-STORM-BUDGET-01/bin
+                --remote-root /tmp/cpnetflux-runs/V3-LANE-FAULT-STORM-BUDGET-01/interop
+        )
+        set_tests_properties(cpnetflux_lane_fault_storm_budget_interop PROPERTIES TIMEOUT 1800 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_mixed_fault_storm_budget_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-mixed-fault-storm-budget-interop-evidence
+                --fault-kind sequential-mixed
+                --server-side both
+                --transfer both
+                --mixed-fault-storm-budget-matrix
+                --remote-bin /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-STORM-BUDGET-01/bin
+                --remote-root /tmp/cpnetflux-runs/V3-LANE-MIXED-FAULT-STORM-BUDGET-01/interop
+        )
+        set_tests_properties(cpnetflux_lane_mixed_fault_storm_budget_interop PROPERTIES TIMEOUT 1800 RUN_SERIAL TRUE)
+        add_test(
+            NAME cpnetflux_lane_composition_stability_interop
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_lane_recovery_interop.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-lane-composition-stability-interop-evidence
+                --fault-kind sequential-mixed-long
+                --server-side both
+                --transfer both
+                --mixed-fault-storm-long-budget-matrix
+                --remote-bin /tmp/cpnetflux-runs/V3-COMPOSITION-STABILITY-01/bin
+                --remote-root /tmp/cpnetflux-runs/V3-COMPOSITION-STABILITY-01/interop
+        )
+        set_tests_properties(cpnetflux_lane_composition_stability_interop PROPERTIES TIMEOUT 2400 RUN_SERIAL TRUE)
+    endif()
     add_test(
         NAME cpnetflux_tree_download_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_download_smoke.py --build-dir ${CMAKE_BINARY_DIR}
@@ -442,9 +915,72 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_data_reuse_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
     add_test(
+        NAME cpnetflux_tree_receiver_policy_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_receiver_policy_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_tree_receiver_policy_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(
         NAME cpnetflux_tree_pending_window_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_pending_window_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
+    add_test(
+        NAME cpnetflux_summary_crc_auto_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_summary_crc_auto_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_summary_crc_auto_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_tree_manifest_coalesce_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tree_manifest_coalesce_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_tree_manifest_coalesce_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_observation_export_contract
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/perf/test_range_observation.py)
+    add_test(NAME cpnetflux_raw_stage_analyzer_contract
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/perf/experiments/v3_gridftp_raw_stage_01/test_analyze.py)
+    add_test(NAME cpnetflux_whole_file_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_whole_file_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_whole_file_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_stage_decoupling_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --stage-read 1 --stage-write 2)
+    set_tests_properties(cpnetflux_stage_decoupling_smoke PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_range_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_sender_cpu_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --sender-profile 1)
+    add_test(NAME cpnetflux_sender_cpu_observability_disabled_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --sender-profile 1 --observation off)
+    set_tests_properties(cpnetflux_sender_cpu_observability_smoke cpnetflux_sender_cpu_observability_disabled_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_receiver_cpu_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --receiver-cpu-profile 1)
+    add_test(NAME cpnetflux_receiver_cpu_inline_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --receiver-cpu-profile 1 --receiver-execution inline --stage-read 0 --stage-write 0)
+    add_test(NAME cpnetflux_receiver_cpu_queued_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --receiver-cpu-profile 1 --stage-read 0 --stage-write 0)
+    add_test(NAME cpnetflux_receiver_cpu_observability_disabled_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --receiver-cpu-profile 1 --observation off)
+    set_tests_properties(cpnetflux_receiver_cpu_observability_smoke cpnetflux_receiver_cpu_inline_observability_smoke cpnetflux_receiver_cpu_queued_observability_smoke cpnetflux_receiver_cpu_observability_disabled_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_dynamic_download_local_executor_inline_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --receiver-cpu-profile 1 --receiver-execution inline --stage-read 0 --stage-write 0 --dynamic-download)
+    add_test(NAME cpnetflux_dynamic_download_local_executor_queued_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --receiver-cpu-profile 1 --stage-read 0 --stage-write 0 --dynamic-download)
+    set_tests_properties(cpnetflux_dynamic_download_local_executor_inline_smoke cpnetflux_dynamic_download_local_executor_queued_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_sender_inline_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --sender-profile 1 --sender-execution inline)
+    add_test(NAME cpnetflux_sender_inline_observability_disabled_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --sender-profile 1 --sender-execution inline --observation off)
+    add_test(NAME cpnetflux_sender_execution_invalid_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --sender-execution invalid)
+    set_tests_properties(cpnetflux_sender_inline_smoke cpnetflux_sender_inline_observability_disabled_smoke cpnetflux_sender_execution_invalid_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_serial_observability_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --direct-write serial)
+    set_tests_properties(cpnetflux_range_serial_observability_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_checkpoint_batch_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --checkpoint-batch 16)
+    set_tests_properties(cpnetflux_range_checkpoint_batch_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_range_observability_disabled_smoke
+        COMMAND ${CMAKE_COMMAND} -E env python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_range_observability_smoke.py --build-dir ${CMAKE_BINARY_DIR} --observation off)
+    set_tests_properties(cpnetflux_range_observability_disabled_smoke PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_tree_control_reuse_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_control_reuse_smoke.py --build-dir ${CMAKE_BINARY_DIR}
@@ -461,6 +997,99 @@ if(CPNETFLUX_BUILD_TESTS)
         NAME cpnetflux_tree_scheduler_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_scheduler_smoke.py --build-dir ${CMAKE_BINARY_DIR}
     )
+    add_test(
+        NAME cpnetflux_v3_unified_executor_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_unified_executor_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    add_test(
+        NAME cpnetflux_v3_interrupted_resume_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_interrupted_resume_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-v3-interrupted-resume-evidence
+    )
+    set_tests_properties(cpnetflux_v3_interrupted_resume_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_large_data_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_large_data_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    add_test(NAME cpnetflux_large_data_ab_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_large_data_ab_test.py)
+    set_tests_properties(cpnetflux_large_data_ab_test PROPERTIES TIMEOUT 20)
+    add_test(NAME cpnetflux_sender_pacing_driver_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_sender_pacing_test.py)
+    add_test(NAME cpnetflux_tcp_exact_read_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_large_data_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR} --receive-buffer 1048576 --exact-read on)
+    set_tests_properties(cpnetflux_tcp_exact_read_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_tcp_kernel_pacing_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_kernel_tcp_pacing_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_tcp_kernel_pacing_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME cpnetflux_private_setup_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_setup_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+        set_tests_properties(cpnetflux_private_setup_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+        add_test(NAME cpnetflux_private_sender_policy_test
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_sender_policy_test.py --build-dir ${CMAKE_BINARY_DIR})
+    endif()
+    add_test(NAME cpnetflux_private_m2_driver_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_m2_test.py)
+    add_test(NAME cpnetflux_private_tmpfs_driver_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_tmpfs_test.py)
+    add_test(NAME cpnetflux_tcp_exact_read_driver_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tcp_exact_read_test.py)
+    add_test(NAME cpnetflux_receive_network_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_receive_network_test.py)
+    add_test(NAME cpnetflux_large_data_interrupted_resume_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_interrupted_resume_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR} --data-frame-bytes 262144
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-large-data-interrupted-resume-evidence)
+    set_tests_properties(cpnetflux_large_data_smoke cpnetflux_large_data_interrupted_resume_smoke
+        PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_large_data_receive_buffer_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_large_data_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR} --receive-buffer 1048576)
+    set_tests_properties(cpnetflux_large_data_receive_buffer_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_large_data_receive_buffer_resume_smoke
+        COMMAND ${CMAKE_COMMAND} -E env CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES=1048576
+            python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_interrupted_resume_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR} --data-frame-bytes 262144
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-large-data-buffer-resume-evidence)
+    set_tests_properties(cpnetflux_large_data_receive_buffer_resume_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_v3_service_restart_resume_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_service_restart_resume_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-v3-service-restart-resume-evidence
+    )
+    set_tests_properties(cpnetflux_v3_service_restart_resume_smoke PROPERTIES TIMEOUT 360 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_v3_timeout_resume_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_timeout_resume_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-v3-timeout-resume-evidence
+    )
+    set_tests_properties(cpnetflux_v3_timeout_resume_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_corrupt_checkpoint_cleanup_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_corrupt_checkpoint_cleanup_test.py)
+    set_tests_properties(cpnetflux_corrupt_checkpoint_cleanup_test PROPERTIES TIMEOUT 30)
+    add_test(
+        NAME cpnetflux_v3_corrupt_partial_checkpoint_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_corrupt_partial_checkpoint_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-v3-corrupt-partial-checkpoint-evidence
+    )
+    set_tests_properties(cpnetflux_v3_corrupt_partial_checkpoint_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(
+        NAME cpnetflux_v3_target_conflict_idempotency_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_v3_target_conflict_idempotency_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-v3-target-conflict-idempotency-evidence
+    )
+    set_tests_properties(cpnetflux_v3_target_conflict_idempotency_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_publication_resume_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_publication_resume_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR}
+            --evidence-dir ${CMAKE_BINARY_DIR}/cpnetflux-publication-resume-evidence)
+    set_tests_properties(cpnetflux_publication_resume_smoke PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_tree_edge_cases_smoke
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_tree_edge_cases_smoke.py --build-dir ${CMAKE_BINARY_DIR}
@@ -497,6 +1126,11 @@ if(CPNETFLUX_BUILD_TESTS)
         NAME cpnetflux_alpha_soak_helper_behavior
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/test_alpha_soak_smoke.py
     )
+    add_test(
+        NAME cpnetflux_storage_read_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_storage_read_smoke.py --build-dir ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(cpnetflux_storage_read_smoke PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
     add_test(
         NAME cpnetflux_storage_bench_wrapper_behavior
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/benchmark/test_run_storage_bench.py --script ${PROJECT_SOURCE_DIR}/tools/benchmark/run_storage_bench.py
