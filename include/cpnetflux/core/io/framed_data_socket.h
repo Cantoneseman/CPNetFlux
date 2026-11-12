@@ -12,6 +12,12 @@
 
 namespace cpnetflux::core::io {
 
+struct TcpExactReadStats {
+    bool enabled = false;
+    std::uint64_t largeReadCalls = 0, recvCalls = 0, shortReturns = 0;
+    std::uint64_t bytes = 0, interruptions = 0;
+};
+
 class FramedDataSocket {
    public:
     FramedDataSocket();
@@ -35,6 +41,9 @@ class FramedDataSocket {
     [[nodiscard]] std::uint32_t dataPayloadLimit() const noexcept { return dataPayloadLimit_; }
     [[nodiscard]] common::Status configureTcpReceiveBuffer(std::uint32_t requestedBytes);
     [[nodiscard]] std::uint32_t tcpReceiveBufferBytes() const noexcept { return tcpReceiveBufferBytes_; }
+    // Explicit plain TCP/256KiB DATA experiment. Small reads keep readSome semantics.
+    [[nodiscard]] common::Status configureTcpExactRead(bool enabled);
+    [[nodiscard]] TcpExactReadStats tcpExactReadStats() const noexcept { return tcpExactRead_; }
     void shutdown() noexcept;
     void close() noexcept;
     [[nodiscard]] common::Status writeAll(const std::uint8_t* data, std::size_t length);
@@ -65,6 +74,7 @@ class FramedDataSocket {
     std::uint32_t dataPayloadLimit_ = 65536;
     bool dataLimitConfigured_ = false;
     std::uint32_t tcpReceiveBufferBytes_ = 0;
+    TcpExactReadStats tcpExactRead_;
     bool tlsMode_ = false;
     bool rdmaMode_ = false;
     UniqueFd fd_;

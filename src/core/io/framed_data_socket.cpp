@@ -87,6 +87,15 @@ common::Status FramedDataSocket::configureTcpReceiveBuffer(std::uint32_t request
     return common::Status::ok();
 }
 
+common::Status FramedDataSocket::configureTcpExactRead(bool enabled) {
+    if (enabled && (!valid() || tlsEnabled() || transport() != DataTransport::Tcp ||
+                    dataPayloadLimit_ != 262148))
+        return common::Status::invalidArgument("TCP exact read requires plain TCP 256KiB DATA");
+    tcpExactRead_ = {};
+    tcpExactRead_.enabled = enabled;
+    return common::Status::ok();
+}
+
 RdmaTransportStats FramedDataSocket::rdmaStats() const noexcept {
     return rdmaMode_ ? rdma_.stats() : RdmaTransportStats{};
 }
@@ -100,6 +109,7 @@ void FramedDataSocket::shutdown() noexcept {
 }
 
 void FramedDataSocket::close() noexcept {
+    tcpExactRead_ = {};
     if (rdmaMode_) {
         rdma_.close();
         return;
@@ -256,6 +266,32 @@ common::Result<std::size_t> FramedDataSocket::readSome(std::uint8_t* data, std::
 }
 
 common::Status FramedDataSocket::readAll(std::uint8_t* data, std::size_t length) {
+    if (tcpExactRead_.enabled && length > 65536) {
+        if (!valid() || tlsMode_ || rdmaMode_ || !data || length > dataPayloadLimit_)
+            return common::Status::invalidArgument("invalid TCP exact-read span");
+        ++tcpExactRead_.largeReadCalls;
+        std::size_t completed = 0;
+        while (completed < length) {
+            ++tcpExactRead_.recvCalls;
+            const auto requested = length - completed;
+            const auto received = ::recv(fd_.get(), data + completed, requested, MSG_WAITALL);
+            // WAITALL may return short on signal, timeout or disconnect. Never
+            // publish a partial frame, and never reuse bytes before completion.
+            if (received > 0) {
+                tcpExactRead_.bytes += static_cast<std::size_t>(received);
+                tcpExactRead_.shortReturns += static_cast<std::size_t>(received) < requested;
+                completed += static_cast<std::size_t>(received);
+                continue;
+            }
+            if (received < 0 && errno == EINTR) {
+                ++tcpExactRead_.interruptions;
+                continue;
+            }
+            if (received < 0) return systemStatus("recv(MSG_WAITALL)", errno);
+            return common::Status::transportError("data connection closed during TCP exact read");
+        }
+        return common::Status::ok();
+    }
     std::size_t completed = 0;
     while (completed < length) {
         auto received = readSome(data + completed, length - completed);

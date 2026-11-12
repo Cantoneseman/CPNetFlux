@@ -974,3 +974,261 @@ TEST(SenderPacerTest, TimerReadInterruptionChecksCancellationWithoutRetrySpin) {
     }
     EXPECT_EQ(pacingTimerCount(), baseline);
 }
+
+namespace {
+struct ExactReadSetting {
+    std::optional<std::string> old;
+    explicit ExactReadSetting(const char* value) {
+        if (const auto* p=std::getenv("CPNETFLUX_TCP_EXACT_READ")) old=p;
+        if(value) ::setenv("CPNETFLUX_TCP_EXACT_READ",value,1);
+        else ::unsetenv("CPNETFLUX_TCP_EXACT_READ");
+    }
+    ~ExactReadSetting() {
+        if(old) ::setenv("CPNETFLUX_TCP_EXACT_READ",old->c_str(),1);
+        else ::unsetenv("CPNETFLUX_TCP_EXACT_READ");
+    }
+};
+struct RecvScript {
+    int fd=-1;
+    std::vector<ssize_t> steps;
+    std::size_t next=0;
+    std::vector<int> flags;
+    std::vector<std::size_t> lengths;
+    std::promise<void>* entered=nullptr;
+};
+thread_local RecvScript* currentRecv=nullptr;
+struct ObserveRecv {
+    RecvScript* previous;
+    explicit ObserveRecv(RecvScript& s):previous(currentRecv){currentRecv=&s;}
+    ~ObserveRecv(){currentRecv=previous;}
+};
+}
+extern "C" ssize_t __real_recv(int,void*,std::size_t,int);
+extern "C" ssize_t __wrap_recv(int fd,void* bytes,std::size_t length,int flags) {
+    if(!currentRecv || fd!=currentRecv->fd) return __real_recv(fd,bytes,length,flags);
+    auto& s=*currentRecv;
+    s.flags.push_back(flags);s.lengths.push_back(length);
+    if(s.entered){s.entered->set_value();s.entered=nullptr;}
+    if(s.next<s.steps.size()){
+        auto step=s.steps[s.next++];
+        if(step<0){errno=static_cast<int>(-step);return -1;}
+        if(step==0)return 0;
+        length=std::min(length,static_cast<std::size_t>(step));
+    }
+    return __real_recv(fd,bytes,length,flags);
+}
+
+TEST(FramedDataSocketTest, ExactReadV3ReceiverUsesWaitallOnlyForValidatedLargePayload) {
+    using namespace cpnetflux::core::io;
+    ExactReadSetting setting("on");
+    struct Directory {
+        std::filesystem::path path;
+        Directory(){char pattern[]="/tmp/cpnetflux-exact-read-unit-XXXXXX";auto* p=::mkdtemp(pattern);
+            if(!p)throw std::runtime_error("mkdtemp");path=p;}
+        ~Directory(){std::error_code ec;std::filesystem::remove_all(path,ec);}
+    } source,destination;
+    const auto content=testBytes(1024*1024+37);
+    {std::ofstream f(source.path/"exact.bin",std::ios::binary);
+     f.write(reinterpret_cast<const char*>(content.data()),content.size());}
+    struct stat meta{};ASSERT_EQ(::stat((source.path/"exact.bin").c_str(),&meta),0);
+    PersistentFileIdentity id{1,7,content.size(),"exact.bin","exact-content",1048576,
+        meta.st_mtim.tv_sec,cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    int fds[2];ASSERT_EQ(::socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,fds),0);
+    FramedDataSocket sender{UniqueFd(fds[0])},receiver{UniqueFd(fds[1])};
+    ASSERT_TRUE(sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(receiver.configureDataFrameBytes(262144).isOk());
+    PersistentTreeStats sent,received;Status result;
+    RecvScript script;script.fd=receiver.fd();
+    std::jthread reader([&]{ObserveRecv observed(script);
+        result=receivePersistentTree(&receiver,destination.path.string(),false,"",&received);});
+    const auto status=sendPersistentTree(&sender,source.path.string(),{id},&sent);
+    if(!status.isOk())receiver.shutdown();
+    reader.join();
+    ASSERT_TRUE(status.isOk())<<status.message();
+    ASSERT_TRUE(result.isOk())<<result.message();
+    std::ifstream f(destination.path/"exact.bin",std::ios::binary);
+    EXPECT_EQ(std::vector<std::uint8_t>((std::istreambuf_iterator<char>(f)),{}),content);
+    std::size_t large=0;
+    for(std::size_t i=0;i<script.flags.size();++i){
+        if(script.lengths[i]>65536){++large;EXPECT_NE(script.flags[i]&MSG_WAITALL,0);}
+        if(script.lengths[i]==64) EXPECT_EQ(script.flags[i]&MSG_WAITALL,0);
+    }
+    EXPECT_GE(large,4U);
+}
+
+TEST(FramedDataSocketTest, ExactReadCompletesShortReadsAndEintrWithoutExtraConsumption) {
+    SocketPair pair;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.sender.configureTcpExactRead(true).isOk());
+    const auto input=testBytes(65540);
+    ASSERT_EQ(::send(pair.receiver.get(),input.data(),input.size(),MSG_NOSIGNAL),static_cast<ssize_t>(input.size()));
+    RecvScript script;script.fd=pair.sender.fd();script.steps={-EINTR,1,65535,-EINTR,4};
+    ObserveRecv observed(script);
+    std::vector<std::uint8_t> actual(input.size());
+    ASSERT_TRUE(pair.sender.readAll(actual.data(),actual.size()).isOk());
+    EXPECT_EQ(actual,input);
+    ASSERT_EQ(script.flags.size(),5U);
+    for(auto flags:script.flags)EXPECT_NE(flags&MSG_WAITALL,0);
+    const auto stats=pair.sender.tcpExactReadStats();
+    EXPECT_EQ(stats.largeReadCalls,1U);EXPECT_EQ(stats.recvCalls,5U);
+    EXPECT_EQ(stats.shortReturns,2U);EXPECT_EQ(stats.interruptions,2U);
+    EXPECT_EQ(stats.bytes,input.size());
+    const std::uint8_t last=37;ASSERT_EQ(::send(pair.receiver.get(),&last,1,MSG_NOSIGNAL),1);
+    std::uint8_t read=0;ASSERT_TRUE(pair.sender.readAll(&read,1).isOk());
+    EXPECT_EQ(read,last);EXPECT_EQ(script.flags.back()&MSG_WAITALL,0);
+    EXPECT_EQ(pair.sender.tcpExactReadStats().recvCalls,stats.recvCalls);
+}
+TEST(FramedDataSocketTest, ExactReadDefaultOffAndSmallReadSomeRetainOrdinaryFlags) {
+    SocketPair pair;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    const auto input=testBytes(65540);
+    ASSERT_EQ(::send(pair.receiver.get(),input.data(),input.size(),MSG_NOSIGNAL),static_cast<ssize_t>(input.size()));
+    RecvScript script;script.fd=pair.sender.fd();ObserveRecv observed(script);
+    std::vector<std::uint8_t> actual(input.size());
+    ASSERT_TRUE(pair.sender.readAll(actual.data(),actual.size()).isOk());
+    EXPECT_EQ(actual,input);
+    for(auto flags:script.flags)EXPECT_EQ(flags&MSG_WAITALL,0);
+    EXPECT_FALSE(pair.sender.tcpExactReadStats().enabled);
+    EXPECT_EQ(pair.sender.tcpExactReadStats().recvCalls,0U);
+    ASSERT_TRUE(pair.sender.configureTcpExactRead(true).isOk());
+    const std::uint8_t value=77;ASSERT_EQ(::send(pair.receiver.get(),&value,1,MSG_NOSIGNAL),1);
+    std::uint8_t byte=0;ASSERT_TRUE(pair.sender.readSome(&byte,1).isOk());
+    EXPECT_EQ(script.flags.back()&MSG_WAITALL,0);EXPECT_EQ(byte,value);
+}
+TEST(FramedDataSocketTest, ExactReadRealTimeoutAfterPartialDataPreservesErrno) {
+    SocketPair pair;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.sender.configureTcpExactRead(true).isOk());
+    const timeval timeout{0,20000};
+    ASSERT_EQ(::setsockopt(pair.sender.fd(),SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)),0);
+    const std::array<std::uint8_t,7> prefix{1,2,3,4,5,6,7};
+    ASSERT_EQ(::send(pair.receiver.get(),prefix.data(),prefix.size(),MSG_NOSIGNAL),7);
+    std::vector<std::uint8_t> bytes(65540);
+    const auto status=pair.sender.readAll(bytes.data(),bytes.size());
+    EXPECT_EQ(status.code(),StatusCode::TransportError);
+    EXPECT_TRUE(status.errorNumber()==EAGAIN || status.errorNumber()==EWOULDBLOCK);
+    EXPECT_TRUE(std::equal(prefix.begin(),prefix.end(),bytes.begin()));
+    EXPECT_EQ(pair.sender.tcpExactReadStats().bytes,7U);
+    EXPECT_EQ(pair.sender.tcpExactReadStats().shortReturns,1U);
+}
+TEST(FramedDataSocketTest, ExactReadShutdownInterruptsBlockedReceive) {
+    SocketPair pair;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.sender.configureTcpExactRead(true).isOk());
+    std::promise<void> entered;auto in=entered.get_future();
+    std::promise<Status> done;auto result=done.get_future();
+    std::jthread receiver([&]{
+        RecvScript script;script.fd=pair.sender.fd();script.entered=&entered;
+        ObserveRecv observed(script);
+        std::vector<std::uint8_t> bytes(65540);
+        done.set_value(pair.sender.readAll(bytes.data(),bytes.size()));
+    });
+    const auto ready=in.wait_for(std::chrono::seconds(2));
+    pair.sender.shutdown();
+    EXPECT_EQ(ready,std::future_status::ready);
+    ASSERT_EQ(result.wait_for(std::chrono::seconds(2)),std::future_status::ready);
+    EXPECT_EQ(result.get().code(),StatusCode::TransportError);
+    receiver.join();
+}
+TEST(FramedDataSocketTest, ExactReadTruncatedFrameClearsPreviouslyValidData) {
+    using namespace cpnetflux::core::io;
+    using namespace cpnetflux::core::protocol;
+    SocketPair pair;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.sender.configureTcpExactRead(true).isOk());
+    FrameHeader header;header.type=FrameType::Data;header.streamId=1;header.chunkId=7;
+    header.payloadSize=262148;header.totalSize=262144;header.flags=kDataChecksum;
+    const auto encoded=encodeFrameHeader(header);
+    ASSERT_EQ(::send(pair.receiver.get(),encoded.data(),encoded.size(),MSG_NOSIGNAL),static_cast<ssize_t>(encoded.size()));
+    const auto partial=testBytes(37);
+    ASSERT_EQ(::send(pair.receiver.get(),partial.data(),partial.size(),MSG_NOSIGNAL),37);
+    ASSERT_EQ(::shutdown(pair.receiver.get(),SHUT_WR),0);
+    PersistentFrame frame;frame.payload={1,2,3};frame.header.streamId=99;
+    const auto status=PersistentDataSession::readNext(&pair.sender,pair.sender.dataPayloadLimit(),&frame);
+    EXPECT_EQ(status.code(),StatusCode::TransportError);
+    EXPECT_TRUE(frame.payload.empty());EXPECT_EQ(frame.header.streamId,0U);
+    EXPECT_EQ(pair.sender.tcpExactReadStats().bytes,37U);
+}
+TEST(FramedDataSocketTest, ExactReadRejectsUnsupportedModeAndClearsStateOnClose) {
+    SocketPair pair;
+    EXPECT_FALSE(pair.sender.configureTcpExactRead(true).isOk());
+    EXPECT_FALSE(FramedDataSocket{}.configureTcpExactRead(true).isOk());
+    FramedDataSocket rdma(cpnetflux::core::io::RdmaDataSocket{});
+    EXPECT_FALSE(rdma.configureTcpExactRead(true).isOk());
+    FramedDataSocket tls(cpnetflux::core::io::TlsConnection{});
+    EXPECT_FALSE(tls.configureTcpExactRead(true).isOk());
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.sender.configureTcpExactRead(true).isOk());
+    FramedDataSocket moved(std::move(pair.sender));
+    EXPECT_FALSE(pair.sender.valid());EXPECT_TRUE(moved.tcpExactReadStats().enabled);
+    std::vector<std::uint8_t> out(262149);
+    EXPECT_FALSE(moved.readAll(out.data(),out.size()).isOk());
+    EXPECT_FALSE(moved.readAll(nullptr,65540).isOk());
+    EXPECT_EQ(moved.tcpExactReadStats().recvCalls,0U);
+    moved.close();
+    EXPECT_FALSE(moved.valid());EXPECT_FALSE(moved.tcpExactReadStats().enabled);
+    EXPECT_EQ(moved.tcpExactReadStats().largeReadCalls,0U);
+}
+TEST(FramedDataSocketTest, ExactReadInvalidEnvironmentAndLaneCountFailBeforeReceive) {
+    using namespace cpnetflux::core::io;
+    for(const char* value:{"invalid","on"}) {
+        ExactReadSetting setting(value);
+        SocketPair pair;
+        ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+        PersistentTreeStats stats;
+        const auto result=receivePersistentTree(&pair.sender,"/tmp",false,"",&stats,{},
+            1,0,value==std::string_view("on")?5:1);
+        EXPECT_EQ(result.code(),StatusCode::InvalidArgument);
+        EXPECT_EQ(stats.files,0U);EXPECT_EQ(pair.sender.tcpExactReadStats().recvCalls,0U);
+    }
+}
+
+TEST(FramedDataSocketTest, ExactReadRejectsOversizedHeaderBeforePayloadReceive) {
+    using namespace cpnetflux::core::io;
+    using namespace cpnetflux::core::protocol;
+    SocketPair pair;
+    ASSERT_TRUE(pair.sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(pair.sender.configureTcpExactRead(true).isOk());
+    FrameHeader header;header.type=FrameType::Data;header.streamId=1;header.chunkId=7;
+    header.totalSize=1048576;header.flags=kDataChecksum;header.payloadSize=262149;
+    const auto encoded=encodeFrameHeader(header);
+    ASSERT_EQ(::send(pair.receiver.get(),encoded.data(),encoded.size(),MSG_NOSIGNAL),static_cast<ssize_t>(encoded.size()));
+    PersistentFrame frame;
+    const auto status=PersistentDataSession::readNext(&pair.sender,pair.sender.dataPayloadLimit(),&frame);
+    EXPECT_EQ(status.code(),StatusCode::InvalidArgument);
+    EXPECT_TRUE(frame.payload.empty());EXPECT_EQ(frame.header.streamId,0U);
+    EXPECT_EQ(pair.sender.tcpExactReadStats().largeReadCalls,0U);
+}
+TEST(FramedDataSocketTest, ExactReadBadCrcCannotPublishDestination) {
+    using namespace cpnetflux::core::io;
+    using namespace cpnetflux::core::protocol;
+    ExactReadSetting setting("on");
+    char pattern[]="/tmp/cpnetflux-exact-crc-unit-XXXXXX";
+    auto* created=::mkdtemp(pattern);ASSERT_NE(created,nullptr);
+    const std::filesystem::path destination=created;
+    struct Cleanup {std::filesystem::path p;~Cleanup(){std::error_code e;std::filesystem::remove_all(p,e);}} cleanup{destination};
+    int fds[2];ASSERT_EQ(::socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,fds),0);
+    FramedDataSocket sender{UniqueFd(fds[0])},receiver{UniqueFd(fds[1])};
+    ASSERT_TRUE(sender.configureDataFrameBytes(262144).isOk());
+    ASSERT_TRUE(receiver.configureDataFrameBytes(262144).isOk());
+    PersistentTreeStats stats;Status receiveStatus;
+    std::jthread thread([&]{receiveStatus=receivePersistentTree(&receiver,destination.string(),false,"",&stats);});
+    PersistentFileIdentity id{1,7,1048576,"corrupt.bin","exact-bad-crc",1048576,0,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    const auto began=PersistentDataSession::writeBegin(&sender,id);
+    auto bytes=testBytes(262148);
+    cpnetflux::checksum::ChecksumComputer crc(id.checksumAlgorithm);
+    crc.update(bytes.data()+4,bytes.size()-4);
+    const auto invalid=crc.finalize().value^1U;
+    bytes[0]=invalid>>24;bytes[1]=invalid>>16;bytes[2]=invalid>>8;bytes[3]=invalid;
+    FrameHeader header;header.type=FrameType::Data;header.streamId=1;header.chunkId=7;
+    header.totalSize=id.totalSize;header.payloadSize=bytes.size();header.flags=kDataChecksum;
+    const auto encoded=encodeFrameHeader(header);
+    const auto sent=sender.writeFrame(encoded.data(),encoded.size(),bytes.data(),bytes.size());
+    sender.shutdown();thread.join();
+    ASSERT_TRUE(began.isOk())<<began.message();ASSERT_TRUE(sent.isOk())<<sent.message();
+    EXPECT_EQ(receiveStatus.code(),StatusCode::InvalidArgument);
+    EXPECT_NE(receiveStatus.message().find("checksum mismatch before write"),std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(destination/"corrupt.bin"));
+    EXPECT_EQ(receiver.tcpExactReadStats().bytes,bytes.size());
+}

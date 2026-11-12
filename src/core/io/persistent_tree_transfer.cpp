@@ -2191,6 +2191,14 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         return Status::invalidArgument("bounded TCP receive buffer supports at most four lanes");
     const auto buffered = socket->configureTcpReceiveBuffer(receiveBufferMode == "off" ? 0 : 1048576);
     if (!buffered.isOk()) return buffered;
+    const auto* exactRead = std::getenv("CPNETFLUX_TCP_EXACT_READ");
+    const std::string_view exactReadMode = exactRead ? exactRead : "off";
+    if (exactReadMode != "off" && exactReadMode != "on")
+        return Status::invalidArgument("CPNETFLUX_TCP_EXACT_READ must be off or on");
+    if (exactReadMode == "on" && channelCount > 4)
+        return Status::invalidArgument("bounded TCP exact read supports at most four lanes");
+    const auto exact = socket->configureTcpExactRead(exactReadMode == "on");
+    if (!exact.isOk()) return exact;
     stats->pendingWindow = pendingWindow; // Receiver stays serial; report negotiated sender credit.
     const std::uint64_t filesAtConnectionStart = stats->files;
     auto status = PersistentDataSession::setTimeout(socket, 30);

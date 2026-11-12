@@ -474,7 +474,7 @@ if(CPNETFLUX_BUILD_TESTS)
         target_link_libraries(cpnetflux_framed_socket_tests PRIVATE CPNetFlux::core GTest::gtest_main)
         target_link_options(cpnetflux_framed_socket_tests PRIVATE
             "-Wl,--wrap=sendmsg" "-Wl,--wrap=send" "-Wl,--wrap=readv"
-            "-Wl,--wrap=timerfd_settime" "-Wl,--wrap=read")
+            "-Wl,--wrap=timerfd_settime" "-Wl,--wrap=read" "-Wl,--wrap=recv")
         if(CMAKE_SIZEOF_VOID_P EQUAL 8)
             target_compile_definitions(cpnetflux_framed_socket_tests PRIVATE CPNETFLUX_TEST_WRAP_NEW=1)
             target_link_options(cpnetflux_framed_socket_tests PRIVATE "-Wl,--wrap=_Znwm")
@@ -1004,6 +1004,12 @@ if(CPNETFLUX_BUILD_TESTS)
     set_tests_properties(cpnetflux_large_data_ab_test PROPERTIES TIMEOUT 20)
     add_test(NAME cpnetflux_sender_pacing_driver_test
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_sender_pacing_test.py)
+    add_test(NAME cpnetflux_tcp_exact_read_smoke
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_large_data_smoke.py
+            --build-dir ${CMAKE_BINARY_DIR} --receive-buffer 1048576 --exact-read on)
+    set_tests_properties(cpnetflux_tcp_exact_read_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_tcp_exact_read_driver_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tcp_exact_read_test.py)
     add_test(NAME cpnetflux_receive_network_test
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_receive_network_test.py)
     add_test(NAME cpnetflux_large_data_interrupted_resume_smoke

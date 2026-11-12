@@ -24,7 +24,7 @@ def command(build, direction, port, source, dest, summary, size):
             "--transfer-timeout-ms", "15000", "--json-summary", str(summary)]
 
 
-def run(build, receive_buffer):
+def run(build, receive_buffer, exact_read='off'):
     with tempfile.TemporaryDirectory(prefix="cpnetflux-large-data-") as tmp:
         root = Path(tmp)
         source, peer = root / "source", root / "peer"
@@ -45,7 +45,8 @@ def run(build, receive_buffer):
                 "--connections", "4", "--link-set-max-links", "4", "--checksum", "crc32c",
                 "--chunk-size", "1048576"], stdout=output, stderr=subprocess.STDOUT,
                 env=dict(os.environ, CPNETFLUX_RANGE_TIMING="on",
-                         CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES=receive_buffer))
+                         CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES=receive_buffer,
+                         CPNETFLUX_TCP_EXACT_READ=exact_read))
         try:
             wait_for_control(port)
             with socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
@@ -64,7 +65,7 @@ def run(build, receive_buffer):
                                " DATA_BYTES=0", " DATA_BYTES=262144 DATA_TLS=required"):
                     assert reply(base + suffix).startswith("504")
             rows = []
-            for size in (65532, 262144):
+            for size in ((262144,) if exact_read=='on' else (65532, 262144)):
                 for execution in ("queued", "inline"):
                     remote = f"received-{size}-{execution}"
                     for direction in ("upload", "download"):
@@ -78,7 +79,8 @@ def run(build, receive_buffer):
                                    CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES=receive_buffer,
                                    CPNETFLUX_PAYLOAD_PIPELINE_DEPTH="2",
                                    CPNETFLUX_SENDER_PAYLOAD_EXECUTION=execution,
-                                   CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION=execution)
+                                   CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION=execution,
+                                   CPNETFLUX_TCP_EXACT_READ=exact_read)
                         done = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=45)
                         assert done.returncode == 0, done.stdout[-4000:] + done.stderr[-4000:] + log.read_text()[-4000:]
                         assert tree_hash(peer / remote if direction == "upload" else target) == expected
@@ -94,6 +96,15 @@ def run(build, receive_buffer):
                         expected_frames = (16 * (17 if size == 65532 else 4) + 1 +
                                            (5 if size == 65532 else 2))
                         assert frames == expected_frames, (size, direction, frames, expected_frames)
+                        if direction=="download":
+                            exact_stats=[lane["tcp_exact_read"] for lane in data["lane_endpoints"]]
+                            assert all(row["enabled"]==(exact_read=="on") for row in exact_stats),exact_stats
+                            if exact_read=="on":
+                                assert sum(row["large_read_calls"] for row in exact_stats)==65,exact_stats
+                                assert sum(row["bytes"] for row in exact_stats)==65*262148,exact_stats
+                                assert all(row["recv_calls"]>=row["large_read_calls"] for row in exact_stats)
+                            else:
+                                assert all(row["recv_calls"]==0 for row in exact_stats)
                         rows.append(dict(size=size, direction=direction, execution=execution, frames=frames))
             # Unsupported combinations must fail locally before any connection/payload.
             base_cmd = command(build, "upload", 1, source, "unused", root / "reject.json", 262144)
@@ -145,5 +156,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", required=True, type=Path)
     parser.add_argument("--receive-buffer", choices=("off", "1048576"), default="off")
+    parser.add_argument("--exact-read",choices=("off","on"),default="off")
     args = parser.parse_args()
-    run(args.build_dir.resolve(), args.receive_buffer)
+    run(args.build_dir.resolve(), args.receive_buffer, args.exact_read)

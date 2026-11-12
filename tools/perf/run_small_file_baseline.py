@@ -212,12 +212,15 @@ def observe(proc, state):
 
 def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False, tree_manifest_serializer=None,
                 tree_manifest_profile=None, member_work_profile=None, tcp_receive_buffer_bytes=None,
-                process_observer=None, receiver_profile=False, range_timing=None):
+                process_observer=None, receiver_profile=False, range_timing=None, tcp_exact_read=None):
     state=resource_state();started=time.monotonic()
     env=environment(receiver_profile=receiver_profile,range_timing=range_timing)
     if tcp_receive_buffer_bytes is not None:
         assert tcp_receive_buffer_bytes in ('off','1048576')
         env['CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES']=tcp_receive_buffer_bytes
+    if tcp_exact_read is not None:
+        assert tcp_exact_read in ('off','on')
+        env['CPNETFLUX_TCP_EXACT_READ']=tcp_exact_read
     if mapped_download:
         env['CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION']='inline'
         env['CPNETFLUX_EXPERIMENTAL_DOWNLOAD_WRITE']='mmap'
@@ -391,7 +394,7 @@ def check_manifests(slot, count, size):
 def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None,
                   tree_manifest_serializer=None, data_frame_bytes=None, tcp_receive_buffer_bytes=None,
                   receiver_profile=False, range_timing=None, network_profile=False, connections=4,
-                  network_settle_seconds=0):
+                  network_settle_seconds=0, tcp_exact_read=None):
     assert connections in (1,4), 'bounded client supports one or four lanes'
     assert network_settle_seconds in (0,.5) and (network_profile or not network_settle_seconds)
     assert not mapped_download or connections==4, 'mapped download requires four lanes'
@@ -423,6 +426,8 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
         run_options=dict(summary_path=summary_path,mapped_download=mapped_download)
         if tcp_receive_buffer_bytes is not None:
             run_options['tcp_receive_buffer_bytes']=tcp_receive_buffer_bytes
+        if tcp_exact_read is not None:
+            run_options['tcp_exact_read']=tcp_exact_read
         if tree_manifest_serializer is not None:
             run_options['tree_manifest_serializer']=tree_manifest_serializer
         if receiver_profile:

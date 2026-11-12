@@ -32,7 +32,20 @@ def validate_receipts(rows, size=base.GIB):
                 receipts=rows,frames=sum(r['frames'] for r in rows),wire_bytes=sum(r['wire_bytes'] for r in rows),
                 wait_ns=sum(r['wait_ns'] for r in rows),passed=True)
 
-def run(args):
+def validate_exact_read(endpoints, size=base.GIB):
+    assert len(endpoints)==4 and {r['lane_index'] for r in endpoints}==set(range(4)), 'exact-read lane coverage'
+    stats=[r['tcp_exact_read'] for r in endpoints]
+    for row in stats:
+        assert row['enabled'] is True and row['large_read_calls']==size//4//262144, 'exact read inactive/partial'
+        assert row['bytes']==(size//4//262144)*262148, 'exact-read byte coverage'
+        assert row['short_returns']>=0 and row['interruptions']>=0
+        assert row['recv_calls']>=row['large_read_calls']+row['short_returns']+row['interruptions'], 'exact-read syscall accounting'
+    return dict(scope='successful large DATA reads; excludes 64B headers and small control/tail payloads',
+                **{key:sum(row[key] for row in stats) for key in
+                   ('large_read_calls','recv_calls','short_returns','bytes','interruptions')})
+
+def run(args,tcp_exact_read='off'):
+    assert tcp_exact_read in ('off','on')
     assert base.node()==1
     args.size_gib=1;args.size,args.count=base.GIB,1
     assert base.mem()>=12*base.GIB and shutil.disk_usage('/dev/shm').free>2*base.GIB
@@ -55,7 +68,7 @@ def run(args):
         assert source['mem_available_bytes']>=12*base.GIB and source['process']['swap_bytes']==0
         row=base.client_sample(args,'paced-combined-1g',expected,'2','on',49337,mapped_download=True,
             data_frame_bytes=262144,tcp_receive_buffer_bytes='1048576',receiver_profile=False,
-            range_timing=False,network_profile=True,network_settle_seconds=.5)
+            range_timing=False,network_profile=True,network_settle_seconds=.5,tcp_exact_read=tcp_exact_read)
         base.save(args.evidence/'results.json',[row])
         summary=row['summary']
         assert summary['connections']==4 and summary['actual_transport']=='v3' and summary['data_transport']=='tcp'
@@ -64,6 +77,9 @@ def run(args):
         assert all(e['data_connections']==1 and e['data_local_address']=='192.168.100.1'
                    and e['data_peer_address']=='192.168.100.2'
                    and 1048576<=e['tcp_receive_buffer_bytes']<=2097152 for e in summary['lane_endpoints'])
+        if tcp_exact_read=='on':
+            row['tcp_exact_read_mechanism']=validate_exact_read(summary['lane_endpoints'])
+            base.save(args.evidence/'exact-read-mechanism.json',row['tcp_exact_read_mechanism'])
         row['verified_chunks']=verify_chunks(row['manifest_checks']['member_example'],base.GIB)
         assert row['verified_chunks']==1024
         row['mapped_mechanism']=large.mapped_checks(args,'paced-combined-1g',262144,receiver_profile=False,range_timing=False)
@@ -95,6 +111,7 @@ def run(args):
             base.save(args.evidence/'cleanup.json',cleanup)
     assert row is not None
     report=dict(scope='one candidate feasibility task, no same-commit performance comparison',
+                receiver_exact_read=tcp_exact_read,
                 task_gbps=row['whole_task_gbps'],t_ready_seconds=row['t_ready_seconds'],
                 mechanism_pass=True,network_pass=True,cleanup=cleanup,m1_pass=False,m2_pass=False,
                 formal_admission_rate_met=row['whole_task_gbps']>=40,

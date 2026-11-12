@@ -943,6 +943,7 @@ struct LaneEndpoint {
     std::uint32_t channelIndex = 0, laneIndex = 0, dataConnections = 0;
     std::string controlPeer, dataPeer, controlLocal, dataLocal;
     std::uint32_t tcpReceiveBufferBytes = 0;
+    TcpExactReadStats tcpExactRead;
 };
 
 void addRdmaTransportStats(RdmaTransportStats* target,
@@ -1609,7 +1610,13 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
                << "\",\"control_local_address\":\"" << jsonEscape(endpoint.controlLocal)
                << "\",\"data_local_address\":\"" << jsonEscape(endpoint.dataLocal)
                << "\",\"data_connections\":" << endpoint.dataConnections
-               << ",\"tcp_receive_buffer_bytes\":" << endpoint.tcpReceiveBufferBytes << "}";
+               << ",\"tcp_receive_buffer_bytes\":" << endpoint.tcpReceiveBufferBytes
+               << ",\"tcp_exact_read\":{\"enabled\":" << (endpoint.tcpExactRead.enabled ? "true" : "false")
+               << ",\"large_read_calls\":" << endpoint.tcpExactRead.largeReadCalls
+               << ",\"recv_calls\":" << endpoint.tcpExactRead.recvCalls
+               << ",\"short_returns\":" << endpoint.tcpExactRead.shortReturns
+               << ",\"bytes\":" << endpoint.tcpExactRead.bytes
+               << ",\"interruptions\":" << endpoint.tcpExactRead.interruptions << "}}";
     }
     output << "],\n";
     if (stats.persistentData) {
@@ -2766,6 +2773,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     std::lock_guard<std::mutex> lock(channel.dataMutex);
                     addRdmaTransportStats(&channel.rdmaTransport, channel.data.rdmaStats());
                     channel.endpoint.tcpReceiveBufferBytes = channel.data.tcpReceiveBufferBytes();
+                    channel.endpoint.tcpExactRead = channel.data.tcpExactReadStats();
                     channel.data = FramedDataSocket{};
                 }
                 const auto waiting = std::chrono::steady_clock::now();

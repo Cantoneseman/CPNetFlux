@@ -21,6 +21,11 @@
 本候选停止追加rate/lane/wait扫描；下一设计检查接收端页管理/搬运中是否还有具体可减工作，
 与已有聚合写及失败population/direct-receive/collapse路径区分；原生RDMA及DEFERRED工作仍暂停。
 
+Task52按当前接收路径继续：[TCP大DATA exact-read原型](tasks/2026-11-12-v3-tcp-exact-read-52.md)。
+独立32MiB本地探针确认普通recv为353–473次、WAITALL为256次，局部耗时无稳定收益；
+仅准入默认关闭、无额外payload缓存的plain-TCP原型，不把探针当吞吐成绩。
+当前先验收故障/恢复、双端固定版本，再最多一次1GiB可行性，未达40不启动正式矩阵。
+
 ## 当前主线
 
 **M1已在8GiB完整V3 TCP任务中跨过30Gbps；本阶段工程收口，40–50Gbps的M2仍未验收。发送节奏候选仅保留为默认关闭的诊断能力。**
