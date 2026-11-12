@@ -16,10 +16,10 @@ def free_pool(count):
   for s in sockets:s.close()
  return ports
 
-def run_case(build,root,name,tls=False,fault=None,repetitions=1,invalid=None):
+def run_case(build,root,name,tls=False,fault=None,repetitions=1,invalid=None,fault_bytes=512*1024,tiny_peer=False):
  case=root/name;case.mkdir();server_root=case/'server';source=server_root/'dataset';source.mkdir(parents=True)
  (source/'large.bin').write_bytes(bytes(range(256))*8192)
- (source/'small.bin').write_bytes(bytes(range(255,-1,-1))*4096)
+ (source/'small.bin').write_bytes(b'CPNetFlux source port behavior'*97 if tiny_peer else bytes(range(255,-1,-1))*4096)
  expected=tree_hash(source);control=free_port();base=clamp_passive_data_port_base(free_port());pools=[free_pool(64),free_pool(64)]
  # Keep one candidate occupied for channel0 to prove bounded skip in full runtime.
  blocker=socket.socket();blocker.bind(('127.0.0.1',0));occupied=blocker.getsockname()[1];pools[0].insert(0,occupied)
@@ -38,7 +38,7 @@ def run_case(build,root,name,tls=False,fault=None,repetitions=1,invalid=None):
  with (case/'server.log').open('w') as f:server=subprocess.Popen(command,stdout=f,stderr=subprocess.STDOUT)
  try:
   wait_for_tcp('127.0.0.1',control)
-  if fault or invalid=='deadline':proxy=FaultProxy(peer,'127.0.0.1',control,base,drops=1 if fault else 0,drop_bytes=512*1024,delay=.01 if invalid=='deadline' else .0001,target_data_connections=[1,2],drop_control_after_data_connection=1 if fault=='control-reset' else None,log=case/'proxy.jsonl')
+  if fault or invalid=='deadline':proxy=FaultProxy(peer,'127.0.0.1',control,base,drops=1 if fault else 0,drop_bytes=fault_bytes,delay=.01 if invalid=='deadline' else .0001,target_data_connections=[1,2],drop_control_after_data_connection=1 if fault=='control-reset' else None,log=case/'proxy.jsonl')
   last=set()
   for index in range(repetitions):
    output=case/('output-'+str(index));summary=case/('summary-'+str(index)+'.json')
@@ -80,6 +80,6 @@ def main():
  with tempfile.TemporaryDirectory(prefix='cpnetflux-source-plan-') as temporary:
   root=a.evidence_dir or pathlib.Path(temporary)
   if a.evidence_dir:root.mkdir(exist_ok=False)
-  rows=[run_case(a.build_dir.absolute(),root,name,**kw) for name,kw in [('repeat',dict(repetitions=3)),('tls',dict(tls=True)),('data-reset',dict(fault='data-reset')),('control-reset',dict(fault='control-reset')),('exhausted',dict(invalid='exhausted')),('missing-row',dict(invalid='missing-row')),('deadline',dict(invalid='deadline'))]]
+  rows=[run_case(a.build_dir.absolute(),root,name,**kw) for name,kw in [('repeat',dict(repetitions=3)),('tls',dict(tls=True)),('data-reset',dict(fault='data-reset')),('control-reset',dict(fault='control-reset')),('early-data-reset1',dict(fault='data-reset',fault_bytes=512,tiny_peer=True)),('early-data-reset2',dict(fault='data-reset',fault_bytes=512,tiny_peer=True)),('early-data-reset3',dict(fault='data-reset',fault_bytes=512,tiny_peer=True)),('early-control-reset1',dict(fault='control-reset',fault_bytes=512,tiny_peer=True)),('early-control-reset2',dict(fault='control-reset',fault_bytes=512,tiny_peer=True)),('early-control-reset3',dict(fault='control-reset',fault_bytes=512,tiny_peer=True)),('exhausted',dict(invalid='exhausted')),('missing-row',dict(invalid='missing-row')),('deadline',dict(invalid='deadline'))]]
   (root/'result.json').write_text(json.dumps(dict(passed=True,cases=rows),indent=2)+'\n');print(json.dumps(dict(passed=True,cases=len(rows))))
 if __name__=='__main__':main()

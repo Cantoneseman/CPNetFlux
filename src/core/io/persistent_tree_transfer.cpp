@@ -1668,7 +1668,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             timing.queueWaitSeconds = next.value()->queueWaitSeconds;
             stats->queueWaitSeconds += next.value()->queueWaitSeconds;
         }
-        if (transferOptions && transferOptions->reconnectAttempt != UINT32_MAX)
+        // A dynamic work lease keeps its own retry generation when a healthy
+        // lane picks it up; the lane's reconnect counter is not the work attempt.
+        if (!ready && transferOptions && transferOptions->reconnectAttempt != UINT32_MAX)
             id.attempt = transferOptions->reconnectAttempt;
         timing.file = id; timing.channel = channelIndex; timing.sender = true;
         const bool observeSender = senderWork.enabled && id.rangeId == 0;
@@ -1699,7 +1701,8 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         status = notifySafe(id, Status::ok(), false);
         timing.manifestSeconds += secondsSince(manifestStarted);
         if (!status.isOk()) { failWriter(status); break; }
-        const bool needsHandshake = id.rangeId != 0 || (transferOptions && transferOptions->resume);
+        const bool fileResume = id.attempt != 0 || (transferOptions && transferOptions->resume);
+        const bool needsHandshake = id.rangeId != 0 || fileResume;
         if (needsHandshake) {
             std::unique_lock<std::mutex> lock(mutex);
             changed.wait(lock, [&] { return abort || (!awaitingResume && pending.empty()); });
@@ -1712,7 +1715,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             if (!status.isOk()) { failWriter(status); break; }
         }
         tracePersistentProtocol("sender", "file_begin_write_begin", channelIndex, &id);
-        status = PersistentDataSession::writeBegin(socket, id,transferOptions && transferOptions->resume);
+        status = PersistentDataSession::writeBegin(socket, id, fileResume);
         tracePersistentProtocol("sender", "file_begin_write_end", channelIndex, &id,
             0, 0, static_cast<int>(status.code()));
         if (!status.isOk()) { failWriter(status); break; }
@@ -2403,8 +2406,9 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             (!id.rangeId || id.rangeCount < 4 || id.rangeCount > 8 || id.totalSize > 8ULL * 1024 * 1024 * 1024 ||
              id.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c))
             return Status::invalidArgument("experimental download write requires 4..8 CRC32C ranges in a file <=8 GiB");
+        const bool requestedResume = resume || (frame.header.flags & protocol::kFileResume);
         if (id.rangeId != 0) {
-            auto started = RangeFileCoordinator::begin(*context, root, id, download, remoteRoot, resume, observation);
+            auto started = RangeFileCoordinator::begin(*context, root, id, download, remoteRoot, requestedResume, observation);
             if (!started.isOk()) {
                 // Write the semantic rejection before callbacks can cancel sibling sockets.
                 auto rejected = PersistentDataSession::writeResumeResponse(socket,id,{},fileFailureCode(started.status()));
@@ -2438,7 +2442,6 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                     return transaction->verifyPublished();
                 });
             }
-            const bool requestedResume = resume || (frame.header.flags & protocol::kFileResume);
             const auto beginStarted = observeMember ? memberWorkNow() : 0;
             fileStatus = transaction->begin(root, id, download, remoteRoot, requestedResume);
             if (observeMember) memberSample.set(MemberWorkStage::TransactionBegin, beginStarted, memberWorkNow());

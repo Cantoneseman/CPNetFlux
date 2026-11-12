@@ -1586,6 +1586,89 @@ TEST_P(PersistentRecoveryTest, ReopenedTransportSendsOnlyManifestMissingPayload)
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), "ABCDEFGH");
 }
 
+TEST_P(PersistentRecoveryTest, RequeuedWorkResumesWithoutGlobalOrLaneResumeFlag) {
+    const auto [download, ranged] = GetParam();
+    TempRoot source, destination;
+    const auto sourcePath = source.path / "recover.bin";
+    std::ofstream(sourcePath, std::ios::binary) << "ABCDEFGH";
+    struct stat st{}; ASSERT_EQ(::stat(sourcePath.c_str(), &st), 0);
+    PersistentFileIdentity id{1, 7, 8, "recover.bin", "recover-transfer", 4, st.st_mtim.tv_sec,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    // A single full-file range still uses the range coordinator and sparse handshake.
+    if (ranged) { id.rangeId = 1; id.rangeLength = 8; id.rangeCount = 1; }
+    DynamicFileQueue queue(std::vector<PersistentFileIdentity>{id}, 2, 1, 1);
+    WorkExecutor executor(queue, queue.worker(0).value());
+    auto next = executor.claim(); ASSERT_TRUE(next.isOk()); ASSERT_TRUE(next.value());
+    ASSERT_TRUE(executor.begin(*next.value()).isOk());
+    {
+        SocketPair broken;
+        PersistentTreeStats partial;
+        cpnetflux::common::Status interrupted;
+        std::jthread receiver([&] {
+            interrupted = receivePersistentTree(&broken.receiver, destination.path.string(),
+                download, "remote/tree", &partial, {}, 1, 0, 1, 1, true);
+        });
+        ASSERT_TRUE(PersistentDataSession::writeBegin(&broken.sender, id).isOk());
+        if (ranged) {
+            auto missing = PersistentDataSession::readResumeResponse(&broken.sender, id);
+            ASSERT_TRUE(missing.isOk());
+        }
+        const std::uint8_t bytes[]{'A', 'B', 'C', 'D'};
+        ASSERT_TRUE(PersistentDataSession::writeData(&broken.sender, id, 0, bytes, sizeof(bytes)).isOk());
+        ::shutdown(broken.sender.fd(), SHUT_RDWR);
+        receiver.join();
+        EXPECT_FALSE(interrupted.isOk());
+        EXPECT_EQ(partial.payloadBytes, 4U);
+    } // Old sockets closed and receiver joined before disconnect/recover.
+    const auto output = (destination.path / "recover.bin").string();
+    if (download) {
+        auto manifest = cpnetflux::checkpoint::loadDownloadManifest(
+            cpnetflux::checkpoint::downloadManifestPathForOutput(output));
+        ASSERT_TRUE(manifest.isOk()); ASSERT_EQ(manifest.value().verifiedChunks.size(), 1U);
+        EXPECT_EQ(manifest.value().verifiedChunks.front().length, 4U);
+    } else {
+        auto manifest = cpnetflux::checkpoint::ManifestStore::load(
+            cpnetflux::checkpoint::manifestPathForOutput(output));
+        ASSERT_TRUE(manifest.isOk()); ASSERT_EQ(manifest.value().verifiedChunks.size(), 1U);
+        EXPECT_EQ(manifest.value().verifiedChunks.front().length, 4U);
+    }
+    ASSERT_TRUE(queue.disconnect(executor.owner()).isOk());
+    ASSERT_TRUE(queue.requeue(*next.value()).isOk());
+    EXPECT_EQ(queue.worker(1).value().epoch.value, 1U);
+    EXPECT_FALSE(executor.commit(*next.value()).isOk());
+
+    SocketPair resumed;
+    PersistentTreeStats sent, received;
+    DynamicFileQueue incoming(std::vector<WorkItem>{}, 2, 1, 1);
+    cpnetflux::common::Status receiverStatus;
+    std::jthread receiver([&] {
+        receiverStatus = receivePersistentTree(&resumed.receiver, destination.path.string(),
+            download, "remote/tree", &received, {}, 1, 1, 2, 1, true, false, {}, &incoming);
+    });
+    cpnetflux::config::FileTransferOptions options;
+    options.resume = false;
+    options.reconnectAttempt = 0; // Healthy lane; the work lease owns attempt1.
+    std::uint64_t completedAttempt = 0;
+    auto senderStatus = sendPersistentTree(&resumed.sender, source.path.string(), {}, &sent,
+        [&](const PersistentFileIdentity& file, const cpnetflux::common::Status& status, bool complete) {
+            if (complete && status.isOk()) completedAttempt = file.attempt;
+            return cpnetflux::common::Status::ok();
+        }, 1, 1, 2, &queue, &options);
+    ::shutdown(resumed.sender.fd(), SHUT_RDWR);
+    receiver.join();
+    ASSERT_TRUE(senderStatus.isOk()) << senderStatus.message();
+    ASSERT_TRUE(receiverStatus.isOk()) << receiverStatus.message();
+    EXPECT_EQ(sent.payloadBytes, 4U);
+    EXPECT_EQ(sent.skippedBytes, 4U);
+    EXPECT_EQ(received.payloadBytes, 4U);
+    EXPECT_EQ(completedAttempt, 1U);
+    EXPECT_EQ(queue.outstanding(), 0U);
+    EXPECT_EQ(incoming.outstanding(), 0U);
+    std::ifstream file(output, std::ios::binary);
+    EXPECT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), "ABCDEFGH");
+}
+
+
 INSTANTIATE_TEST_SUITE_P(UploadDownloadWholeAndRange, PersistentRecoveryTest,
     ::testing::Combine(::testing::Bool(), ::testing::Bool()));
 
