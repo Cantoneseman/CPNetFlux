@@ -1,6 +1,6 @@
 # CPNetFlux
 
-最新开发：[阶段78结果](docs/tasks/2026-11-13-v3-directory-semantics-78-result.md)已补齐V3普通/空目录独立元数据、schema2完成事实、安全路径创建，并修复断连恢复的旧占用/重新派发竞争。双端同提交/同配置/四SHA，各完整回归825通过、3项原生RDMA环境跳过、0失败；最终无trace早期控制断连64/64通过。工程正确性阶段闭合，下一步是新版本受控GridFTP复测与稳定性验收；A/B/C和上机仍OPEN/NOT_READY，没有新吞吐成绩。 [阶段79](docs/tasks/2026-11-13-field-trial-scenarios-79-result.md)因实验输入缺失在payload前回滚，正式组均NOT_RUN；当前先闭合[80启动输入](docs/tasks/2026-11-13-field-trial-inputs-80.md)，原始失败保留。
+最新验收：[阶段80](docs/tasks/2026-11-13-field-trial-scenarios-80-result.md)新运行时1GiB五对完整任务中位CPNetFlux30.80/GridFTP12.10Gbps，样本CV均<5%；三类目录及反向各三次通过（完整文件SHA与目录集合）。TLS组因实验误用明文专用pacer而零payload失败，已用同二进制8MiB单变量复现；C稳定性和故障组未运行，整体NOT_READY。两端RX/TX已恢复1024/1024并清理。下一步[81补验](docs/tasks/2026-11-13-field-trial-followup-81.md)只修实验profile/清理门并完成S/C/F，不改变性能配置或启动新调优。比较双方安全、校验、内存后端与提交语义差异见结果；不声称加密、持久化或100G成绩。
 
 历史实测：[阶段75](docs/tasks/2026-11-12-field-trial-comparison-75-result.md)1GiB五对中位CP31.075/Grid12.352Gbps；[阶段77](docs/tasks/2026-11-13-field-trial-continuation-77-result.md)dense各3次0.399/0.945秒、tiny各3次3.504/2.561秒，mixed文件全对但空目录丢失。上述为旧运行时成绩，不能搬到新二进制。临时RX4096已恢复1024，阶段77现场已清理；新窗口需重新准入，不启动吞吐参数扫描。
 
