@@ -4,6 +4,7 @@ import argparse
 import gzip
 import json
 import os
+import random
 from pathlib import Path
 import shlex
 import shutil
@@ -121,6 +122,9 @@ def source_probe(args):
     return result
 
 
+def source_block(reproducible=False):
+    return random.Random(0x43504e4656).randbytes(8*base.MiB) if reproducible else os.urandom(8*base.MiB)
+
 def seed(args):
     base.receipt(args.commit)
     assert base.node()==2 and shutil.disk_usage('/dev/shm').free>SIZE+base.GIB
@@ -134,7 +138,7 @@ def seed(args):
         assert state['mem_available_min_bytes']>=12*base.GIB,'seed memory threshold'
         assert state['owned_swap_peak_bytes']==0 and base.pswpout()==state['pswpout_before'],'seed swap gate'
     try:
-        block=os.urandom(8*base.MiB)
+        block=source_block(getattr(args,'reproducible_source',False))
         with path.open('xb') as handle:
             for _ in range(SIZE//len(block)):handle.write(block);guard('write')
         state['owner_after_write']=cgroup_owner()
@@ -142,7 +146,8 @@ def seed(args):
         state['owner_after_sha']=cgroup_owner()
         expected['residency']=residency(path);guard('residency')
         assert expected['residency']['all_resident'] and expected['bytes']==SIZE
-        expected['data_shape']=f'random 8MiB block repeated {SIZE//(8*base.MiB)} times; fully materialized'
+        prefix='fixed pseudorandom' if getattr(args,'reproducible_source',False) else 'random'
+        expected['data_shape']=f'{prefix} 8MiB block repeated {SIZE//(8*base.MiB)} times; fully materialized'
         base.save(args.evidence/'peer/source.json',expected)
         return expected
     finally:
@@ -155,6 +160,7 @@ def own_peer(args,action):
     argv=['python3',str(Path(__file__).resolve()),'--action',action,'--evidence',str(args.evidence),
           '--payload-root',str(args.payload_root),'--commit',args.commit,
           '--size-gib',str(args.size_gib)]
+    if getattr(args,'reproducible_source',False):argv.append('--reproducible-source')
     result=subprocess.run(['ssh','-n','-o','BatchMode=yes','r770-2',shlex.join(argv)],
                           text=True,capture_output=True,timeout=180)
     assert result.returncode==0,result.stderr+result.stdout
@@ -437,6 +443,7 @@ if __name__=='__main__':
     parser.add_argument('--commit',required=True)
     parser.add_argument('--mechanism',choices=('frame','receive-buffer','profile-overhead','m1'),default='frame')
     parser.add_argument('--size-gib',type=int,choices=(1,8),default=1)
+    parser.add_argument('--reproducible-source',action='store_true')
     parser.add_argument('--receiver-profile',action='store_true',
                         help='enable receiver CPU/payload profiling for bounded 1 GiB diagnostics')
     args=parser.parse_args()

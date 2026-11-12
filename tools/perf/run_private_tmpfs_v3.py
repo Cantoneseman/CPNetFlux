@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single default-off private tmpfs V3 1GiB admission; no scan or formal matrix."""
+"""Bounded private tmpfs V3 admission or one fixed formal M2 row; never scans."""
 import argparse
 import json
 import os
@@ -56,13 +56,25 @@ def validate_summary(summary):
 def run(args):
     private.require_enabled(args.enable_private_tmpfs)
     assert base.node()==1 and os.geteuid()!=0
-    args.size_gib=1;args.size,args.count=base.GIB,1
+    args.mode='v3'  # This entry point only executes V3 rows.
+    spec=private.validate_profile(args)
+    args.size_gib=spec['size_gib'];args.size,args.count=args.size_gib*base.GIB,1
+    large.SIZE=args.size
+    args.reproducible_source=spec['name']!='admission'
+    sample_name='private55-combined-1g' if spec['name']=='admission' else 'private58-'+spec['name'][3:]+'-8g'
     mount=json.loads((args.evidence/'mount-ready.json').read_text())
     assert os.readlink('/proc/self/ns/mnt')==mount['private_namespace']
-    assert os.path.ismount(args.payload_root) and 'huge=within_size' in mount['mount_options']
+    assert os.path.ismount(args.payload_root)
+    options=mount['mount_options'];huge=spec['huge_policy']
+    assert 'huge='+huge in options or (huge=='never' and 'huge=' not in options),'mount huge policy mismatch'
+    capacity=os.statvfs(args.payload_root)
+    assert capacity.f_blocks*capacity.f_frsize==spec['mount_limit_bytes'],'private capacity mismatch'
+    if spec['name']!='admission':
+        assert mount['experiment_profile']==spec['name']
+        assert mount['mount_limit_bytes']==spec['mount_limit_bytes'] and mount['huge_policy']==huge
     if args.native_setup:
         assert mount.get('setup_strategy')=='native_syscalls' and mount.get('supervisor_euid')==0
-    assert base.mem()>=12*base.GIB
+    assert base.mem()>=spec['preflight_mem_bytes'],'bounded receiver preflight'
     broad_before=net.snapshot(full=True)
     before=base.snapshot();base.save(args.evidence/'preflight-r1.json',before)
     local=base.receipt(args.commit);remote=base.peer(args,'receipt');assert local==remote
@@ -72,7 +84,7 @@ def run(args):
     (args.payload_root/base.MARKER).write_text(base.TOKEN)
     init_attempt=False;start_attempt=False;row=None;expected=None;source=None;server=None;failures=[];cleanup={}
     gates=dict(network=False,resources=False,content=False,pages=False)
-    if args.kernel_tcp_pacing:gates['kernel_pacing']=False
+    if args.kernel_tcp_pacing or spec['name']!='admission':gates['kernel_pacing']=False
     if args.native_setup:gates['native_setup']=True
     page=dict(samples=0,target_shmem_pmd_mapped_peak_bytes=0,actual_uid=os.getuid(),
               scope='sampled actual receiver target VMAs; peak is not total file coverage')
@@ -90,6 +102,7 @@ def run(args):
     try:
         init_attempt=True
         peer=base.peer(args,'init');base.save(args.evidence/'preflight-r2.json',peer)
+        assert peer['mem_available_bytes']>=spec['preflight_mem_bytes'],'bounded sender preflight'
         expected=large.own_peer(args,'seed')
         start_attempt=True
         base.peer(args,'start',name='private55',port=49337,data_base=61000,sender_pacing='off',
@@ -101,20 +114,21 @@ def run(args):
         assert source['all_resident'] and source['host_pswpout_delta_since_seed']==0
         assert source['mem_available_bytes']>=12*base.GIB and source['process']['swap_bytes']==0
         try:
-            row=base.client_sample(args,'private55-combined-1g',expected,'2','on',49337,
+            row=base.client_sample(args,sample_name,expected,'2','on',49337,
                 mapped_download=True,data_frame_bytes=262144,tcp_receive_buffer_bytes='1048576',
                 receiver_profile=False,range_timing=False,network_profile=True,network_settle_seconds=.5,
                 tcp_exact_read='off',runner=runner)
         finally:base.save(args.evidence/'receiver-pages.json',page)
         base.save(args.evidence/'results.json',[row])
         validate_summary(row['summary'])
-        row['verified_chunks']=verify_chunks(row['manifest_checks']['member_example'],base.GIB)
-        assert row['verified_chunks']==1024
-        row['mapped_mechanism']=large.mapped_checks(args,'private55-combined-1g',262144,
+        row['verified_chunks']=verify_chunks(row['manifest_checks']['member_example'],args.size)
+        assert row['verified_chunks']==args.size//base.MiB
+        row['mapped_mechanism']=large.mapped_checks(args,sample_name,262144,
                                                   receiver_profile=False,range_timing=False)
         gates['content']=True
-        gates['pages']=page['samples']>0 and page['target_shmem_pmd_mapped_peak_bytes']>0
-        assert gates['pages'],'actual receiver huge-page proof missing'
+        gates['pages']=page['samples']>0 and ((page['target_shmem_pmd_mapped_peak_bytes']>0)
+            if huge=='within_size' else page['target_shmem_pmd_mapped_peak_bytes']==0)
+        assert gates['pages'],'actual receiver page policy proof missing'
         window=row['receiver_network_window']
         receive_gate(window['analysis']);receive_gate(window['settled_analysis'])
         broad_delta=large.network_counter_deltas(row['before']['net'],row['after']['net'])
@@ -133,6 +147,9 @@ def run(args):
                     proof=validate_kernel_pacing_receipts(server['sender_phases'].get('tcp_kernel_pacing',[]))
                     base.save(args.evidence/'kernel-pacing-receipts.json',dict(
                         receipts=server['sender_phases']['tcp_kernel_pacing'],proof=proof))
+                    gates['kernel_pacing']=True
+                elif spec['name']!='admission':
+                    assert not server['sender_phases'].get('tcp_kernel_pacing',[]),'control kernel pacing active'
                     gates['kernel_pacing']=True
                 server_delta=large.network_counter_deltas(server['before']['net'],server['after']['net'])
                 validate_netdev_deltas(server_delta)
@@ -174,7 +191,9 @@ def run(args):
     except BaseException as error:
         gates['resources']=False
         failures.append(dict(stage='resources',error=repr(error)))
-    report=dict(scope='one instrumented feasibility; no A/B, CV, M2 or stability claim',
+    scope=('one instrumented feasibility; no A/B, CV, M2 or stability claim' if spec['name']=='admission'
+           else 'one 8GiB row of formal M2; matrix decision external')
+    report=dict(scope=scope,profile=spec['name'],payload_bytes=args.size,
         gates=gates,failures=failures,cleanup=cleanup,m2_pass=False,
         setup_strategy=mount.get('setup_strategy','python_namespace'),
         pacing='off',exact_read='off',kernel_pacing='2000000000' if args.kernel_tcp_pacing else 'off',
@@ -185,7 +204,7 @@ def run(args):
         report.update(client_wall_seconds=row['t_ready_seconds'],client_raw_gbps=row['whole_task_gbps'],
             private_target_setup_seconds=mount['target_setup_seconds'],
             target_directory_prepare_seconds=row['target_preparation_seconds'],
-            complete_target_task_seconds=total,complete_target_task_gbps=base.GIB*8/total/1e9,
+            complete_target_task_seconds=total,complete_target_task_gbps=args.size*8/total/1e9,
             denominator='private namespace/setup + target directory creation + client launch to exit; SHA/observation/cleanup separate')
     base.save(args.evidence/'analysis.json',report)
     if failures:base.save(args.evidence/'failure.json',failures)
@@ -200,6 +219,7 @@ def main():
     p.add_argument('--payload-root',type=Path,required=True)
     p.add_argument('--kernel-tcp-pacing',action='store_true')
     p.add_argument('--native-setup',action='store_true')
+    p.add_argument('--profile',choices=['admission','m2-control','m2-candidate'],default='admission')
     p.add_argument('--commit',required=True)
     return run(p.parse_args())
 

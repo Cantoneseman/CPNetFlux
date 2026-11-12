@@ -83,6 +83,24 @@ def run(build):
             descendant=read(folder/'descendant.json')
             assert not (Path('/proc')/str(descendant['pid'])).exists(),'escaped descendant survived'
         receipts.append(dict(mode=mode,exit_code=code,unmounted=True,reaped=True,target_setup_seconds=ns['target_setup_seconds']))
+    profiles=[]
+    for profile in ('m2-control','m2-candidate'):
+        folder=evidence/profile
+        payload=Path('/dev/shm/cpnetflux-s0-private55-capacity58-'+uuid.uuid4().hex)
+        command=[sys.executable,str(P/'tools/perf/private_tmpfs.py'),'--enable-private-tmpfs',
+                 '--native-setup','--profile',profile,'--payload-root',str(payload),
+                 '--evidence',str(folder),'--mode','setup-only']
+        result=subprocess.run(command,capture_output=True,text=True,timeout=30)
+        assert result.returncode==0,(profile,result.stdout,result.stderr)
+        ns=read(folder/'namespace.json');host=read(folder/'host-after.json')
+        spec=private.profile_spec(profile)
+        assert ns['experiment_profile']==profile and ns['mount_limit_bytes']==spec['mount_limit_bytes']
+        assert ns['huge_policy']==spec['huge_policy'] and ns['child']['exit_code']==0
+        assert ns['unmounted'] and ns['child']['reaped'] and ns['remaining_names']==[]
+        assert host['host_unchanged'] and host['payload_root_removed'] and not payload.exists()
+        assert private.host_state()==initial
+        profiles.append(dict(profile=profile,mount_limit_bytes=ns['mount_limit_bytes'],
+                             huge_policy=ns['huge_policy'],payload_bytes=0,unmounted=True,reaped=True))
     nested=evidence/'existing-mount';nested.mkdir()
     existing=Path('/dev/shm/cpnetflux-s0-private55-existing57-'+uuid.uuid4().hex);existing.mkdir(mode=0o700)
     try:
@@ -107,7 +125,10 @@ def run(build):
     cases=[args+['--command','/bin/true'],replaced('--uid','0'),replaced('--inode',str(inode+1)),
            replaced('--payload-root','/dev/shm'),replaced('--evidence','/tmp'),
            replaced('--mode','arbitrary'),replaced('--host-namespace','mnt:[0]'),
-           replaced('--setup-started','nan')]
+           replaced('--setup-started','nan'),
+           args+['--profile','unbounded'],
+           args+['--profile','m2-control','--kernel-tcp-pacing'],
+           replaced('--mode','smoke')+['--profile','m2-candidate']]
     try:
         for command in cases:
             result=subprocess.run(command,capture_output=True,text=True,timeout=10)
@@ -121,7 +142,7 @@ def run(build):
     finally:
         assert payload.stat().st_ino==inode and not os.path.ismount(payload) and not list(payload.iterdir())
         payload.rmdir()
-    report=dict(result='pass',lifecycle=receipts,negative_cases=len(cases),symlink_receipt_rejected=True,
+    report=dict(result='pass',lifecycle=receipts,m2_capacity_profiles=profiles,negative_cases=len(cases),symlink_receipt_rejected=True,
                 host_unchanged=True,evidence=str(evidence),performance_claim=False)
     (evidence/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report));return 0

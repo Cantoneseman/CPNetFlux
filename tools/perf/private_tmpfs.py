@@ -16,6 +16,29 @@ PREFIX='cpnetflux-s0-private55-'
 EXPERIMENTS=Path('/home/Su/experiments/CPNetFlux')
 GIB=1024**3
 
+def profile_spec(name):
+    if name not in ('admission','m2-control','m2-candidate'):
+        raise ValueError('unsupported bounded private profile')
+    formal=name!='admission'
+    capacity=(8448 if formal else 1280)*1024**2
+    return dict(name=name,size_gib=8 if formal else 1,mount_limit_bytes=capacity,
+                huge_policy='never' if name=='m2-control' else 'within_size',
+                preflight_mem_bytes=12*GIB+capacity+GIB if formal else 12*GIB)
+
+def validate_profile(args):
+    spec=profile_spec(getattr(args,'profile','admission'))
+    if spec['name']!='admission':
+        if not getattr(args,'native_setup',False) or args.mode not in ('v3','setup-only'):
+            raise ValueError('M2 profiles require native setup and V3/setup-only mode')
+        expected=args.mode=='v3' and spec['name']=='m2-candidate'
+        if bool(args.kernel_tcp_pacing)!=expected:
+            raise ValueError('M2 profile requires its fixed kernel pacing policy')
+    return spec
+
+def available_memory():
+    return int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines()
+                    if line.startswith('MemAvailable:')))*1024
+
 def save(path,value):
     path.write_text(json.dumps(value,indent=2)+'\n')
 
@@ -102,6 +125,7 @@ def host_state():
                 shmem_policy=Path('/sys/kernel/mm/transparent_hugepage/shmem_enabled').read_text())
 
 def namespace(args):
+    assert getattr(args,'profile','admission')=='admission','formal profile requires native supervisor'
     owner=pwd.getpwnam('Su')
     assert os.geteuid()==0 and args.uid==owner.pw_uid and args.gid==owner.pw_gid
     assert os.readlink('/proc/self/ns/mnt')!=args.host_namespace,'not a private mount namespace'
@@ -191,6 +215,8 @@ def launch(args):
     require_enabled(args.enable_private_tmpfs)
     assert os.geteuid()!=0,'launch as Su'
     owner=pwd.getpwnam('Su');assert os.getuid()==owner.pw_uid
+    spec=validate_profile(args)
+    assert available_memory()>=spec['preflight_mem_bytes'],'private profile memory preflight'
     native=getattr(args,'native_setup',False)
     helper=Path(__file__).resolve().parents[2]/'build/cpnetflux-private-tmpfs-launcher'
     if native and not helper.is_file():raise ValueError('build the native private tmpfs launcher first')
@@ -207,6 +233,7 @@ def launch(args):
         '--uid',str(owner.pw_uid),'--gid',str(owner.pw_gid),'--inode',str(st.st_ino),
         '--host-namespace',before['namespace'],'--commit',args.commit,
         '--setup-started',str(setup_started)]
+    command+=['--profile',spec['name']]
     if args.kernel_tcp_pacing:command.append('--kernel-tcp-pacing')
     try:
         result=run_child(command,args.evidence/'launcher.log',720,
@@ -226,10 +253,15 @@ def launch(args):
             ns=json.loads((args.evidence/'namespace.json').read_text())
             gates=dict(report['gates'],cleanup=ns.get('unmounted') is True and not mp.exists(),
                        no_failures=not report['failures'],child_ok=ns['child']['exit_code']==0)
-            save(args.evidence/'acceptance.json',dict(gates=gates,
-                formal_admission=admission(report.get('complete_target_task_gbps',0),**gates),
-                complete_target_task_gbps=report.get('complete_target_task_gbps'),
-                m2_pass=False,scope='single feasibility only'))
+            accepted=dict(gates=gates,complete_target_task_gbps=report.get('complete_target_task_gbps'),
+                          m2_pass=False,profile=spec['name'])
+            if spec['name']=='admission':
+                accepted.update(formal_admission=admission(report.get('complete_target_task_gbps',0),**gates),
+                                scope='single feasibility only')
+            else:
+                accepted.update(valid_sample=bool(gates) and all(v is True for v in gates.values()),
+                                scope='one row of formal M2; no standalone M2 claim')
+            save(args.evidence/'acceptance.json',accepted)
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
@@ -240,6 +272,7 @@ def main():
     p.add_argument('--mode',choices=['v3','smoke','smoke-fail','smoke-timeout','smoke-cancel','smoke-v3','setup-only','smoke-descendant'],default='v3')
     p.add_argument('--kernel-tcp-pacing',action='store_true')
     p.add_argument('--native-setup',action='store_true')
+    p.add_argument('--profile',choices=['admission','m2-control','m2-candidate'],default='admission')
     p.add_argument('--commit',default='')
     p.add_argument('--uid',type=int);p.add_argument('--gid',type=int);p.add_argument('--inode',type=int)
     p.add_argument('--host-namespace')
@@ -248,6 +281,7 @@ def main():
     if args.kernel_tcp_pacing and args.mode!='v3':p.error('kernel pacing requires V3 mode')
     if args.mode=='smoke-descendant' and args.action=='launch' and not args.native_setup:p.error('descendant probe requires native supervisor')
     if args.native_setup and args.action!='launch':p.error('native setup selects the launch path only')
+    if args.action=='launch':validate_profile(args)
     if args.action=='namespace':return namespace(args)
     if args.action=='probe':probe(args);return 0
     return launch(args)

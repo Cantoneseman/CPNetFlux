@@ -7,6 +7,7 @@
 #include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -70,19 +71,23 @@ struct Fd {
 };
 struct Options {
     fs::path payload, evidence;
-    std::string mode, commit, hostNamespace;
+    std::string mode, commit, hostNamespace, profile = "admission";
     uid_t uid = 0; gid_t gid = 0; std::uint64_t inode = 0;
     double setupStarted = 0;
     bool enabled = false, pacing = false;
 };
 Options parse(int argc, char** argv) {
     std::map<std::string, std::string> values;
-    Options o;
+    Options o; bool profileSeen = false;
     const std::vector<std::string> keys = {"--payload-root", "--evidence", "--mode", "--commit",
         "--uid", "--gid", "--inode", "--host-namespace", "--setup-started"};
     for (int i = 1; i < argc; ++i) {
         const std::string key = argv[i];
         if (key == "--enable-private-tmpfs") { require(!o.enabled, "duplicate opt-in"); o.enabled = true; }
+        else if (key == "--profile") {
+            require(!profileSeen && i + 1 < argc, "missing or duplicate profile");
+            profileSeen = true; o.profile = argv[++i];
+        }
         else if (key == "--kernel-tcp-pacing") { require(!o.pacing, "duplicate pacing"); o.pacing = true; }
         else {
             require(std::find(keys.begin(), keys.end(), key) != keys.end(), "unknown option: " + key);
@@ -106,6 +111,12 @@ Options parse(int argc, char** argv) {
             o.mode == "smoke-timeout" || o.mode == "smoke-cancel" || o.mode == "smoke-v3" ||
             o.mode == "smoke-descendant", "unsupported fixed child mode");
     require(!o.pacing || o.mode == "v3", "kernel pacing requires V3");
+    require(o.profile == "admission" || o.profile == "m2-control" || o.profile == "m2-candidate",
+            "unsupported bounded profile");
+    if (o.profile != "admission") {
+        require(o.mode == "v3" || o.mode == "setup-only", "formal profile child mode rejected");
+        require(o.pacing == (o.mode == "v3" && o.profile == "m2-candidate"), "formal sender policy mismatch");
+    }
     require(o.mode != "v3" || std::regex_match(o.commit, std::regex("[0-9a-f]{40}")), "V3 needs fixed commit");
     return o;
 }
@@ -116,8 +127,26 @@ struct stat checkedDirectory(const fs::path& path, uid_t uid) {
             fs::canonical(path) == path, "directory identity/canonical path rejected");
     return st;
 }
+std::uint64_t capacityBytes(const Options& o) {
+    return (o.profile == "admission" ? 1280ULL : 8448ULL) * 1024 * 1024;
+}
+std::string hugePolicy(const Options& o) { return o.profile == "m2-control" ? "never" : "within_size"; }
+std::string profileFields(const Options& o) {
+    return ",\"experiment_profile\":" + quote(o.profile) + ",\"mount_limit_bytes\":" +
+        std::to_string(capacityBytes(o)) + ",\"huge_policy\":" + quote(hugePolicy(o));
+}
 void validate(const Options& o) {
     require(::geteuid() == 0 && ::getuid() == 0, "supervisor requires explicit sudo");
+    if (o.profile != "admission") {
+        std::ifstream input("/proc/meminfo"); std::string line; std::uint64_t available = 0;
+        while (std::getline(input, line)) {
+            if (line.rfind("MemAvailable:", 0) == 0) {
+                std::istringstream fields(line.substr(13)); fields >> available; break;
+            }
+        }
+        require(available * 1024 >= 13ULL * 1024 * 1024 * 1024 + capacityBytes(o),
+                "formal profile memory preflight");
+    }
     const passwd* owner = ::getpwnam("Su");
     require(owner && o.uid != 0 && o.uid == owner->pw_uid && o.gid == owner->pw_gid, "only Su workload allowed");
     require(o.payload.parent_path() == "/dev/shm" &&
@@ -190,7 +219,7 @@ ChildResult workload(const Options& o, int evidence) {
     if (o.mode == "v3") {
         args.insert(args.end(), {script + "run_private_tmpfs_v3.py", "--action", "run",
             "--evidence", o.evidence.string(), "--payload-root", o.payload.string(),
-            "--commit", o.commit, "--enable-private-tmpfs", "--native-setup"});
+            "--commit", o.commit, "--enable-private-tmpfs", "--native-setup", "--profile", o.profile});
         if (o.pacing) args.push_back("--kernel-tcp-pacing");
     } else args.insert(args.end(), {script + "private_tmpfs.py", "--action", "probe", "--payload-root",
         o.payload.string(), "--evidence", o.evidence.string(), "--mode", o.mode});
@@ -249,17 +278,21 @@ int supervise(const Options& o) {
     ChildResult child;
     try {
         const double started = now();
-        const auto flags = "size=1280M,uid=" + std::to_string(o.uid) + ",gid=" + std::to_string(o.gid) +
-            ",mode=0700,huge=within_size";
+        const auto flags = "size=" + std::to_string(capacityBytes(o)) + ",uid=" +
+            std::to_string(o.uid) + ",gid=" + std::to_string(o.gid) + ",mode=0700,huge=" + hugePolicy(o);
         systemCheck(::mount("cpnetflux-private57", o.payload.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, flags.c_str()) == 0, "mount tmpfs");
         mounted = true; mountSeconds = now() - started;
         options = mountInfo(o.payload);
-        require(options.find("huge=within_size") != std::string::npos, "huge policy not effective");
+        const bool defaultNever = hugePolicy(o) == "never" && options.find("huge=") == std::string::npos;
+        require(defaultNever || options.find("huge=" + hugePolicy(o)) != std::string::npos, "huge policy not effective");
+        struct statvfs capacity{};
+        systemCheck(::statvfs(o.payload.c_str(), &capacity) == 0, "private tmpfs capacity");
+        require(capacity.f_blocks * capacity.f_frsize == capacityBytes(o), "private capacity mismatch");
         setupSeconds = now() - o.setupStarted;
         const auto prefix = "{\"host_namespace\":" + quote(o.hostNamespace) + ",\"private_namespace\":" + quote(privateNamespace) +
             ",\"uid\":" + std::to_string(o.uid) + ",\"gid\":" + std::to_string(o.gid) +
             ",\"setup_strategy\":\"native_syscalls\",\"supervisor_euid\":0,\"mount_setup_seconds\":" + number(mountSeconds) +
-            ",\"target_setup_seconds\":" + number(setupSeconds) + ",\"mount_options\":" + quote(options);
+            ",\"target_setup_seconds\":" + number(setupSeconds) + ",\"mount_options\":" + quote(options) + profileFields(o);
         save(evidence.value, "mount-ready.json", prefix + "}", o);
         child = workload(o, evidence.value);
     } catch (const std::exception& e) { error = e.what(); }
@@ -279,7 +312,7 @@ int supervise(const Options& o) {
     std::string record = "{\"host_namespace\":" + quote(o.hostNamespace) + ",\"private_namespace\":" + quote(privateNamespace) +
         ",\"uid\":" + std::to_string(o.uid) + ",\"gid\":" + std::to_string(o.gid) +
         ",\"setup_strategy\":\"native_syscalls\",\"supervisor_euid\":0,\"mount_setup_seconds\":" + number(mountSeconds) +
-        ",\"target_setup_seconds\":" + number(setupSeconds) + ",\"mount_options\":" + quote(options) +
+        ",\"target_setup_seconds\":" + number(setupSeconds) + ",\"mount_options\":" + quote(options) + profileFields(o) +
         ",\"child\":{\"exit_code\":" + std::to_string(child.code) + ",\"reason\":" + quote(child.reason) +
         ",\"reaped\":" + (child.reaped ? "true" : "false") + ",\"pid\":" + std::to_string(child.pid) +
         ",\"wall_seconds\":" + number(child.wall) + "},\"unmounted\":" + (unmounted ? "true" : "false");
