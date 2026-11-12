@@ -55,8 +55,9 @@ def parse_result(doc,row,node,target=TARGET):
  expected=(IP2,row['source_port'],IP1,row['server_port']) if node=='r2' else (IP1,row['server_port'],IP2,row['source_port'])
  assert (c['local_host'],c['local_port'],c['remote_host'],c['remote_port'])==expected,(c,expected)
  received=doc['end']['sum_received']['bytes'];assert target<=received<=256*1024**2,received
- if node=='r2':assert received==doc['end']['sum_sent']['bytes']
- return dict(bytes=received,connection=c,receiver=doc['end']['sum_received'],sender=doc['end'].get('sum_sent'),timestamp=doc['start'].get('timestamp'),intervals=doc.get('intervals'))
+ sent=doc['end'].get('sum_sent',{}).get('bytes') if node=='r2' else None
+ if sent is not None:assert sent>=received,('sender accepted less than receiver delivered',sent,received)
+ return dict(bytes=received,accepted_sent_bytes=sent,accounting_gap_bytes=sent-received if sent is not None else None,complete_file_validation=False,connection=c,receiver=doc['end']['sum_received'],sender=doc['end'].get('sum_sent'),timestamp=doc['start'].get('timestamp'),intervals=doc.get('intervals'))
 def quick_network():
  root=pathlib.Path('/sys/class/net/eno17095np0/statistics');names=['rx_bytes','tx_bytes','rx_missed_errors','rx_errors','rx_dropped','tx_errors','tx_dropped']
  return {n:int((root/n).read_text()) for n in names}
@@ -138,6 +139,14 @@ class OracleTests(unittest.TestCase):
   self.assertEqual(parse_result(document,row,'r2',65536)['bytes'],65536)
   bad=copy.deepcopy(document);bad['start']['connected'][0]['local_port']+=1
   with self.assertRaises(AssertionError):parse_result(bad,row,'r2',65536)
+ def test_accepted_vs_delivered(self):
+  d=load('calibration-client.json');c=d['start']['connected'][0];row=dict(source_port=c['local_port'],server_port=c['remote_port']);c['local_host']=IP2;c['remote_host']=IP1
+  d['end']['sum_sent']['bytes']+=16384
+  observed=parse_result(d,row,'r2',65536);self.assertEqual(observed['accounting_gap_bytes'],16384);self.assertFalse(observed['complete_file_validation'])
+ def test_impossible_accounting(self):
+  d=load('calibration-client.json');c=d['start']['connected'][0];row=dict(source_port=c['local_port'],server_port=c['remote_port']);c['local_host']=IP2;c['remote_host']=IP1
+  d['end']['sum_sent']['bytes']=1
+  with self.assertRaises(AssertionError):parse_result(d,row,'r2',65536)
  def test_error_oracle(self):
   with self.assertRaises(AssertionError):parse_result(dict(error='failed authentication'),{},'r2')
 if __name__=='__main__':

@@ -17,3 +17,6 @@ iperf3 3.20的-n可能在统计间隔末尾停止，不能把128MiB当作严格w
 未完成目标仍为：解释并修复网络失败→固定版本GridFTP正式配对→至少1800秒且至少100任务稳定性/恢复/取消/TLS及资源趋势→上机候选。阶段64 NO-GO不被本诊断覆盖。
 
 脚本备份补充（跨机前）：新增 tools/perf/diagnostics/cpnetflux_rss_queue_control_66/{run66.py,rss.py,netprobe.py}，仅为固定阶段66科学诊断工具。netprobe保留资源/网络只读函数，不携带旧主动probe入口；它们随计划显式提交/推送，两端核对脚本hash后执行。并非产品运行时新功能。
+
+停止后复核与有限续接（原分散组不重跑）：分散组R1网络/资源/端点与四个主队列均通过，R2脚本在发送accepted字节==接收delivered字节的假设处失败，一条差256KiB，原报告保留failure。iperf3 3.20服务端TEST_END分支先停止并统计/关闭数据socket，不保证把sender内核接受的最后buffer全部交给接收应用；因此这个相等关系不是raw负载诊断的可靠不变量。此为源码支持的统计边界解释，不能仅凭它断言旧差值的每个字节去向。
+仅修正诊断oracle：分别记录sender/receiver与gap，要求receiver达到目标且不超过预算、sender不小于receiver、端点/四队列/并发负载/双端网络资源门保持；结果明确complete_file_validation=false。CP/GridFTP正式比较仍保留完整内容SHA门，不用此解释豁免。先观察新测试在旧oracle失败，再实现并双端离线通过；固定新提交/脚本hash后，仅允许剩余集中组一次，不重跑分散组、不追加第三组。任何本组错误仍停止。原停止事件、旧脚本SHA及失败不改写为pass，独立复核记录与原始数据分开。
