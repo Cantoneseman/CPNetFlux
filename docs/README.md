@@ -1,7 +1,7 @@
 # CPNetFlux 文档导航
 
 
-最新交付：[等待路径修复51](tasks/2026-11-12-v3-pacing-wait-51-result.md)：双端241项回归通过；单次1GiB为36.478Gbps，工程完成，未达40Gbps准入，M2仍开放。
+最新交付：[TCP exact-read 52](tasks/2026-11-12-v3-tcp-exact-read-52-result.md)：双端254项相关回归通过，读取机制确认；唯一1GiB触发OOB/missed各+52停止门，未产生新合格性能成绩，M2仍开放。
 
 **当前性能主线只维护在[路线图](ROADMAP.md)。** 本页负责导航，详细数据、失败与验收命令留在各任务/结果中；历史结论按其输入提交和环境解释。
 
@@ -20,7 +20,7 @@
 | 最新执行结果 | [Task50计划](tasks/2026-11-11-v3-sender-pacing-50.md)、[Task50结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：有界应用发送pacer实际生效，唯一1GiB为28.221Gbps，内容/资源/网络窗口通过；未达正式矩阵准入，默认off、仅保留诊断能力 |
 | 执行方式和缓冲所有权 | [三阶段指南](V3_TRANSFER_STAGES.md)、[映射下载边界](tasks/2026-11-08-v3-mapped-download-08-result.md) |
 | 接收队列计数归因 | [Task47合同](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47.md)、[Task47结果](tasks/2026-11-11-v3-rx-page-pool-counter-analysis-47-result.md)、[Task48计划](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48.md)、[Task48结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md) |
-| 当前开发 | [本阶段已收口](tasks/2026-11-11-v3-sender-pacing-50-result.md)：两端相关126/126回归、开启候选额外4/4；M2/长期稳定性仍开放，不继续参数扫描。原生RDMA只评估MR预算和所有权重启条件，继续暂停；新idea保持DEFERRED |
+| 当前开发 | [Task52结果](tasks/2026-11-12-v3-tcp-exact-read-52-result.md)：exact-read默认off、网络门FAIL，不追加矩阵；下一机制须有实际搬运/页管理工作量依据。原生RDMA和DEFERRED工作仍暂停 |
 | 设计、协议与工程规范 | [设计](DESIGN.md)、[工程规范](ENGINEERING.md)、[可观测性](OBSERVABILITY.md)、[目录传输](DIRECTORY_TRANSFER.md) |
 | 安全、发布与证据边界 | [安全](SECURITY.md)、[发布限制](release/ALPHA_LIMITATIONS.md)、[历史研究基线](RESEARCH_BASELINE.md) |
 

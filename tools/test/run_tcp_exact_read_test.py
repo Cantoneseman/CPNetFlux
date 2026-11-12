@@ -8,7 +8,7 @@ import run_sender_pacing as driver
 
 class TcpExactReadGateTest(unittest.TestCase):
     def rows(self):
-        return [dict(lane_index=i,tcp_exact_read=dict(enabled=True,large_read_calls=1024,
+        return [dict(channel_index=i,lane_index=0,tcp_exact_read=dict(enabled=True,large_read_calls=1024,
             recv_calls=1031,short_returns=5,bytes=1024*262148,interruptions=2)) for i in range(4)]
     def test_all_large_data_bytes_and_actual_calls_required(self):
         result=driver.validate_exact_read(self.rows())
@@ -19,6 +19,10 @@ class TcpExactReadGateTest(unittest.TestCase):
         rows=self.rows()
         for bad in (rows[:3],rows+rows[:1],[rows[0]]*4):
             with self.assertRaises(AssertionError):driver.validate_exact_read(bad)
+        for field,value in [('channel_index',4),('lane_index',1)]:
+            bad=copy.deepcopy(rows);bad[0][field]=value
+            with self.subTest(field=field):
+                with self.assertRaises(AssertionError):driver.validate_exact_read(bad)
         rows[0]['tcp_exact_read']['enabled']=False
         with self.assertRaises(AssertionError):driver.validate_exact_read(rows)
     def test_partial_or_impossible_receipt_rejected(self):

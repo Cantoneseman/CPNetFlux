@@ -33,7 +33,7 @@ def validate_receipts(rows, size=base.GIB):
                 wait_ns=sum(r['wait_ns'] for r in rows),passed=True)
 
 def validate_exact_read(endpoints, size=base.GIB):
-    assert len(endpoints)==4 and {r['lane_index'] for r in endpoints}==set(range(4)), 'exact-read lane coverage'
+    assert len(endpoints)==4 and {(r['channel_index'],r['lane_index']) for r in endpoints}=={(i,0) for i in range(4)}, 'exact-read channel/lane coverage'
     stats=[r['tcp_exact_read'] for r in endpoints]
     for row in stats:
         assert row['enabled'] is True and row['large_read_calls']==size//4//262144, 'exact read inactive/partial'

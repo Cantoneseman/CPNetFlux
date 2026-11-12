@@ -82,3 +82,16 @@ CMake为现有framed测试增加recv链接包装用于真实socket计数/定向�
 R1构建与相关CTest 254/254通过(96.67秒)，其中exact-read smoke覆盖真实TCP双向传输、
 queued/inline和准确JSON统计；启用CPNETFLUX_TCP_EXACT_READ=on的两个中断恢复回归2/2通过(6.81秒)。
 这是相关回归子集，不是全仓或生产验收。下一步固定提交并推送，然后R2构建同样回归。
+
+## 一次可行性后的统计修正范围
+R2相关254项通过，双端同ac254455配置/二进制核对后，已完成唯一1GiB任务。
+原始记录36.011Gbps，但新driver错误把lane_index当成全局连接索引而中止后处理：
+实际四channel为0..3，每channel的lane_index均0。这是统计门的实现错误，不改运行时。
+只修改run_sender_pacing.py及run_tcp_exact_read_test.py，测试改用实际channel/lane合同，
+先在错误validator上失败再修复；离线复核原始只读receipt，不重跑传输、不覆盖failure.json/results.json。
+源在finally已清理，所以被统计错误跳过的传输后source-check不伪装补测；目标全SHA和manifest原始记录保留。
+验收：相关driver门、原始证据hash、全部可复核资源/网络/CRC/机制/清理，以及明确未执行项。
+
+离线复核补充：窄窗rx_out_of_buffer +52、刷新尾窗missed +52，累计各+52，
+网络门FAIL；36.011Gbps仅原始耗时，不是合格性能结果。只运行该一次跨机任务。
+完整判定/未执行source-check/清理/下一步见[结果](2026-11-12-v3-tcp-exact-read-52-result.md)。

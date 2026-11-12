@@ -21,10 +21,13 @@
 本候选停止追加rate/lane/wait扫描；下一设计检查接收端页管理/搬运中是否还有具体可减工作，
 与已有聚合写及失败population/direct-receive/collapse路径区分；原生RDMA及DEFERRED工作仍暂停。
 
-Task52按当前接收路径继续：[TCP大DATA exact-read原型](tasks/2026-11-12-v3-tcp-exact-read-52.md)。
-独立32MiB本地探针确认普通recv为353–473次、WAITALL为256次，局部耗时无稳定收益；
-仅准入默认关闭、无额外payload缓存的plain-TCP原型，不把探针当吞吐成绩。
-当前先验收故障/恢复、双端固定版本，再最多一次1GiB可行性，未达40不启动正式矩阵。
+Task52已完成[默认关闭exact-read实现与结果](tasks/2026-11-12-v3-tcp-exact-read-52-result.md)：
+两端相关254/254通过；唯一1GiB的4096个大负载均一次recv完成。
+新driver的channel/lane索引错误已用实际合同测试修复；原始记录不改、只离线复核。
+窄窗OOB +52、刷新尾窗missed +52，网络门FAIL；36.011Gbps仅原始耗时，不是合格性能成绩。
+未达40且网络门失败，不追加8GiB或扫描，exact-read保持默认off，M2/网络稳定性OPEN。
+下一实现前须在TCP接收/CRC/新目标页管理的数据所有权与搬运中识别具体可减工作，
+区别于已关闭候选；不增加通用profiler轮次。原生RDMA及DEFERRED工作继续暂停。
 
 ## 当前主线
 
@@ -67,6 +70,8 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 | DONE / SOURCE AUDIT ONLY | Task48 精确mlx5源码核验 | [计划](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48.md)与[结果](tasks/2026-11-11-v3-rx-oob-driver-source-audit-48-result.md)：精确Ubuntu tag确认rx_out_of_buffer是聚合qcnt字段，没有RQ归属；现有只读接口未找到逐RQ OOB；下一步为有界1GiB 1-lane/4-lane复现 |
 | DONE / ABORTED FIRST SAMPLE | Task49 lane诊断与停止门 | [结果](tasks/2026-11-11-v3-rx-lane-diagnostic-49-result.md)：1-lane pwrite首样本OOB/missed +171，4-lane未运行；SHA/资源/清理通过，无性能结果；停止门工程交付完成 |
 | DONE / DIAGNOSTIC ONLY | Task50有界发送准入 | [结果](tasks/2026-11-11-v3-sender-pacing-50-result.md)：四lane共4096帧实际受控，机制/正确性通过；唯一1GiB为28.221Gbps，低于40Gbps准入，未运行新8GiB矩阵；默认off，不推荐性能配置 |
+| DONE / NOT ADMITTED | Task51 timerfd等待修复 | [结果](tasks/2026-11-12-v3-pacing-wait-51-result.md)：相关回归两端各241；唯一1GiB36.478Gbps、网络门通过，但未达40准入、无收益对照 |
+| DONE / NETWORK STOP | Task52 TCP exact-read | [结果](tasks/2026-11-12-v3-tcp-exact-read-52-result.md)：两端254项通过，4096大负载/4096recv；原始36.011Gbps因OOB/missed各+52不作合格成绩，默认off、未运行新矩阵 |
 | ENGINEERING CLOSED / M2 OPEN | 本阶段集成与边界收尾 | [Task50收尾](tasks/2026-11-11-v3-sender-pacing-50-result.md)：两端相关CTest各126/126，开启候选额外4/4；冻结配置、资源/清理和版本证据完成。原生RDMA仅评估MR预算/所有权重启条件，继续暂停；不自动追加诊断或启动DEFERRED idea |
 | DONE / NOT REPRODUCED | host `pswpout`归因诊断 | [任务43结果](tasks/2026-11-11-v3-host-pswpout-attribution-43-result.md)：两端120秒无payload观察均稳定，未定位M1-41单页增量；M1-44已通过独立host swap-out门，但这不改变M1-41旧结果；不重跑M1-41 |
 | DEFERRED | S1B摘要缓存默认晋级 | 保留显式收益；等待对应环境/大文件回归门，不抢占大文件主线 |
@@ -77,6 +82,7 @@ scope16/17及其他负载/计时合同不能跨轮直接算收益；最新提交
 ### 已结束候选的处置
 
 - sender-inline、population、direct-receive、seed+collapse、source-mmap当前具体候选不原样重跑。
+- Task52 exact-read机制成立但网络停止门触发、无吞吐收益证据，保持默认off；不重复小负载或参数扫描。
 - Task50应用发送pacer机制成立，速率准入未达；保留默认off诊断，不扫描sleep/rate/lane参数或追加小负载。
 - [S2C序列化26](tasks/2026-11-09-v3-tree-serialization-runtime-26-result.md)完整任务慢2.50%，保留original默认。
   “保存更快→全量快照更多”的证据用于未来保存机制设计；不删必要checkpoint/ACK。
