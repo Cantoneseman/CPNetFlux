@@ -53,6 +53,8 @@ class TransferSession {
                                                      std::uint64_t length,
                                                      checksum::ChecksumValue checksumValue,
                                                      bool deferManifestFlush = false);
+    // Serialized caller query, not a reservation; UINT64_MAX means exhausted.
+    [[nodiscard]] std::uint64_t nextVerifiedChunkId() const noexcept;
     [[nodiscard]] common::Status verifyTempChunks(const storage::PosixFile& tempFile);
     [[nodiscard]] common::Status markFailed();
     [[nodiscard]] common::Status markCommitted();

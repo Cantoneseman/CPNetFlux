@@ -832,14 +832,9 @@ class FileTransaction {
         }
         checkpoint::OptionalManifestTimer checkpointing(observation ? &observation->checkpointSeconds : nullptr);
         if (!flushed.isOk()) return flushed;
-        const auto recordId=std::visit([](const auto& s) {
-            std::uint64_t next=0;
-            for (const auto& r:s.manifest().verifiedChunks) {
-                if (r.chunkId==UINT64_MAX) return UINT64_MAX;
-                next=std::max(next,r.chunkId+1);
-            }
-            return next;
-        },session_);
+        const auto recordId = std::visit([](const auto& s) {
+            return s.nextVerifiedChunkId();
+        }, session_);
         if (recordId==UINT64_MAX) return Status::invalidArgument("checkpoint record ID exhausted");
         const double savedSecondsBefore = observation ? observation->manifestSave.saveSeconds : 0.0;
         const auto recordStarted = observation ? Clock::now() : Clock::time_point{};

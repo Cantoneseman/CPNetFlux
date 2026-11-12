@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <limits>
 #include <string>
@@ -150,4 +151,97 @@ TYPED_TEST(SessionRecordLookupTest, ExtremeOffsetsAndIdsDoNotOverflowIdentityChe
     EXPECT_TRUE(created.value().recordVerifiedChunk(0, 0, 1, this->crc()).isOk());
     EXPECT_FALSE(created.value().recordVerifiedChunk(1, maximum, 1, this->crc()).isOk());
 }
+TYPED_TEST(SessionRecordLookupTest, NextIdQueriesAvoidRepeatedManifestScans) {
+    constexpr std::uint64_t count = 8192;
+    auto created = this->create(checksum::ChecksumAlgorithm::Crc32c, count * 4);
+    ASSERT_TRUE(created.isOk());
+    session::VerifiedChunkRecordStats observed;
+    created.value().setRecordStats(&observed);
+    for (std::uint64_t i = 0; i < count; ++i) {
+        EXPECT_EQ(created.value().nextVerifiedChunkId(), i);
+        ASSERT_TRUE(created.value().recordVerifiedChunk(i, i * 4, 4, this->crc()).isOk());
+    }
+    EXPECT_EQ(observed.recordIdQueries, count);
+    EXPECT_LE(observed.recordIdCandidatesExamined, count);
+}
+
+TYPED_TEST(SessionRecordLookupTest, NextIdMatchesSparseManifestAcrossSaveResumeAndMove) {
+    auto made = this->create(checksum::ChecksumAlgorithm::Crc32c);
+    ASSERT_TRUE(made.isOk());
+    auto check = [](const auto& value) {
+        std::uint64_t expected = 0;
+        for (const auto& r : value.manifest().verifiedChunks) {
+            if (r.chunkId == UINT64_MAX) { expected = UINT64_MAX; break; }
+            expected = std::max(expected, r.chunkId + 1);
+        }
+        EXPECT_EQ(value.nextVerifiedChunkId(), expected);
+    };
+    check(made.value());
+    ASSERT_TRUE(made.value().recordVerifiedChunk(0, 0, 4, this->crc()).isOk());
+    check(made.value());
+    ASSERT_TRUE(made.value().recordVerifiedChunk(700, 8, 4, this->crc(3)).isOk());
+    ASSERT_TRUE(made.value().recordVerifiedChunk(3, 4, 4, this->crc(2)).isOk());
+    check(made.value());
+    EXPECT_FALSE(made.value().recordVerifiedChunk(900, 0, 4, this->crc()).isOk());
+    EXPECT_EQ(made.value().nextVerifiedChunkId(), 701U);
+    ASSERT_TRUE(made.value().save().isOk());
+    auto resumed = this->resume(checksum::ChecksumAlgorithm::Crc32c);
+    ASSERT_TRUE(resumed.isOk());
+    check(resumed.value());
+    auto moved = std::move(resumed.value());
+    check(moved);
+    ASSERT_TRUE(moved.recordVerifiedChunk(UINT64_MAX - 1, 12, 4, this->crc()).isOk());
+    check(moved);
+    EXPECT_EQ(moved.nextVerifiedChunkId(), UINT64_MAX);
+    ASSERT_TRUE(moved.recordVerifiedChunk(UINT64_MAX, 16, 4, this->crc()).isOk());
+    check(moved);
+    ASSERT_TRUE(moved.save().isOk());
+    auto exhausted = this->resume(checksum::ChecksumAlgorithm::Crc32c);
+    ASSERT_TRUE(exhausted.isOk());
+    check(exhausted.value());
+    EXPECT_EQ(exhausted.value().nextVerifiedChunkId(), UINT64_MAX);
+}
+
+TYPED_TEST(SessionRecordLookupTest, NextIdNoneStillUsesMaximumAndEmptyStartsAtZero) {
+    auto made = this->create(checksum::ChecksumAlgorithm::None);
+    ASSERT_TRUE(made.isOk());
+    const checksum::ChecksumValue none{checksum::ChecksumAlgorithm::None, 0};
+    EXPECT_EQ(made.value().nextVerifiedChunkId(), 0U);
+    ASSERT_TRUE(made.value().recordVerifiedChunk(9, 4, 4, none).isOk());
+    ASSERT_TRUE(made.value().recordVerifiedChunk(2, 0, 4, none).isOk());
+    EXPECT_EQ(made.value().nextVerifiedChunkId(), 10U);
+    ASSERT_TRUE(made.value().recordVerifiedChunk(UINT64_MAX, 8, 4, none).isOk());
+    EXPECT_EQ(made.value().nextVerifiedChunkId(), UINT64_MAX);
+}
+TYPED_TEST(SessionRecordLookupTest, NextIdRebuildDropsPrunedMaximumAndResetsWhenEmpty) {
+    auto made = this->create(checksum::ChecksumAlgorithm::Crc32c, 12);
+    ASSERT_TRUE(made.isOk());
+    auto file = cpnetflux::storage::PosixFile::openReadWriteExclusive(made.value().manifest().tempPath);
+    ASSERT_TRUE(file.isOk());
+    const std::string bytes = "AAAABBBBCCCC";
+    ASSERT_TRUE(file.value().writeAtAll(0, reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()).isOk());
+    const std::uint64_t ids[] = {1, 1000, 2};
+    for (std::size_t i = 0; i < 3; ++i) {
+        checksum::ChecksumComputer computer(checksum::ChecksumAlgorithm::Crc32c);
+        computer.update(reinterpret_cast<const std::uint8_t*>(bytes.data() + i * 4), 4);
+        ASSERT_TRUE(made.value().recordVerifiedChunk(ids[i], i * 4, 4, computer.finalize()).isOk());
+    }
+    EXPECT_EQ(made.value().nextVerifiedChunkId(), 1001U);
+    const std::uint8_t bad = 'X';
+    ASSERT_TRUE(file.value().writeAtAll(4, &bad, 1).isOk());
+    ASSERT_TRUE(made.value().verifyTempChunks(file.value()).isOk());
+    EXPECT_EQ(made.value().nextVerifiedChunkId(), 3U);
+    auto resumed = this->resume(checksum::ChecksumAlgorithm::Crc32c, 12);
+    ASSERT_TRUE(resumed.isOk());
+    EXPECT_EQ(resumed.value().nextVerifiedChunkId(), 3U);
+    ASSERT_TRUE(file.value().writeAtAll(0, &bad, 1).isOk());
+    ASSERT_TRUE(file.value().writeAtAll(8, &bad, 1).isOk());
+    ASSERT_TRUE(resumed.value().verifyTempChunks(file.value()).isOk());
+    EXPECT_TRUE(resumed.value().manifest().verifiedChunks.empty());
+    EXPECT_EQ(resumed.value().nextVerifiedChunkId(), 0U);
+    auto again = this->resume(checksum::ChecksumAlgorithm::Crc32c, 12);
+    ASSERT_TRUE(again.isOk());
+    EXPECT_EQ(again.value().nextVerifiedChunkId(), 0U);
+}
+
 }  // namespace

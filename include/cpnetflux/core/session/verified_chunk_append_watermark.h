@@ -16,6 +16,12 @@ class VerifiedChunkAppendWatermark {
         return empty || (offset > maxOffset_ &&
             (algorithm == checksum::ChecksumAlgorithm::None || chunkId > maxChunkId_));
     }
+    // Matches the range allocator: UINT64_MAX is an exhaustion sentinel, not
+    // an allocatable ID. Empty manifests start at zero; resume/prune rebuild it.
+    std::uint64_t nextChunkId(bool empty) const noexcept {
+        if (empty) return 0;
+        return maxChunkId_ == UINT64_MAX ? UINT64_MAX : maxChunkId_ + 1;
+    }
     void observe(const checkpoint::ChunkChecksumRecord& record) noexcept {
         maxOffset_ = std::max(maxOffset_, record.offset);
         maxChunkId_ = std::max(maxChunkId_, record.chunkId);

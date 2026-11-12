@@ -255,6 +255,11 @@ common::Status DownloadSession::recordVerifiedChunk(std::uint64_t chunkId, std::
     return common::Status::ok();
 }
 
+std::uint64_t DownloadSession::nextVerifiedChunkId() const noexcept {
+    if (recordStats_) ++recordStats_->recordIdQueries;
+    return recordWatermark_.nextChunkId(manifest_.verifiedChunks.empty());
+}
+
 common::Status DownloadSession::verifyTempChunks(const storage::PosixFile& tempFile) {
     if (manifest_.checksumAlgorithm == checksum::ChecksumAlgorithm::None ||
         manifest_.verifiedChunks.empty()) {
