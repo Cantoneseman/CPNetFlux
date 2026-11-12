@@ -20,6 +20,9 @@ def validate_receipts(rows, size=base.GIB):
     assert sum(r['frames'] for r in rows)==size//262144, 'paced frame coverage'
     assert sum(r['wire_bytes'] for r in rows)==size+(size//262144)*68, 'paced byte coverage'
     for row in rows:
+        assert row['wait_backend']=='timerfd' and row['timer_fd_creates']==1, 'bounded timer waiter not used'
+        assert row['timer_arm_calls']==row['sleep_calls']>0, 'timer arm coverage'
+        assert row['timer_read_calls']>=row['timer_arm_calls'], 'timer read coverage'
         assert row['rate_bytes_per_second']==int(RATE) and row['spacing_violations']==0
         assert row['frames']>1 and row['waits']>0 and row['wait_ns']>0, 'pacer did not delay admission'
         assert row['last_admission_ns']-row['first_admission_ns']>=row['required_spacing_ns'], 'admission rate exceeded'

@@ -1440,12 +1440,16 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 "CPNETFLUX_SENDER_PACING {\"lane\":%u,\"rate_bytes_per_second\":1500000000,"
                 "\"frames\":%llu,\"wire_bytes\":%llu,\"waits\":%llu,\"sleep_calls\":%llu,"
                 "\"wait_ns\":%llu,\"required_spacing_ns\":%llu,\"spacing_violations\":%llu,"
-                "\"first_admission_ns\":%lld,\"last_admission_ns\":%lld}\n",
+                "\"first_admission_ns\":%lld,\"last_admission_ns\":%lld,"
+                "\"wait_backend\":\"timerfd\",\"timer_fd_creates\":%llu,"
+                "\"timer_arm_calls\":%llu,\"timer_read_calls\":%llu}\n",
                 lane, (unsigned long long)p.frames, (unsigned long long)p.wireBytes,
                 (unsigned long long)p.waits, (unsigned long long)p.sleepCalls,
                 (unsigned long long)p.waitNanoseconds, (unsigned long long)p.requiredSpacingNanoseconds,
                 (unsigned long long)p.spacingViolations,
-                (long long)p.firstAdmissionNanoseconds, (long long)p.lastAdmissionNanoseconds);
+                (long long)p.firstAdmissionNanoseconds, (long long)p.lastAdmissionNanoseconds,
+                (unsigned long long)p.timerFdCreates, (unsigned long long)p.timerArmCalls,
+                (unsigned long long)p.timerReadCalls);
         }
     } pacingReceipt{paced, channelIndex, pacer};
     const auto pipelineDepth = diagnosticPipelineDepth();

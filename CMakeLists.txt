@@ -473,7 +473,8 @@ if(CPNETFLUX_BUILD_TESTS)
         add_executable(cpnetflux_framed_socket_tests tests/unit/framed_data_socket_test.cpp)
         target_link_libraries(cpnetflux_framed_socket_tests PRIVATE CPNetFlux::core GTest::gtest_main)
         target_link_options(cpnetflux_framed_socket_tests PRIVATE
-            "-Wl,--wrap=sendmsg" "-Wl,--wrap=send" "-Wl,--wrap=readv")
+            "-Wl,--wrap=sendmsg" "-Wl,--wrap=send" "-Wl,--wrap=readv"
+            "-Wl,--wrap=timerfd_settime" "-Wl,--wrap=read")
         if(CMAKE_SIZEOF_VOID_P EQUAL 8)
             target_compile_definitions(cpnetflux_framed_socket_tests PRIVATE CPNETFLUX_TEST_WRAP_NEW=1)
             target_link_options(cpnetflux_framed_socket_tests PRIVATE "-Wl,--wrap=_Znwm")

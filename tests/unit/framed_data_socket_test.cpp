@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <sys/resource.h>
+#include <sys/timerfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
@@ -826,4 +828,149 @@ TEST(FramedDataSocketTest, PacedV3SenderPreservesContentAndEmitsAdmissionReceipt
     std::ifstream file(destination.path/"paced.bin",std::ios::binary);
     const std::vector<std::uint8_t> actual((std::istreambuf_iterator<char>(file)),{});
     EXPECT_EQ(actual,content);
+}
+
+namespace {
+std::size_t pacingTimerCount() {
+    std::size_t count = 0;
+    for (const auto& entry : std::filesystem::directory_iterator("/proc/self/fd")) {
+        std::error_code error;
+        if (std::filesystem::read_symlink(entry.path(), error) == "anon_inode:[timerfd]") ++count;
+    }
+    return count;
+}
+}
+TEST(SenderPacerTest, WaiterAllocatesOneLazyTimerAndReleasesIt) {
+    using P = cpnetflux::core::io::detail::SenderPacer;
+    const auto baseline = pacingTimerCount();
+    const auto ok = [] { return Status::ok(); };
+    {
+        P pacer(10240);
+        ASSERT_TRUE(pacer.beforeSend(1024, ok).isOk());
+        EXPECT_EQ(pacingTimerCount(), baseline);
+        ASSERT_TRUE(pacer.beforeSend(1024, ok).isOk());
+        EXPECT_EQ(pacingTimerCount(), baseline + 1);
+        ASSERT_TRUE(pacer.beforeSend(1024, ok).isOk());
+        EXPECT_EQ(pacingTimerCount(), baseline + 1);
+    }
+    EXPECT_EQ(pacingTimerCount(), baseline);
+}
+TEST(SenderPacerTest, WaiterFdExhaustionDoesNotAdmitAnotherFrame) {
+    using P = cpnetflux::core::io::detail::SenderPacer;
+    P pacer(10240);
+    const auto ok = [] { return Status::ok(); };
+    ASSERT_TRUE(pacer.beforeSend(1024, ok).isOk());
+    rlimit original{};
+    ASSERT_EQ(::getrlimit(RLIMIT_NOFILE, &original), 0);
+    auto limited = original;
+    limited.rlim_cur = 0;
+    ASSERT_EQ(::setrlimit(RLIMIT_NOFILE, &limited), 0);
+    const auto status = pacer.beforeSend(1024, ok);
+    const auto restored = ::setrlimit(RLIMIT_NOFILE, &original);
+    ASSERT_EQ(restored, 0);
+    EXPECT_EQ(status.code(), StatusCode::SystemError);
+    EXPECT_EQ(status.errorNumber(), EMFILE);
+    EXPECT_EQ(pacer.frames, 1U);
+    EXPECT_EQ(pacer.wireBytes, 1024U);
+}
+TEST(SenderPacerTest, RealWaitCancellationPreservesCauseAndReleasesTimer) {
+    using P = cpnetflux::core::io::detail::SenderPacer;
+    const auto baseline = pacingTimerCount();
+    {
+        P pacer(10240);
+        ASSERT_TRUE(pacer.beforeSend(1024, [] { return Status::ok(); }).isOk());
+        unsigned checks = 0;
+        const auto status = pacer.beforeSend(1024, [&] {
+            return ++checks > 1 ? Status::runtimeError("cancel during real wait") : Status::ok();
+        });
+        EXPECT_EQ(status.code(), StatusCode::RuntimeError);
+        EXPECT_EQ(status.message(), "cancel during real wait");
+        EXPECT_EQ(pacer.frames, 1U);
+        EXPECT_EQ(pacingTimerCount(), baseline + 1);
+    }
+    EXPECT_EQ(pacingTimerCount(), baseline);
+}
+
+TEST(SenderPacerTest, WaitFailureDoesNotAdmitAnotherFrame) {
+    using P = cpnetflux::core::io::detail::SenderPacer;
+    P pacer(10240);
+    auto current = P::Clock::time_point{};
+    const auto ok = [] { return Status::ok(); };
+    const auto now = [&] { return current; };
+    ASSERT_TRUE(pacer.beforeSend(1024, ok, now, [](auto) {}).isOk());
+    const auto status = pacer.beforeSend(1024, ok, now, [&](auto delay) {
+        current += delay;
+        return Status::systemError("wait failed", EIO);
+    });
+    EXPECT_EQ(status.code(), StatusCode::SystemError);
+    EXPECT_EQ(status.errorNumber(), EIO);
+    EXPECT_EQ(pacer.frames, 1U);
+}
+
+namespace {
+enum class PacingWaitFault { Arm, Read, Interrupt };
+struct PacingFault {
+    PacingWaitFault kind;
+    unsigned calls = 0;
+    bool interrupted = false;
+};
+thread_local PacingFault* pacingFault = nullptr;
+}
+extern "C" int __real_timerfd_settime(int, int, const itimerspec*, itimerspec*);
+extern "C" ssize_t __real_read(int, void*, size_t);
+extern "C" int __wrap_timerfd_settime(int fd, int flags, const itimerspec* value, itimerspec* old) {
+    if (pacingFault && pacingFault->kind == PacingWaitFault::Arm) {
+        ++pacingFault->calls; errno = EIO; return -1;
+    }
+    return __real_timerfd_settime(fd, flags, value, old);
+}
+extern "C" ssize_t __wrap_read(int fd, void* bytes, size_t length) {
+    if (pacingFault && pacingFault->kind != PacingWaitFault::Arm) {
+        ++pacingFault->calls;
+        if (pacingFault->kind == PacingWaitFault::Interrupt) {
+            pacingFault->interrupted = true; errno = EINTR;
+        } else errno = EIO;
+        return -1;
+    }
+    return __real_read(fd, bytes, length);
+}
+TEST(SenderPacerTest, TimerArmAndReadErrorsDoNotAdmitOrLeak) {
+    using P = cpnetflux::core::io::detail::SenderPacer;
+    for (const auto kind : {PacingWaitFault::Arm, PacingWaitFault::Read}) {
+        const auto baseline = pacingTimerCount();
+        {
+            P pacer(10240);
+            const auto ok = [] { return Status::ok(); };
+            ASSERT_TRUE(pacer.beforeSend(1024, ok).isOk());
+            PacingFault fault{kind};
+            pacingFault = &fault;
+            const auto status = pacer.beforeSend(1024, ok);
+            pacingFault = nullptr;
+            EXPECT_EQ(status.code(), StatusCode::SystemError);
+            EXPECT_EQ(status.errorNumber(), EIO);
+            EXPECT_EQ(fault.calls, 1U);
+            EXPECT_EQ(pacer.frames, 1U);
+            EXPECT_EQ(pacer.wireBytes, 1024U);
+        }
+        EXPECT_EQ(pacingTimerCount(), baseline);
+    }
+}
+TEST(SenderPacerTest, TimerReadInterruptionChecksCancellationWithoutRetrySpin) {
+    using P = cpnetflux::core::io::detail::SenderPacer;
+    const auto baseline = pacingTimerCount();
+    {
+        P pacer(10240);
+        ASSERT_TRUE(pacer.beforeSend(1024, [] { return Status::ok(); }).isOk());
+        PacingFault fault{PacingWaitFault::Interrupt};
+        pacingFault = &fault;
+        const auto status = pacer.beforeSend(1024, [&] {
+            return fault.interrupted ? Status::runtimeError("interrupted and cancelled") : Status::ok();
+        });
+        pacingFault = nullptr;
+        EXPECT_EQ(status.code(), StatusCode::RuntimeError);
+        EXPECT_EQ(status.message(), "interrupted and cancelled");
+        EXPECT_EQ(fault.calls, 1U);
+        EXPECT_EQ(pacer.frames, 1U);
+    }
+    EXPECT_EQ(pacingTimerCount(), baseline);
 }
