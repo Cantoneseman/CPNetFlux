@@ -1,0 +1,106 @@
+{
+  "stage": 78,
+  "state": "ENGINEERING_CORRECTNESS_CLOSED_FORMAL_TRIAL_OPEN",
+  "runtime_commit": "dbb2d6bac86b29914dbea655b29660937267e38f",
+  "input_commit": "1974c05c1466155098254751ce425e746300c45d",
+  "builds": {
+    "r1": {
+      "host": "r770-1",
+      "head": "dbb2d6bac86b29914dbea655b29660937267e38f",
+      "remote_sha": "dbb2d6bac86b29914dbea655b29660937267e38f",
+      "configuration": {
+        "CMAKE_BUILD_TYPE:STRING": "RelWithDebInfo",
+        "CMAKE_CXX_COMPILER:FILEPATH": "/usr/bin/c++",
+        "CPNETFLUX_BUILD_DESKTOP:BOOL": "OFF",
+        "CPNETFLUX_BUILD_TESTS:BOOL": "ON",
+        "CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS:BOOL": "OFF",
+        "CPNETFLUX_ENABLE_IO_URING:BOOL": "ON",
+        "CPNETFLUX_ENABLE_ISAL:BOOL": "ON",
+        "CPNETFLUX_ENABLE_RDMA:BOOL": "ON",
+        "CPNETFLUX_ENABLE_TLS:BOOL": "ON",
+        "CMAKE_GENERATOR:INTERNAL": "Ninja"
+      },
+      "binaries": {
+        "cpnetflux-gridftp-server": "8a2809d56546ecd413dd3d2d10c98bf7d7a13790a77daef79353927d5f57432e",
+        "cpnetflux-tree-download-client": "b9c43cf0ff33b9b37d8cb2f20e1c70ed87ab1349c4baff0886572ab2cf628e12",
+        "cpnetflux-tree-upload-client": "311f7cf5bc207272f9c0eada0b9d5942d690cb940f18ffea9f1286d18e74ebfa",
+        "cpnetflux-private-tmpfs-launcher": "dba043846ccf0206d1ed00c3436221ab92920174e412c5f4e42e116c97f369fb"
+      },
+      "full_ctest": {
+        "total": 828,
+        "passed": 825,
+        "skipped": 3,
+        "failed": 0
+      },
+      "final_control_reset_repeats": 64,
+      "status": "?? docs/tasks/2026-10-14-v3-worker-state-01b-result.md\n?? docs/tasks/2026-10-14-v3-worker-state-01b.md\n",
+      "at_unix": 1794504403.892625
+    },
+    "r2": {
+      "host": "r770-2",
+      "head": "dbb2d6bac86b29914dbea655b29660937267e38f",
+      "configuration": {
+        "CMAKE_BUILD_TYPE:STRING": "RelWithDebInfo",
+        "CMAKE_CXX_COMPILER:FILEPATH": "/usr/bin/c++",
+        "CPNETFLUX_BUILD_DESKTOP:BOOL": "OFF",
+        "CPNETFLUX_BUILD_TESTS:BOOL": "ON",
+        "CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS:BOOL": "OFF",
+        "CPNETFLUX_ENABLE_IO_URING:BOOL": "ON",
+        "CPNETFLUX_ENABLE_ISAL:BOOL": "ON",
+        "CPNETFLUX_ENABLE_RDMA:BOOL": "ON",
+        "CPNETFLUX_ENABLE_TLS:BOOL": "ON",
+        "CMAKE_GENERATOR:INTERNAL": "Ninja"
+      },
+      "binaries": {
+        "cpnetflux-gridftp-server": "8a2809d56546ecd413dd3d2d10c98bf7d7a13790a77daef79353927d5f57432e",
+        "cpnetflux-tree-download-client": "b9c43cf0ff33b9b37d8cb2f20e1c70ed87ab1349c4baff0886572ab2cf628e12",
+        "cpnetflux-tree-upload-client": "311f7cf5bc207272f9c0eada0b9d5942d690cb940f18ffea9f1286d18e74ebfa",
+        "cpnetflux-private-tmpfs-launcher": "dba043846ccf0206d1ed00c3436221ab92920174e412c5f4e42e116c97f369fb"
+      },
+      "status": ""
+    }
+  },
+  "tests": {
+    "r1": {
+      "returncode": 0,
+      "elapsed_seconds": 328.61860728263855,
+      "command": "ctest --test-dir build --output-on-failure -j 1",
+      "test_token": "ephemeral_not_recorded"
+    },
+    "r2": {
+      "returncode": 0,
+      "elapsed_seconds": 328.35157346725464,
+      "command": "ctest --test-dir build --output-on-failure -j 1",
+      "test_token": "ephemeral_not_recorded",
+      "total": 828,
+      "passed": 825,
+      "skipped": 3,
+      "failed": 0
+    },
+    "r1_final_early_control_reset_repeats": {
+      "passed": 64,
+      "failed": 0,
+      "trace": false,
+      "fault_at_bytes": 512,
+      "reconnect_attempts": 2,
+      "deadline_ms": 10000
+    }
+  },
+  "evidence_root": "/home/Su/experiments/CPNetFlux/2026-11-13-v3-directory-semantics-78",
+  "fixture_archive": {
+    "path": "/home/Su/experiments/CPNetFlux/2026-11-13-v3-directory-semantics-78-fixtures.tar.gz",
+    "bytes": 5283280,
+    "sha256": "76516f0b5d8880b4ef8c7c49ebf104046d59042173dbf114d02bfcccd9c5fd3c",
+    "payload_files": 736,
+    "payload_bytes": 772822816,
+    "all_payload_hashes_verified_in_archive": true,
+    "cleanup": "736_owned_payload_files_removed_after_windows_archive_sha256_verified",
+    "windows_path": "D:/Project/CPNetFlux/_codex_v3_directory_semantics_78/fixtures.tar.gz",
+    "remaining_payloads": 0
+  },
+  "crosshost_payloads_this_stage": 0,
+  "ring_changed_this_stage": false,
+  "formal_comparison": "NOT_RUN_ON_NEW_RUNTIME",
+  "soak": "NOT_RUN",
+  "field_ready": false
+}

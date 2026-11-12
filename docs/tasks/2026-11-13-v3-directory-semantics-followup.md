@@ -1,6 +1,6 @@
 # 下一开发项：V3目录项与完整树语义
 
-状态：IN_PROGRESS，阶段78实现及R770-1完整回归已通过，双端固定版本验收尚未完成。阶段77混合目录文件全对而empty/丢失，必须先补齐这个能力缺口，再恢复上机验收；本文件区分代码、正确性与跨机性能验收，不产生新性能成绩。用户总体目标OPEN，C和上机NOT_READY。
+状态：ENGINEERING_CORRECTNESS_CLOSED。阶段78两端同提交/同配置/四SHA，双端完整回归各825通过、3项原生RDMA环境跳过、0失败；新A/B/C尚未运行。阶段77混合目录文件全对而empty/丢失，必须先补齐这个能力缺口，再恢复上机验收；本文件区分代码、正确性与跨机性能验收，不产生新性能成绩。用户总体目标OPEN，C和上机NOT_READY。
 
 ## 范围和非目标
 
@@ -48,4 +48,6 @@
 
 恢复候选完整828项出现2项拒绝时延回归：reconnect_smoke及committed_output_integrity_audit_smoke的corrupt场景等待deadline而非3秒内拒绝，原始日志ctest-final-recovery.log保留。定位：server新TransportError callback对接收路径也返回OK，绕开旧fileEvent返回TransportError触发的finishTransport完整性审计。修复限制为仅server sender(!upload)使用releaseFailedWork；接收保持原有传播与审计合同，不改3秒断言、deadline/重试预算。之后重跑定向与完整回归。
 
-R770-1最终完整回归：ctest-final-sender-only.log/status.json记录828项，825通过、3项原生RDMA环境跳过、0失败，328.60秒。与目录语义/恢复相关的最终定向4/4通过。此前两项拒绝时延回归完整保留；未用后续通过覆盖失败记录。最终二进制64/64次早期控制断连重验通过（identity-fixed-final/result.json），随后固定提交并同步R770-2；当前禁止跨机负载。
+R770-1最终完整回归：ctest-final-sender-only.log/status.json记录828项，825通过、3项原生RDMA环境跳过、0失败，328.60秒。与目录语义/恢复相关的最终定向4/4通过。此前两项拒绝时延回归完整保留；未用后续通过覆盖失败记录。最终二进制64/64次早期控制断连重验通过（identity-fixed-final/result.json），随后固定提交并同步R770-2；跨机负载须随后在新受控实验窗口重新准入。
+
+最终双端验收通过：运行时dbb2d6bac86b29914dbea655b29660937267e38f已推送/回读一致。R2完整828项825通过、3跳过、0失败（328.34秒），四二进制/构建配置与R1逐项相等。最终结果与边界见[78结果](2026-11-13-v3-directory-semantics-78-result.md)及[冻结](2026-11-13-v3-directory-semantics-78-freeze.json)。代码正确性闭合，正式比较/稳定性/故障组和上机状态仍OPEN/NOT_READY。
