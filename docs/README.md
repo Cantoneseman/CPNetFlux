@@ -1,12 +1,12 @@
 # CPNetFlux 文档导航
 
-最新验收：[阶段75正式主组通过](tasks/2026-11-12-field-trial-comparison-75-result.md)：1GiB五对完整任务，CPNetFlux中位31.075、GridFTP12.352Gbps，样本CV4.560%/3.095%，均满足门槛。这是不同认证/校验/内存后端语义的明文配置比较；B脚本非法off值在payload前退出，C/故障组未运行，整体NOT_READY。双端临时RX4096已恢复1024，[阶段74回滚](tasks/2026-11-12-rx-ring-headroom-74-result.md)通过。下一步[阶段76](tasks/2026-11-12-field-trial-scenarios-76.md)只修正目录实验为pwrite，保留A，续接B/C且不延长原90分钟绝对截止。
+最新验收：[阶段75主组](tasks/2026-11-12-field-trial-comparison-75-result.md)1GiB五对中位CP31.075/Grid12.352Gbps；[阶段77场景](tasks/2026-11-13-field-trial-continuation-77-result.md)dense各3次0.399/0.945秒、tiny各3次3.504/2.561秒。mixed256MiB/514文件全对但缺空目录，B未通过，反向/安全/C及故障组NOT_RUN，上机NOT_READY。临时RX4096已恢复1024，现场已清理。下一开发项是[V3目录项与恢复语义](tasks/2026-11-13-v3-directory-semantics-followup.md)，当前计划未实现，不继续本轮负载或吞吐调参。
 
-续测76在payload前因两机monotonic混用误停，已回滚清理；由root[阶段77](tasks/2026-11-13-field-trial-continuation-77.md)直接修复主机时钟选择并先在双机空载验证，再续接B/C。75 A有效，完整目标仍OPEN。
+阶段76观察器跨主机monotonic错误及root77首轮启动路径错误均保留，未发payload即回滚；时钟域修正后双端实际观察器通过。当前真正阻塞是mixed空目录语义缺口，详见[77结果](tasks/2026-11-13-field-trial-continuation-77-result.md)。
 
-最新开发补项：[阶段68：工作租约迁移恢复修复](tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。该阶段未新增性能成绩；其后1GiB验收已由阶段69执行并失败，下一步以页首为准。比较仍NO-GO、上机NOT_READY。
+历史开发补项：[阶段68：工作租约迁移恢复修复](tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。该阶段未新增性能成绩；其后1GiB验收已由阶段69执行并失败，下一步以页首为准。当前验收结论以页首为准。
 
-最新诊断：[阶段66：RX队列聚集隔离对照](tasks/2026-11-12-rss-queue-control-66-result.md)。同速四流分散队列时OOB/missed为0；集中单队列触发各+310并停止。没有新增CP性能成绩，下一步验证软件TCP连接布局及恢复/端口复用；正式比较仍NO-GO、稳定性未开始、上机NOT_READY。
+历史诊断：[阶段66：RX队列聚集隔离对照](tasks/2026-11-12-rss-queue-control-66-result.md)。同速四流分散队列时OOB/missed为0；集中单队列触发各+310并停止。没有新增CP性能成绩，下一步验证软件TCP连接布局及恢复/端口复用；正式比较仍NO-GO、稳定性未开始、上机NOT_READY。
 
 前序观测交付：[阶段65：连接/接收队列观测补全](tasks/2026-11-12-rss-flow-evidence-65-result.md)。12条低速probe的RSS预测全部验证；V3实际端口及最后CPU/NAPI已实现，双端各5项回归、一次0字节跨机功能核验通过。没有新增吞吐成绩，OOB因果尚未关闭；比较、稳定性和上机状态仍以下列阶段64失败边界为准。
 

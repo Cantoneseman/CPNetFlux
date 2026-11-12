@@ -1,0 +1,32 @@
+{
+  "input_commit": "b6aee7216bda89c374acaea956a54bcdcc2995cc",
+  "runtime_commit": "42718ac26be24d53ec17525a7b1b3bcb1e340931",
+  "evidence": [
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-continuation-77",
+      "files": 170,
+      "bytes": 8046125,
+      "manifest_sha256": "c0277be3f66cf3bfe8805783038dd2be90286a10d067e622db298ff4c5735206"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-continuation-77-r1",
+      "files": 493,
+      "bytes": 417128737,
+      "manifest_sha256": "d535b2c690207b7666d1f14aae80af679095fce617a22e4d85b005a7279f9438"
+    }
+  ],
+  "checks": 83,
+  "valid_B_rows": 12,
+  "failed_B_rows": 1,
+  "A": "75_PASS_HISTORICAL_SAME_RUNTIME",
+  "B": "FAIL_EMPTY_DIRECTORY_SEMANTIC",
+  "C": "NOT_RUN",
+  "field_ready": false,
+  "user_goal": "OPEN",
+  "binary_hashes": {
+    "cpnetflux-gridftp-server": "cab70d1cbfac891cdab4eb0e2f095738948ea9a9147c69a3c632c4ce18367440",
+    "cpnetflux-tree-download-client": "583e83e32c22f65c9e1f4cf2c6a406f30811d9ce2f178a4149aadba798a6d5fc",
+    "cpnetflux-tree-upload-client": "35d6ad78a0a11c9bfdff6ca07e643001857759b72fd995191e9f6e25c0a3142b",
+    "cpnetflux-private-tmpfs-launcher": "dba043846ccf0206d1ed00c3436221ab92920174e412c5f4e42e116c97f369fb"
+  }
+}
