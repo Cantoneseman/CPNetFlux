@@ -385,8 +385,10 @@ common::Result<FramedDataSocket> connectFramedDataSocket(const char* host, std::
                                                          const TlsConfig& tlsConfig,
                                                          const char* tlsServerName, SocketDeadline deadline,
                                                          std::string_view localBindAddress,
-                                                         DataTransport transport) {
+                                                         DataTransport transport, std::span<const std::uint16_t> sourcePorts,
+                                                         std::uint32_t* sourceBindAttempts) {
     if (transport == DataTransport::Rdma) {
+        if (!sourcePorts.empty()) return common::Status::invalidArgument("RDMA does not support TCP source port plans");
         if (dataTlsMode != DataTlsMode::Off) {
             return common::Status::invalidArgument("RDMA data transport does not support data TLS");
         }
@@ -394,7 +396,7 @@ common::Result<FramedDataSocket> connectFramedDataSocket(const char* host, std::
         if (!connection.isOk()) return connection.status();
         return FramedDataSocket(std::move(connection.value()));
     }
-    auto connection = connectBlockingSocket(host, port, deadline, localBindAddress);
+    auto connection = connectBlockingSocket(host, port, deadline, localBindAddress, sourcePorts, sourceBindAttempts);
     if (!connection.isOk()) {
         return connection.status();
     }

@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/tree_transfer_client.h"
+#include "cpnetflux/core/io/tcp_source_port_plan.h"
 #include "cpnetflux/core/io/tree_pipeline_identity.h"
 #include "cpnetflux/core/io/transfer_stages.h"
 
@@ -960,6 +961,8 @@ struct LaneEndpoint {
     std::uint32_t tcpReceiveBufferBytes = 0;
     TcpExactReadStats tcpExactRead;
     std::uint16_t controlPeerPort = 0, controlLocalPort = 0, dataPeerPort = 0, dataLocalPort = 0;
+    std::optional<std::uint32_t> plannedRxQueue;
+    std::uint32_t sourcePortBindAttempts=0;
     std::optional<int> tcpLastIncomingCpu;
     std::optional<std::uint32_t> tcpLastIncomingNapiId;
 };
@@ -1078,6 +1081,7 @@ struct TreeRunStats {
     std::uint64_t persistentDataConnectCount = 0;
     std::vector<std::string> persistentLaneIds;
     std::vector<LaneEndpoint> laneEndpoints;
+    std::string tcpSourcePlanSnapshotSha;
     std::vector<std::uint64_t> persistentLaneRangeCompletions;
     std::uint64_t resumeSkippedBytes = 0, recoveryPayloadBytes = 0;
     std::uint32_t reconnectAttempts = 0, connectionEpoch = 1;
@@ -1652,6 +1656,7 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
         output << "\"" << jsonEscape(options.peerAddresses[index]) << "\"";
     }
     output << "],\n";
+    output << "  \"tcp_source_plan_snapshot_sha256\": \"" << jsonEscape(stats.tcpSourcePlanSnapshotSha) << "\",\n";
     output << "  \"lane_endpoints\": [";
     for (std::size_t index = 0; index < stats.laneEndpoints.size(); ++index) {
         const auto& endpoint = stats.laneEndpoints[index];
@@ -1668,6 +1673,8 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
                << ",\"data_local_port\":" << (endpoint.dataLocalPort ? std::to_string(endpoint.dataLocalPort) : "null")
                << ",\"data_peer_port\":" << (endpoint.dataPeerPort ? std::to_string(endpoint.dataPeerPort) : "null")
                << ",\"data_endpoint_scope\":\"last_connected_socket\""
+               << ",\"planned_rx_queue\":" << (endpoint.plannedRxQueue ? std::to_string(*endpoint.plannedRxQueue) : "null")
+               << ",\"source_port_bind_attempts\":" << endpoint.sourcePortBindAttempts
                << ",\"tcp_last_incoming_cpu\":" << (endpoint.tcpLastIncomingCpu ? std::to_string(*endpoint.tcpLastIncomingCpu) : "null")
                << ",\"tcp_last_incoming_napi_id\":" << (endpoint.tcpLastIncomingNapiId ? std::to_string(*endpoint.tcpLastIncomingNapiId) : "null")
                << ",\"tcp_receive_buffer_bytes\":" << endpoint.tcpReceiveBufferBytes
@@ -2125,7 +2132,7 @@ std::uint32_t selectPersistentDispatchWindow(
 common::Status tryPersistentDirectory(const config::TreeTransferOptions& options,
     core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
     bool upload, bool* used, ControlClient* connected = nullptr, std::string* attemptedBatch = nullptr,
-    RecoveryBudget* recoveryBudget = nullptr) {
+    RecoveryBudget* recoveryBudget = nullptr, const TcpSourcePortPlan* sourcePlan = nullptr) {
     *used = false;
     const auto persistentStarted = std::chrono::steady_clock::now();
     if (!persistentEligible(options)) {
@@ -2152,6 +2159,22 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             std::to_string(kPersistentTreeMaxChannels) + "-channel limit");
     }
     const std::uint32_t channelCount = std::max(options.fileParallelism, options.linkSetLinks);
+    auto connectData=[&](std::uint32_t index,std::uint16_t port,LaneEndpoint& endpoint) -> common::Result<FramedDataSocket> {
+        const TcpSourcePortEntry* entry=nullptr;
+        if (sourcePlan) {
+            entry=sourcePlan->find(index,port);
+            if (!entry) return common::Status::invalidArgument("TCP source port plan has no channel/peer-port row");
+            endpoint.plannedRxQueue=entry->targetQueue;
+        }
+        std::uint32_t attempts=0;
+        auto result=connectFramedDataSocket(peerAddressFor(options,index).c_str(),port,
+            options.dataTlsMode,options.tls,tlsIdentityFor(options).c_str(),options.transferDeadline,
+            localBindAddressFor(options,index),options.dataTransport,
+            entry?std::span<const std::uint16_t>(entry->candidates):std::span<const std::uint16_t>{},&attempts);
+        endpoint.sourcePortBindAttempts+=attempts;
+        return result;
+    };
+
     if (options.dataFrameBytes != 65532 &&
         (options.dataFrameBytes != 262144 || options.dataTransport != DataTransport::Tcp ||
          options.tls.mode != TlsMode::Off || options.dataTlsMode != DataTlsMode::Off ||
@@ -2457,9 +2480,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
             }
             channel.prepareSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now()-preparing).count();
             const auto connecting = std::chrono::steady_clock::now();
-            auto data = connectFramedDataSocket(peerAddressFor(options, index).c_str(), port.value(), options.dataTlsMode, options.tls,
-                tlsIdentityFor(options).c_str(), options.transferDeadline,
-                localBindAddressFor(options, index), options.dataTransport);
+            auto data = connectData(index,port.value(),channel.endpoint);
             channel.connectSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now()-connecting).count();
             if (!data.isOk()) {
                 channel.status = data.status();
@@ -2775,9 +2796,7 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     &channel.totalFiles, &channel.expectedFileCount, batchId);
                 if (!started.isOk()) return started;
                 const auto connecting = std::chrono::steady_clock::now();
-                auto data = connectFramedDataSocket(peerAddressFor(options, index).c_str(), port.value(), options.dataTlsMode,
-                    options.tls, tlsIdentityFor(options).c_str(),
-                    options.transferDeadline, localBindAddressFor(options, index), options.dataTransport);
+                auto data = connectData(index,port.value(),channel.endpoint);
                 channel.connectSeconds += std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - connecting).count();
                 if (!data.isOk()) return data.status();
@@ -3056,8 +3075,20 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
 common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOptions& options,
     core::tree::TreeManifest* manifest, const std::string& manifestPath, TreeRunStats* stats,
     bool upload, bool* used, ControlClient* connected = nullptr) {
+    std::optional<TcpSourcePortPlan> loadedSourcePlan;
+    if (!options.tcpDataSourcePortPlan.empty()) {
+        if (upload || options.dataTransport!=DataTransport::Tcp || options.linkSetLinks!=1 ||
+            options.localBindAddresses.size()!=1 || options.peerAddresses.size()>1)
+            return common::Status::invalidArgument("TCP source port plan requires single-link IPv4 TCP download");
+        auto loaded=TcpSourcePortPlan::load(options.tcpDataSourcePortPlan,
+            localBindAddressFor(options,0),peerAddressFor(options,0),std::max(options.fileParallelism,options.linkSetLinks));
+        if (!loaded.isOk()) return loaded.status();
+        loadedSourcePlan=std::move(loaded.value());
+        stats->tcpSourcePlanSnapshotSha=loadedSourcePlan->snapshotSha();
+    }
+    const auto* sourcePlan=loadedSourcePlan?&*loadedSourcePlan:nullptr;
     if (options.reconnectAttempts == 0) {
-        auto status = tryPersistentDirectory(options, manifest, manifestPath, stats, upload, used, connected);
+        auto status = tryPersistentDirectory(options, manifest, manifestPath, stats, upload, used, connected,nullptr,nullptr,sourcePlan);
         if (status.code() == common::StatusCode::TransportError ||
             status.message() == "work retry limit exceeded")
             return reconnectBudgetExhausted(status);
@@ -3112,7 +3143,7 @@ common::Status tryRecoveringPersistentDirectory(const config::TreeTransferOption
         if (status.isOk())
             status = tryPersistentDirectory(attemptOptions, manifest, manifestPath, stats,
                                              upload, used, connected, &previousBatch,
-                                             &recoveryBudget);
+                                             &recoveryBudget,sourcePlan);
         if (status.isOk() || status.code() != common::StatusCode::TransportError) return status;
         if (!recoveryBudget.tryConsume())
             return reconnectBudgetExhausted(status);

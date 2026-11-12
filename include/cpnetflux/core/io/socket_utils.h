@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <chrono>
 #include <optional>
+#include <span>
 #include <string_view>
 
 #include "cpnetflux/common/status.h"
@@ -35,7 +36,9 @@ using SocketDeadline = std::optional<std::chrono::steady_clock::time_point>;
 // Numeric addresses or synchronous resolver; deadline is rechecked after resolution.
 common::Result<UniqueFd> connectBlockingSocket(const char* host, std::uint16_t port,
                                                SocketDeadline deadline = {},
-                                               std::string_view localBindAddress = {});
+                                               std::string_view localBindAddress = {},
+                                               std::span<const std::uint16_t> sourcePorts = {},
+                                               std::uint32_t* sourceBindAttempts = nullptr);
 common::Status setNonBlocking(int fd);
 common::Result<UniqueFd> createListener(const char* host, std::uint16_t port, int backlog);
 common::Result<UniqueFd> createNonBlockingConnection(const char* host, std::uint16_t port);

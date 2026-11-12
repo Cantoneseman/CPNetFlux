@@ -155,6 +155,7 @@ add_library(cpnetflux_core STATIC
     src/core/io/dynamic_file_queue.cpp
     src/core/io/work_executor.cpp
     src/core/io/persistent_directory_batch.cpp
+    src/core/io/tcp_source_port_plan.cpp
     src/core/io/socket_utils.cpp
     src/core/io/tcp_sink_client.cpp
     src/core/io/tcp_sink_server.cpp
@@ -440,6 +441,7 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/scheduler_task_queue_test.cpp
         tests/unit/scheduler_work_item_test.cpp
         tests/unit/sink_options_test.cpp
+        tests/unit/tcp_source_port_plan_test.cpp
         tests/unit/socket_bind_test.cpp
         tests/unit/throughput_counter_test.cpp
         tests/unit/transfer_manifest_test.cpp
@@ -466,6 +468,13 @@ if(CPNETFLUX_BUILD_TESTS)
     )
 
     gtest_discover_tests(cpnetflux_unit_tests)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME cpnetflux_source_port_plan_smoke COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/tools/test/run_cpnetflux_source_port_plan_smoke.py --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(cpnetflux_source_port_plan_smoke PROPERTIES TIMEOUT 90)
+    add_test(NAME cpnetflux_source_port_plan_generator COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/tools/test/test_cpnetflux_tcp_source_plan.py)
+
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         target_sources(cpnetflux_unit_tests PRIVATE tests/unit/gathered_write_test.cpp

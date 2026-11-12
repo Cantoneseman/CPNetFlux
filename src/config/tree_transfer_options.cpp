@@ -1,5 +1,6 @@
 #include "cpnetflux/config/tree_transfer_options.h"
 
+#include <arpa/inet.h>
 #include <cerrno>
 #include <charconv>
 #include <cmath>
@@ -253,6 +254,10 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         } else if (option == "--local-bind-address" || option == "--local-bind-addresses") {
             const auto status = appendLocalBindAddresses(&options.localBindAddresses, value);
             if (!status.isOk()) return status;
+        } else if (option == "--tcp-data-source-port-plan") {
+            if (role != TreeTransferRole::Download || value.empty() || !options.tcpDataSourcePortPlan.empty())
+                return common::Status::invalidArgument("--tcp-data-source-port-plan is explicit, unique and download-only");
+            options.tcpDataSourcePortPlan=std::string(value);
         } else if (option == "--source-dir") {
             if (value.empty()) {
                 return common::Status::invalidArgument("--source-dir must not be empty");
@@ -680,6 +685,15 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
         return common::Status::invalidArgument(
             "--local-bind-addresses must contain one address or exactly --link-set-links addresses");
     }
+    if (!options.tcpDataSourcePortPlan.empty()) {
+        in_addr address{};
+        const auto& peer=options.peerAddresses.empty()?options.host:options.peerAddresses.front();
+        if (options.dataTransport!=core::io::DataTransport::Tcp || options.linkSetLinks!=1 ||
+            options.localBindAddresses.size()!=1 || options.peerAddresses.size()>1 ||
+            ::inet_pton(AF_INET,options.localBindAddresses.front().c_str(),&address)!=1 ||
+            ::inet_pton(AF_INET,peer.c_str(),&address)!=1)
+            return common::Status::invalidArgument("--tcp-data-source-port-plan requires single-link TCP and explicit numeric IPv4 local/peer addresses");
+    }
     const common::Status schedulerMetricsStatus = validateSchedulerMetricsDir(options, role);
     if (!schedulerMetricsStatus.isOk()) {
         return schedulerMetricsStatus;
@@ -709,6 +723,7 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             return common::Status::invalidArgument("automatic reconnect requires persistent dynamic scheduling");
         if (options.transferTimeoutMs == 0) options.transferTimeoutMs = 300000;
     }
+    if (!options.tcpDataSourcePortPlan.empty() && options.transferTimeoutMs==0) options.transferTimeoutMs=300000;
     return options;
 }
 
@@ -716,7 +731,7 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
     const char* sourceText = role == TreeTransferRole::Upload ? "<local_dir>" : "<remote_dir>";
     const char* destText = role == TreeTransferRole::Upload ? "<remote_dir>" : "<local_dir>";
     const std::string receiverUsage = role == TreeTransferRole::Download
-        ? " [--final-verify-policy full|verified_chunks] "
+        ? " [--tcp-data-source-port-plan <path>] [--final-verify-policy full|verified_chunks] "
           "[--manifest-flush-policy every_n_chunks|final_only] "
           "[--manifest-flush-interval-chunks 1..65536] "
           "[--commit-sync-policy none|fsync_file|fsync_file_and_dir] [--preallocate off|full] "

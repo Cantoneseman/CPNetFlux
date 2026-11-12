@@ -52,6 +52,7 @@ struct TreeTransferOptions {
     // One address applies to every lane; multiple addresses map by lane index.
     std::vector<std::string> localBindAddresses;
     std::vector<std::string> peerAddresses;
+    std::string tcpDataSourcePortPlan; // Explicit deployment experiment; no default port policy.
     bool authProbe = false;
     std::string sourceDir;
     std::string destDir;

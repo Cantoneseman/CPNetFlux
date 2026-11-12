@@ -1043,3 +1043,26 @@ TEST(TreeTransferOptionsTest, ExportsServerRdmaReceiveQueueObservations) {
     EXPECT_NE(json.str().find("\"receive_completion_event_waits\":12"), std::string::npos);
     EXPECT_NE(json.str().find("\"receive_completion_wait_seconds\":0.00025"), std::string::npos);
 }
+
+TEST(TreeTransferOptionsTest, TcpSourcePortPlanIsExplicitAndDownloadOnly) {
+    const char* args[]{"client", "--auth-probe", "--local-bind-address", "127.0.0.1",
+        "--host", "127.0.0.1", "--tcp-data-source-port-plan", "/tmp/cpnetflux-plan"};
+    auto result=cpnetflux::config::parseTreeTransferOptions(std::size(args),args,
+        cpnetflux::config::TreeTransferRole::Download);
+    ASSERT_TRUE(result.isOk()) << result.status().message();
+    auto upload=cpnetflux::config::parseTreeTransferOptions(std::size(args),args,
+        cpnetflux::config::TreeTransferRole::Upload);
+    EXPECT_FALSE(upload.isOk());
+}
+
+TEST(TreeTransferOptionsTest, RejectsAmbiguousTcpSourcePortPlanEndpoints) {
+ using cpnetflux::config::TreeTransferRole;
+ for (const char* local:{"::1",""}) {
+  const char* args[]{"client","--auth-probe","--local-bind-address",local,"--tcp-data-source-port-plan","plan"};
+  EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(args),args,TreeTransferRole::Download).isOk());
+ }
+ const char* rdma[]{"client","--auth-probe","--local-bind-address","127.0.0.1","--data-transport","rdma","--tcp-data-source-port-plan","plan"};
+ EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(rdma),rdma,TreeTransferRole::Download).isOk());
+ const char* dns[]{"client","--auth-probe","--local-bind-address","127.0.0.1","--host","localhost","--tcp-data-source-port-plan","plan"};
+ EXPECT_FALSE(cpnetflux::config::parseTreeTransferOptions(std::size(dns),dns,TreeTransferRole::Download).isOk());
+}

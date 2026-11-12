@@ -96,7 +96,8 @@ class FramedDataSocket {
 [[nodiscard]] common::Result<FramedDataSocket> connectFramedDataSocket(
     const char* host, std::uint16_t port, DataTlsMode dataTlsMode, const TlsConfig& tlsConfig,
     const char* tlsServerName = nullptr, SocketDeadline deadline = {},
-    std::string_view localBindAddress = {}, DataTransport transport = DataTransport::Tcp);
+    std::string_view localBindAddress = {}, DataTransport transport = DataTransport::Tcp,
+    std::span<const std::uint16_t> sourcePorts = {}, std::uint32_t* sourceBindAttempts = nullptr);
 
 [[nodiscard]] common::Result<FramedDataSocket> acceptFramedDataSocket(
     UniqueFd fd, DataTlsMode dataTlsMode, const TlsConfig& tlsConfig);
