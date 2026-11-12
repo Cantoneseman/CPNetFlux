@@ -1,0 +1,19 @@
+{
+  "stage": 75,
+  "evidence_root": "/home/Su/experiments/CPNetFlux/2026-11-12-field-trial-comparison-75",
+  "input_commit": "837616dfe9715c6fabba5cdc361b05a5fa5213ba",
+  "runtime_commit": "42718ac26be24d53ec17525a7b1b3bcb1e340931",
+  "manifest_sha256": "abd9db923f08e509c0c63b307d4862d1853b9b956f3c2f0fed4d70e214da963a",
+  "files": 499,
+  "bytes": 35476804,
+  "binary_hashes": {
+    "cpnetflux-gridftp-server": "cab70d1cbfac891cdab4eb0e2f095738948ea9a9147c69a3c632c4ce18367440",
+    "cpnetflux-tree-download-client": "583e83e32c22f65c9e1f4cf2c6a406f30811d9ce2f178a4149aadba798a6d5fc",
+    "cpnetflux-tree-upload-client": "35d6ad78a0a11c9bfdff6ca07e643001857759b72fd995191e9f6e25c0a3142b",
+    "cpnetflux-private-tmpfs-launcher": "dba043846ccf0206d1ed00c3436221ab92920174e412c5f4e42e116c97f369fb"
+  },
+  "status": "A_PASS_B_HARNESS_INVALID_C_NOT_RUN_NOT_READY",
+  "audit_checks": 22,
+  "readiness": false,
+  "scope": "TCP/tmpfs, non-durable; no native verbs or 100G acceptance"
+}
