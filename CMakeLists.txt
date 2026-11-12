@@ -1008,6 +1008,8 @@ if(CPNETFLUX_BUILD_TESTS)
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_large_data_smoke.py
             --build-dir ${CMAKE_BINARY_DIR} --receive-buffer 1048576 --exact-read on)
     set_tests_properties(cpnetflux_tcp_exact_read_smoke PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME cpnetflux_private_tmpfs_driver_test
+        COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_private_tmpfs_test.py)
     add_test(NAME cpnetflux_tcp_exact_read_driver_test
         COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_tcp_exact_read_test.py)
     add_test(NAME cpnetflux_receive_network_test

@@ -400,7 +400,9 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
     assert not mapped_download or connections==4, 'mapped download requires four lanes'
     if data_frame_bytes is not None:
         assert data_frame_bytes in (65532,262144)
+    target_prepare_started=time.monotonic()
     slot=owned(args.payload_root,name);slot.mkdir();target=slot/'output'
+    target_prepare_seconds=time.monotonic()-target_prepare_started
     folder=args.evidence/'samples';folder.mkdir(exist_ok=True)
     summary=folder/(name+'.summary.json');log=folder/(name+'.client.log')
     command=[str(PROJECT/'build/cpnetflux-tree-download-client'),'--host','192.168.100.2','--port',str(port),
@@ -416,6 +418,7 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
         command+=['--data-frame-bytes',str(data_frame_bytes)]
     row={'name':name,'window_request':window,'phase_timing':timing,'expected':expected,'command':command,
          'before':snapshot(),'result':'fail'}
+    row['target_preparation_seconds']=target_prepare_seconds
     if receiver_profile:row['receiver_profile_requested']=True
     if range_timing is not None:row['range_timing_requested']=range_timing
     if network_profile:row['receiver_network_window']={}
