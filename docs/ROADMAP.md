@@ -1,6 +1,8 @@
 # CPNetFlux 性能路线图
 
-最新开发补项：[阶段68：工作租约迁移恢复修复](tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。未新增性能成绩；下一步一次1GiB完整文件网络验收，再正式GridFTP五对、稳定性。比较仍NO-GO、上机NOT_READY。
+最新验收：[阶段69：1GiB完整文件网络门失败](tasks/2026-11-12-source-plan-network-69-result.md)。4路实际队列9/27/7/28均匹配，R1 OOB/missed仍各+132；内容/资源/页型通过，性能有效样本0，正式GridFTP比较和稳定性未启动，上机NOT_READY。下一步仅[阶段70任务级CPU隔离诊断](tasks/2026-11-12-rx-cpu-isolation-70.md)，不重复69或扫描全局参数。
+
+最新开发补项：[阶段68：工作租约迁移恢复修复](tasks/2026-11-12-whole-file-retry-68-result.md)。双端各156/156相关回归通过，原512B故障场景6/6复核；[阶段67：默认关闭端口计划](tasks/2026-11-12-tcp-source-plan-67-result.md)完成一次1MiB实际四队列映射。该阶段未新增性能成绩；其后1GiB验收已由阶段69执行并失败，下一步以页首为准。比较仍NO-GO、上机NOT_READY。
 
 最新诊断：[阶段66：RX队列聚集隔离对照](tasks/2026-11-12-rss-queue-control-66-result.md)。同速四流分散队列时OOB/missed为0；集中单队列触发各+310并停止。没有新增CP性能成绩，下一步验证软件TCP连接布局及恢复/端口复用；正式比较仍NO-GO、稳定性未开始、上机NOT_READY。
 
