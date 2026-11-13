@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "candidate": "R770-TCP-2026-11-13",
+  "status": "CONTROLLED_FIELD_TRIAL_CANDIDATE",
+  "production_ready": false,
+  "runtime_commit": "dbb2d6bac86b29914dbea655b29660937267e38f",
+  "tested_delivery_input_commit": "4170f3cc939a3d514e54df0e162920e213df6d11",
+  "final_docs_revision": "Git commit containing this file; exact commit, pushed remote SHA and dual-host readback are recorded in the external final-backup receipt.",
+  "branch": "codex/V3-GRIDFTP-OPTIMIZED-RERUN-01",
+  "github_repository": "git@github.com:Cantoneseman/CPNetFlux.git",
+  "source_objects": {
+    "src": "ba079b615b075076dbda1df458107e54c1259ff2",
+    "include": "54b2f6cc659470bde5b31d2f74c0fc816bca98b8"
+  },
+  "binaries": {
+    "cpnetflux-gridftp-server": "8a2809d56546ecd413dd3d2d10c98bf7d7a13790a77daef79353927d5f57432e",
+    "cpnetflux-tree-download-client": "b9c43cf0ff33b9b37d8cb2f20e1c70ed87ab1349c4baff0886572ab2cf628e12",
+    "cpnetflux-tree-upload-client": "311f7cf5bc207272f9c0eada0b9d5942d690cb940f18ffea9f1286d18e74ebfa",
+    "cpnetflux-private-tmpfs-launcher": "dba043846ccf0206d1ed00c3436221ab92920174e412c5f4e42e116c97f369fb"
+  },
+  "build_configuration": {
+    "CMAKE_BUILD_TYPE:STRING": "RelWithDebInfo",
+    "CMAKE_CXX_COMPILER:FILEPATH": "/usr/bin/c++",
+    "CMAKE_PROJECT_VERSION:STATIC": "0.1.0",
+    "CPNETFLUX_BUILD_DESKTOP:BOOL": "OFF",
+    "CPNETFLUX_BUILD_TESTS:BOOL": "ON",
+    "CPNETFLUX_ENABLE_CROSS_DOMAIN_TESTS:BOOL": "OFF",
+    "CPNETFLUX_ENABLE_IO_URING:BOOL": "ON",
+    "CPNETFLUX_ENABLE_ISAL:BOOL": "ON",
+    "CPNETFLUX_ENABLE_RDMA:BOOL": "ON",
+    "CPNETFLUX_ENABLE_TLS:BOOL": "ON",
+    "CMAKE_GENERATOR:INTERNAL": "Ninja"
+  },
+  "data_transport": "V3 TCP, explicit 192.168.100.1/192.168.100.2 bind; not native verbs",
+  "profiles": {
+    "plain_A": {
+      "connections": 4,
+      "chunk_bytes": 1048576,
+      "logical_DATA_bytes": 262144,
+      "checksum": "crc32c",
+      "final_verify": "verified_chunks",
+      "checkpoint_chunks": 16,
+      "TLS": false,
+      "compression": "off",
+      "sender_pacer_bytes_per_second_per_lane": 1500000000,
+      "kernel_pacer": "off",
+      "target": "private native-supervised tmpfs huge=within_size, inline mmap",
+      "source": "resident tmpfs",
+      "commit_sync": "none",
+      "tested_RX": 4096,
+      "tested_TX": 1024,
+      "current_RX": 1024,
+      "current_TX": 1024,
+      "full_record": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-procfs-85/formal/C-1-cp.json"
+    },
+    "TLS_functional": {
+      "logical_DATA_bytes": 65532,
+      "receiver": "queued/pwrite ordinary tmpfs",
+      "client_environment": {
+        "CPNETFLUX_STAGE_READ_CONCURRENCY": "0",
+        "CPNETFLUX_STAGE_WRITE_CONCURRENCY": "0",
+        "CPNETFLUX_STAGE_BUFFER_BYTES": "67108864",
+        "CPNETFLUX_PAYLOAD_PIPELINE_DEPTH": "2",
+        "CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION": "queued",
+        "CPNETFLUX_SENDER_PAYLOAD_EXECUTION": "queued",
+        "CPNETFLUX_RANGE_TIMING": "off",
+        "CPNETFLUX_RECEIVER_PROFILE": "0",
+        "CPNETFLUX_SENDER_PROFILE": "0",
+        "CPNETFLUX_RECEIVER_CPU_PROFILE": "0",
+        "CPNETFLUX_MAPPED_WRITE_PROFILE": "0",
+        "CPNETFLUX_RECEIVER_WRITE_BATCH": "1",
+        "CPNETFLUX_RANGE_DIRECT_WRITE": "parallel",
+        "CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES": "off",
+        "CPNETFLUX_TCP_EXACT_READ": "off",
+        "CPNETFLUX_EXPERIMENTAL_DOWNLOAD_WRITE": "pwrite"
+      },
+      "server_environment": {
+        "CPNETFLUX_STAGE_READ_CONCURRENCY": "0",
+        "CPNETFLUX_STAGE_WRITE_CONCURRENCY": "0",
+        "CPNETFLUX_STAGE_BUFFER_BYTES": "67108864",
+        "CPNETFLUX_PAYLOAD_PIPELINE_DEPTH": "2",
+        "CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION": "queued",
+        "CPNETFLUX_SENDER_PAYLOAD_EXECUTION": "queued",
+        "CPNETFLUX_RANGE_TIMING": "off",
+        "CPNETFLUX_RECEIVER_PROFILE": "0",
+        "CPNETFLUX_SENDER_PROFILE": "0",
+        "CPNETFLUX_RECEIVER_CPU_PROFILE": "0",
+        "CPNETFLUX_MAPPED_WRITE_PROFILE": "0",
+        "CPNETFLUX_RECEIVER_WRITE_BATCH": "1",
+        "CPNETFLUX_RANGE_DIRECT_WRITE": "parallel",
+        "CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES": "off",
+        "CPNETFLUX_TCP_EXACT_READ": "off",
+        "CPNETFLUX_EXPERIMENTAL_DOWNLOAD_WRITE": "pwrite",
+        "CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND": "off",
+        "CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND": "off"
+      },
+      "token_files_outside_repository": true,
+      "control_TLS_verified": true,
+      "data_TLS_verified": true,
+      "large_encrypted_throughput": "NOT_MEASURED"
+    }
+  },
+  "accepted_measurements": {
+    "E80_CP_median_Gbps": 30.80338481864759,
+    "E80_GridFTP_median_Gbps": 12.095258394033293,
+    "E80_pairs": 5,
+    "E80_sample_CV": {
+      "CP": 0.04493768505401599,
+      "GridFTP": 0.042739239969310776
+    },
+    "E85_C_tasks": 234,
+    "E85_C_wall_seconds": 1807.6198764098808,
+    "E85_C_sum_task_seconds": 65.20035391580313,
+    "E85_C_median_Gbps": 31.07767497482628,
+    "E85_F_individual_cases": 6,
+    "E85_whole_group": "FAIL_PRESERVED",
+    "E86_new_TLS_bytes_each": 8388608,
+    "E86_real_restart_PID_start": [
+      [
+        1995561,
+        119331708
+      ],
+      [
+        1996175,
+        119332257
+      ]
+    ],
+    "E86_offline_cases_per_host": 108,
+    "E86_scripts_compiled": 46,
+    "E86_safe_imports": 19,
+    "E86_composite_audit_checks": 30
+  },
+  "evidence": [
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-scenarios-80/experiment-summary.json",
+      "sha256": "450d135bcca2876656ad6db4ddf0c540be14205d5cd1775f810ae7f7a3a9c014"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-scenarios-80/A-status.json",
+      "sha256": "7b37b17a63464ff8607bcb8d393d0b4a0e409edc15ea9687dca9cd48bd3f8fa7"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-scenarios-80/B-status.json",
+      "sha256": "e3c1dea2ab6128a4d44562e543e79ee45655baea4cae18c4f032faf9f877e08e"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-scenarios-80/reverse-status.json",
+      "sha256": "4599ba8fe0784d9559cc49bd790b12b392dbe9eda14377fd5dc35c26e8e9db57"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-procfs-85/C-acceptance-freeze.json",
+      "sha256": "aba7033fa6c599064fb6df76736b3ca2ffa72ddb64857ed6a306f0164a1b1411"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-procfs-85/C-statistics.json",
+      "sha256": "51644debccd46903bd29aa9bcc937d7d75d451f6cd63547f5486ee83925193cc"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-procfs-85/F-verified-evidence-index.json",
+      "sha256": "f5881b0c295a8b386d7f32ffea1b2c00465d4603ab1b56cb657bd035a4a7c1f1"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-procfs-85/security-status.json",
+      "sha256": "c0ee9ef3e4801b14d8ad7e672ecdd69d702a0b009571a08927461cc7b9dff51c"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-procfs-85/security-token-reject.json",
+      "sha256": "be99f3ef66959c7dddff9575c180924af7dbc3be06421b7a52a92b553e693f9e"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-tls-closeout-86/input-contract.json",
+      "sha256": "8c244551c2522666812fad0e57081a37d92c34ac8cd3245e3b66661a274cb410"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-tls-closeout-86/audit-result.json",
+      "sha256": "0287c049ffac4aa080076e72468d735ab64e2e22893ebd9c40af2ec4569d4429"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-tls-closeout-86/postrestart-TLS-status.json",
+      "sha256": "7ec0ba1281cb5acb6e156787aebe2b175d6451bf2985f612647af4be8890c3f6"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-tls-closeout-86/serial-return.json",
+      "sha256": "6a9b84f9e2f0030265ef1661febfb1bf224759ee0dad6024904710bfd79aa578"
+    },
+    {
+      "path": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-tls-closeout-86/delivery-final.manifest.json",
+      "sha256": "4697f01f76d6478debee8a01da7c2bf722960aebfcf683b920fb63413c833091"
+    }
+  ],
+  "archives": {
+    "r1": {
+      "host": "r1",
+      "archive": "delivery-final.tar.gz",
+      "archive_sha256": "99f32d8fba10763db857203425a60e06a02e5950498625c8595196cb7804b68a",
+      "archive_bytes": 159936482,
+      "all_members_verified": true,
+      "members_verified": 1993,
+      "credentials_and_payload_excluded": true,
+      "at": 1794536912.6771955,
+      "manifest": "delivery-final.manifest.json",
+      "manifest_sha256": "4697f01f76d6478debee8a01da7c2bf722960aebfcf683b920fb63413c833091"
+    },
+    "r2": {
+      "host": "r2",
+      "archive": "delivery-r2-evidence.tar.gz",
+      "archive_sha256": "b05d81cb64b2ee455ae8d41f314ccfbe7fc4c8da52119335560efd3854c95d03",
+      "archive_bytes": 80347253,
+      "all_members_verified": true,
+      "members_verified": 1873,
+      "credentials_and_payload_excluded": true,
+      "at": 1794536901.9187758,
+      "manifest": "delivery-r2-evidence.manifest.json",
+      "manifest_sha256": "0f21c477abc7f1e2dec50626e7ccd4d63bcd0c62248177d7e1cc177777ad3c8b"
+    }
+  },
+  "Windows_backup": {
+    "passed": true,
+    "all_outer_members_verified": 1993,
+    "all_inner_peer_members_verified": 1873,
+    "archive_sha256": "99f32d8fba10763db857203425a60e06a02e5950498625c8595196cb7804b68a",
+    "manifest_sha256": "4697f01f76d6478debee8a01da7c2bf722960aebfcf683b920fb63413c833091",
+    "local_directory": "D:\\Project\\CPNetFlux\\_codex_field_trial_tls_closeout_86",
+    "credentials_payload_excluded": true,
+    "remote_source": "/home/Su/experiments/CPNetFlux/2026-11-13-field-trial-tls-closeout-86/",
+    "at": 1794537642.1387649
+  },
+  "independent_root_archive_verification": {
+    "outer_members": 1993,
+    "inner_members": 1873,
+    "mismatches": 0,
+    "path": "D:/Project/CPNetFlux/_codex_field_trial_tls_closeout_86/root-verification.json"
+  },
+  "cleanup": {
+    "RX_TX_both": [
+      1024,
+      1024
+    ],
+    "owned_process_listener_mount_payload_credentials_remaining": false,
+    "original2121_preserved": true,
+    "pswpout": {
+      "r1": 4693038,
+      "r2": 2292432
+    }
+  },
+  "limitations": [
+    "1GiB maximum current matrix; no8/64GiB acceptance",
+    "repeated-task30minute lifecycle, not continuous31Gbps wire load",
+    "private in-memory clear A profile; not disk durable/fsync or encrypted performance",
+    "tiny10000x4KiB slower than GridFTP",
+    "RX4096 and calibrated source-port/RSS layout are tested conditions, currently restored1024",
+    "failed stdout throughput may use planned bytes; exclude all failed rows",
+    "corrupt-checkpoint diagnostic generic; no root metadata/ACL/symlink or whole-tree atomic guarantee",
+    "native verbs/WAN/100G/Tbps/production security/desktop packages not certified"
+  ]
+}

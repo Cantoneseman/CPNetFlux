@@ -1,5 +1,7 @@
 # CPNetFlux Release Gate
 
+当前R770 CLI受控上机交付见[候选](R770_FIELD_TRIAL_CANDIDATE.md)、[冻结](R770_FIELD_TRIAL_FREEZE.json)和[上机说明](R770_FIELD_TRIAL_RUNBOOK.md)。以下Alpha/公网命令和报告是各自历史范围，不替代2026-11-13的V3双机验收。
+
 This directory records the alpha release gate for CPNetFlux. The gate packages
 existing build, CTest, smoke, hygiene, and private baseline checks into one
 repeatable flow. It does not change transfer defaults or run new protocol code.

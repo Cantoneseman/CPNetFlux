@@ -1,6 +1,6 @@
 # CPNetFlux 性能路线图
 
-最新验收：[阶段80](tasks/2026-11-13-field-trial-scenarios-80-result.md)固定内存五对CP30.80/GridFTP12.10Gbps，目录/反向通过；[阶段85](tasks/2026-11-13-field-trial-procfs-85-result.md)完整234任务/1807.62秒C和六项跨机故障分别通过，中位31.08Gbps、首末十项+1.32%，不代表持续线速。最终重启后TLS因观测目录重名未运行，原整体FAIL保留；下一步[86](tasks/2026-11-13-field-trial-tls-closeout-86.md)按阶段隔离fixture并只补新窗口TLS重启验证，不重跑已通过的C/六F。运行二进制/性能配置不变；当前整体NOT_READY，尚不宣称100G或生产ready。
+最新验收：已形成[受控上机候选](release/R770_FIELD_TRIAL_CANDIDATE.md)及[上机说明](release/R770_FIELD_TRIAL_RUNBOOK.md)。阶段80五对1GiB CP30.80/GridFTP12.10Gbps；阶段85完整234任务/1807.62秒及六项跨机故障分别通过；[阶段86](tasks/2026-11-13-field-trial-tls-closeout-86-result.md)已补齐真实重启前后TLS/完整树验证，复合验收通过。运行程序不变，历史FAIL保留；RX/TX已恢复1024/1024，凭据与payload清理。仅限定内存TCP候选，不代表持续31G、磁盘持久化、加密吞吐或100G/生产ready。下一步进行新现场准入，不启动新的性能扫描。
 
 历史实测：[阶段75](tasks/2026-11-12-field-trial-comparison-75-result.md)1GiB五对中位CP31.075/Grid12.352Gbps；[阶段77](tasks/2026-11-13-field-trial-continuation-77-result.md)dense各3次0.399/0.945秒、tiny各3次3.504/2.561秒，mixed文件全对但空目录丢失。上述为旧运行时成绩，不能搬到新二进制。临时RX4096已恢复1024，阶段77现场已清理；新窗口需重新准入，不启动吞吐参数扫描。
 

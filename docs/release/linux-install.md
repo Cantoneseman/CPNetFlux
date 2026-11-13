@@ -1,5 +1,7 @@
 # Linux 交付候选安装指南
 
+2026-11-13补充：当前R770高性能CLI候选采用桌面OFF的独立构建，实测环境Ubuntu26.04.1；见[当前上机说明](R770_FIELD_TRIAL_RUNBOOK.md)。下文Ubuntu22.04/桌面/包安装属于已有安装交付范围，未在此次性能验收中重新认证，不能由CLI成绩推断。
+
 本包是内部安装候选，尚未选择项目 LICENSE，不公开发布或宣称生产就绪。包含已整合的 V3 单文件/目录引擎、TLS/token 服务、Qt 桌面和本地 agent。桌面 API 3.0.0 的真实 adapter 当前支持通过 core tree client 执行 TLS/token 保护的真实目录上传/下载；单文件任务因 core file client 尚未提供统一 TLS/认证控制面，会明确返回 unsupported。只有显式 --demo 才模拟任务，demo 数据是合成状态，不能用于双机传输证明。
 
 ## 构建和打包
