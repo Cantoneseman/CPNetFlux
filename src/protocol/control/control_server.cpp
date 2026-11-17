@@ -1,4 +1,5 @@
 #include "cpnetflux/protocol/control/control_server.h"
+#include "cpnetflux/core/protocol/compressed_data.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -904,7 +905,8 @@ common::Status runRetr(core::io::TlsConnection* control, ControlSession& session
 }
 
 
-core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& options,bool resume=false) {
+core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& options,
+    bool resume=false, std::uint32_t compressionCodecs=0) {
     core::io::PersistentTransferPolicy p;
     p.options.chunkSize=options.chunkSize;p.options.bufferSize=options.bufferSize;
     p.options.checksumAlgorithm=options.checksumAlgorithm;p.options.checksumBackend=options.checksumBackend;
@@ -912,6 +914,7 @@ core::io::PersistentTransferPolicy persistentPolicy(const ControlServerOptions& 
     p.options.manifestFlushIntervalChunks=options.manifestFlushIntervalChunks;
     p.options.finalVerifyPolicy=options.finalVerifyPolicy;p.options.commitSyncPolicy=options.commitSyncPolicy;
     p.options.preallocateMode=options.preallocateMode;p.options.resume=resume;
+    p.options.hotPathCompression.codecMask=compressionCodecs;
     return p;
 }
 struct DirectoryLifetime {
@@ -942,6 +945,7 @@ struct DynamicDirectory {
     }
     std::string destination;
     bool upload;
+    std::uint32_t compressionCodecs = 0;
     std::uint32_t channels, window, total;
     double scanSeconds = 0;
     std::shared_ptr<core::io::PersistentDirectoryBatch> batch;
@@ -1011,7 +1015,7 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     std::uint32_t channels, std::uint32_t window, std::uint32_t requestedTotal,
     std::uint32_t channelIndex, std::uint64_t chunkSize,
     checksum::ChecksumAlgorithm checksumAlgorithm,
-    const ControlServerOptions& policyOptions) {
+    const ControlServerOptions& policyOptions, std::uint32_t compressionCodecs) {
     std::lock_guard lock(directoryRegistryMutex);
     for (auto i = directoryRegistry.begin(); i != directoryRegistry.end();)
         if (i->second.lifetime->released.load(std::memory_order_acquire))
@@ -1021,6 +1025,7 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     if (found != directoryRegistry.end() && found->second.directory) {
         auto existing = found->second.directory;
         if (existing->destination != destination || existing->upload != upload ||
+            existing->compressionCodecs != compressionCodecs ||
             existing->channels != channels || existing->window != window ||
             (upload && existing->total != requestedTotal)) {
             existing->batch->cancel(common::Status::invalidArgument("dynamic batch parameters changed"));
@@ -1033,8 +1038,10 @@ common::Result<std::shared_ptr<DynamicDirectory>> acquireDynamicDirectory(
     if (found != directoryRegistry.end()) directoryRegistry.erase(found);
     if (directoryRegistry.size() >= 64) return common::Status::runtimeError("dynamic batch capacity exhausted");
     auto created = std::make_shared<DynamicDirectory>();
-    created->transactions=core::io::makePersistentTransferContext(persistentPolicy(policyOptions));
+    created->transactions=core::io::makePersistentTransferContext(
+        persistentPolicy(policyOptions,false,compressionCodecs));
     created->destination = destination; created->upload = upload;
+    created->compressionCodecs = compressionCodecs;
     created->channels = channels; created->window = window; created->total = requestedTotal;
     if (!upload) {
         const auto scanStarted = std::chrono::steady_clock::now();
@@ -1091,7 +1098,8 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
     PassiveListener* passive, const ControlServerOptions& options, bool upload,
     const std::string& requested, std::uint32_t pendingWindow, std::uint32_t channelIndex,
     std::uint32_t channelCount, std::uint32_t requestedTotalFiles, const std::string& batchId = {},
-    bool resume = false, std::uint32_t dataBytes = 65532, bool directoryMetadata = false) {
+    bool resume = false, std::uint32_t dataBytes = 65532, bool directoryMetadata = false,
+    std::uint32_t compressionCodecs = 0) {
     namespace fs = std::filesystem;
     if (channelCount == 0 || channelCount > core::io::kPersistentTreeMaxChannels ||
         channelIndex >= channelCount)
@@ -1127,7 +1135,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
             root.value().fullPath + "/" + batchId;
         auto group = acquireDynamicDirectory(guard.key, destination.string(),
             upload, channelCount, pendingWindow, requestedTotalFiles, channelIndex, options.chunkSize,
-            options.checksumAlgorithm, options);
+            options.checksumAlgorithm, options, compressionCodecs);
         if (!group.isOk()) return sendLine(control, formatReply(550, group.status().message()));
         guard.directory = group.value();
         guard.attached = true;
@@ -1237,7 +1245,7 @@ common::Status runPersistentDirectory(core::io::TlsConnection* control, ControlS
             return guard.directory->batch->releaseFailedWork(channelIndex,id);
         return guard.directory->batch->fileEvent(channelIndex,id,fileStatus,complete);
     };
-    auto policy=persistentPolicy(options,resume);
+    auto policy=persistentPolicy(options,resume,compressionCodecs);
     auto transactions=guard.directory ? guard.directory->transactions :
         core::io::makePersistentTransferContext(policy);
     status = upload ? core::io::receivePersistentTree(&data, destination.string(), false, "", &stats, callback,
@@ -1326,6 +1334,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
     std::uint32_t persistentChannels = 1;
     bool persistentDynamic = false;
     bool persistentResume = false;
+    std::uint32_t persistentCodecs = 0;
     bool persistentDirectories = false;
     std::uint32_t persistentDataBytes = 65532;
     core::io::DataTransport sessionDataTransport = core::io::DataTransport::Tcp;
@@ -1405,6 +1414,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                 bool hasRequestedLinkCaps = false;
                 auto checksumAlgorithm = checksum::ChecksumAlgorithm::None;
                 bool requestedResume = false;
+                std::uint32_t requestedCodecs = 0;
                 auto requestedDataTls = core::io::DataTlsMode::Off;
                 auto requestedDataTransport = core::io::DataTransport::Tcp;
                 std::uint32_t requestedDataBytes = 65532;
@@ -1474,6 +1484,11 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                         auto parsed = core::io::parseDataTransport(value);
                         valid = parsed.isOk();
                         if (valid) requestedDataTransport = parsed.value();
+                    } else if (key == "COMPRESSION") {
+                        const auto codecs = core::protocol::parseCompressionCodecList(value) &
+                            core::protocol::supportedCompressionCodecMask();
+                        valid = requestedCodecs == 0 && codecs != 0;
+                        if (valid) requestedCodecs = codecs;
                     } else {
                         valid = false;
                     }
@@ -1499,6 +1514,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     persistentChannels = requestedChannels;
                     persistentDynamic = requestedDynamic;
                     persistentResume = requestedResume;
+                    persistentCodecs = requestedCodecs;
                     persistentDirectories = requestedDirectories;
                     persistentDataBytes = requestedDataBytes;
                     sessionDataTransport = requestedDataTransport;
@@ -1513,7 +1529,9 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     (hasDataBytes ? " data_bytes=262144 max_data_bytes=262144" : "") +
                     (linkSetRequested ? " links=" + std::to_string(requestedLinks) +
                         " link_caps=" + std::to_string(requestedLinkCaps) : "") +
-                    (requestedDynamic ? " scheduling=dynamic" : "");
+                    (requestedDynamic ? " scheduling=dynamic" : "") +
+                    (requestedCodecs ? " compression=" +
+                        core::protocol::describeCompressionCodecMask(requestedCodecs) : "");
                 (void)sendLine(&control, formatReply(persistentNegotiated ? 200 : 504,
                     persistentNegotiated ? accepted : "Unsupported V3 configuration"));
                 continue;
@@ -1561,7 +1579,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
             }
             auto status = runPersistentDirectory(&control, &session, &passive, options,
                 upload, requested, persistentWindow, channelIndex, channelCount, totalFiles, batchId,
-                persistentResume, persistentDataBytes, persistentDirectories);
+                persistentResume, persistentDataBytes, persistentDirectories, persistentCodecs);
             if (!status.isOk()) return;
             continue;
         }

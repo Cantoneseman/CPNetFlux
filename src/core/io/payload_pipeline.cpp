@@ -61,7 +61,7 @@ BoundedPayloadPipeline::BoundedPayloadPipeline(std::size_t maxBytes, std::size_t
 
 common::Status BoundedPayloadPipeline::push(PreparedPayload payload,
                                            std::vector<std::uint8_t>* reusableBuffer) {
-    const auto payloadBytes = payload.bytes.size();
+    const auto payloadBytes = payload.byteSize();
     auto state = state_;
     std::unique_lock<std::mutex> lock(state->mutex);
     if (payloadBytes > state->maxBytes) {
@@ -128,7 +128,7 @@ common::Result<std::optional<PreparedPayload>> BoundedPayloadPipeline::pop(
     if (state->queue.empty()) return std::optional<PreparedPayload>{};
     PreparedPayload payload = std::move(state->queue.front());
     state->queue.pop_front();
-    state->queuedBytes -= payload.bytes.size();
+    state->queuedBytes -= payload.byteSize();
     const bool wakeProducer = state->wakePolicy == ProducerWakePolicy::AvailableCapacity ||
         state->queue.empty();
     lock.unlock();
@@ -175,7 +175,7 @@ common::Result<std::size_t> BoundedPayloadPipeline::popBatch(std::span<PreparedP
     for (std::size_t index = 0; index < count; ++index) {
         slots[index] = std::move(state->queue.front());
         state->queue.pop_front();
-        state->queuedBytes -= slots[index].bytes.size();
+        state->queuedBytes -= slots[index].byteSize();
     }
     const bool wakeProducer = state->wakePolicy == ProducerWakePolicy::AvailableCapacity || state->queue.empty();
     lock.unlock();

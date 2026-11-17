@@ -341,6 +341,52 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
             } else {
                 return common::Status::invalidArgument("--compression must be off or auto");
             }
+        } else if (option == "--compression-codec") {
+            const auto supported = core::protocol::supportedCompressionCodecMask();
+            if (value == "auto") {
+                options.hotPathCompression.codecMask = supported;
+                options.hotPathCompression.codec =
+                    (supported & core::protocol::compressionCodecBit(core::protocol::CompressionCodec::Zstd))
+                        ? core::protocol::CompressionCodec::Zstd
+                        : core::protocol::CompressionCodec::Zlib;
+            } else {
+                const auto codec = core::protocol::parseCompressionCodec(value);
+                if (!codec) {
+                    return common::Status::invalidArgument(
+                        "--compression-codec must be zlib, zstd, lz4 or auto");
+                }
+                if ((supported & core::protocol::compressionCodecBit(*codec)) == 0) {
+                    return common::Status::invalidArgument(
+                        std::string("--compression-codec ") + std::string(value) +
+                        " is not built into this binary (available: " +
+                        core::protocol::describeCompressionCodecMask(supported) + ")");
+                }
+                options.hotPathCompression.codec = *codec;
+                options.hotPathCompression.codecMask = 0;
+            }
+        } else if (option == "--compression-level") {
+            auto parsed = parseUnsigned(value, "--compression-level");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            if (parsed.value() == 0 || parsed.value() > 19) {
+                return common::Status::invalidArgument("--compression-level must be in range 1..19");
+            }
+            options.hotPathCompression.level = static_cast<int>(parsed.value());
+        } else if (option == "--compression-policy") {
+            if (value == "fixed") {
+                options.hotPathCompression.adaptive = false;
+            } else if (value == "adaptive") {
+                options.hotPathCompression.adaptive = true;
+            } else {
+                return common::Status::invalidArgument("--compression-policy must be fixed or adaptive");
+            }
+        } else if (option == "--compression-link-mbps") {
+            auto parsed = parsePositiveDouble(value, "--compression-link-mbps");
+            if (!parsed.isOk()) {
+                return parsed.status();
+            }
+            options.hotPathCompression.linkBytesPerSecond = parsed.value() * 1000.0 * 1000.0 / 8.0;
         } else if (option == "--chunk-size") {
             auto parsed = parseUnsigned(value, "--chunk-size");
             if (!parsed.isOk()) {
@@ -739,7 +785,10 @@ std::string treeTransferUsage(const char* programName, TreeTransferRole role) {
            "[--buffer-size <bytes>] [--data-frame-bytes 65532|262144] [--checksum <crc32c|none>] "
            "[--checksum-backend <auto|software|hardware>] [--reconnect-attempts 0..10] [--transfer-timeout-ms N] [--resume] "
            "[--auth-probe] [--local-bind-address <numeric-ip>] [--local-bind-addresses <ip,ip,...>] [--peer-addresses <ip,ip,...>] "
-           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window auto|1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] [--planner-preset <name>] "
+           "[--control-reuse off|worker] [--data-session-reuse off|tree] [--file-scheduling dynamic|static] [--data-pending-window auto|1..16] [--link-set-links 1..10] [--link-set-capabilities <bits>] [--compression off|auto] "
+           "[--compression-codec zlib|zstd|lz4|auto] [--compression-level 1..19] "
+           "[--compression-policy fixed|adaptive] [--compression-link-mbps <float>] "
+           "[--planner-preset <name>] "
            "[--auth-mode anonymous|token] [--auth-token-file <path>] "
            "[--user <name>] [--password <password>] [--json-summary <path>] "
            "[--event-log <path>] [--phase-timing on|off] [--control-pipeline-depth 0|1|2|4] "

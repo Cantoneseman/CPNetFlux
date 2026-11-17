@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "cpnetflux/common/status.h"
+#include "cpnetflux/core/io/parallel_compression_executor.h"
 
 namespace cpnetflux::core::io {
 
@@ -20,6 +21,12 @@ struct PreparedPayload {
     std::size_t logicalOffset = 0;
     std::size_t logicalBytes = 0;
     bool checksumPresent = false;
+    std::optional<ParallelCompressionExecutor::Task> compressionTask;
+    std::size_t compressionInputBytes = 0;
+
+    [[nodiscard]] std::size_t byteSize() const noexcept {
+        return compressionTask ? compressionInputBytes : bytes.size();
+    }
 };
 
 // EmptyQueue batches only wakeups after backpressure; it never waits to fill a queue.

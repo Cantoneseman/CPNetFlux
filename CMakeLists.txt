@@ -27,6 +27,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include(FetchContent)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(CPNETFLUX_ZSTD QUIET IMPORTED_TARGET libzstd)
+    pkg_check_modules(CPNETFLUX_LZ4 QUIET IMPORTED_TARGET liblz4)
+endif()
+if(NOT CPNETFLUX_ZSTD_FOUND)
+    message(WARNING "libzstd was not found; zstd DATA compression is disabled")
+endif()
+if(NOT CPNETFLUX_LZ4_FOUND)
+    message(WARNING "liblz4 was not found; lz4 DATA compression is disabled")
+endif()
 find_package(spdlog CONFIG QUIET)
 if(CPNETFLUX_BUILD_TESTS)
     find_package(GTest CONFIG QUIET)
@@ -137,6 +148,7 @@ add_library(cpnetflux_core STATIC
     src/core/chunk/range_planner.cpp
     src/core/chunk/range_list.cpp
     src/core/chunk/transfer_progress.cpp
+    src/core/io/compression_controller.cpp
     src/core/io/connection_context.cpp
     src/core/io/file_download_client.cpp
     src/core/io/file_download_sender.cpp
@@ -152,6 +164,7 @@ add_library(cpnetflux_core STATIC
     src/core/io/member_work_profile.cpp
     src/core/io/sender_work_profile.cpp
     src/core/io/payload_pipeline.cpp
+    src/core/io/parallel_compression_executor.cpp
     src/core/io/transfer_stages.cpp
     src/core/io/dynamic_file_queue.cpp
     src/core/io/work_executor.cpp
@@ -212,6 +225,14 @@ target_link_libraries(cpnetflux_core
 )
 if(CPNETFLUX_HAS_ISAL)
     target_link_libraries(cpnetflux_core PRIVATE isal)
+endif()
+if(CPNETFLUX_ZSTD_FOUND)
+    target_link_libraries(cpnetflux_core PRIVATE PkgConfig::CPNETFLUX_ZSTD)
+    target_compile_definitions(cpnetflux_core PRIVATE CPNETFLUX_HAVE_ZSTD=1)
+endif()
+if(CPNETFLUX_LZ4_FOUND)
+    target_link_libraries(cpnetflux_core PRIVATE PkgConfig::CPNETFLUX_LZ4)
+    target_compile_definitions(cpnetflux_core PRIVATE CPNETFLUX_HAVE_LZ4=1)
 endif()
 
 
@@ -418,6 +439,8 @@ if(CPNETFLUX_BUILD_TESTS)
         tests/unit/rdma_buffer_pool_test.cpp
         tests/unit/control_session_test.cpp
         tests/unit/compressed_data_test.cpp
+        tests/unit/compression_controller_test.cpp
+        tests/unit/parallel_compression_executor_test.cpp
         tests/unit/download_manifest_test.cpp
         tests/unit/manifest_serialization_work_test.cpp
         tests/unit/download_session_test.cpp

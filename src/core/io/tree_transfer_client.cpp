@@ -49,6 +49,8 @@
 #include "cpnetflux/core/io/file_download_client.h"
 #include "cpnetflux/core/io/file_transfer_client.h"
 #include "cpnetflux/core/io/persistent_tree_transfer.h"
+#include "cpnetflux/core/io/compression_controller.h"
+#include "cpnetflux/core/protocol/compressed_data.h"
 #include "cpnetflux/core/io/persistent_directory.h"
 #include "cpnetflux/core/io/work_executor.h"
 #include "cpnetflux/core/metrics/error_code.h"
@@ -325,7 +327,9 @@ class ControlClient {
         bool resume, DataTlsMode dataTlsMode, std::uint32_t* actualWindow,
         std::uint32_t* actualChannels, bool dynamic = false,
         std::uint32_t requestedLinks = 1, std::uint64_t requestedLinkCapabilities = 0,
-        DataTransport dataTransport = DataTransport::Tcp, std::uint32_t dataBytes = 65532) {
+        DataTransport dataTransport = DataTransport::Tcp, std::uint32_t dataBytes = 65532,
+        std::uint32_t requestCodecs = 0, std::uint32_t* acceptedCodecs = nullptr) {
+        if (acceptedCodecs != nullptr) *acceptedCodecs = 0;
         if (requestedWindow == 0 || requestedWindow > 16 ||
             requestedChannels == 0 || requestedChannels > kPersistentTreeMaxChannels ||
             requestedLinks == 0 || requestedLinks > core::scheduler::LinkSet::kMaxLinks ||
@@ -350,6 +354,8 @@ class ControlClient {
         request += " DATA_TLS=" + std::string(dataTlsModeName(dataTlsMode));
         request += " DATA_TRANSPORT=" + std::string(dataTransportName(dataTransport));
         if (dataBytes != 65532) request += " DATA_BYTES=" + std::to_string(dataBytes);
+        if (requestCodecs != 0)
+            request += " COMPRESSION=" + core::protocol::describeCompressionCodecMask(requestCodecs);
         const bool linkSetRequested = requestedLinks != 1 || requestedLinkCapabilities != 0;
         if (linkSetRequested) {
             request += " " + core::scheduler::encodeLinkSetControlFields(
@@ -363,6 +369,13 @@ class ControlClient {
             { std::istringstream fields(replyText); std::string field; bool directories = false;
               while (fields >> field) if (field == "directories=1") directories = true;
               if (!directories) return false; }
+            std::uint32_t peerCodecs = 0;
+            { std::istringstream fields(replyText); std::string field;
+              while (fields >> field)
+                  if (field.starts_with("compression="))
+                      peerCodecs = core::protocol::parseCompressionCodecList(
+                          std::string_view(field).substr(std::string_view("compression=").size())); }
+            if (requestCodecs != 0 && (peerCodecs & requestCodecs) == 0) return false;
             if (dataBytes != 65532) {
                 std::istringstream fields(replyText);
                 std::string field;
@@ -396,6 +409,7 @@ class ControlClient {
                 (void)::setsockopt(control_.fd(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
                 return false;
             }
+            if (acceptedCodecs != nullptr) *acceptedCodecs = peerCodecs & requestCodecs;
             *actualWindow = requestedWindow;
             *actualChannels = requestedChannels;
             return true;
@@ -1069,6 +1083,13 @@ struct TreeRunStats {
     std::atomic<std::uint64_t> compressedFrames{0};
     std::atomic<std::uint64_t> rawFallbackFrames{0};
     std::atomic<std::uint64_t> compressionFailures{0};
+    std::array<std::atomic<std::uint64_t>, core::protocol::kCompressionCodecCount> codecFrames{};
+    std::array<std::atomic<std::uint64_t>, core::io::kCompressionReasonCount> adaptiveFileReasons{};
+    std::atomic<std::uint64_t> compressionSwitches{0};
+    bool compressionNegotiated = false;
+    std::atomic<std::uint64_t> compressionWorkersObserved{0};
+    std::atomic<std::uint64_t> compressionMaxInFlightJobsObserved{0};
+    std::atomic<std::uint64_t> compressionMaxInFlightBytesObserved{0};
     std::atomic<std::uint64_t> decompressionFailures{0};
     std::atomic<std::uint64_t> compressedLogicalBytes{0};
     std::atomic<std::uint64_t> compressedWireBytes{0};
@@ -1342,6 +1363,25 @@ common::Result<std::string> computeTreeVerificationHashFromChunks(
     return core::tree::treeHashFromVerifiedChunks(std::move(files),requestedBackend,actualBackend);
 }
 
+// Codecs to offer in the V3 request. Zlib alone is sent without negotiation, as before.
+std::uint32_t compressionRequestMask(const config::TreeTransferOptions& options, bool upload) {
+    const auto& compression = options.hotPathCompression;
+    if (!upload || options.compressionMode != config::CompressionMode::Auto || compression.forceRaw)
+        return 0;
+    const auto zlib = core::protocol::compressionCodecBit(core::protocol::CompressionCodec::Zlib);
+    const auto wanted = (compression.codecMask ? compression.codecMask
+                                               : core::protocol::compressionCodecBit(compression.codec)) &
+        core::protocol::supportedCompressionCodecMask();
+    return wanted == zlib ? 0 : wanted;
+}
+
+core::protocol::CompressionCodec preferredCompressionCodec(std::uint32_t mask) {
+    using core::protocol::CompressionCodec;
+    for (const auto codec : {CompressionCodec::Zstd, CompressionCodec::Lz4, CompressionCodec::Zlib})
+        if (mask & core::protocol::compressionCodecBit(codec)) return codec;
+    return CompressionCodec::Zlib;
+}
+
 TreeSummary summarizeManifest(const core::tree::TreeManifest& manifest) {
     TreeSummary summary;
     for (const auto& file : manifest.files) {
@@ -1562,6 +1602,27 @@ common::Status writeTreeJsonSummary(const char* direction, const char* result,
     output << "  \"compression_failures\": " << stats.compressionFailures.load() << ",\n";
     output << "  \"compressed_logical_bytes\": " << stats.compressedLogicalBytes.load() << ",\n";
     output << "  \"compressed_wire_bytes\": " << stats.compressedWireBytes.load() << ",\n";
+    output << "  \"compression_negotiated\": " << (stats.compressionNegotiated ? "true" : "false") << ",\n";
+    output << "  \"compression_codec_frames\": {";
+    for (std::size_t codec = 0; codec < core::protocol::kCompressionCodecCount; ++codec) {
+        output << (codec ? ", " : "") << "\""
+               << core::protocol::compressionCodecName(static_cast<core::protocol::CompressionCodec>(codec))
+               << "\": " << stats.codecFrames[codec].load();
+    }
+    output << "},\n";
+    output << "  \"compression_adaptive_file_reasons\": {";
+    for (std::size_t reason = 0; reason < core::io::kCompressionReasonCount; ++reason) {
+        output << (reason ? ", " : "") << "\""
+               << core::io::compressionReasonName(static_cast<core::io::CompressionReason>(reason))
+               << "\": " << stats.adaptiveFileReasons[reason].load();
+    }
+    output << "},\n";
+    output << "  \"compression_switches\": " << stats.compressionSwitches.load() << ",\n";
+    output << "  \"compression_workers_observed\": " << stats.compressionWorkersObserved.load() << ",\n";
+    output << "  \"compression_max_in_flight_jobs_observed\": "
+           << stats.compressionMaxInFlightJobsObserved.load() << ",\n";
+    output << "  \"compression_max_in_flight_bytes_observed\": "
+           << stats.compressionMaxInFlightBytesObserved.load() << ",\n";
     output << "  \"wire_bytes\": " << stats.wireBytes.load() << ",\n";
     output << "  \"file_parallelism\": " << options.fileParallelism << ",\n";
     output << "  \"connections\": " << options.connections << ",\n";
@@ -2273,8 +2334,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                         file.status = core::tree::TreeFileStatus::Pending;
                 }
             }
+            // The adaptive sender calibrates each file itself; sampling every file here first
+            // is serial and stalls the start of a many-file batch.
             auto plans = globalScheduler->planManifest(schedulingManifest, options.sourceDir,
-                core::scheduler::SchedulerDirection::Upload, true);
+                core::scheduler::SchedulerDirection::Upload, !options.hotPathCompression.adaptive);
             if (!plans.isOk()) return plans.status();
             auto bound = bindScheduledPlans(plans.value(), files);
             if (!bound.isOk()) return bound.status();
@@ -2348,7 +2411,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         std::size_t remoteQueueHigh = 0;
         common::Status status = common::Status::ok();
         bool capable = false;
+        std::uint32_t compressionCodecsAccepted = 0;
     };
+    const auto compressionRequest = compressionRequestMask(options, upload);
+    std::uint32_t compressionCodecs = compressionRequest;
     std::vector<std::unique_ptr<Channel>> channels;
     channels.reserve(channelCount);
     for (std::uint32_t index = 0; index < channelCount; ++index) {
@@ -2415,12 +2481,14 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                     return;
                 }
             }
-            std::uint32_t actualWindow = 1, actualChannels = 1;
+            std::uint32_t actualWindow = 1, actualChannels = 1, acceptedCodecs = 0;
             auto capability = channel.control->negotiatePersistent(
                 dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
                 options.dataTlsMode, &actualWindow, &actualChannels, options.dynamicFileScheduling,
                 options.linkSetLinks, options.linkSetCapabilityBits, options.dataTransport,
-                options.dataFrameBytes);
+                options.dataFrameBytes, compressionRequest, &acceptedCodecs);
+            channel.compressionCodecsAccepted =
+                capability.isOk() && capability.value() ? acceptedCodecs : 0;
             if (!capability.isOk()) {
                 channel.status = capability.status();
                 recordFailure(channel.status);
@@ -2443,6 +2511,10 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         return common::Status::invalidArgument(
             "server does not support the required V3 persistent tree capability");
     }
+    for (const auto& channel : channels) compressionCodecs &= channel->compressionCodecsAccepted;
+    if (compressionRequest != 0 && compressionCodecs == 0)
+        return common::Status::invalidArgument("server accepted none of the requested compression codecs");
+    stats->compressionNegotiated = compressionCodecs != 0;
 
     *used = true;
     stats->persistentData = true;
@@ -2757,8 +2829,15 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         transferOptions.hotPathCompression.candidate = true;
         if (transferOptions.hotPathCompression.maxPayloadBytes == 0)
             transferOptions.hotPathCompression.maxPayloadBytes = options.bufferSize;
+        if (compressionCodecs != 0) {
+            auto& compression = transferOptions.hotPathCompression;
+            compression.codecMask = compressionCodecs;
+            if ((compressionCodecs & core::protocol::compressionCodecBit(compression.codec)) == 0)
+                compression.codec = preferredCompressionCodec(compressionCodecs);
+        }
     }
     PersistentTransferPolicy receiverPolicy;
+    receiverPolicy.options.hotPathCompression.codecMask = compressionCodecs;
     receiverPolicy.options.checksumBackend = options.checksumBackend;
     receiverPolicy.options.manifestFlushPolicy = options.manifestFlushPolicy;
     receiverPolicy.options.manifestFlushIntervalChunks = options.manifestFlushIntervalChunks;
@@ -2835,15 +2914,16 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
                         channel.control, persistentOptions, stats,
                         index);
                     if (!connectedStatus.isOk()) return connectedStatus;
-                    std::uint32_t actualWindow = 1, actualChannels = 1;
+                    std::uint32_t actualWindow = 1, actualChannels = 1, acceptedCodecs = 0;
                     auto capability = channel.control->negotiatePersistent(
                         dispatchWindow, channelCount, options.checksumAlgorithm, options.resume,
                         options.dataTlsMode, &actualWindow, &actualChannels,
                         options.dynamicFileScheduling, options.linkSetLinks,
-                        options.linkSetCapabilityBits, options.dataTransport, options.dataFrameBytes);
+                        options.linkSetCapabilityBits, options.dataTransport, options.dataFrameBytes,
+                        compressionCodecs, &acceptedCodecs);
                     if (!capability.isOk()) return capability.status();
                     if (!capability.value() || actualWindow != dispatchWindow ||
-                        actualChannels != channelCount) {
+                        actualChannels != channelCount || acceptedCodecs != compressionCodecs) {
                         return common::Status::runtimeError(
                             "persistent lane control reconnect negotiation failed");
                     }
@@ -3043,6 +3123,20 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
         stats->decompressionFailures.fetch_add(channel->observed.runtime.decompressionFailures);
         stats->compressedLogicalBytes.fetch_add(channel->observed.runtime.compressedLogicalBytes);
         stats->compressedWireBytes.fetch_add(channel->observed.runtime.compressedWireBytes);
+        for (std::size_t codec = 0; codec < core::protocol::kCompressionCodecCount; ++codec)
+            stats->codecFrames[codec].fetch_add(channel->observed.runtime.codecFrames[codec]);
+        for (std::size_t reason = 0; reason < core::io::kCompressionReasonCount; ++reason)
+            stats->adaptiveFileReasons[reason].fetch_add(
+                channel->observed.runtime.adaptiveFileReasons[reason]);
+        stats->compressionSwitches.fetch_add(channel->observed.runtime.compressionSwitches);
+        stats->compressionWorkersObserved.store(std::max<std::uint64_t>(
+            stats->compressionWorkersObserved.load(), channel->observed.compressionWorkersObserved));
+        stats->compressionMaxInFlightJobsObserved.store(std::max<std::uint64_t>(
+            stats->compressionMaxInFlightJobsObserved.load(),
+            channel->observed.compressionMaxInFlightJobsObserved));
+        stats->compressionMaxInFlightBytesObserved.store(std::max<std::uint64_t>(
+            stats->compressionMaxInFlightBytesObserved.load(),
+            channel->observed.compressionMaxInFlightBytesObserved));
         completeWaitSeconds += channel->observed.completeWaitSeconds + channel->controlWaitSeconds;
         pendingHighWatermark = std::max(pendingHighWatermark,
             channel->observed.pendingHighWatermark);
