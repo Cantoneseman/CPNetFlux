@@ -111,6 +111,35 @@ def build_globus_transfer_command(
     return command
 
 
+def build_annual_gridftp_single_command(
+    *,
+    globus_url_copy: str,
+    source_url: str,
+    dest_url: str,
+    streams: int,
+    tcp_buffer_size: int,
+    block_size: int,
+) -> list[str]:
+    if not source_url.startswith("gsiftp://") or not dest_url.startswith("gsiftp://"):
+        raise ValueError("annual GridFTP comparison requires GSI URLs")
+    if streams <= 0 or tcp_buffer_size <= 0 or block_size <= 0:
+        raise ValueError("stream and buffer sizes must be positive")
+
+    return [
+        globus_url_copy,
+        "-fast",
+        "-nodcau",
+        "-p",
+        str(streams),
+        "-tcp-bs",
+        str(tcp_buffer_size),
+        "-bs",
+        str(block_size),
+        source_url,
+        dest_url,
+    ]
+
+
 def build_globus_partial_get_command(
     *,
     globus_url_copy: str,

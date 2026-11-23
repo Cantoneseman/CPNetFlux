@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import random
 import shutil
 import socket
 import time
@@ -11,6 +12,37 @@ from typing import Any
 
 
 GENERATOR_VERSION = "gridftp_compare_dataset_v1"
+MAX_STREAMED_PAYLOAD_BUFFER_BYTES = 4 * 1024 * 1024
+
+
+def write_deterministic_uncompressible_file(
+    path: Path,
+    *,
+    size_bytes: int,
+    seed: int,
+    buffer_bytes: int = 1024 * 1024,
+) -> None:
+    if size_bytes <= 0:
+        raise ValueError("size_bytes must be positive")
+    if buffer_bytes <= 0 or buffer_bytes > MAX_STREAMED_PAYLOAD_BUFFER_BYTES:
+        raise ValueError(
+            f"buffer_bytes must be between 1 and {MAX_STREAMED_PAYLOAD_BUFFER_BYTES}"
+        )
+
+    random_source = random.Random(seed)
+    remaining = size_bytes
+    created = False
+    try:
+        with path.open("xb") as output:
+            created = True
+            while remaining:
+                block_bytes = min(buffer_bytes, remaining)
+                output.write(random_source.randbytes(block_bytes))
+                remaining -= block_bytes
+    except BaseException:
+        if created:
+            path.unlink(missing_ok=True)
+        raise
 
 DATASET_PROFILES: dict[str, dict[str, object]] = {
     "single_64MiB": {"kind": "single", "sizes": [64 * 1024 * 1024]},

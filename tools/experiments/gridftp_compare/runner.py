@@ -77,6 +77,142 @@ def parse_csv_list(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def annual_candidate_sizes(
+    maximum_bytes: int = 10_000_000_000,
+    minimum_bytes: int = 1_000_000_000,
+    decrement_bytes: int = 1_000_000_000,
+) -> list[int]:
+    if maximum_bytes < minimum_bytes or minimum_bytes <= 0 or decrement_bytes <= 0:
+        raise ValueError("invalid annual admission size range")
+    if (maximum_bytes - minimum_bytes) % decrement_bytes:
+        raise ValueError("size range must be divisible by decrement_bytes")
+    return list(range(maximum_bytes, minimum_bytes - 1, -decrement_bytes))
+
+
+def annual_formal_schedule(*, pairs_per_direction: int = 5) -> list[dict[str, Any]]:
+    if pairs_per_direction <= 0:
+        raise ValueError("pairs_per_direction must be positive")
+
+    rows: list[dict[str, Any]] = []
+    for pair_index in range(pairs_per_direction):
+        upload_order = (
+            ["cpnetflux", "gridftp"]
+            if pair_index % 2 == 0
+            else ["gridftp", "cpnetflux"]
+        )
+        download_order = list(reversed(upload_order))
+        rows.append(
+            {
+                "direction": "upload",
+                "pair_index": pair_index + 1,
+                "order": upload_order,
+            }
+        )
+        rows.append(
+            {
+                "direction": "download",
+                "pair_index": pair_index + 1,
+                "order": download_order,
+            }
+        )
+    return rows
+
+
+def annual_admission_decision(
+    *,
+    authentication_ok: bool,
+    terminal_ok: bool,
+    integrity_ok: bool,
+    min_memavailable_bytes: int,
+    pswpout_delta: int,
+    cgroup_event_delta: dict[str, int],
+    min_tmpfs_free_bytes: int,
+    required_tmpfs_free_bytes: int,
+    network_deltas: dict[str, Any],
+) -> str:
+    if not authentication_ok or not terminal_ok or not integrity_ok:
+        return "stop"
+    if (
+        min_memavailable_bytes < 0
+        or pswpout_delta < 0
+        or min_tmpfs_free_bytes < 0
+        or required_tmpfs_free_bytes < 0
+    ):
+        return "stop"
+
+    network_error_counters = {
+        "rx_missed_errors",
+        "rx_out_of_buffer",
+        "rx_errors",
+        "tx_errors",
+        "rx_dropped",
+        "tx_dropped",
+        "rx_crc_errors_phy",
+        "rx_discards_phy",
+        "tx_discards_phy",
+    }
+    required_network_counters = {
+        "rx_missed_errors",
+        "rx_out_of_buffer",
+        "rx_errors",
+        "tx_errors",
+        "rx_dropped",
+        "tx_dropped",
+        "rx_crc_errors_phy",
+        "rx_discards_phy",
+        "tx_discards_phy",
+    }
+    if required_network_counters.intersection(network_deltas):
+        counter_sets = [network_deltas]
+    else:
+        counter_sets = [
+            counters
+            for counters in network_deltas.values()
+            if isinstance(counters, dict)
+        ]
+    if not counter_sets:
+        return "stop"
+    for counters in counter_sets:
+        if not required_network_counters.issubset(counters):
+            return "stop"
+        for name in network_error_counters:
+            if int(counters.get(name, 0) or 0) != 0:
+                return "stop"
+
+    minimum_available_bytes = 12 * 1024**3
+    required_cgroup_events = {
+        "low",
+        "high",
+        "max",
+        "oom",
+        "oom_kill",
+        "oom_group_kill",
+        "sock_throttled",
+    }
+    if not required_cgroup_events.issubset(cgroup_event_delta):
+        return "stop"
+    if any(int(value) < 0 for value in cgroup_event_delta.values()):
+        return "stop"
+    if (
+        min_memavailable_bytes < minimum_available_bytes
+        or pswpout_delta != 0
+        or any(int(value) != 0 for value in cgroup_event_delta.values())
+        or min_tmpfs_free_bytes < required_tmpfs_free_bytes
+    ):
+        return "reduce_size"
+    return "accept"
+
+
+def annual_next_candidate(size_bytes: int, decision: str) -> int | None:
+    if decision != "reduce_size":
+        return None
+    minimum_bytes = 1_000_000_000
+    decrement_bytes = 1_000_000_000
+    if size_bytes <= minimum_bytes:
+        return None
+    return size_bytes - decrement_bytes
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
