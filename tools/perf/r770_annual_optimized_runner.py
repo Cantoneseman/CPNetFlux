@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shlex
 import subprocess
@@ -24,7 +25,7 @@ TOOL = str(Path(node.__file__).resolve())
 
 
 def argv(host, *args):
-    command = ["python3", "-B", TOOL, *map(str, args)]
+    command = ["env", "CPNETFLUX_ANNUAL_RUN=" + node.RUN, "python3", "-B", TOOL, *map(str, args)]
     if host == 1:
         return command
     return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "r770-2", shlex.join(command)]
@@ -115,14 +116,16 @@ def bounds(before, after, observations):
     return errors, deltas, metrics
 
 
-def idle():
+def idle(seconds=6):
     start=both("snapshot")
-    time.sleep(2)
+    time.sleep(seconds)
     end=both("snapshot")
     failures, _, _=bounds(start,end,{})
     if any(failures.values()):
         raise RuntimeError("idle gates: " + str(failures))
-    return {"before":start,"after":end}
+    for host in HOSTS:
+        rx.require_capacity(end[host], node.SIZE)
+    return {"minimum_idle_seconds":seconds,"before":start,"after":end}
 
 
 def validate_grid(result, receipts, mode, sender, target, size):
@@ -248,6 +251,8 @@ def sample(group, index, mode, sender, expected):
         try:
             if mode not in GRID:
                 call(server,"stop",label)
+            if mode in ("clear", "tls") and not call(sender, "remove-upload-manifest"):
+                raise RuntimeError("sender upload manifest still exists")
             if folder_ready and not call(receiver,"remove",label):
                 raise RuntimeError("target still exists")
         except Exception as error:
@@ -277,62 +282,78 @@ def sequence(group, sender, samples, size, expected_sha=None):
             raise RuntimeError("source still exists")
 
 
+def require_security_pass(commit):
+    security = OUT.parent / node.SECURITY_RUN
+    post = json.loads((security / "postflight.json").read_text())
+    builds = json.loads((security / "matching-builds.json").read_text())
+    rows = [json.loads(path.read_text()) for path in security.glob("security-formal-*.json")
+            if re.fullmatch(r"security-formal-\d{2}-(grid|private|anon|clear|tls)\.json", path.name)]
+    counts = {mode: sum(row["mode"] == mode and row["decision"] == "accepted"
+                        and row["payload_bytes"] == node.SIZE for row in rows)
+              for mode in SECURITY_BLOCKS[0]}
+    if (post["stage"] != "security" or post["status"] != "pass" or
+            len(rows) != 15 or set(counts.values()) != {3} or builds["1"]["commit"] != commit):
+        raise RuntimeError("independent security matrix did not pass at the requested commit")
+
+
 def main():
-    commit=sys.argv[1]
-    builds=both("receipt",commit)
-    if builds[1]!=builds[2]:
+    stage, commit = sys.argv[1:]
+    run_names = {"security": node.SECURITY_RUN, "reverse": node.REVERSE_RUN}
+    if node.RUN != run_names[stage] or node.HOST != 1:
+        raise ValueError("stage, controller node or run directory mismatch")
+    if stage == "reverse":
+        require_security_pass(commit)
+    initial = both("identity")
+    builds = both("receipt", commit)
+    if builds[1] != builds[2]:
         raise RuntimeError("dual build mismatch")
-    record("matching-builds",builds)
-    initial=both("identity")
-    record("preflight",{"identity":initial,"idle":idle()})
+    record("matching-builds", builds)
+    record("preflight", {"identity": initial, "idle": idle()})
     prepared = []
-    outcome = {}
+    outcome = {"stage": stage, "status": "stopped"}
     try:
         for host in HOSTS:
-            call(host,"prepare")
+            call(host, "prepare")
             prepared.append(host)
         credentials()
         for host in HOSTS:
-            for mode in ("grid","anon"):
-                call(host,"service",mode,mode+"-listener")
-        for sender in (2,1):
-            if not sequence(f"gsi-smoke-r{sender}",sender,("grid",),node.SMOKE):
-                raise RuntimeError("bidirectional authenticated smoke failed")
-        first_phase="867c60a763149bef989bd4f23ee180ee83022256ed1518841f6ee2e41b45f8c0"
-        main_ok=True
-        for sender in (2,1):
-            admission=("grid",) if sender==2 else ("grid","mmap")
-            main_ok=sequence(f"main-admit-r{sender}",sender,admission,node.SIZE,first_phase)
-            if not main_ok:
-                break
-        if main_ok:
-            for sender in (2,1):
-                ordered=tuple(arm for i in range(5) for arm in
-                              (("mmap","grid") if (i+sender)%2==0 else ("grid","mmap")))
-                main_ok=sequence(f"main-formal-r{sender}",sender,ordered,node.SIZE,first_phase)
-                if not main_ok:
-                    break
-        outcome["main"]="accepted" if main_ok else "stopped"
-        modes=SECURITY_BLOCKS[0]
-        security_ok=sequence("security-admit",2,modes,node.SIZE,first_phase)
-        if security_ok:
-            security_ok=sequence("security-formal",2,sum(SECURITY_BLOCKS,()),node.SIZE,first_phase)
-        outcome["security"]="accepted" if security_ok else "stopped"
+            for mode in (("grid", "anon") if stage == "security" else ("grid",)):
+                call(host, "service", mode, mode + "-listener")
+        smoke = ("grid", "private", "anon", "clear", "tls") if stage == "security" else ("grid",)
+        if not sequence("smoke-r2", 2, smoke, node.SMOKE) or not sequence("smoke-r1", 1, ("grid",), node.SMOKE):
+            raise RuntimeError("8 MiB authentication/data mode smoke stopped")
+        source_sha = "867c60a763149bef989bd4f23ee180ee83022256ed1518841f6ee2e41b45f8c0"
+        if stage == "security":
+            done = sequence("security-formal", 2, sum(SECURITY_BLOCKS, ()), node.SIZE, source_sha)
+        else:
+            order = ("grid", "mmap", "mmap", "grid", "grid", "mmap", "mmap", "grid", "grid", "mmap")
+            done = sequence("reverse-formal", 1, order, node.SIZE, source_sha)
+        outcome["status"] = "pass" if done else "stopped"
     except Exception as error:
-        outcome["error"]=str(error)
-        raise
+        outcome["error"] = str(error)
+        print(str(error), file=sys.stderr, flush=True)
     finally:
-        clean={}
+        cleanup = {}
         for host in prepared:
             try:
-                clean[host]=call(host,"clean")
+                cleanup[host] = call(host, "clean")
             except Exception as error:
-                clean[host]={"error":str(error)}
-        record("postflight",{"outcome":outcome,"cleanup":clean,"snapshot":both("snapshot"),
-                             "identity_matches": {h:call(h,"identity")==initial[h] for h in HOSTS}})
-    return 0 if outcome=={"main":"accepted","security":"accepted"} else 2
+                cleanup[host] = {"error":str(error)}
+        outcome["cleanup"] = cleanup
+        try:
+            outcome["identity_matches"] = {host: call(host, "identity") == initial[host] for host in HOSTS}
+            outcome["idle_after_cleanup"] = idle()
+            if (not all(outcome["identity_matches"].values()) or len(cleanup) != len(HOSTS) or
+                    not all(all(receipt.get(key) for key in ("payload_removed", "credential_removed", "listeners_empty"))
+                            for receipt in cleanup.values())):
+                raise RuntimeError("cleanup or original interface/service identity check")
+        except Exception as error:
+            outcome["postflight_error"] = str(error)
+            outcome["status"] = "stopped"
+        record("postflight", outcome)
+    return 0 if outcome["status"] == "pass" else 2
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     os.umask(0o077)
     sys.exit(main())

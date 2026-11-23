@@ -8,13 +8,18 @@ import re
 import resource
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
 
 import run_r770_receive_cost as rx
 
-RUN = "2026-11-24-r770-annual-optimized-5g-01"
+SECURITY_RUN = "2026-11-24-r770-annual-5g-security-02"
+REVERSE_RUN = "2026-11-24-r770-annual-5g-reverse-02"
+RUN = os.environ.get("CPNETFLUX_ANNUAL_RUN", "2026-11-24-r770-annual-optimized-5g-01")
+if RUN not in ("2026-11-24-r770-annual-optimized-5g-01", SECURITY_RUN, REVERSE_RUN):
+    raise ValueError("unknown annual run directory")
 OUT = Path("/home/Su/experiments/CPNetFlux") / RUN
 ROOT = Path("/dev/shm") / ("cpnetflux-s0-" + RUN)
 CRED = OUT / "credentials"
@@ -71,7 +76,22 @@ def clean_slot(label):
     path = slot(label)
     if path.exists():
         rx.baseline.remove_owned(ROOT, path)
+    if label == "source":
+        remove_upload_manifest()
     return not path.exists()
+
+
+def remove_upload_manifest():
+    rx.baseline.check_root(ROOT)
+    path = ROOT / "source.cpnetflux.tree.upload.manifest"
+    try:
+        identity = path.lstat()
+    except FileNotFoundError:
+        return True
+    if not stat.S_ISREG(identity.st_mode) or identity.st_uid != os.getuid() or identity.st_nlink != 1:
+        raise RuntimeError("unexpected upload manifest ownership or type")
+    path.unlink()
+    return True
 
 
 def request_cert():
@@ -220,6 +240,7 @@ def clean():
     for path in sorted(OUT.glob("*.service.json")):
         stop(path.name.removesuffix(".service.json"))
     if ROOT.exists():
+        remove_upload_manifest()
         for path in ROOT.iterdir():
             if path.name != rx.baseline.MARKER:
                 clean_slot(path.name)
@@ -230,9 +251,12 @@ def clean():
         if CRED.parent != OUT or CRED.is_symlink() or CRED.stat().st_uid != os.getuid():
             raise RuntimeError("foreign credential directory")
         shutil.rmtree(CRED)
+    ports = {45582,45583,45592,45593,45596,61350,61351,61352,61353,
+             *range(45730,45755), *range(45760,45785),
+             *range(45830,45855), *range(45860,45885)}
+    bound = {int(line.split()[3].rsplit(":", 1)[-1]) for line in cmd(["ss", "-Hltn"]).splitlines()}
     return {"payload_removed": not ROOT.exists(), "credential_removed": not CRED.exists(),
-            "listeners_empty": all(not cmd(["ss","-Hln","sport","=",str(p)])
-                                   for p in (45582,45583,45592,45593,45596)),
+            "listeners_empty": not ports.intersection(bound),
             "tmpfs_free": shutil.disk_usage(ROOT.parent).free}
 
 
@@ -358,7 +382,8 @@ def main():
     actions = {
         "prepare": prepare, "snapshot": rx.snapshot, "identity": rx.identity,
         "receipt": rx.build_receipt, "seed": lambda s: seed(int(s)),
-        "remove": clean_slot, "mkdir": lambda label: slot(label).mkdir(),
+        "remove": clean_slot, "remove-upload-manifest": remove_upload_manifest,
+        "mkdir": lambda label: slot(label).mkdir(),
         "request-cert": request_cert, "install-cert": install_cert, "clean": clean,
         "service": service, "stop": stop, "grid-client": lambda m,l,s,r: grid_client(m,l,int(s),int(r)),
         "grid-receipt": grid_receipt, "cp-client": cp_client, "cp-receipt": cp_receipt,
