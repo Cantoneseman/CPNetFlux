@@ -19,7 +19,7 @@
 
 ## 验收标准
 
-- R1/R2 输入提交、工作区、版本和构建配置已核验。当前两端和远端均为 08963b3bd2182c89fc709161e2e77f2b20cdc144。该提交只更新任务状态文档，runner 和 C++ 测试已在其父提交 18635984433bdcccb25c0b9921ab980bb6a6e1c3 验证。实际互传前仍需同提交、同配置构建与相同二进制 SHA-256。
+- R1/R2 输入提交、工作区、版本和构建配置已核验。当前两端和远端均为 2e9c67740985d5f170f24fda490fe23caef06a0b。该提交只更新任务状态文档，runner 和 C++ 测试已在其祖先提交 18635984433bdcccb25c0b9921ab980bb6a6e1c3 验证。实际互传前仍需同提交、同配置构建与相同二进制 SHA-256。
 - GSI proxy 可用且有效，临时 GridFTP 服务通过 GSI 控制认证 smoke。GridFTP 数据通道为明文，CPNetFlux 使用记录清楚的认证与校验/提交语义。
 - 固定同一不可压缩 payload、同一传输方向、同类 tmpfs 存储及计时合同。数据生成和外部 SHA/清理在 T_ready 之外单列。每个正式样本有独立空目标并经独立 SHA-256 校验。
 - 每样本记录 MemAvailable、MemFree、cgroup memory/current/events、tmpfs 用量、swap 与 host pswpout、CPU、TCP retrans、接口/HCA 错误、丢包和实际数据流数。
