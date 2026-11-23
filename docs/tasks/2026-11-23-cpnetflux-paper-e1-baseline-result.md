@@ -56,8 +56,9 @@ Stage B 的一个 8 GiB pilot 实际传完并通过文件、目录、SHA/tree �
 
 ## 门禁、失败记录与证据
 
-- R770-2 全量 CTest：带进程级临时测试 token 执行，856/856 通过，0 failures，329.57 s。R770-2 证据路径：/home/Su/experiments/CPNetFlux/2026-11-23-paper-E1-v3-baseline-01/ctest-r2-full.log、ctest-r2-full.json。
-- R770-1 首次全量 CTest：token smoke 通过；cpnetflux_source_port_plan_smoke 的重复试验端口集合发生一次交集（53429、41687 与 34979、41687），触发该测试的无重叠断言。该项单独重跑 1/1 通过；随后全量重跑 856/856 通过、0 failures、330.31 s。R770-1 证据路径：/home/Su/experiments/CPNetFlux/2026-11-23-paper-E1-v3-baseline-01/ctest-r1-full-rerun.log、ctest-r1-full-rerun.json。首次单项端口冲突作为测试偶发项记录，不归因为产品故障。
+- E0 初始全量 CTest 未设置测试 token：R770-1、R770-2 各有两项 token smoke 失败（cpnetflux_gridftp_control_token_smoke、cpnetflux_event_log_smoke），其余可运行测试通过；随后两端分别在进程环境临时设置 token 后目标测试 2/2 通过。显式环境跳过项按 CTest 记录保留。
+- R770-2 带临时 token 的全量 CTest：856/856 通过，0 failures，329.57 s。R770-2 证据路径：/home/Su/experiments/CPNetFlux/2026-11-23-paper-E1-v3-baseline-01/ctest-r2-full.log、ctest-r2-full.json。
+- R770-1 带临时 token 的全量 CTest 首轮：cpnetflux_source_port_plan_smoke 的重复试验端口集合发生一次交集（53429、41687 与 34979、41687），触发该测试的无重叠断言。该项单独重跑 1/1 通过；随后全量重跑 856/856 通过、0 failures、330.31 s。R770-1 证据路径：/home/Su/experiments/CPNetFlux/2026-11-23-paper-E1-v3-baseline-01/ctest-r1-full-rerun.log、ctest-r1-full-rerun.json。首次单项端口冲突作为测试偶发项记录，不归因为产品故障。
 - 命令记录：Stage A 使用本轮冻结的 e1_matrix_runner.py、matrix-plan.json 和 matrix-order.jsonl；每个样本目录保存 command.txt 中的 server/client 实际 argv。双端全量门禁命令为 ctest --test-dir /home/Su/projects/CPNetFlux/build --output-on-failure -j 1；CPNETFLUX_TEST_TOKEN 仅在测试进程环境中临时设置，未写入文件、命令日志或仓库。
 - 所有 Stage A 正式样本：matrix-final-analysis.json 标记 all_valid=true、56 rows；matrix-order.jsonl 的 SHA-256 为 9b542eed391a7afe66ab095717783f2db504840da22068fc0eb9d344ff5d8188；matrix-results.jsonl SHA-256 为 8dbe03f88ef8021b0235b1fbde8da93e7749f169d1fe586e8f141085d2b1e550。
 - 失败/无效的诊断 harness 输出及中断尝试未删除或混入正式样本；包括 tree hash 表示格式修正、初次网络计数硬拒绝策略修正、tmpfs observer 早期 harness 错误及 Stage B trial 1 中断记录。正式结果以 frozen matrix order 和逐样本 trial-result 为准。
