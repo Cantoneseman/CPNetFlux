@@ -30,10 +30,10 @@
 
 ## 输入现场
 
-- R770-1 HEAD 与 origin：edd4ad4df7ced563f07fe532124feee865e34d9d，分支 codex/V3-GRIDFTP-OPTIMIZED-RERUN-01。只有两份既有未跟踪 worker-state 文档。
-- R770-2 HEAD：1b131bca20c33b17a512ad8840ec50a0a7762807，detached，工作区干净。两端不可直接互传，先同步后构建。
+- 初始快照中，R770-1 HEAD 与 origin 为 edd4ad4df7ced563f07fe532124feee865e34d9d，分支 codex/V3-GRIDFTP-OPTIMIZED-RERUN-01，只有两份既有未跟踪 worker-state 文档。R770-2 HEAD 为 1b131bca20c33b17a512ad8840ec50a0a7762807，detached 且工作区干净。
+- 准备阶段已将 R2 同步到 56f17fb320a08d64c282a9e7bf51c4e57729ba6b。两端在 RelWithDebInfo 且相同 CMake 选项下构建通过；27 项相关 CTest 中 20 项通过、0 失败、7 项因本机 codec 环境跳过。server、tree upload/download clients 和 unit test 二进制 SHA-256 两端一致，详见实验目录 evidence-index.json。
 - 两台服务器型号均为 PowerEdge R770。接口 eno17095np0，直连地址 192.168.100.1/.2，链路 100 GbE，RX/TX ring 当前 1024/1024。
-- 两端物理内存约 32 GB，现场 MemAvailable 约 29.2/30.3 GiB，/dev/shm 约 16 GB。用户 cgroup memory.max 为 max。R1 用户 cgroup 当前约 17.0 GiB，R2 约 1.29 GiB。swap 总量 8 GiB。
+- 两端物理内存约 32 GB。首次现场 MemAvailable 为 R1 29,227,116 KiB、R2 30,274,496 KiB，约 27.9/28.9 GiB。/dev/shm 约 16 GB。用户 cgroup memory.max 为 max。R1 用户 cgroup 当前约 17.0 GiB，R2 约 1.29 GiB。swap 总量 8 GiB。
 - 初始绝对计数 R1 rx_missed_errors/rx_out_of_buffer 为 1829，R2 为 0；netdev errors/drops 和物理 CRC/discard 为 0。样本有效性按传输前后增量判断。
 - Globus 客户端 10.13、GridFTP server 13.28。当前没有有效 GSI proxy，默认用户证书目录、CA trust 目录与运行中的 Globus 服务均未发现。GSI 是正式比较的必要前提，凭据恢复前不生成 payload、不启动负载。
 
