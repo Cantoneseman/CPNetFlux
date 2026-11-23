@@ -1172,6 +1172,57 @@ TEST(PersistentTreeRangeTest, UnifiedPolicySupportsCompressionBufferedIoPrealloc
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),content);
 }
 
+// Sends files under 1 MiB in order over one lane with the adaptive policy.
+static TransferRuntimeMetrics sendSmallFilesOnOneAdaptiveLane(
+    const std::vector<std::pair<std::string,std::string>>& files) {
+    SocketPair pair; TempRoot source,destination;
+    std::vector<PersistentFileIdentity> ids;
+    for (std::size_t index=0; index<files.size(); ++index) {
+        const auto& [name,content]=files[index];
+        std::ofstream(source.path/name,std::ios::binary).write(content.data(),
+            static_cast<std::streamsize>(content.size()));
+        struct stat st{}; EXPECT_EQ(::stat((source.path/name).c_str(),&st),0);
+        const auto id=static_cast<std::uint32_t>(index+1);
+        ids.push_back({id,id,content.size(),name,"adaptive-"+name,65536,st.st_mtim.tv_sec,
+            cpnetflux::checksum::ChecksumAlgorithm::Crc32c});
+    }
+    cpnetflux::config::FileTransferOptions options;
+    options.hotPathCompression.enabled=options.hotPathCompression.candidate=true;
+    options.hotPathCompression.adaptive=true;
+    auto context=makePersistentTransferContext();
+    PersistentTreeStats received,sent; cpnetflux::common::Status result;
+    std::jthread receiver([&] {result=receivePersistentTree(&pair.receiver,destination.path.string(),
+        false,"",&received,{},1,0,1,static_cast<std::uint32_t>(ids.size()),false,false,context);});
+    auto status=sendPersistentTree(&pair.sender,source.path.string(),ids,&sent,{},1,0,1,nullptr,&options);
+    receiver.join();
+    EXPECT_TRUE(status.isOk())<<status.message(); EXPECT_TRUE(result.isOk())<<result.message();
+    for (const auto& [name,content] : files) {
+        std::ifstream output(destination.path/name,std::ios::binary);
+        EXPECT_EQ(std::string((std::istreambuf_iterator<char>(output)),{}),content)<<name;
+    }
+    return sent.runtime;
+}
+
+TEST(PersistentTreeAdaptiveCompressionTest, CompressedFormatSmallFileDoesNotTurnOffItsLaneSiblings) {
+    const std::string png=std::string("\x89PNG\r\n\x1A\n",8)+std::string(256*1024,'A');
+    const std::string text(256*1024,'B');
+    const auto sent=sendSmallFilesOnOneAdaptiveLane({{"first.png",png},{"second.txt",text}});
+    // A short tail frame that does not shrink goes out raw, so not all of text is counted.
+    EXPECT_GT(sent.compressedLogicalBytes,text.size()/2);
+    EXPECT_LE(sent.compressedLogicalBytes,text.size());
+    EXPECT_EQ(sent.adaptiveFileReasons[static_cast<std::size_t>(
+        CompressionReason::CompressedFormat)],1U);
+}
+
+TEST(PersistentTreeAdaptiveCompressionTest, TinyIncompressibleSmallFileDoesNotTurnOffItsLaneSiblings) {
+    std::string tiny(64,'\0');
+    for (std::size_t index=0; index<tiny.size(); ++index)
+        tiny[index]=static_cast<char>(17+index*151);
+    const std::string text(256*1024,'B');
+    const auto sent=sendSmallFilesOnOneAdaptiveLane({{"tiny.bin",tiny},{"second.txt",text}});
+    EXPECT_GT(sent.compressedLogicalBytes,text.size()/2);
+}
+
 TEST(PersistentTreeRangeTest, RangeResumeConsumesCurrentChunkManifestAndSendsOnlyMissingBytes) {
     TempRoot source,destination;std::ofstream(source.path/"old.bin")<<"ABCDEFGH";
     struct stat st{};ASSERT_EQ(::stat((source.path/"old.bin").c_str(),&st),0);

@@ -205,9 +205,12 @@ ParallelCompressionExecutor::ParallelCompressionExecutor(ParallelCompressionLimi
                         encoded = core::protocol::encodeCompressedDataPayload(job->raw.data(),
                             job->raw.size(), job->maxPayloadBytes, job->options.codec,
                             job->options.level);
-                        if (encoded.isOk() && job->options.controller) {
+                        // A block that does not fit the payload limit goes out raw; the probe
+                        // must still see it, or incompressible data never completes a probe.
+                        if (job->options.controller) {
                             job->options.controller->recordCompressed(job->raw.size(),
-                                std::min(encoded.value().size(), job->raw.size()),
+                                encoded.isOk() ? std::min(encoded.value().size(), job->raw.size())
+                                               : job->raw.size(),
                                 std::chrono::duration<double>(
                                     std::chrono::steady_clock::now() - started).count(),
                                 job->options.codec);

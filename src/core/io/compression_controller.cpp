@@ -180,6 +180,27 @@ void CompressionController::inspectFile(std::uint64_t totalSize, const std::uint
     }
 }
 
+void CompressionController::inspectPool(const std::vector<CodecCalibration>& calibrations) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (final_) {
+        return;
+    }
+    windowBytes_ = options_.minWindowBytes;
+    for (const CodecCalibration& calibration : calibrations) {
+        CodecState& state = codecs_[codecIndex(calibration.codec)];
+        if (state.candidate) {
+            state.bytesPerSecond = std::max(state.bytesPerSecond, calibration.bytesPerSecond);
+        }
+    }
+    if (options_.linkBytesPerSecond > 0.0 && linkTooFastLocked()) {
+        // Decisions taken before the first block are not switches.
+        const std::uint32_t switches = switches_;
+        final_ = true;
+        enterLocked(false, CompressionReason::Bandwidth);
+        switches_ = switches;
+    }
+}
+
 std::uint32_t CompressionController::codecMask() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::uint32_t mask = 0;

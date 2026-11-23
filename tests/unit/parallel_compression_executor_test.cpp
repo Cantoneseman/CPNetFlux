@@ -1,4 +1,5 @@
 #include "cpnetflux/core/io/parallel_compression_executor.h"
+#include "cpnetflux/core/io/compression_controller.h"
 #include "cpnetflux/core/protocol/compressed_data.h"
 
 #include <gtest/gtest.h>
@@ -8,6 +9,8 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <memory>
+#include <random>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -192,6 +195,39 @@ TEST(ParallelCompressionExecutorTest, SimultaneousTransfersShareTheSameJobAndByt
     EXPECT_LE(observed.peakInFlightBytes, 70000U);
     EXPECT_LE(observed.maxActiveWorkers, 4U);
     EXPECT_EQ(observed.totalCompleted, 12U * 16U);
+}
+
+TEST(ParallelCompressionExecutorTest, BlocksThatOverflowThePayloadLimitStillCompleteTheControllerProbe) {
+    using cpnetflux::core::io::CompressionController;
+    using cpnetflux::core::io::CompressionPolicyOptions;
+    using cpnetflux::core::io::CompressionReason;
+    using cpnetflux::core::protocol::CompressionCodec;
+    namespace protocol = cpnetflux::core::protocol;
+    constexpr std::uint64_t kMiB = 1024ULL * 1024ULL;
+    const CompressionPolicyOptions options;
+    auto controller = std::make_shared<CompressionController>(
+        options, 1, protocol::compressionCodecBit(CompressionCodec::Zlib));
+    const std::vector<std::uint8_t> text(4096, 'A');
+    controller->inspectFile(64 * kMiB, text.data(), text.size(),
+                            {{CompressionCodec::Zlib, 50.0 * kMiB, 0.30}});
+    ASSERT_EQ(controller->currentCodec(), CompressionCodec::Zlib);
+
+    // A full V3 frame of random bytes: zlib output plus the 8-byte prefix exceeds 65536.
+    ParallelCompressionExecutor executor({2, 4, 1024 * 1024});
+    std::mt19937 random(7);
+    for (std::uint32_t block = 0; block < options.probeBlocks; ++block) {
+        std::vector<std::uint8_t> raw(65532);
+        for (auto& byte : raw) byte = static_cast<std::uint8_t>(random());
+        auto task = executor.submit(&raw, 65536, {},
+            cpnetflux::core::io::ParallelCompressionJob{CompressionCodec::Zlib,
+                protocol::kDefaultCompressionLevel, controller});
+        ASSERT_TRUE(task.isOk()) << task.status().message();
+        auto result = task.value().take();
+        ASSERT_TRUE(result.isOk()) << result.status().message();
+        ASSERT_FALSE(result.value().compressionStatus().isOk());
+    }
+    EXPECT_FALSE(controller->currentCodec().has_value());
+    EXPECT_EQ(controller->summary().reason, CompressionReason::LowRatio);
 }
 
 TEST(ParallelCompressionExecutorTest, TaskCanOutliveItsExecutorWithoutDanglingWorkers) {

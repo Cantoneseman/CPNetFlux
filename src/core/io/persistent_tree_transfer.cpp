@@ -1770,6 +1770,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
         const bool compressBlocks = hotCompression.enabled && hotCompression.candidate &&
             !hotCompression.forceRaw && !hotCompression.testForceCompressFailure;
         std::shared_ptr<CompressionController> controller;
+        bool plainFile = false;
         std::uint32_t switchesBefore = 0;
         if (compressBlocks && hotCompression.adaptive) {
             CompressionPolicyOptions policy;
@@ -1781,10 +1782,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             const auto begin = id.rangeId ? id.rangeOffset : 0;
             const auto bytes = id.rangeId ? id.rangeLength : id.totalSize;
             const bool smallFile = bytes < policy.minFileBytes;
-            const bool inspect = !smallFile || !smallFileController;
+            const bool newController = !smallFile || !smallFileController;
             if (smallFile && !smallFileController) {
                 auto pooled = policy;
-                pooled.minFileBytes = 0;
                 // A small-file batch on a fast link finishes in a few seconds; the default
                 // settle and window would decide only after most of it was already sent.
                 pooled.settleSeconds = 0.3;
@@ -1794,20 +1794,24 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             }
             controller = smallFile ? smallFileController
                 : std::make_shared<CompressionController>(policy, workers, codecMask);
-            std::vector<std::uint8_t> head;
-            std::vector<CodecCalibration> calibrations;
-            if (inspect && bytes > 0) {
-                head.resize(static_cast<std::size_t>(
-                    std::min<std::uint64_t>(bytes, kCompressionCalibrationBytes)));
+            // Every small file has its format checked; only a new controller is calibrated.
+            std::vector<std::uint8_t> head(static_cast<std::size_t>(std::min<std::uint64_t>(
+                bytes, newController ? kCompressionCalibrationBytes : kCompressionMagicBytes)));
+            if (!head.empty()) {
                 status = storage::readAtAll(file, begin, head.data(), head.size(), ioContext,
                     &stats->fileIoStats);
                 if (!status.isOk()) { failWriter(status); break; }
-                calibrations = calibrateCompressionCodecs(head.data(), head.size(),
-                    controller->codecMask(), hotCompression.level);
             }
-            if (inspect)
-                controller->inspectFile(smallFile ? 0 : bytes, head.data(), head.size(),
-                                        calibrations);
+            const auto calibrate = [&] {
+                return calibrateCompressionCodecs(head.data(), head.size(),
+                    controller->codecMask(), hotCompression.level);
+            };
+            if (!smallFile) {
+                controller->inspectFile(bytes, head.data(), head.size(), calibrate());
+            } else {
+                plainFile = looksAlreadyCompressed(head.data(), head.size());
+                if (newController) controller->inspectPool(calibrate());
+            }
             switchesBefore = controller->summary().switches;
         }
         const auto pipelineChunkBytes = socket->dataPayloadLimit() > PersistentDataSession::kMaxPayload
@@ -1887,7 +1891,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             prepared.frameChecksum = verifiedChecksum.value;
             prepared.bytes = std::move(producerBuffer);
             std::optional<protocol::CompressionCodec> codec;
-            if (compressBlocks)
+            if (compressBlocks && !plainFile)
                 codec = controller ? controller->currentCodec() : std::optional(hotCompression.codec);
             if (codec) {
                 prepared.compressionInputBytes = length;
@@ -2072,7 +2076,7 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 return written;
             };
             status = writePayload(bytes, wireLength);
-            if (controller && status.isOk())
+            if (controller && !plainFile && status.isOk())
                 controller->recordSent(length, compressionWaitSeconds,
                     secondsSince(payloadStarted), Clock::now());
             if (status.isOk() && options.hasDuplicateCorruptChunk &&
@@ -2130,7 +2134,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
             stats->payloadPipelineHighWatermarkBytes, timing.pipelineHighWatermarkBytes);
         stats->payloadPipelineProducerWaits += timing.pipelineProducerWaits;
         stats->payloadPipelineConsumerWaits += timing.pipelineConsumerWaits;
-        if (controller) {
+        if (plainFile) {
+            ++stats->runtime.adaptiveFileReasons[static_cast<std::size_t>(
+                CompressionReason::CompressedFormat)];
+        } else if (controller) {
             const auto summary = controller->summary();
             ++stats->runtime.adaptiveFileReasons[static_cast<std::size_t>(summary.reason)];
             stats->runtime.compressionSwitches += summary.switches - switchesBefore;

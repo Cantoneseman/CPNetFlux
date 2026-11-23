@@ -63,6 +63,8 @@ struct CodecCalibration {
 };
 
 inline constexpr std::size_t kCompressionCalibrationBytes = 128 * 1024;
+// Enough of a file's head for looksAlreadyCompressed().
+inline constexpr std::size_t kCompressionMagicBytes = 16;
 
 // Magic-byte check for gzip/BGZF, zstd, xz, bzip2, lz4, zip, 7z, PNG, JPEG, GIF, WebP and MP4.
 [[nodiscard]] bool looksAlreadyCompressed(const std::uint8_t* head, std::size_t size) noexcept;
@@ -93,6 +95,11 @@ class CompressionController {
 
     void inspectFile(std::uint64_t totalSize, const std::uint8_t* head, std::size_t headSize,
                      const std::vector<CodecCalibration>& calibrations);
+
+    // For a controller shared by many small files instead of inspectFile: only codec speeds are
+    // taken, so no single file's format or ratio turns compression off for the others. The
+    // caller sends already-compressed files plain without consulting the controller.
+    void inspectPool(const std::vector<CodecCalibration>& calibrations);
 
     [[nodiscard]] std::uint32_t codecMask() const;
 
