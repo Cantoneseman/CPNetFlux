@@ -2,6 +2,8 @@
 
 最新验收：已形成[受控上机候选](release/R770_FIELD_TRIAL_CANDIDATE.md)及[上机说明](release/R770_FIELD_TRIAL_RUNBOOK.md)。阶段80五对1GiB CP30.80/GridFTP12.10Gbps；阶段85完整234任务/1807.62秒及六项跨机故障分别通过；[阶段86](tasks/2026-11-13-field-trial-tls-closeout-86-result.md)已补齐真实重启前后TLS/完整树验证，复合验收通过。运行程序不变，历史FAIL保留；RX/TX已恢复1024/1024，凭据与payload清理。仅限定内存TCP候选，不代表持续31G、磁盘持久化、加密吞吐或100G/生产ready。下一步进行新现场准入，不启动新的性能扫描。
 
+2026-11-23 更新：用户单独授权 R770 CPNetFlux/Globus GridFTP 年度报告比较，覆盖“不启动新的性能扫描”这一旧状态，仅限该任务。任务范围见[年度比较任务](tasks/2026-11-23-r770-cpnetflux-gridftp-compare.md)与[决策](DECISIONS/2026-11-23-r770-annual-gridftp-compare.md)。该实验与同日论文 E1/E2-E6 研究计划分开，论文结论及 Stage B 资源失败边界保持不变。
+
 历史正文更新时间：2026-09-17；当前R770事实以页首2026-11-13候选与冻结清单为准。
 
 这份文档把旧项目的设计、实现和保留实验结果压缩成长期开发可用的事实基线。它区分“代码已经实现”“实验已经验证”和“仍然只是目标”，避免后续 Agent 把路线图当成事实。
