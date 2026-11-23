@@ -1,0 +1,1195 @@
+{
+  "groups": {
+    "admission-10gb": {},
+    "calibrate-64m": {
+      "grid": {
+        "n": 1,
+        "median_seconds": 0.2714629830006743,
+        "median_gbps": 1.97769473416074,
+        "min_gbps": 1.97769473416074,
+        "max_gbps": 1.97769473416074,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 2.068649367190536,
+        "median_host_cpu_s_per_gib": 26.08,
+        "lowest_memavailable_gib": {
+          "1": 27.71914291381836,
+          "2": 28.77379608154297
+        },
+        "peak_user_cgroup_gib": {
+          "1": 18.017791748046875,
+          "2": 1.377960205078125
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "cp": {
+        "n": 1,
+        "median_seconds": 0.0753586249993532,
+        "median_gbps": 7.124213213877084,
+        "min_gbps": 7.124213213877084,
+        "max_gbps": 7.124213213877084,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 7.453249153694362,
+        "median_host_cpu_s_per_gib": 23.2,
+        "lowest_memavailable_gib": {
+          "1": 27.68505859375,
+          "2": 28.777664184570312
+        },
+        "peak_user_cgroup_gib": {
+          "1": 18.021007537841797,
+          "2": 1.3876266479492188
+        },
+        "host_tcp_retrans_sum": {
+          "1": 1,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "main-admit-9gb-r1-r2": {
+      "grid": {
+        "n": 1,
+        "median_seconds": 3.7876899630027765,
+        "median_gbps": 19.00894759161343,
+        "min_gbps": 19.00894759161343,
+        "max_gbps": 19.00894759161343,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 19.879682639152904,
+        "median_host_cpu_s_per_gib": 1.1119193110755556,
+        "lowest_memavailable_gib": {
+          "1": 19.30803680419922,
+          "2": 20.41983413696289
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.36681365966797,
+          "2": 9.706546783447266
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 1
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "cp": {
+        "n": 1,
+        "median_seconds": 9.01905144400007,
+        "median_gbps": 7.983101155044198,
+        "min_gbps": 7.983101155044198,
+        "max_gbps": 7.983101155044198,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 8.350146496403488,
+        "median_host_cpu_s_per_gib": 4.0802189312,
+        "lowest_memavailable_gib": {
+          "1": 19.342124938964844,
+          "2": 20.394756317138672
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.380687713623047,
+          "2": 9.723220825195312
+        },
+        "host_tcp_retrans_sum": {
+          "1": 88,
+          "2": 1
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "main-admit-9gb-r2-r1": {
+      "cp": {
+        "n": 1,
+        "median_seconds": 8.466096385000128,
+        "median_gbps": 8.50450983850911,
+        "min_gbps": 8.50450983850911,
+        "max_gbps": 8.50450983850911,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 8.895498596665085,
+        "median_host_cpu_s_per_gib": 3.9525629587911104,
+        "lowest_memavailable_gib": {
+          "1": 19.417972564697266,
+          "2": 20.426788330078125
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.35088348388672,
+          "2": 9.740676879882812
+        },
+        "host_tcp_retrans_sum": {
+          "1": 14,
+          "2": 32
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid": {
+        "n": 1,
+        "median_seconds": 3.9017439160015783,
+        "median_gbps": 18.453286927601344,
+        "min_gbps": 18.453286927601344,
+        "max_gbps": 18.453286927601344,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 19.298236746701328,
+        "median_host_cpu_s_per_gib": 1.1441315657955555,
+        "lowest_memavailable_gib": {
+          "1": 19.256011962890625,
+          "2": 20.441551208496094
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.33572006225586,
+          "2": 9.719120025634766
+        },
+        "host_tcp_retrans_sum": {
+          "1": 5,
+          "2": 7
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "main-formal-9gb-r1-r2": {
+      "grid": {
+        "n": 5,
+        "median_seconds": 3.9966489739999815,
+        "median_gbps": 18.015092260639534,
+        "min_gbps": 17.88718116157641,
+        "max_gbps": 18.49623318829124,
+        "cv_pct": 1.354297832532487,
+        "median_rx_interface_gbps": 18.839967020831576,
+        "median_host_cpu_s_per_gib": 1.1417454728533334,
+        "lowest_memavailable_gib": {
+          "1": 19.299144744873047,
+          "2": 20.333019256591797
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.42200469970703,
+          "2": 9.71591567993164
+        },
+        "host_tcp_retrans_sum": {
+          "1": 34,
+          "2": 17
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "cp": {
+        "n": 5,
+        "median_seconds": 8.206538677997742,
+        "median_gbps": 8.773491824639374,
+        "min_gbps": 7.532933155918751,
+        "max_gbps": 9.919916147698027,
+        "cv_pct": 9.331206880127027,
+        "median_rx_interface_gbps": 9.176896789618803,
+        "median_host_cpu_s_per_gib": 3.982389120568889,
+        "lowest_memavailable_gib": {
+          "1": 19.28948211669922,
+          "2": 20.35934829711914
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.412887573242188,
+          "2": 9.72806167602539
+        },
+        "host_tcp_retrans_sum": {
+          "1": 234,
+          "2": 22
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "main-formal-9gb-r2-r1": {
+      "cp": {
+        "n": 5,
+        "median_seconds": 9.686663341002713,
+        "median_gbps": 7.432900005436436,
+        "min_gbps": 6.04069570738355,
+        "max_gbps": 9.272529853330738,
+        "cv_pct": 13.770360819600725,
+        "median_rx_interface_gbps": 7.774692482313958,
+        "median_host_cpu_s_per_gib": 4.192365299484445,
+        "lowest_memavailable_gib": {
+          "1": 19.29391860961914,
+          "2": 20.394786834716797
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.364608764648438,
+          "2": 9.746833801269531
+        },
+        "host_tcp_retrans_sum": {
+          "1": 20,
+          "2": 1035
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid": {
+        "n": 5,
+        "median_seconds": 4.080458947999432,
+        "median_gbps": 17.645073977597587,
+        "min_gbps": 16.999307944000876,
+        "max_gbps": 17.837261928092605,
+        "cv_pct": 1.7157696477042879,
+        "median_rx_interface_gbps": 18.45291361377776,
+        "median_host_cpu_s_per_gib": 1.1572550769777776,
+        "lowest_memavailable_gib": {
+          "1": 19.243972778320312,
+          "2": 20.408519744873047
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.371356964111328,
+          "2": 9.722126007080078
+        },
+        "host_tcp_retrans_sum": {
+          "1": 7,
+          "2": 5
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "screen-one-gib": {
+      "grid": {
+        "n": 2,
+        "median_seconds": 0.7273400345002301,
+        "median_gbps": 11.812470852315727,
+        "min_gbps": 11.64396394327506,
+        "max_gbps": 11.980977761356392,
+        "cv_pct": 1.4265170356600907,
+        "median_rx_interface_gbps": 12.35350073104517,
+        "median_host_cpu_s_per_gib": 2.66,
+        "lowest_memavailable_gib": {
+          "1": 26.67119598388672,
+          "2": 27.81856918334961
+        },
+        "peak_user_cgroup_gib": {
+          "1": 18.975082397460938,
+          "2": 2.333972930908203
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "cp": {
+        "n": 2,
+        "median_seconds": 0.4943114450015855,
+        "median_gbps": 17.37905963755142,
+        "min_gbps": 17.218472793328754,
+        "max_gbps": 17.539646481774085,
+        "cv_pct": 0.9240249332920232,
+        "median_rx_interface_gbps": 18.17807229825938,
+        "median_host_cpu_s_per_gib": 4.220000000000001,
+        "lowest_memavailable_gib": {
+          "1": 26.65216827392578,
+          "2": 27.80870819091797
+        },
+        "peak_user_cgroup_gib": {
+          "1": 18.974571228027344,
+          "2": 2.343280792236328
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 1
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "screen-one-gib-repeat": {
+      "cp": {
+        "n": 2,
+        "median_seconds": 0.4987479975006863,
+        "median_gbps": 17.22299744451255,
+        "min_gbps": 17.21743991053452,
+        "max_gbps": 17.22855497849058,
+        "cv_pct": 0.03226809964951878,
+        "median_rx_interface_gbps": 18.015003243957462,
+        "median_host_cpu_s_per_gib": 4.18,
+        "lowest_memavailable_gib": {
+          "1": 26.759693145751953,
+          "2": 27.81237030029297
+        },
+        "peak_user_cgroup_gib": {
+          "1": 18.96877670288086,
+          "2": 2.3434906005859375
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 10
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid": {
+        "n": 2,
+        "median_seconds": 0.7046453865004878,
+        "median_gbps": 12.191926714624508,
+        "min_gbps": 12.057119950064926,
+        "max_gbps": 12.32673347918409,
+        "cv_pct": 1.1057051745388047,
+        "median_rx_interface_gbps": 12.750294423272303,
+        "median_host_cpu_s_per_gib": 2.665,
+        "lowest_memavailable_gib": {
+          "1": 26.739337921142578,
+          "2": 27.80272674560547
+        },
+        "peak_user_cgroup_gib": {
+          "1": 18.95883560180664,
+          "2": 2.3345985412597656
+        },
+        "host_tcp_retrans_sum": {
+          "1": 1,
+          "2": 1
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "sec-admit-8gb": {
+      "cp-clear": {
+        "n": 1,
+        "median_seconds": 8.809948499998427,
+        "median_gbps": 7.264514656358255,
+        "min_gbps": 7.264514656358255,
+        "max_gbps": 7.264514656358255,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 7.60696665593584,
+        "median_host_cpu_s_per_gib": 5.3056267878400005,
+        "lowest_memavailable_gib": {
+          "1": 20.30493927001953,
+          "2": 21.332801818847656
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.43218994140625,
+          "2": 8.808853149414062
+        },
+        "host_tcp_retrans_sum": {
+          "1": 7,
+          "2": 221
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid-nongsi": {
+        "n": 1,
+        "median_seconds": 3.518590486000903,
+        "median_gbps": 18.189101645852507,
+        "min_gbps": 18.189101645852507,
+        "max_gbps": 18.189101645852507,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 19.022073902118436,
+        "median_host_cpu_s_per_gib": 1.15964116992,
+        "lowest_memavailable_gib": {
+          "1": 20.265838623046875,
+          "2": 21.327136993408203
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.420032501220703,
+          "2": 8.788291931152344
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 1
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "cp-tls": {
+        "n": 1,
+        "median_seconds": 8.971663109001383,
+        "median_gbps": 7.133571470799877,
+        "min_gbps": 7.133571470799877,
+        "max_gbps": 7.133571470799877,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 7.485709652719601,
+        "median_host_cpu_s_per_gib": 7.06522120192,
+        "lowest_memavailable_gib": {
+          "1": 20.2901611328125,
+          "2": 21.32455825805664
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.435863494873047,
+          "2": 8.8084716796875
+        },
+        "host_tcp_retrans_sum": {
+          "1": 9,
+          "2": 220
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid": {
+        "n": 1,
+        "median_seconds": 3.477422588999616,
+        "median_gbps": 18.404435573190288,
+        "min_gbps": 18.404435573190288,
+        "max_gbps": 18.404435573190288,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 19.24734954783127,
+        "median_host_cpu_s_per_gib": 1.1582989926399998,
+        "lowest_memavailable_gib": {
+          "1": 20.261581420898438,
+          "2": 21.321807861328125
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.421756744384766,
+          "2": 8.789112091064453
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 1
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid-private": {
+        "n": 1,
+        "median_seconds": 5.312003001999983,
+        "median_gbps": 12.04818596222627,
+        "min_gbps": 12.04818596222627,
+        "max_gbps": 12.04818596222627,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 12.619291046100997,
+        "median_host_cpu_s_per_gib": 1.6642998271999998,
+        "lowest_memavailable_gib": {
+          "1": 20.238143920898438,
+          "2": 21.34588623046875
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.42342758178711,
+          "2": 8.792648315429688
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "sec-admit-9gb": {
+      "grid-private": {
+        "n": 1,
+        "median_seconds": 6.0083556229983515,
+        "median_gbps": 11.983311993784719,
+        "min_gbps": 11.983311993784719,
+        "max_gbps": 11.983311993784719,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 12.551335275718365,
+        "median_host_cpu_s_per_gib": 1.62135015424,
+        "lowest_memavailable_gib": {
+          "1": 19.404754638671875,
+          "2": 20.428157806396484
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.35889434814453,
+          "2": 9.725852966308594
+        },
+        "host_tcp_retrans_sum": {
+          "1": 7,
+          "2": 7
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid": {
+        "n": 1,
+        "median_seconds": 4.130210872001044,
+        "median_gbps": 17.43252396338707,
+        "min_gbps": 17.43252396338707,
+        "max_gbps": 17.43252396338707,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 18.23090464810073,
+        "median_host_cpu_s_per_gib": 1.1357802404977777,
+        "lowest_memavailable_gib": {
+          "1": 19.37502670288086,
+          "2": 20.435077667236328
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.363330841064453,
+          "2": 9.722911834716797
+        },
+        "host_tcp_retrans_sum": {
+          "1": 12,
+          "2": 8
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid-nongsi": {
+        "n": 1,
+        "median_seconds": 3.7811955110009876,
+        "median_gbps": 19.0415967094332,
+        "min_gbps": 19.0415967094332,
+        "max_gbps": 19.0415967094332,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 19.913715779289767,
+        "median_host_cpu_s_per_gib": 1.1775368669866668,
+        "lowest_memavailable_gib": {
+          "1": 19.343704223632812,
+          "2": 20.404422760009766
+        },
+        "peak_user_cgroup_gib": {
+          "1": 26.36467742919922,
+          "2": 9.721965789794922
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "sec-calibrate-16m": {},
+    "sec-calibrate-16m-b": {
+      "grid-nongsi": {
+        "n": 1,
+        "median_seconds": 0.07897108199904324,
+        "median_gbps": 1.699580714895436,
+        "min_gbps": 1.699580714895436,
+        "max_gbps": 1.699580714895436,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 1.7778568616003134,
+        "median_host_cpu_s_per_gib": 88.32,
+        "lowest_memavailable_gib": {
+          "1": 27.74761962890625,
+          "2": 28.800090789794922
+        },
+        "peak_user_cgroup_gib": {
+          "1": 17.95661163330078,
+          "2": 1.3271522521972656
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "cp-clear": {
+        "n": 1,
+        "median_seconds": 0.05836182799976086,
+        "median_gbps": 2.29975195431764,
+        "min_gbps": 2.29975195431764,
+        "max_gbps": 2.29975195431764,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 2.406630032228866,
+        "median_host_cpu_s_per_gib": 83.19999999999999,
+        "lowest_memavailable_gib": {
+          "1": 27.72222900390625,
+          "2": 28.804100036621094
+        },
+        "peak_user_cgroup_gib": {
+          "1": 17.966205596923828,
+          "2": 1.3397331237792969
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "sec-calibrate-16m-c": {},
+    "sec-calibrate-16m-d": {
+      "cp-tls": {
+        "n": 1,
+        "median_seconds": 0.10516016199835576,
+        "median_gbps": 1.2763172426655123,
+        "min_gbps": 1.2763172426655123,
+        "max_gbps": 1.2763172426655123,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 1.341277051305849,
+        "median_host_cpu_s_per_gib": 97.92,
+        "lowest_memavailable_gib": {
+          "1": 27.764686584472656,
+          "2": 28.803741455078125
+        },
+        "peak_user_cgroup_gib": {
+          "1": 17.967063903808594,
+          "2": 1.3374443054199219
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "cp-clear": {
+        "n": 1,
+        "median_seconds": 0.05921469199893181,
+        "median_gbps": 2.2666288292510446,
+        "min_gbps": 2.2666288292510446,
+        "max_gbps": 2.2666288292510446,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 2.374244824283408,
+        "median_host_cpu_s_per_gib": 84.48,
+        "lowest_memavailable_gib": {
+          "1": 27.73077392578125,
+          "2": 28.812667846679688
+        },
+        "peak_user_cgroup_gib": {
+          "1": 17.973644256591797,
+          "2": 1.33746337890625
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid-private": {
+        "n": 1,
+        "median_seconds": 0.17184495299807168,
+        "median_gbps": 0.7810396852417661,
+        "min_gbps": 0.7810396852417661,
+        "max_gbps": 0.7810396852417661,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 0.8195318718588165,
+        "median_host_cpu_s_per_gib": 97.28,
+        "lowest_memavailable_gib": {
+          "1": 27.716777801513672,
+          "2": 28.800628662109375
+        },
+        "peak_user_cgroup_gib": {
+          "1": 17.967731475830078,
+          "2": 1.3280029296875
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid": {
+        "n": 1,
+        "median_seconds": 0.2746425130026182,
+        "median_gbps": 0.48869975202535554,
+        "min_gbps": 0.48869975202535554,
+        "max_gbps": 0.48869975202535554,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 0.5114822409109723,
+        "median_host_cpu_s_per_gib": 103.03999999999999,
+        "lowest_memavailable_gib": {
+          "1": 27.70886993408203,
+          "2": 28.79302215576172
+        },
+        "peak_user_cgroup_gib": {
+          "1": 17.982120513916016,
+          "2": 1.3285598754882812
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 1
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid-nongsi": {
+        "n": 1,
+        "median_seconds": 0.07330299399836804,
+        "median_gbps": 1.8309992631813665,
+        "min_gbps": 1.8309992631813665,
+        "max_gbps": 1.8309992631813665,
+        "cv_pct": 0.0,
+        "median_rx_interface_gbps": 1.915407275221608,
+        "median_host_cpu_s_per_gib": 86.4,
+        "lowest_memavailable_gib": {
+          "1": 27.719646453857422,
+          "2": 28.789066314697266
+        },
+        "peak_user_cgroup_gib": {
+          "1": 17.980167388916016,
+          "2": 1.3273506164550781
+        },
+        "host_tcp_retrans_sum": {
+          "1": 0,
+          "2": 0
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    },
+    "sec-formal-8gb": {
+      "grid": {
+        "n": 3,
+        "median_seconds": 3.5272466859969427,
+        "median_gbps": 18.14446385450668,
+        "min_gbps": 17.967112120950354,
+        "max_gbps": 18.36844897599874,
+        "cv_pct": 0.9042581665571714,
+        "median_rx_interface_gbps": 18.97527216389821,
+        "median_host_cpu_s_per_gib": 1.1609833471999997,
+        "lowest_memavailable_gib": {
+          "1": 20.188518524169922,
+          "2": 21.33209991455078
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.449214935302734,
+          "2": 8.790603637695312
+        },
+        "host_tcp_retrans_sum": {
+          "1": 14,
+          "2": 13
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "cp-tls": {
+        "n": 3,
+        "median_seconds": 9.833693365999352,
+        "median_gbps": 6.508236287017475,
+        "min_gbps": 6.486321050238532,
+        "max_gbps": 8.204257133903802,
+        "cv_pct": 11.38828451602069,
+        "median_rx_interface_gbps": 6.829389637082206,
+        "median_host_cpu_s_per_gib": 7.16856885248,
+        "lowest_memavailable_gib": {
+          "1": 20.302257537841797,
+          "2": 21.312862396240234
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.459030151367188,
+          "2": 8.809856414794922
+        },
+        "host_tcp_retrans_sum": {
+          "1": 20,
+          "2": 855
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid-nongsi": {
+        "n": 3,
+        "median_seconds": 3.4498941300007573,
+        "median_gbps": 18.551293920427046,
+        "min_gbps": 18.377181260543153,
+        "max_gbps": 18.76886124474778,
+        "cv_pct": 0.8630415161995432,
+        "median_rx_interface_gbps": 19.400657070014294,
+        "median_host_cpu_s_per_gib": 1.14353504256,
+        "lowest_memavailable_gib": {
+          "1": 20.252593994140625,
+          "2": 21.29816436767578
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.445701599121094,
+          "2": 8.7901611328125
+        },
+        "host_tcp_retrans_sum": {
+          "1": 5,
+          "2": 7
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "grid-private": {
+        "n": 3,
+        "median_seconds": 5.394868483999744,
+        "median_gbps": 11.863125151208605,
+        "min_gbps": 11.853698807388712,
+        "max_gbps": 11.900202495801123,
+        "cv_pct": 0.16907014650599192,
+        "median_rx_interface_gbps": 12.425485329032757,
+        "median_host_cpu_s_per_gib": 1.67637942272,
+        "lowest_memavailable_gib": {
+          "1": 20.237899780273438,
+          "2": 21.306941986083984
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.452808380126953,
+          "2": 8.7935791015625
+        },
+        "host_tcp_retrans_sum": {
+          "1": 12,
+          "2": 12
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      },
+      "cp-clear": {
+        "n": 3,
+        "median_seconds": 7.2838130649979576,
+        "median_gbps": 8.786606606853926,
+        "min_gbps": 5.831408672877532,
+        "max_gbps": 8.787291994612737,
+        "cv_pct": 17.85819632853607,
+        "median_rx_interface_gbps": 9.200685954180072,
+        "median_host_cpu_s_per_gib": 5.15932946432,
+        "lowest_memavailable_gib": {
+          "1": 20.252578735351562,
+          "2": 21.29794692993164
+        },
+        "peak_user_cgroup_gib": {
+          "1": 25.44632339477539,
+          "2": 8.810962677001953
+        },
+        "host_tcp_retrans_sum": {
+          "1": 26,
+          "2": 612
+        },
+        "swapout_pages": {
+          "1": 0,
+          "2": 0
+        },
+        "all_sha_ok": true
+      }
+    }
+  },
+  "pairs": {
+    "main-formal-9gb-r1-r2": [
+      {
+        "pair": 1,
+        "cp_over_grid": 0.40726850052298,
+        "cp_minus_grid_gbps": -10.963300032372487
+      },
+      {
+        "pair": 2,
+        "cp_over_grid": 0.5163845857614158,
+        "cp_minus_grid_gbps": -8.889197726518795
+      },
+      {
+        "pair": 3,
+        "cp_over_grid": 0.47277951788339073,
+        "cp_minus_grid_gbps": -9.497925627029572
+      },
+      {
+        "pair": 4,
+        "cp_over_grid": 0.48888697895908084,
+        "cp_minus_grid_gbps": -9.172357016169501
+      },
+      {
+        "pair": 5,
+        "cp_over_grid": 0.5545824162058063,
+        "cp_minus_grid_gbps": -7.967265013878384
+      }
+    ],
+    "main-formal-9gb-r2-r1": [
+      {
+        "pair": 1,
+        "cp_over_grid": 0.4064129237223677,
+        "cp_minus_grid_gbps": -10.558901279904708
+      },
+      {
+        "pair": 2,
+        "cp_over_grid": 0.3386559961800988,
+        "cp_minus_grid_gbps": -11.796566220709055
+      },
+      {
+        "pair": 3,
+        "cp_over_grid": 0.4365200146215179,
+        "cp_minus_grid_gbps": -9.863149549430247
+      },
+      {
+        "pair": 4,
+        "cp_over_grid": 0.42124504634400184,
+        "cp_minus_grid_gbps": -10.21217397216115
+      },
+      {
+        "pair": 5,
+        "cp_over_grid": 0.5454651379853996,
+        "cp_minus_grid_gbps": -7.7267780906701375
+      }
+    ]
+  },
+  "rejected": [
+    {
+      "run": "admission-10gb",
+      "tool": "cp",
+      "seconds": 8.963599244998477,
+      "sha_ok": true,
+      "terminals_ok": true,
+      "metrics": {
+        "1": {
+          "min_memavailable_kib": 19454064,
+          "min_memfree_kib": 489760,
+          "min_tmpfs_free_bytes": 6357061632,
+          "min_swap_free_kib": 8388600,
+          "cgroup_peak_total_bytes": 29313077248,
+          "host_cpu_busy_seconds": 26.03,
+          "host_tcp_retrans": 5,
+          "memory_full_stall_us": 1552,
+          "pswpout_delta": 0,
+          "samples": 117
+        },
+        "2": {
+          "min_memavailable_kib": 20440680,
+          "min_memfree_kib": 18233452,
+          "min_tmpfs_free_bytes": 6374215680,
+          "min_swap_free_kib": 8388604,
+          "cgroup_peak_total_bytes": 11469512704,
+          "host_cpu_busy_seconds": 10.31,
+          "host_tcp_retrans": 80,
+          "memory_full_stall_us": 0,
+          "pswpout_delta": 0,
+          "samples": 117
+        }
+      },
+      "network": [
+        "R1 rx_missed_errors +69",
+        "R1 rx_out_of_buffer +69"
+      ],
+      "memory": [
+        "R1 memory floor/tmpfs/PSI"
+      ],
+      "evidence": "gsi-smoke-b/matrix/admission-10gb-target-1-cp-4.json"
+    },
+    {
+      "run": "sec-admit-9gb",
+      "tool": "cp-tls",
+      "seconds": 14.001870919000794,
+      "sha_ok": true,
+      "terminals_ok": true,
+      "metrics": {
+        "1": {
+          "min_memavailable_kib": 20259848,
+          "min_memfree_kib": 1284104,
+          "min_tmpfs_free_bytes": 7382265856,
+          "min_swap_free_kib": 8388600,
+          "cgroup_peak_total_bytes": 28313440256,
+          "host_cpu_busy_seconds": 46.62,
+          "host_tcp_retrans": 11,
+          "memory_full_stall_us": 0,
+          "pswpout_delta": 0,
+          "samples": 180
+        },
+        "2": {
+          "min_memavailable_kib": 21392532,
+          "min_memfree_kib": 19182624,
+          "min_tmpfs_free_bytes": 7382605824,
+          "min_swap_free_kib": 8388604,
+          "cgroup_peak_total_bytes": 10466721792,
+          "host_cpu_busy_seconds": 19.1,
+          "host_tcp_retrans": 1271,
+          "memory_full_stall_us": 0,
+          "pswpout_delta": 0,
+          "samples": 180
+        }
+      },
+      "network": [
+        "R1 rx_missed_errors +199",
+        "R1 rx_out_of_buffer +199"
+      ],
+      "memory": [],
+      "evidence": "gsi-resume-c/matrix/sec-admit-9gb-target-4-cp-tls-4.json"
+    },
+    {
+      "run": "sec-calibrate-16m-b",
+      "tool": "cp-tls",
+      "seconds": 0.002871554999728687,
+      "sha_ok": false,
+      "terminals_ok": false,
+      "metrics": {
+        "1": {
+          "min_memavailable_kib": 29071612,
+          "min_memfree_kib": 10111840,
+          "min_tmpfs_free_bytes": 16382611456,
+          "min_swap_free_kib": 8388600,
+          "cgroup_peak_total_bytes": 19278647296,
+          "host_cpu_busy_seconds": 0.5,
+          "host_tcp_retrans": 0,
+          "memory_full_stall_us": 0,
+          "pswpout_delta": 0,
+          "samples": 5
+        },
+        "2": {
+          "min_memavailable_kib": 30180364,
+          "min_memfree_kib": 27978400,
+          "min_tmpfs_free_bytes": 16365830144,
+          "min_swap_free_kib": 8388604,
+          "cgroup_peak_total_bytes": 1427156992,
+          "host_cpu_busy_seconds": 0.66,
+          "host_tcp_retrans": 0,
+          "memory_full_stall_us": 0,
+          "pswpout_delta": 0,
+          "samples": 6
+        }
+      },
+      "network": [],
+      "memory": [],
+      "evidence": "gsi-resume-c/matrix/sec-calibrate-16m-b-target-3-cp-tls-4.json"
+    },
+    {
+      "run": "sec-calibrate-16m-c",
+      "tool": "cp-tls",
+      "seconds": 0.07036854800026049,
+      "sha_ok": false,
+      "terminals_ok": false,
+      "metrics": {
+        "1": {
+          "min_memavailable_kib": 29115340,
+          "min_memfree_kib": 10155168,
+          "min_tmpfs_free_bytes": 16382611456,
+          "min_swap_free_kib": 8388600,
+          "cgroup_peak_total_bytes": 19283419136,
+          "host_cpu_busy_seconds": 0.65,
+          "host_tcp_retrans": 0,
+          "memory_full_stall_us": 0,
+          "pswpout_delta": 0,
+          "samples": 6
+        },
+        "2": {
+          "min_memavailable_kib": 30180532,
+          "min_memfree_kib": 27978320,
+          "min_tmpfs_free_bytes": 16365830144,
+          "min_swap_free_kib": 8388604,
+          "cgroup_peak_total_bytes": 1432825856,
+          "host_cpu_busy_seconds": 0.71,
+          "host_tcp_retrans": 0,
+          "memory_full_stall_us": 0,
+          "pswpout_delta": 0,
+          "samples": 5
+        }
+      },
+      "network": [],
+      "memory": [],
+      "evidence": "gsi-resume-c/matrix/sec-calibrate-16m-c-target-1-cp-tls-4.json"
+    },
+    {
+      "run": "sec-calibrate-16m",
+      "tool": "grid-nongsi",
+      "seconds": 0.08923365300142905,
+      "sha_ok": true,
+      "terminals_ok": false,
+      "metrics": {
+        "1": {
+          "min_memavailable_kib": 29010304,
+          "min_memfree_kib": 10051244,
+          "min_tmpfs_free_bytes": 16365834240,
+          "min_swap_free_kib": 8388600,
+          "cgroup_peak_total_bytes": 19306569728,
+          "host_cpu_busy_seconds": 0.92,
+          "host_tcp_retrans": 0,
+          "memory_full_stall_us": 0,
+          "pswpout_delta": 0,
+          "samples": 7
+        },
+        "2": {
+          "min_memavailable_kib": 30178284,
+          "min_memfree_kib": 27976756,
+          "min_tmpfs_free_bytes": 16365834240,
+          "min_swap_free_kib": 8388604,
+          "cgroup_peak_total_bytes": 1425108992,
+          "host_cpu_busy_seconds": 0.56,
+          "host_tcp_retrans": 0,
+          "memory_full_stall_us": 0,
+          "pswpout_delta": 0,
+          "samples": 7
+        }
+      },
+      "network": [],
+      "memory": [],
+      "evidence": "gsi-resume-c/matrix/sec-calibrate-16m-target-1-grid-nongsi-4.json"
+    }
+  ]
+}

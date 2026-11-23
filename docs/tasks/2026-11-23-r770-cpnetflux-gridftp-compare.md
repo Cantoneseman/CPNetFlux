@@ -1,7 +1,7 @@
 # R770 CPNetFlux / Globus GridFTP 年度对比任务
 
 日期：2026-11-23
-状态：PRE-FLIGHT，等待安全可用的 GSI 凭据与 CA trust directory，尚未启动负载。
+状态：9 GB 主对比双向正式样本 20/20，8 GB 安全对照 15/15。结果见同目录的 2026-11-23-r770-cpnetflux-gridftp-compare-result.md。
 
 ## 范围
 
@@ -36,7 +36,7 @@
 - 两台服务器型号均为 PowerEdge R770。接口 eno17095np0，直连地址 192.168.100.1/.2，链路 100 GbE，RX/TX ring 当前 1024/1024。
 - 两端物理内存约 32 GB。首次现场 MemAvailable 为 R1 29,227,116 KiB、R2 30,274,496 KiB，约 27.9/28.9 GiB。/dev/shm 约 16 GB。用户 cgroup memory.max 为 max。R1 用户 cgroup 当前约 17.0 GiB，R2 约 1.29 GiB。swap 总量 8 GiB。
 - 初始绝对计数 R1 rx_missed_errors/rx_out_of_buffer 为 1829，R2 为 0；netdev errors/drops 和物理 CRC/discard 为 0。样本有效性按传输前后增量判断。
-- Globus 客户端 10.13、GridFTP server 13.28。当前没有有效 GSI proxy，默认用户证书目录、CA trust 目录、GridFTP host certificate 与运行中的 Globus 服务均未发现。还未找到将客户端证书 DN 映射至 GridFTP 运行账户 Su 的 gridmap 授权配置。GSI 是正式比较的必要前提，材料配置并通过 smoke 前不生成 payload、不启动负载。
+- Globus 客户端 10.13、GridFTP server 13.28。初始盘点未找到系统 GSI 凭据或 Globus 常驻服务。随后为本轮在独立目录签发测试证书和 proxy，并完成真实 GSI 小文件验证。
 
 ## 预注册配置筛选
 
@@ -72,4 +72,4 @@ GridFTP GSI 使用本轮私有的短期实验 CA、两端各自的服务证书�
 
 ## 当前决策
 
-本任务是用户明确授权的独立年度报告对比，覆盖 RESEARCH_BASELINE 中“暂不启动新的性能扫描”的旧状态，仅限本任务。2026-11-23 论文 E1 的 56 个有效样本与资源失败的 Stage B pilot 均保持原报告，不混入本任务。当前等待用户在两端安全提供可用的 GSI user certificate/key 与 CA trust directory 路径。
+本任务是用户明确授权的独立年度报告对比，覆盖 RESEARCH_BASELINE 中“暂不启动新的性能扫描”的旧状态，仅限本任务。2026-11-23 论文 E1 的 56 个有效样本与资源失败的 Stage B pilot 均保持原报告，不混入本任务。实验通过隔离短期 CA、双端服务证书和受限映射完成真实 GSI。运行后临时凭据、服务和数据均已清理。
