@@ -142,6 +142,17 @@ class AnnualComparePlanTest(unittest.TestCase):
         self.assertEqual(decide(**{**common, "integrity_ok": False}), "stop")
         self.assertEqual(decide(**{**common, "authentication_ok": False}), "stop")
         self.assertEqual(decide(**{**common, "network_deltas": {}}), "stop")
+        self.assertEqual(
+            decide(
+                **{
+                    **common,
+                    "network_deltas": {
+                        "r1": common["network_deltas"]["r1"],
+                    },
+                }
+            ),
+            "stop",
+        )
 
     def test_random_payload_writer_is_streamed_deterministic_and_exact_sized(self) -> None:
         write_payload = getattr(dataset, "write_deterministic_uncompressible_file", None)

@@ -170,7 +170,7 @@ def annual_admission_decision(
             for counters in network_deltas.values()
             if isinstance(counters, dict)
         ]
-    if not counter_sets:
+    if len(counter_sets) != 2:
         return "stop"
     for counters in counter_sets:
         if not required_network_counters.issubset(counters):
