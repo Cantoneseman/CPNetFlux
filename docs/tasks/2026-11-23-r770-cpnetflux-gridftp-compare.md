@@ -31,11 +31,12 @@
 ## 输入现场
 
 - 初始快照中，R770-1 HEAD 与 origin 为 edd4ad4df7ced563f07fe532124feee865e34d9d，分支 codex/V3-GRIDFTP-OPTIMIZED-RERUN-01，只有两份既有未跟踪 worker-state 文档。R770-2 HEAD 为 1b131bca20c33b17a512ad8840ec50a0a7762807，detached 且工作区干净。
-- 准备阶段已将 R2 同步到 56f17fb320a08d64c282a9e7bf51c4e57729ba6b。两端在 RelWithDebInfo 且相同 CMake 选项下构建通过；27 项相关 CTest 中 20 项通过、0 失败、7 项因本机 codec 环境跳过。server、tree upload/download clients 和 unit test 二进制 SHA-256 两端一致，详见实验目录 evidence-index.json。
+- 准备阶段已把两端同步到当前提交 18635984433bdcccb25c0b9921ab980bb6a6e1c3。两端在 RelWithDebInfo 且相同 CMake 选项下构建通过；相关 27 项 CTest 中 20 项通过、0 失败、7 项因 codec 环境跳过；37 项比较 runner Python 测试全部通过。server、tree upload/download clients 和 unit test 二进制 SHA-256 两端一致，详见实验目录 evidence-index.json。
+- Python runner helper 提交为 fc29d58edb20410bbb79f6e69de9b35693cf3309，双端都执行 37 项测试；1863598 收紧了双端网络计数必需条件并补充单端计数缺失测试。两个提交均已推送。CTest 与 Python 测试在 1863598 上重跑通过，详细日志位于 evidence-index.json 所列路径。
 - 两台服务器型号均为 PowerEdge R770。接口 eno17095np0，直连地址 192.168.100.1/.2，链路 100 GbE，RX/TX ring 当前 1024/1024。
 - 两端物理内存约 32 GB。首次现场 MemAvailable 为 R1 29,227,116 KiB、R2 30,274,496 KiB，约 27.9/28.9 GiB。/dev/shm 约 16 GB。用户 cgroup memory.max 为 max。R1 用户 cgroup 当前约 17.0 GiB，R2 约 1.29 GiB。swap 总量 8 GiB。
 - 初始绝对计数 R1 rx_missed_errors/rx_out_of_buffer 为 1829，R2 为 0；netdev errors/drops 和物理 CRC/discard 为 0。样本有效性按传输前后增量判断。
-- Globus 客户端 10.13、GridFTP server 13.28。当前没有有效 GSI proxy，默认用户证书目录、CA trust 目录与运行中的 Globus 服务均未发现。GSI 是正式比较的必要前提，凭据恢复前不生成 payload、不启动负载。
+- Globus 客户端 10.13、GridFTP server 13.28。当前没有有效 GSI proxy，默认用户证书目录、CA trust 目录、GridFTP host certificate 与运行中的 Globus 服务均未发现。还未找到将客户端证书 DN 映射至 GridFTP 运行账户 Su 的 gridmap 授权配置。GSI 是正式比较的必要前提，材料配置并通过 smoke 前不生成 payload、不启动负载。
 
 ## 预注册配置筛选
 
