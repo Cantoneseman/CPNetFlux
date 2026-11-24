@@ -131,7 +131,7 @@ class CompressionController {
 
     void enterLocked(bool compress, CompressionReason reason);
     void useCodecLocked(CompressionCodec codec);
-    void evaluateWindowLocked();
+    void evaluateWindowLocked(Clock::time_point now);
     [[nodiscard]] CompressionCodec preferredCodecLocked() const noexcept;
     // Candidate with the highest calibrated speed, preferring lz4 when nothing is calibrated.
     [[nodiscard]] std::optional<CompressionCodec> fasterCodecLocked(
