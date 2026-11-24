@@ -82,6 +82,23 @@ class PersistentDataSession {
     [[nodiscard]] static common::Status readNext(FramedDataSocket* socket,
                                                  std::uint32_t maxPayloadSize,
                                                  PersistentFrame* frame);
+    // Header/payload reads are split only for the opt-in direct-to-mmap receiver.
+    [[nodiscard]] static common::Status readNextHeader(FramedDataSocket* socket,
+                                                        std::uint32_t maxPayloadSize,
+                                                        protocol::FrameHeader* header);
+    [[nodiscard]] static common::Status readPayload(FramedDataSocket* socket,
+                                                     const protocol::FrameHeader& header,
+                                                     std::uint32_t maxPayloadSize,
+                                                     PersistentFrame* frame);
+    // The destination remains tentative until verifyDataPayloadChecksum succeeds.
+    [[nodiscard]] static common::Status readDataPayloadInto(FramedDataSocket* socket,
+                                                             const protocol::FrameHeader& header,
+                                                             std::uint8_t* logicalPayload,
+                                                             std::size_t logicalLength,
+                                                             std::uint32_t* expectedChecksum);
+    [[nodiscard]] static common::Result<checksum::ChecksumValue> verifyDataPayloadChecksum(
+        const std::uint8_t* logicalPayload, std::size_t logicalLength,
+        std::uint32_t expectedChecksum);
     [[nodiscard]] static common::Result<PersistentFileIdentity> decodeBegin(const PersistentFrame& frame);
     [[nodiscard]] static common::Result<protocol::FrameStatusCode> readResult(
         FramedDataSocket* socket, const PersistentFileIdentity& identity);

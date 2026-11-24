@@ -56,6 +56,72 @@ struct LoopbackTcpPair {
         if (!receiver.valid()) throw std::runtime_error("TCP test accept");
     }
 };
+TEST(PersistentSessionTest, DirectDataReadValidatesCrcAndUsesLogicalDestination) {
+    LoopbackTcpPair pair;
+    const std::array<std::uint8_t, 8> source{'d', 'i', 'r', 'e', 'c', 't', '!', '!'};
+    PersistentFileIdentity id{1, 1, source.size(), "direct.bin", "direct-read", source.size(), 0,
+        cpnetflux::checksum::ChecksumAlgorithm::Crc32c};
+    auto writing = std::async(std::launch::async, [&] {
+        return PersistentDataSession::writeData(&pair.sender, id, 0, source.data(), source.size());
+    });
+
+    FrameHeader header;
+    ASSERT_TRUE(PersistentDataSession::readNextHeader(
+        &pair.receiver, pair.receiver.dataPayloadLimit(), &header).isOk());
+    ASSERT_EQ(header.type, FrameType::Data);
+    std::array<std::uint8_t, source.size()> destination{};
+    std::uint32_t expectedChecksum = 0;
+    ASSERT_TRUE(PersistentDataSession::readDataPayloadInto(
+        &pair.receiver, header, destination.data(), destination.size(), &expectedChecksum).isOk());
+    auto received = PersistentDataSession::verifyDataPayloadChecksum(
+        destination.data(), destination.size(), expectedChecksum);
+    ASSERT_TRUE(received.isOk()) << received.status().message();
+    EXPECT_EQ(received.value().algorithm, cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
+    EXPECT_EQ(destination, source);
+    EXPECT_TRUE(writing.get().isOk());
+}
+
+TEST(PersistentSessionTest, DirectDataReadRejectsBadCrcAndTruncatedPayload) {
+    const std::array<std::uint8_t, 8> source{'b', 'a', 'd', 'c', 'r', 'c', '!', '!'};
+    for (bool truncate : {false, true}) {
+        LoopbackTcpPair pair;
+        FrameHeader header;
+        header.type = FrameType::Data;
+        header.streamId = 1;
+        header.chunkId = 1;
+        header.totalSize = source.size();
+        header.flags = kDataChecksum;
+        header.payloadSize = 4 + source.size();
+        const auto encoded = encodeFrameHeader(header);
+        std::array<std::uint8_t, 4 + source.size()> wire{};
+        cpnetflux::checksum::ChecksumComputer checksum(cpnetflux::checksum::ChecksumAlgorithm::Crc32c);
+        checksum.update(source.data(), source.size());
+        const auto value = checksum.finalize().value ^ 1U;
+        wire[0] = static_cast<std::uint8_t>(value >> 24);
+        wire[1] = static_cast<std::uint8_t>(value >> 16);
+        wire[2] = static_cast<std::uint8_t>(value >> 8);
+        wire[3] = static_cast<std::uint8_t>(value);
+        std::copy(source.begin(), source.end(), wire.begin() + 4);
+        const auto wireBytes = truncate ? 4 + source.size() / 2 : wire.size();
+        ASSERT_TRUE(pair.sender.writeFrame(encoded.data(), encoded.size(), wire.data(), wireBytes).isOk());
+        if (truncate) pair.sender.shutdown();
+
+        FrameHeader receivedHeader;
+        ASSERT_TRUE(PersistentDataSession::readNextHeader(
+            &pair.receiver, pair.receiver.dataPayloadLimit(), &receivedHeader).isOk());
+        std::array<std::uint8_t, source.size()> destination{};
+        std::uint32_t expectedChecksum = 0;
+        const auto readStatus = PersistentDataSession::readDataPayloadInto(
+            &pair.receiver, receivedHeader, destination.data(), destination.size(), &expectedChecksum);
+        if (truncate) {
+            EXPECT_FALSE(readStatus.isOk());
+        } else {
+            ASSERT_TRUE(readStatus.isOk());
+            EXPECT_FALSE(PersistentDataSession::verifyDataPayloadChecksum(
+                destination.data(), destination.size(), expectedChecksum).isOk());
+        }
+    }
+}
 struct ScopedEnvironment {
     std::string name;
     std::string previous;

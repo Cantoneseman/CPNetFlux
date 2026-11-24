@@ -69,11 +69,19 @@ def main():
                     assert t['receiver_write_backend']=='mmap_experimental'
                     assert mapped['map_calls']==mapped['unmap_calls']>0
                     assert mapped['active_mapped_bytes']==mapped['map_failures']==0
-                    assert mapped['written_bytes']==t['length']
+                    assert mapped['direct_received_bytes']==t['length']
+                    assert mapped['direct_receive_calls']>0
+                    assert mapped['written_bytes']==mapped['write_calls']==0
+                else:
+                    assert mapped['direct_receive_calls']==mapped['direct_received_bytes']==0
                 if args.observation=='on':
                     cpu = t['receiver_cpu_observation']
                     assert cpu['local_work_executor']
-                    assert cpu['lease_start_calls']==cpu['lease_finish_calls']==cpu['write_calls']>0
+                    assert cpu['lease_start_calls']==cpu['lease_finish_calls']>0
+                    if args.backend=='mmap':
+                        assert cpu['write_calls']==0
+                    else:
+                        assert cpu['write_calls']>0
                 if not enabled:
                     assert p is None
                     continue
@@ -83,8 +91,8 @@ def main():
                 assert p['errors']==0
                 assert p['copy_calls']==mapped['write_calls']
                 assert p['copy_bytes']==mapped['written_bytes']
-                assert p['copy_minor_faults']>0 and p['copy_major_faults']==0
-                assert p['copy_cpu_seconds']>0 and p['copy_wall_seconds']>0
+                assert p['copy_minor_faults']==p['copy_major_faults']==0
+                assert p['copy_cpu_seconds']==p['copy_wall_seconds']==0
                 assert p['map_cpu_seconds']>0 and p['unmap_cpu_seconds']>0
                 nested = sum(p[k+'_cpu_seconds'] for k in ('map','copy'))
                 assert nested <= t['receiver_cpu_observation']['physical_write_cpu_seconds']+.02

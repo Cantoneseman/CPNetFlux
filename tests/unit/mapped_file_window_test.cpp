@@ -44,6 +44,26 @@ TEST(MappedFileWindowTest, CrossesWindowBoundaryAndClosesBeforeDescriptor) {
     ASSERT_TRUE(window.close().isOk());
     EXPECT_EQ(window.stats().unmapCalls, 2U);
 }
+TEST(MappedFileWindowTest, DirectReceiveFallsBackWhenPayloadCrossesWindow) {
+    WindowFile temporary;
+    constexpr auto bound = MappedFileWindow::kWindowBytes;
+    ASSERT_TRUE(temporary.file.resize(bound + 8).isOk());
+    MappedFileWindow window(temporary.file.fd(), bound + 8);
+    const std::array<std::uint8_t, 8> bytes{1, 2, 3, 4, 5, 6, 7, 8};
+    auto direct = window.writableSpan(bound - 4, bytes.size());
+    ASSERT_TRUE(direct.isOk());
+    EXPECT_EQ(direct.value().size(), 4U);
+    ASSERT_TRUE(window.write(bound - 4, bytes).isOk());
+    EXPECT_EQ(window.stats().directReceiveCalls, 0U);
+    EXPECT_EQ(window.stats().directReceivedBytes, 0U);
+    EXPECT_EQ(window.stats().writeCalls, 1U);
+    EXPECT_EQ(window.stats().writtenBytes, bytes.size());
+    EXPECT_EQ(window.stats().mapCalls, 2U);
+    std::array<std::uint8_t, 8> actual{};
+    ASSERT_TRUE(temporary.file.readAtAll(bound - 4, actual.data(), actual.size()).isOk());
+    EXPECT_EQ(actual, bytes);
+    ASSERT_TRUE(window.close().isOk());
+}
 TEST(MappedFileWindowTest, BorrowIsTentativeBoundedAndRetiresThePreviousWindow) {
     WindowFile temporary;
     constexpr auto bound = MappedFileWindow::kWindowBytes;

@@ -18,6 +18,7 @@ struct MappedWriteProfile {
 struct MappedWriteStats {
     std::uint64_t mapCalls = 0, mapFailures = 0, unmapCalls = 0;
     std::uint64_t writeCalls = 0, writtenBytes = 0;
+    std::uint64_t directReceiveCalls = 0, directReceivedBytes = 0;
     std::uint64_t activeMappedBytes = 0, peakMappedBytes = 0;
     MappedWriteProfile profile;
 };
@@ -40,6 +41,10 @@ class MappedFileWindow {
     // View ends at a window boundary and expires on next borrow/write/close.
     // Caller holds the attempt writing pin/IO lease until network IO and CRC end.
     common::Result<std::span<std::uint8_t>> writableSpan(std::uint64_t offset, std::size_t requested);
+    void recordDirectReceive(std::size_t bytes) {
+        ++stats_.directReceiveCalls;
+        stats_.directReceivedBytes += bytes;
+    }
     common::Status close();
     const MappedWriteStats& stats() const { return stats_; }
  private:

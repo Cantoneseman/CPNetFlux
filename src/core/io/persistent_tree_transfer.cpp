@@ -1171,22 +1171,62 @@ class RangeFileCoordinator {
             status = physicalWrite();
         }
         if (!status.isOk()) return status;
+        return certifyRange(entry, lease, id, bytes.size(), verifiedChecksum, observation);
+    }
+    template <typename Reader>
+    static common::Result<bool> receiveDirect(const std::shared_ptr<Entry>& entry,
+        const PersistentFileIdentity& id, std::uint64_t offset, std::size_t logicalBytes,
+        Reader&& reader, RangeObservation* observation) {
+        if (!entry || !logicalBytes) return false;
+        ObservedEntryLock lock(entry->mutex, observation);
         if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
-        checkpoint::OptionalManifestTimer checksumming(observation ? &observation->chunkChecksumSeconds : nullptr);
-        if (!lease.checksum.combine(verifiedChecksum, bytes.size()))
-            return Status::invalidArgument("range chunk checksum algorithm mismatch");
-        checksumming.stop();
-        lease.position+=bytes.size();
-        if (lease.position==lease.missing[lease.next].end) {
-            const auto piece=lease.missing[lease.next];
-            status=entry->transaction->recordRange(id.rangeId,piece.begin,piece.end-piece.begin,lease.checksum.finalize(),observation,entry->checkpointBatch);
-            if (!status.isOk()) { entry->checkpointFailure = status; return status; }
-            scheduleCheckpoint(entry);
-            ++lease.next;
-            lease.position=lease.next==lease.missing.size() ? id.rangeOffset+id.rangeLength : lease.missing[lease.next].begin;
-            lease.checksum=checksum::ChecksumComputer(id.checksumAlgorithm);
+        const auto slot = entry->slots.find(id.rangeId);
+        if (entry->committed || slot == entry->slots.end() || !slot->second.active ||
+            slot->second.writing || !samePersistentIdentity(slot->second.id, id) ||
+            offset < id.rangeOffset || offset > id.rangeOffset + id.rangeLength ||
+            logicalBytes > id.rangeOffset + id.rangeLength - offset)
+            return false;
+        auto& lease = slot->second;
+        if (!lease.mapped || lease.next >= lease.missing.size() || offset != lease.position ||
+            logicalBytes > lease.missing[lease.next].end - lease.position)
+            return false;
+        lease.writing = true;
+        lock.unlock();
+        auto writable = [&]() -> common::Result<std::span<std::uint8_t>> {
+            try {
+                return lease.mapped->writableSpan(offset, logicalBytes);
+            } catch (...) {
+                lock.lock();
+                lease.writing = false;
+                entry->writersDrained.notify_all();
+                throw;
+            }
+        }();
+        if (!writable.isOk() || writable.value().size() != logicalBytes) {
+            lock.lock();
+            lease.writing = false;
+            entry->writersDrained.notify_all();
+            if (!writable.isOk()) return writable.status();
+            return false;
         }
-        return Status::ok();
+        auto received = [&]() -> common::Result<checksum::ChecksumValue> {
+            try {
+                return reader(writable.value());
+            } catch (...) {
+                lock.lock();
+                lease.writing = false;
+                entry->writersDrained.notify_all();
+                throw;
+            }
+        }();
+        lock.lock();
+        lease.writing = false;
+        entry->writersDrained.notify_all();
+        if (!received.isOk()) return received.status();
+        auto status = certifyRange(entry, lease, id, logicalBytes, received.value(), observation);
+        if (!status.isOk()) return status;
+        lease.mapped->recordDirectReceive(logicalBytes);
+        return true;
     }
     static std::pair<std::uint64_t, std::uint64_t> takeStats(
         const std::shared_ptr<Entry>& entry) {
@@ -1222,6 +1262,31 @@ class RangeFileCoordinator {
         return flushLocked(entry, observation);
     }
  private:
+    static Status certifyRange(const std::shared_ptr<Entry>& entry, Slot& lease,
+                               const PersistentFileIdentity& id, std::size_t bytes,
+                               checksum::ChecksumValue verifiedChecksum,
+                               RangeObservation* observation) {
+        if (!entry->checkpointFailure.isOk()) return entry->checkpointFailure;
+        if (!bytes || lease.next >= lease.missing.size())
+            return Status::invalidArgument("range certification has no missing bytes");
+        checkpoint::OptionalManifestTimer checksumming(observation ? &observation->chunkChecksumSeconds : nullptr);
+        if (!lease.checksum.combine(verifiedChecksum, bytes))
+            return Status::invalidArgument("range chunk checksum algorithm mismatch");
+        checksumming.stop();
+        lease.position += bytes;
+        if (lease.position == lease.missing[lease.next].end) {
+            const auto piece = lease.missing[lease.next];
+            auto status = entry->transaction->recordRange(id.rangeId, piece.begin, piece.end - piece.begin,
+                lease.checksum.finalize(), observation, entry->checkpointBatch);
+            if (!status.isOk()) { entry->checkpointFailure = status; return status; }
+            scheduleCheckpoint(entry);
+            ++lease.next;
+            lease.position = lease.next == lease.missing.size()
+                ? id.rangeOffset + id.rangeLength : lease.missing[lease.next].begin;
+            lease.checksum = checksum::ChecksumComputer(id.checksumAlgorithm);
+        }
+        return Status::ok();
+    }
     static void mergeBackground(Entry& entry, RangeObservation* observation) {
         if (!observation) return;
         auto& a = *observation; auto& b = entry.background;
@@ -2745,17 +2810,114 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
         for (;;) {
             const auto payloadStarted = Clock::now();
             const auto previousCapacity = incoming.payload.capacity();
+            protocol::FrameHeader receivedHeader;
             OptionalThreadCpuTimer socketCpu(receiverCpu.enabled ? &receiverCpu.socketReadCpuSeconds : nullptr);
             if (receiverCpu.enabled) ++receiverCpu.socketReadCalls;
-            status = PersistentDataSession::readNext(socket, socket->dataPayloadLimit(), &incoming);
+            status = PersistentDataSession::readNextHeader(socket, socket->dataPayloadLimit(), &receivedHeader);
             socketCpu.stop();
-            const auto& data = incoming;
             if (!status.isOk()) {
                 drainReceiverWriter();
                 (void)notify(callback, id, status, true);
                 return finishTransport(status);
             }
-            stats->wireBytes += protocol::kFrameHeaderSize + data.payload.size();
+            bool directReceived = false;
+            std::size_t directLogicalBytes = 0;
+            double directReadSeconds = secondsSince(payloadStarted);
+            double directChecksumSeconds = 0;
+            const bool directEligible = rangeEntry && timing.receiverMappedPayload &&
+                timing.receiverInlinePayload && socket->transport() == DataTransport::Tcp &&
+                !socket->tlsEnabled() && receivedHeader.type == FrameType::Data &&
+                receivedHeader.flags == protocol::kDataChecksum &&
+                receivedHeader.payloadSize > 4 &&
+                id.checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c;
+            if (directEligible) {
+                directLogicalBytes = receivedHeader.payloadSize - 4;
+                bool directLeaseStarted = false;
+                if (ready) {
+                    OptionalThreadCpuTimer leaseCpu(
+                        receiverCpu.enabled ? &receiverCpu.leaseCpuSeconds : nullptr);
+                    if (receiverCpu.enabled) ++receiverCpu.leaseStartCalls;
+                    status = executor->startIo(*lease, directLogicalBytes);
+                    if (!status.isOk()) {
+                        drainReceiverWriter();
+                        (void)notify(callback, id, status, true);
+                        return finishTransport(status);
+                    }
+                    directLeaseStarted = true;
+                }
+                auto direct = RangeFileCoordinator::receiveDirect(rangeEntry, id, receivedHeader.offset,
+                    directLogicalBytes, [&](std::span<std::uint8_t> destination)
+                        -> common::Result<checksum::ChecksumValue> {
+                        std::uint32_t expectedChecksum = 0;
+                        const auto readStarted = Clock::now();
+                        {
+                            OptionalThreadCpuTimer directSocketCpu(
+                                receiverCpu.enabled ? &receiverCpu.socketReadCpuSeconds : nullptr);
+                            status = PersistentDataSession::readDataPayloadInto(socket, receivedHeader,
+                                destination.data(), destination.size(), &expectedChecksum);
+                        }
+                        directReadSeconds += secondsSince(readStarted);
+                        if (!status.isOk()) return status;
+
+                        const auto checksumStarted = Clock::now();
+                        OptionalThreadCpuTimer crcCpu(receiverCpu.enabled ? &receiverCpu.crcCpuSeconds : nullptr);
+                        if (receiverCpu.enabled) {
+                            ++receiverCpu.crcCalls;
+                            receiverCpu.crcBytes += destination.size();
+                        }
+                        auto verified = PersistentDataSession::verifyDataPayloadChecksum(
+                            destination.data(), destination.size(), expectedChecksum);
+                        crcCpu.stop();
+                        if (payloadObservation) {
+                            payloadObservation->frameCrcBytes += destination.size();
+                            payloadObservation->frameCrcSeconds += secondsSince(checksumStarted);
+                        }
+                        if (!verified.isOk()) return verified.status();
+
+                        auto logicalHeader = receivedHeader;
+                        logicalHeader.flags = 0;
+                        logicalHeader.payloadSize = static_cast<std::uint32_t>(destination.size());
+                        OptionalThreadCpuTimer stateCpu(
+                            receiverCpu.enabled ? &receiverCpu.stateCpuSeconds : nullptr);
+                        if (receiverCpu.enabled) ++receiverCpu.stateCalls;
+                        status = state.dataWithChecksum(logicalHeader, destination.size(), verified.value());
+                        stateCpu.stop();
+                        if (!status.isOk()) return status;
+                        directChecksumSeconds += secondsSince(checksumStarted);
+                        return verified.value();
+                    }, observation);
+                Status directStatus = direct.isOk() ? Status::ok() : direct.status();
+                if (directLeaseStarted) {
+                    OptionalThreadCpuTimer leaseCpu(
+                        receiverCpu.enabled ? &receiverCpu.leaseCpuSeconds : nullptr);
+                    if (receiverCpu.enabled) ++receiverCpu.leaseFinishCalls;
+                    const auto finished = executor->finishIo(*lease, directLogicalBytes);
+                    if (directStatus.isOk() && !finished.isOk()) directStatus = finished;
+                }
+                if (!directStatus.isOk()) {
+                    drainReceiverWriter();
+                    (void)notify(callback, id, directStatus, true);
+                    return finishTransport(directStatus);
+                }
+                directReceived = direct.value();
+            }
+            if (directReceived) {
+                incoming.header = receivedHeader;
+                incoming.payload.clear();
+            } else {
+                OptionalThreadCpuTimer bufferedSocketCpu(
+                    receiverCpu.enabled ? &receiverCpu.socketReadCpuSeconds : nullptr);
+                status = PersistentDataSession::readPayload(socket, receivedHeader,
+                    socket->dataPayloadLimit(), &incoming);
+                bufferedSocketCpu.stop();
+                if (!status.isOk()) {
+                    drainReceiverWriter();
+                    (void)notify(callback, id, status, true);
+                    return finishTransport(status);
+                }
+            }
+            const auto& data = incoming;
+            stats->wireBytes += protocol::kFrameHeaderSize + data.header.payloadSize;
             if (data.header.type == FrameType::FileEnd) {
                 tracePersistentProtocol("receiver", "file_end_read", channelIndex, &id);
                 receiverPipeline.close();
@@ -2789,6 +2951,21 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 }
                 break;
             }
+            if (directReceived) {
+                timing.payloadIoSeconds += directReadSeconds;
+                timing.checksumSeconds += directChecksumSeconds;
+                if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
+                stats->payloadBytes += directLogicalBytes;
+                if (observation && id.rangeId != 0) {
+                    ++observation->dataFrameCount;
+                    observation->effectiveDataBytes += directLogicalBytes;
+                }
+                if (payloadObservation) {
+                    ++payloadObservation->dataFrameCount;
+                    payloadObservation->framePayloadBytes += receivedHeader.payloadSize;
+                }
+                continue;
+            }
             timing.payloadIoSeconds += secondsSince(payloadStarted);
             if (!timing.firstPayloadSeconds) timing.firstPayloadSeconds = secondsSince(fileStarted);
             const auto checksumStarted = Clock::now();
@@ -2819,8 +2996,6 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
                 logical = logical.subspan(4);
             }
             if (data.header.flags & protocol::kDataCompressed) {
-                if (context->policy.experimentalMappedDownload)
-                    return Status::invalidArgument("experimental download write rejects compressed DATA");
                 const auto decoding = payloadObservation ? Clock::now() : Clock::time_point{};
                 auto codec = protocol::compressedDataPayloadCodec(logical.data(),logical.size());
                 if (!codec.isOk()) { drainReceiverWriter(); return codec.status(); }
@@ -3078,7 +3253,9 @@ void appendPersistentFileTimings(std::ostream& out, const std::vector<Persistent
             << ",\"concurrent_window_bound_bytes\":" << (t.receiverMappedPayload ? 4 * storage::MappedFileWindow::kWindowBytes : 0)
             << ",\"map_calls\":" << t.mappedWrite.mapCalls << ",\"map_failures\":" << t.mappedWrite.mapFailures
             << ",\"unmap_calls\":" << t.mappedWrite.unmapCalls << ",\"write_calls\":" << t.mappedWrite.writeCalls
-            << ",\"written_bytes\":" << t.mappedWrite.writtenBytes << ",\"active_mapped_bytes\":" << t.mappedWrite.activeMappedBytes
+            << ",\"written_bytes\":" << t.mappedWrite.writtenBytes
+            << ",\"direct_receive_calls\":" << t.mappedWrite.directReceiveCalls << ",\"direct_received_bytes\":" << t.mappedWrite.directReceivedBytes
+            << ",\"active_mapped_bytes\":" << t.mappedWrite.activeMappedBytes
             << ",\"peak_mapped_bytes\":" << t.mappedWrite.peakMappedBytes << ",\"profile\":";
         const auto& mappedProfile = t.mappedWrite.profile;
         if (!mappedProfile.enabled) out << "null";

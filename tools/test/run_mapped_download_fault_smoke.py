@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import signal
 import subprocess
 import tempfile
 import time
@@ -75,9 +74,11 @@ def main():
                                 "CPNETFLUX_MAPPED_FAULT_ROOT": str(destination) + "/",
                                 "CPNETFLUX_MAPPED_FAULT": mode}
                 result = subprocess.run(command, env=faulty, capture_output=True, text=True, timeout=25)
-                assert result.returncode == (1 if mode == "fail" else -signal.SIGBUS), (mode, result)
+                assert result.returncode == 1, (mode, result)
                 if mode == "fail":
                     assert "cpnetflux-test: injected mmap ENOMEM" in result.stderr, result.stderr
+                else:
+                    assert "TCP scatter receive failed" in result.stderr, result.stderr
                 assert not (destination / "payload.bin").exists(), mode
                 if summary.exists():
                     assert json.loads(summary.read_text())["result"] == "fail"

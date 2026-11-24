@@ -228,7 +228,10 @@ TEST(PersistentMappedRangeTest, FourRangesRetireBeforePublication) {
         EXPECT_TRUE(timing.receiverMappedPayload);
         EXPECT_EQ(timing.mappedWrite.mapCalls, 1U);
         EXPECT_EQ(timing.mappedWrite.unmapCalls, 1U);
-        EXPECT_EQ(timing.mappedWrite.writtenBytes, 2U);
+        EXPECT_EQ(timing.mappedWrite.directReceiveCalls, 1U);
+        EXPECT_EQ(timing.mappedWrite.directReceivedBytes, 2U);
+        EXPECT_EQ(timing.mappedWrite.writeCalls, 0U);
+        EXPECT_EQ(timing.mappedWrite.writtenBytes, 0U);
         EXPECT_EQ(timing.mappedWrite.activeMappedBytes, 0U);
         EXPECT_EQ(timing.rangeObservation.fileWrite.writeAtAllCalls, 0U);
     }
@@ -283,7 +286,10 @@ TEST(PersistentMappedRangeTest, ReclaimWaitsForFailedMapWhileOtherRangesProgress
     EXPECT_GT(timing.rangeObservation.reclaimWaitSeconds, 0.05);
     EXPECT_EQ(timing.mappedWrite.mapCalls, 1U);
     EXPECT_EQ(timing.mappedWrite.unmapCalls, 1U);
-    EXPECT_EQ(timing.mappedWrite.writtenBytes, 2U);
+    EXPECT_EQ(timing.mappedWrite.directReceiveCalls, 1U);
+    EXPECT_EQ(timing.mappedWrite.directReceivedBytes, 2U);
+    EXPECT_EQ(timing.mappedWrite.writeCalls, 0U);
+    EXPECT_EQ(timing.mappedWrite.writtenBytes, 0U);
     EXPECT_EQ(timing.mappedWrite.activeMappedBytes, 0U);
     checkOutput(destination);
 }
@@ -310,6 +316,53 @@ TEST(PersistentMappedRangeTest, CorruptFrameCannotWriteOrCertifyOrPublish) {
     EXPECT_NE(lane.receiveStatus.message().find("checksum mismatch before write"), std::string::npos);
     EXPECT_TRUE(records(destination, true).empty());
     EXPECT_FALSE(std::filesystem::exists(destination.path / "payload.bin"));
+    ++id.attempt;
+    Lane retry(destination, true, context, 0, 4);
+    auto sending = retry.send(source, id, 0);
+    const auto sent = sending.get();
+    retry.rx.join();
+    ASSERT_TRUE(sent.isOk()) << sent.message();
+    ASSERT_TRUE(retry.receiveStatus.isOk()) << retry.receiveStatus.message();
+    ASSERT_EQ(retry.received.fileTimings.size(), 1U);
+    EXPECT_EQ(retry.received.fileTimings.front().mappedWrite.directReceiveCalls, 1U);
+    EXPECT_EQ(retry.received.fileTimings.front().mappedWrite.directReceivedBytes, 2U);
+    EXPECT_EQ(records(destination, true).size(), 1U);
+}
+TEST(PersistentMappedRangeTest, TruncatedDirectReceiveIsNotCertifiedAndRetryOverwritesIt) {
+    MappedSettings settings;
+    TempRoot source, destination;
+    auto id = identity(source); id.chunkSize = 2; id.rangeLength = 2; id.rangeCount = 4;
+    PersistentTransferPolicy policy;
+    policy.options.fileIo.posixWriteStrategy = cpnetflux::storage::PosixWriteStrategy::Direct;
+    policy.experimentalMappedDownload = true;
+    auto context = makePersistentTransferContext(policy);
+    Lane interrupted(destination, true, context, 0, 4);
+    ASSERT_TRUE(PersistentDataSession::writeBegin(&interrupted.sender, id, true).isOk());
+    ASSERT_TRUE(PersistentDataSession::readResumeResponse(&interrupted.sender, id).isOk());
+    FrameHeader header;
+    header.type = FrameType::Data; header.streamId = id.fileId; header.chunkId = id.generation;
+    header.rangeId = id.rangeId; header.attempt = id.attempt; header.totalSize = id.totalSize;
+    header.flags = kDataChecksum; header.payloadSize = 6;
+    const std::array<std::uint8_t, 5> partial{0, 0, 0, 0, 'A'};
+    const auto encoded = encodeFrameHeader(header);
+    ASSERT_TRUE(interrupted.sender.writeFrame(encoded.data(), encoded.size(), partial.data(), partial.size()).isOk());
+    interrupted.sender.shutdown();
+    interrupted.rx.join();
+    EXPECT_FALSE(interrupted.receiveStatus.isOk());
+    EXPECT_TRUE(records(destination, true).empty());
+    EXPECT_FALSE(std::filesystem::exists(destination.path / "payload.bin"));
+
+    ++id.attempt;
+    Lane retry(destination, true, context, 0, 4);
+    auto sending = retry.send(source, id, 0);
+    const auto sent = sending.get();
+    retry.rx.join();
+    ASSERT_TRUE(sent.isOk()) << sent.message();
+    ASSERT_TRUE(retry.receiveStatus.isOk()) << retry.receiveStatus.message();
+    ASSERT_EQ(retry.received.fileTimings.size(), 1U);
+    EXPECT_EQ(retry.received.fileTimings.front().mappedWrite.directReceiveCalls, 1U);
+    EXPECT_EQ(retry.received.fileTimings.front().mappedWrite.directReceivedBytes, 2U);
+    EXPECT_EQ(records(destination, true).size(), 1U);
 }
 TEST(PersistentMappedRangeTest, RejectsUploadAndWrongLaneCountBeforeInput) {
     MappedSettings settings;

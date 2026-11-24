@@ -257,6 +257,20 @@ common::Status readHeader(FramedDataSocket* socket, protocol::FrameHeader* heade
     *header = decoded.value();
     return common::Status::ok();
 }
+common::Status validateHeaderForPayload(FramedDataSocket* socket, const protocol::FrameHeader& header,
+                                       std::uint32_t maxPayloadSize) {
+    if (!socket || !socket->valid() || maxPayloadSize > socket->dataPayloadLimit())
+        return common::Status::invalidArgument("invalid persistent input");
+    auto limit = header.type == protocol::FrameType::Data
+        ? std::min(maxPayloadSize, socket->dataPayloadLimit())
+        : std::min(maxPayloadSize, PersistentDataSession::kMaxPayload);
+    if (header.type == protocol::FrameType::FileBegin) limit = std::min(limit, 8192U);
+    auto status = protocol::validateFrameHeader(header, limit);
+    if (status.isOk() && socket->dataPayloadLimit() > PersistentDataSession::kMaxPayload &&
+        header.type == protocol::FrameType::Data && header.flags != protocol::kDataChecksum)
+        return common::Status::invalidArgument("large DATA requires uncompressed CRC32C");
+    return status;
+}
 }
 
 common::Status PersistentDataSession::writeFrame(FramedDataSocket* socket,
@@ -533,6 +547,74 @@ common::Status PersistentDataSession::readNext(FramedDataSocket* socket,
     }
     frame->header = header; // Publish only a complete, validated frame.
     return common::Status::ok();
+}
+common::Status PersistentDataSession::readNextHeader(FramedDataSocket* socket,
+                                                       std::uint32_t maxPayloadSize,
+                                                       protocol::FrameHeader* header) {
+    if (!header) return common::Status::invalidArgument("missing persistent frame header");
+    *header = {};
+    if (!socket || !socket->valid() || maxPayloadSize > socket->dataPayloadLimit())
+        return common::Status::invalidArgument("invalid persistent input");
+    return readHeader(socket, header, maxPayloadSize);
+}
+
+common::Status PersistentDataSession::readPayload(FramedDataSocket* socket,
+                                                   const protocol::FrameHeader& header,
+                                                   std::uint32_t maxPayloadSize,
+                                                   PersistentFrame* frame) {
+    if (!frame) return common::Status::invalidArgument("missing persistent frame");
+    frame->header = {};
+    const auto fail = [&](common::Status status) {
+        frame->payload.clear();
+        return status;
+    };
+    auto status = validateHeaderForPayload(socket, header, maxPayloadSize);
+    if (!status.isOk()) return fail(status);
+    if (header.payloadSize > frame->payload.capacity())
+        std::vector<std::uint8_t>(header.payloadSize).swap(frame->payload);
+    else
+        frame->payload.resize(header.payloadSize);
+    if (!frame->payload.empty()) {
+        status = socket->readAll(frame->payload.data(), frame->payload.size());
+        if (!status.isOk()) return fail(status);
+    }
+    frame->header = header;
+    return common::Status::ok();
+}
+
+common::Status PersistentDataSession::readDataPayloadInto(FramedDataSocket* socket,
+                                                           const protocol::FrameHeader& header,
+                                                           std::uint8_t* logicalPayload,
+                                                           std::size_t logicalLength,
+                                                           std::uint32_t* expectedChecksum) {
+    if (!socket || !socket->valid() || socket->tlsEnabled() ||
+        socket->transport() != DataTransport::Tcp)
+        return common::Status::invalidArgument("direct DATA receive requires plain TCP");
+    if (!expectedChecksum || !logicalPayload || !logicalLength ||
+        logicalLength > UINT32_MAX - 4 || header.payloadSize != logicalLength + 4 ||
+        header.type != protocol::FrameType::Data || header.flags != protocol::kDataChecksum)
+        return common::Status::invalidArgument("invalid direct DATA receive spans");
+    const auto valid = validateHeaderForPayload(socket, header, socket->dataPayloadLimit());
+    if (!valid.isOk()) return valid;
+    std::uint8_t prefix[4]{};
+    auto status = socket->readAll(prefix, sizeof(prefix));
+    if (!status.isOk()) return status;
+    *expectedChecksum = (static_cast<std::uint32_t>(prefix[0]) << 24) |
+        (static_cast<std::uint32_t>(prefix[1]) << 16) |
+        (static_cast<std::uint32_t>(prefix[2]) << 8) | prefix[3];
+    return socket->readAllV(nullptr, 0, logicalPayload, logicalLength);
+}
+
+common::Result<checksum::ChecksumValue> PersistentDataSession::verifyDataPayloadChecksum(
+    const std::uint8_t* logicalPayload, std::size_t logicalLength, std::uint32_t expectedChecksum) {
+    if (!logicalPayload || !logicalLength)
+        return common::Status::invalidArgument("invalid direct DATA checksum input");
+    checksum::ChecksumComputer checksum(checksum::ChecksumAlgorithm::Crc32c);
+    checksum.update(logicalPayload, logicalLength);
+    const auto actualChecksum = checksum.finalize().value;
+    if (actualChecksum != expectedChecksum)
+        return common::Status::invalidArgument("DATA checksum mismatch before write");
+    return checksum::ChecksumValue{checksum::ChecksumAlgorithm::Crc32c, actualChecksum};
 }
 
 common::Result<PersistentFileIdentity> PersistentDataSession::decodeBegin(const PersistentFrame& frame) {
