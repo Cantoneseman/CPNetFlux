@@ -73,6 +73,8 @@ def main():
                 faulty = env | {"LD_PRELOAD": str(args.fault_library.resolve()),
                                 "CPNETFLUX_MAPPED_FAULT_ROOT": str(destination) + "/",
                                 "CPNETFLUX_MAPPED_FAULT": mode}
+                if mode == "truncate":
+                    faulty["CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE"] = "on"
                 result = subprocess.run(command, env=faulty, capture_output=True, text=True, timeout=25)
                 assert result.returncode == 1, (mode, result)
                 if mode == "fail":

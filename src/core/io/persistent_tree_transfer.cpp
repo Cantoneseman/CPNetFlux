@@ -216,6 +216,12 @@ common::Result<bool> diagnosticReceiverInlinePayload() {
     if (std::string_view(setting) == "inline") return true;
     return Status::invalidArgument("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION must be queued or inline");
 }
+common::Result<bool> diagnosticDirectMmapReceive() {
+    const auto* setting = std::getenv("CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE");
+    if (!setting || std::string_view(setting) == "off") return false;
+    if (std::string_view(setting) == "on") return true;
+    return Status::invalidArgument("CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE must be off or on");
+}
 common::Result<bool> diagnosticSenderInlinePayload() {
     const auto* setting = std::getenv("CPNETFLUX_SENDER_PAYLOAD_EXECUTION");
     if (!setting || std::string_view(setting) == "queued") return false;
@@ -2399,6 +2405,8 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     if (!receiverWriteBatch.isOk()) return receiverWriteBatch.status();
     const auto receiverInline = diagnosticReceiverInlinePayload();
     if (!receiverInline.isOk()) return receiverInline.status();
+    const auto directMmapReceive = diagnosticDirectMmapReceive();
+    if (!directMmapReceive.isOk()) return directMmapReceive.status();
     const char* receiveBuffer = std::getenv("CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES");
     const std::string_view receiveBufferMode = receiveBuffer ? receiveBuffer : "off";
     if (receiveBufferMode != "off" && receiveBufferMode != "1048576")
@@ -2824,7 +2832,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
             std::size_t directLogicalBytes = 0;
             double directReadSeconds = secondsSince(payloadStarted);
             double directChecksumSeconds = 0;
-            const bool directEligible = rangeEntry && timing.receiverMappedPayload &&
+            const bool directEligible = directMmapReceive.value() && rangeEntry && timing.receiverMappedPayload &&
                 timing.receiverInlinePayload && socket->transport() == DataTransport::Tcp &&
                 !socket->tlsEnabled() && receivedHeader.type == FrameType::Data &&
                 receivedHeader.flags == protocol::kDataChecksum &&

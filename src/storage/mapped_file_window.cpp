@@ -7,6 +7,7 @@
 #ifdef __linux__
 #include <sys/mman.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <time.h>
 #endif
 
@@ -114,6 +115,27 @@ common::Status MappedFileWindow::ensureMapped(std::uint64_t offset) {
                 ++stats_.mapFailures;
                 return common::Status::systemError("experimental download write mmap", errno);
             }
+            auto rejectMapping = [&](void* candidate, int error, const char* operation) {
+                mapping_ = candidate;
+                mapped_ = true;
+                stats_.activeMappedBytes = length;
+                ++stats_.mapFailures;
+                const auto cleanup = close();
+                if (!cleanup.isOk()) return cleanup;
+                return common::Status::systemError(operation, error);
+            };
+            auto validateBackingExtent = [&](void* candidate) {
+                struct stat backing{};
+                if (::fstat(fd_, &backing) != 0)
+                    return rejectMapping(candidate, errno, "experimental download write fstat");
+                if (backing.st_size < 0 ||
+                    static_cast<std::uint64_t>(backing.st_size) < base_ + length)
+                    return rejectMapping(candidate, EIO,
+                                         "experimental download write backing file truncated");
+                return common::Status::ok();
+            };
+            const auto backingStatus = validateBackingExtent(mapping);
+            if (!backingStatus.isOk()) return backingStatus;
             mapping_ = mapping;
             mapped_ = true;
             stats_.activeMappedBytes = length;
@@ -137,6 +159,8 @@ common::Status MappedFileWindow::ensureMapped(std::uint64_t offset) {
                     ++stats_.mapFailures;
                     return common::Status::systemError("diagnostic aligned mmap", errno);
                 }
+                const auto alignedBackingStatus = validateBackingExtent(mapping);
+                if (!alignedBackingStatus.isOk()) return alignedBackingStatus;
                 mapping_ = mapping;
                 mapped_ = true;
                 stats_.activeMappedBytes = length;

@@ -17,12 +17,14 @@ def main():
     parser.add_argument('--profile', choices=('0', '1'), default='1')
     parser.add_argument('--observation', choices=('on', 'off'), default='on')
     parser.add_argument('--backend', choices=('mmap', 'pwrite'), default='mmap')
+    parser.add_argument('--direct-receive', choices=('off', 'on'), default='off')
     args = parser.parse_args()
     build = args.build_dir.resolve()
     env = {k:v for k,v in os.environ.items() if not k.startswith('CPNETFLUX_')}
     env.update(CPNETFLUX_STAGE_READ_CONCURRENCY='0', CPNETFLUX_STAGE_WRITE_CONCURRENCY='0',
                CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION='inline', CPNETFLUX_RANGE_TIMING=args.observation,
                CPNETFLUX_RECEIVER_CPU_PROFILE='1', CPNETFLUX_MAPPED_WRITE_PROFILE=args.profile)
+    env['CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE'] = args.direct_receive
     with tempfile.TemporaryDirectory(prefix='cpnetflux-mapped-profile-') as directory:
         root = Path(directory)
         source = root/'server/payload/payload.bin'
@@ -69,9 +71,14 @@ def main():
                     assert t['receiver_write_backend']=='mmap_experimental'
                     assert mapped['map_calls']==mapped['unmap_calls']>0
                     assert mapped['active_mapped_bytes']==mapped['map_failures']==0
-                    assert mapped['direct_received_bytes']==t['length']
-                    assert mapped['direct_receive_calls']>0
-                    assert mapped['written_bytes']==mapped['write_calls']==0
+                    if args.direct_receive == 'on':
+                        assert mapped['direct_received_bytes']==t['length']
+                        assert mapped['direct_receive_calls']>0
+                        assert mapped['written_bytes']==mapped['write_calls']==0
+                    else:
+                        assert mapped['direct_received_bytes']==mapped['direct_receive_calls']==0
+                        assert mapped['written_bytes']==t['length']
+                        assert mapped['write_calls']>0
                 else:
                     assert mapped['direct_receive_calls']==mapped['direct_received_bytes']==0
                 if args.observation=='on':
@@ -79,7 +86,10 @@ def main():
                     assert cpu['local_work_executor']
                     assert cpu['lease_start_calls']==cpu['lease_finish_calls']>0
                     if args.backend=='mmap':
-                        assert cpu['write_calls']==0
+                        if args.direct_receive == 'on':
+                            assert cpu['write_calls']==0
+                        else:
+                            assert cpu['write_calls']>0
                     else:
                         assert cpu['write_calls']>0
                 if not enabled:
@@ -91,12 +101,14 @@ def main():
                 assert p['errors']==0
                 assert p['copy_calls']==mapped['write_calls']
                 assert p['copy_bytes']==mapped['written_bytes']
-                assert p['copy_minor_faults']==p['copy_major_faults']==0
-                assert p['copy_cpu_seconds']==p['copy_wall_seconds']==0
+                if args.direct_receive == 'on':
+                    assert p['copy_minor_faults']==p['copy_major_faults']==0
+                    assert p['copy_cpu_seconds']==p['copy_wall_seconds']==0
                 assert p['map_cpu_seconds']>0 and p['unmap_cpu_seconds']>0
                 nested = sum(p[k+'_cpu_seconds'] for k in ('map','copy'))
                 assert nested <= t['receiver_cpu_observation']['physical_write_cpu_seconds']+.02
             print(json.dumps({'result':'pass','profile_enabled':enabled,'backend':args.backend,
+                              'direct_receive':args.direct_receive,
                               'bytes':row['bytes_transferred'],'ranges':len(timings)}))
         finally:
             stop_server(server, log)

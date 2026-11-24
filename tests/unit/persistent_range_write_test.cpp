@@ -189,7 +189,8 @@ struct MappedSettings {
                  {"CPNETFLUX_STAGE_READ_CONCURRENCY", "0"},
                  {"CPNETFLUX_STAGE_WRITE_CONCURRENCY", "0"},
                  {"CPNETFLUX_RANGE_DIRECT_WRITE", "parallel"},
-                 {"CPNETFLUX_RECEIVER_WRITE_BATCH", "1"}}) {
+                 {"CPNETFLUX_RECEIVER_WRITE_BATCH", "1"},
+                 {"CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE", "on"}}) {
             const auto* old = std::getenv(key);
             previous.emplace_back(key, old ? std::optional<std::string>(old) : std::nullopt);
             (void)::setenv(key, value, 1);

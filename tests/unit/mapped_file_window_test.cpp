@@ -64,6 +64,28 @@ TEST(MappedFileWindowTest, DirectReceiveFallsBackWhenPayloadCrossesWindow) {
     EXPECT_EQ(actual, bytes);
     ASSERT_TRUE(window.close().isOk());
 }
+TEST(MappedFileWindowTest, RejectsBackingFileTruncationAtNextWindowBeforeWrite) {
+    WindowFile temporary;
+    constexpr auto bound = MappedFileWindow::kWindowBytes;
+    ASSERT_TRUE(temporary.file.resize(bound + 16).isOk());
+    MappedFileWindow window(temporary.file.fd(), bound + 16);
+    const std::array<std::uint8_t, 1> first{9}, next{7};
+    ASSERT_TRUE(window.write(0, first).isOk());
+    ASSERT_EQ(window.stats().activeMappedBytes, bound);
+    ASSERT_EQ(::ftruncate(temporary.file.fd(), static_cast<off_t>(bound)), 0);
+
+    const auto rejected = window.write(bound, next);
+    EXPECT_FALSE(rejected.isOk());
+    EXPECT_EQ(rejected.code(), cpnetflux::common::StatusCode::SystemError);
+    EXPECT_EQ(rejected.message(), "experimental download write backing file truncated");
+    EXPECT_EQ(window.stats().mapCalls, 2U);
+    EXPECT_EQ(window.stats().mapFailures, 1U);
+    EXPECT_EQ(window.stats().unmapCalls, 2U);
+    EXPECT_EQ(window.stats().activeMappedBytes, 0U);
+    EXPECT_EQ(window.stats().writtenBytes, first.size());
+    ASSERT_TRUE(window.close().isOk());
+}
+
 TEST(MappedFileWindowTest, BorrowIsTentativeBoundedAndRetiresThePreviousWindow) {
     WindowFile temporary;
     constexpr auto bound = MappedFileWindow::kWindowBytes;
