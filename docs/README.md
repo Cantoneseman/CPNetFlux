@@ -1,5 +1,7 @@
 # CPNetFlux 文档导航
 
+当前性能证据入口：[R770 大文件瓶颈定位结果](tasks/2026-11-24-r770-large-file-bottleneck-analysis-01-result.md)、[年度 1 GiB 对比口径](reports/2026-r770-annual-1g-comparison.md)。5 GiB 对照保留为[内部研发资料](tasks/2026-11-24-r770-annual-5g-independent-reruns-result.md)，不进入年度报告正文。
+
 最新验收：已形成[受控上机候选](release/R770_FIELD_TRIAL_CANDIDATE.md)及[上机说明](release/R770_FIELD_TRIAL_RUNBOOK.md)。阶段80五对1GiB CP30.80/GridFTP12.10Gbps；阶段85完整234任务/1807.62秒及六项跨机故障分别通过；[阶段86](tasks/2026-11-13-field-trial-tls-closeout-86-result.md)已补齐真实重启前后TLS/完整树验证，复合验收通过。运行程序不变，历史FAIL保留；RX/TX已恢复1024/1024，凭据与payload清理。仅限定内存TCP候选，不代表持续31G、磁盘持久化、加密吞吐或100G/生产ready。下一步进行新现场准入，不启动新的性能扫描。
 
 历史实测：[阶段75](tasks/2026-11-12-field-trial-comparison-75-result.md)1GiB五对中位CP31.075/Grid12.352Gbps；[阶段77](tasks/2026-11-13-field-trial-continuation-77-result.md)dense各3次0.399/0.945秒、tiny各3次3.504/2.561秒，mixed文件全对但空目录丢失。上述为旧运行时成绩，不能搬到新二进制。临时RX4096已恢复1024，阶段77现场已清理；新窗口需重新准入，不启动吞吐参数扫描。
