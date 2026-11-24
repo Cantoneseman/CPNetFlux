@@ -193,6 +193,24 @@ TEST(CompressionControllerTest, CpuBoundStepsDownToLz4ThenOff) {
     EXPECT_FALSE(compressing(controller)) << "cpu_bound is final";
 }
 
+TEST(CompressionControllerTest, PerFileGapsBetweenBlocksAreNotCpuBound) {
+    if (!allCodecsBuiltIn()) GTEST_SKIP() << "zstd or lz4 not built in";
+    const CompressionPolicyOptions options = testOptions();
+    CompressionController controller(options, 4, kAll);
+    inspectText(controller);
+    probe(controller, options, kBlock / 4);
+    // One block per small file: the sender waits 1 ms for it and the socket takes it at once,
+    // but each file also spends 10 ms on its begin/commit round trip and on reading.
+    Clock::time_point now = Clock::now();
+    for (std::uint64_t block = 0; block < 4 * kMiB / kBlock; ++block) {
+        now += std::chrono::milliseconds(10);
+        controller.recordSent(kBlock, 0.001, 0.00001, now);
+    }
+    EXPECT_EQ(controller.currentCodec(), CompressionCodec::Zstd);
+    EXPECT_EQ(controller.summary().reason, CompressionReason::Active);
+    EXPECT_EQ(controller.summary().switches, 0U);
+}
+
 TEST(CompressionControllerTest, WindowsWaitOutTheStartBurst) {
     if (!allCodecsBuiltIn()) GTEST_SKIP() << "zstd or lz4 not built in";
     CompressionPolicyOptions options = testOptions();

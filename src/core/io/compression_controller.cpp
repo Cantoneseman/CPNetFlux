@@ -268,7 +268,7 @@ void CompressionController::recordSent(std::uint64_t rawBytes, double waitSecond
     windowSend_ += sendSeconds;
     if (windowRaw_ >= windowBytes_ &&
         secondsBetween(*windowStart_, now) >= options_.minWindowSeconds) {
-        evaluateWindowLocked();
+        evaluateWindowLocked(now);
     }
 }
 
@@ -304,9 +304,11 @@ void CompressionController::useCodecLocked(CompressionCodec codec) {
     codec_.store(static_cast<std::uint8_t>(codec), std::memory_order_relaxed);
 }
 
-void CompressionController::evaluateWindowLocked() {
-    const double waited = windowWait_ + windowSend_;
-    const double waitFraction = waited > 0.0 ? windowWait_ / waited : 0.0;
+void CompressionController::evaluateWindowLocked(Clock::time_point now) {
+    // Against wall time, not wait + send: with one block per small file most of the time
+    // goes to per-file round trips and reads, which neither counts.
+    const double elapsed = std::max(secondsBetween(*windowStart_, now), windowWait_ + windowSend_);
+    const double waitFraction = elapsed > 0.0 ? windowWait_ / elapsed : 0.0;
     windowStart_.reset();
     windowRaw_ = 0;
     windowWait_ = 0.0;
