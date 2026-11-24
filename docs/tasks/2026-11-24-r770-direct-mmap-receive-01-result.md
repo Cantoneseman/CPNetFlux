@@ -23,7 +23,8 @@ This phase changes the receiver implementation, its unit tests, and smoke-test a
 - R770-1 build: `cmake --build /home/Su/projects/CPNetFlux/build -j2` passed.
 - Direct receive unit filter: 8/8 passed. It covers valid and invalid CRC, truncated payload, mapped-range retry after CRC failure, retry after disconnect during direct receive, map-reclaim concurrency, unsupported upload/lane configuration, and mapping-window fallback.
 - Targeted CTest: 6/6 passed for mapped-download fault recovery, mmap profile on/off/unobserved, pwrite profile, and private setup lifecycle.
-- Full CTest: `env CPNETFLUX_TEST_TOKEN=<ephemeral-local-test-token> ctest --test-dir /home/Su/projects/CPNetFlux/build --output-on-failure -j1` completed with exit status 0 and reached test 863/863. The final `LastTest.log` records both mapped profile on/off tests as passed. `LastTestsFailed.log` was timestamped 11:17 CST and contains those tests from an earlier failed targeted run, so it is stale relative to the final log at 11:30 CST.
+- The implementation commit is `445de0eac7c64f3b29c331c9d799fd180f2d71b0`. It was merged with the already-pushed compression-controller fix `f72f2f227dff21eeedae6770f6da3c94c1c22cac` as source commit `6bfcd2e2e85e99fa10a53144a32c7286783c7929`.
+- Full CTest on `6bfcd2e2e85e99fa10a53144a32c7286783c7929`: `env CPNETFLUX_TEST_TOKEN=<ephemeral-local-test-token> ctest --test-dir /home/Su/projects/CPNetFlux/build --output-on-failure -j1` completed with exit status 0; 852 passed, 12 conditionally skipped, 0 failed, and reached test 864/864. The final `LastTest.log` is timestamped 11:53 CST. `LastTestsFailed.log` remains timestamped 11:17 CST and contains two earlier profile failures, so it predates the final test log.
 - `git diff --check` passed.
 
 ## Performance status
@@ -34,7 +35,7 @@ The next admission run is a single 512 MiB inline-mmap profile under the establi
 
 ## Handoff
 
-1. Review and commit only the nine modified implementation/test files and this result record, preserving the two pre-existing untracked worker-state documents.
-2. Push the fixed commit and verify the remote SHA readback.
-3. Inspect R770-2 state, synchronize the exact commit, build with the matching configuration, and compare commit, version, and three runtime binary hashes.
-4. Run the bounded 512 MiB admission experiment and record network counters before and after. Do not adjust NIC or kernel settings.
+1. Push the current fixed source tree and verify the remote SHA readback; preserve the two pre-existing untracked worker-state documents.
+2. Inspect R770-2 state, synchronize the exact branch tip, build with the matching configuration, and compare commit, version, and three runtime binary hashes.
+3. Run the bounded 512 MiB admission experiment and record network counters before and after. Do not adjust NIC or kernel settings.
+4. Only if 512 MiB passes every integrity, cleanup, and network gate, proceed to the five-pair interleaved 1 GiB A/B.
