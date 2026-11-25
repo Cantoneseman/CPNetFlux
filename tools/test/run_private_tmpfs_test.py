@@ -52,6 +52,10 @@ class PrivateTmpfsTests(unittest.TestCase):
         self.assertEqual(candidate['huge_policy'],'within_size')
         self.assertEqual({k:v for k,v in control.items() if k not in ('name','huge_policy')},
                          {k:v for k,v in candidate.items() if k not in ('name','huge_policy')})
+    def test_one_gib_profiles_are_available_to_runtime_runner(self):
+        from run_private_tmpfs_v3 import PROFILE_CHOICES
+        self.assertIn('thp-1g-control',PROFILE_CHOICES)
+        self.assertIn('thp-1g-candidate',PROFILE_CHOICES)
     def test_one_gib_profile_rejects_incompatible_pacing_and_setup(self):
         from types import SimpleNamespace
         fixed=dict(mode='v3',sender_pacing='1500000000',kernel_tcp_pacing=False,

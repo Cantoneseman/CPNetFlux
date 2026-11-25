@@ -267,6 +267,13 @@ def run(args):
     print(json.dumps(report),flush=True)
     return int(bool(failures))
 
+PROFILE_CHOICES = (
+    'admission', 'm2-control', 'm2-candidate',
+    'cpu-profile-control', 'cpu-profile-candidate',
+    'thp-1g-control', 'thp-1g-candidate',
+)
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--action',choices=['run'],required=True)
@@ -276,7 +283,7 @@ def main():
     p.add_argument('--kernel-tcp-pacing',action='store_true')
     p.add_argument('--sender-pacing',choices=('off','1500000000'),default='off')
     p.add_argument('--native-setup',action='store_true')
-    p.add_argument('--profile',choices=['admission','m2-control','m2-candidate','cpu-profile-control','cpu-profile-candidate'],default='admission')
+    p.add_argument('--profile',choices=PROFILE_CHOICES,default='admission')
     p.add_argument('--commit',required=True)
     return run(p.parse_args())
 
