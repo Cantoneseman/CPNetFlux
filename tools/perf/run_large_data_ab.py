@@ -24,12 +24,15 @@ def matrix_labels(mechanism, rep):
         'frame': ('65532','262144'),
         'receive-buffer': ('off','1048576'),
         'profile-overhead': ('off','on'),
+        'receiver-profile': ('baseline',),
         'm1': ('default','combined'),
     }[mechanism]
     return labels if rep % 2 else labels[::-1]
 
 
 def arm_options(mechanism, label):
+    if mechanism == 'receiver-profile':
+        return 262144, '1048576'
     if mechanism == 'frame':
         return int(label), 'off'
     if mechanism == 'receive-buffer':
@@ -42,6 +45,10 @@ def arm_options(mechanism, label):
 
 
 def validate_receiver_profile_request(action, mechanism, size_gib, enabled):
+    if mechanism == 'receiver-profile':
+        if action != 'matrix' or size_gib != 1 or not enabled:
+            raise ValueError('receiver-profile requires one 1 GiB matrix diagnostic with --receiver-profile')
+        return
     if mechanism == 'profile-overhead':
         if action != 'matrix' or size_gib != 1 or enabled:
             raise ValueError('profile-overhead requires its dedicated 1 GiB matrix without --receiver-profile')
@@ -94,6 +101,21 @@ def network_counter_deltas(before, after):
     if any(value < 0 for value in values.values()):
         raise ValueError('network counter regressed')
     return values
+
+
+def profile_network_result(before, after):
+    analysis = receive_network.analyze(before, after)
+    retransmissions = after['tcp']['Tcp.RetransSegs'] - before['tcp']['Tcp.RetransSegs']
+    return {
+        'rx_missed_errors_delta': analysis['rx_missed_errors_delta'],
+        'rx_out_of_buffer_delta': analysis['rx_out_of_buffer_delta'],
+        'ethtool_errors_drops': analysis['ethtool_changed'],
+        'tcp_retransmissions_delta': retransmissions,
+        'gate_pass': analysis['rx_missed_errors_delta'] == 0
+                     and analysis['rx_out_of_buffer_delta'] == 0
+                     and not analysis['ethtool_changed']
+                     and retransmissions == 0,
+    }
 
 
 def cgroup_owner():
@@ -161,9 +183,12 @@ def seed(args):
 
 
 def own_peer(args,action):
+    size_bytes=getattr(args,'size_bytes',None)
+    if size_bytes is None:
+        size_bytes=getattr(args,'size',0) or args.size_gib*base.GIB
     argv=['python3',str(Path(__file__).resolve()),'--action',action,'--evidence',str(args.evidence),
           '--payload-root',str(args.payload_root),'--commit',args.commit,
-          '--size-bytes',str(getattr(args,'size_bytes',args.size_gib*base.GIB))]
+          '--size-bytes',str(size_bytes)]
     if getattr(args,'reproducible_source',False):argv.append('--reproducible-source')
     result=subprocess.run(['ssh','-n','-o','BatchMode=yes','r770-2',shlex.join(argv)],
                           text=True,capture_output=True,timeout=180)
@@ -348,7 +373,8 @@ def evaluate_m1(rows, size_bytes):
 def matrix(args):
     assert base.node()==1
     assert (args.size_gib, args.mechanism) in ((1,'frame'),(1,'receive-buffer'),
-                                                (1,'profile-overhead'),(8,'m1'))
+                                                (1,'profile-overhead'),(1,'receiver-profile'),(8,'m1'))
+    profile_only = args.mechanism == 'receiver-profile'
     size_bytes = args.size_gib * base.GIB
     args.size,args.count=size_bytes,1
     local=base.receipt(args.commit);peer=base.peer(args,'receipt');assert local==peer
@@ -361,8 +387,14 @@ def matrix(args):
     try:
         base.peer(args,'init');peer_initialized=True
         expected=own_peer(args,'seed')
-        base.peer(args,'start',name=server_name,port=49335,data_base=61000);started=True;ready(49335)
-        for rep in range(1,6):
+        if profile_only:
+            base.peer(args,'start',name=server_name,port=49335,data_base=61000,
+                      sender_pacing='1500000000')
+        else:
+            base.peer(args,'start',name=server_name,port=49335,data_base=61000)
+        started=True
+        ready(49335)
+        for rep in ((1,) if profile_only else range(1,6)):
             for label in matrix_labels(args.mechanism,rep):
                 data_frame_bytes,receive_buffer=arm_options(args.mechanism,label)
                 frame_bytes=65532 if data_frame_bytes is None else data_frame_bytes
@@ -373,11 +405,14 @@ def matrix(args):
                 assert base.mem()>=12*base.GIB and shutil.disk_usage('/dev/shm').free>size_bytes+base.GIB
                 profile_overhead=args.mechanism=='profile-overhead'
                 sample_profile=(label=='on') if profile_overhead else args.receiver_profile
+                peer_network_before=own_peer(args,'network-snapshot') if profile_only else None
                 row=base.client_sample(args,name,expected,'2','on',49335,mapped_download=True,
                     data_frame_bytes=data_frame_bytes,tcp_receive_buffer_bytes=receive_buffer,
                     receiver_profile=sample_profile,
                     range_timing=True if profile_overhead else None,
-                    network_profile=profile_overhead)
+                    mapped_write_profile=profile_only,
+                    network_profile=profile_overhead or profile_only,
+                    network_settle_seconds=.5 if profile_only else 0)
                 row.update(rep=rep,frame_bytes=frame_bytes,arm=label,receive_buffer=receive_buffer,
                            source_residency=resident,profile_enabled=sample_profile)
                 row['network_counter_deltas']=network_counter_deltas(row['before']['net'],row['after']['net'])
@@ -394,12 +429,29 @@ def matrix(args):
                     }
                     row['post_process_network_counter_deltas']=network_counter_deltas(
                         window['after_transfer']['netdev'],row['after']['net'])
+                if profile_only:
+                    peer_network_after=own_peer(args,'network-snapshot')
+                    window=row['receiver_network_window']
+                    row['profile_network']={
+                        'r1':profile_network_result(window['before'],window['after_transfer']),
+                        'r2':profile_network_result(peer_network_before,peer_network_after),
+                        'r2_before':peer_network_before,
+                        'r2_after':peer_network_after,
+                    }
+                    row['profile_network_gate_pass']=(
+                        row['profile_network']['r1']['gate_pass']
+                        and row['profile_network']['r2']['gate_pass'])
                 if sample_profile:
                     validate_profile_frame_count(row['receiver_phases']['receiver_profile'],
                                                  row['mechanism']['actual_data_frames'])
                 if receive_buffer!='off':
                     assert all(1048576<=lane['tcp_receive_buffer_bytes']<=2097152
                                for lane in row['summary']['lane_endpoints'])
+                if profile_only:
+                    summary=row['summary']
+                    assert summary['connections']==4 and summary['actual_transport']=='v3'
+                    assert summary['data_transport']=='tcp' and summary['data_frame_logical_bytes']==262144
+                    assert not summary['control_tls_verified'] and not summary['data_tls_verified']
                 rows.append(row);base.save(args.evidence/'results.json',rows)
                 misses=row['network_counter_deltas']['rx_missed_errors']
                 print(json.dumps(dict(sample=name,gbps=row['whole_task_gbps'],
@@ -419,6 +471,11 @@ def matrix(args):
         try:
             if started:
                 server=base.peer(args,'stop',name=server_name);base.save(args.evidence/'server.json',server)
+                if profile_only:
+                    from run_sender_pacing import validate_receipts
+                    receipts=server['sender_phases'].get('sender_pacing',[])
+                    base.save(args.evidence/'sender-pacing-receipts.json',
+                              validate_receipts(receipts,size_bytes))
                 assert 'error' not in server['resource'] and server['resource']['pswpout_delta']==0
         finally:
             if peer_initialized:
@@ -431,7 +488,24 @@ def matrix(args):
             cleanup['local_root_removed']=not args.payload_root.exists()
             base.save(args.evidence/'cleanup.json',cleanup)
             assert cleanup['local_root_removed']
-    if args.mechanism=='profile-overhead':
+    if profile_only:
+        row=rows[0]
+        report={
+            'scope':'single 1 GiB fixed-comfort-profile receiver diagnostic; throughput is not performance evidence',
+            'receiver_profile_enabled':True,
+            'throughput_is_performance_evidence':False,
+            'diagnostic_whole_task_gbps':row['whole_task_gbps'],
+            'receiver_profile':row['receiver_phases']['receiver_profile'],
+            'mapped_mechanism':row['mechanism'],
+            'profile_network_gate_pass':row['profile_network_gate_pass'],
+            'integrity_gate_pass':row['result']=='pass' and row['verified_chunks']==size_bytes//base.MiB,
+            'resource_gate_pass':row['resource']['exit_code']==0
+                and row['resource']['owned_swap_peak_bytes']==0
+                and row['resource']['pswpout_delta']==0
+                and row['resource']['mem_available_min_bytes']>=12*base.GIB
+                and row['source_residency']['host_pswpout_delta_since_seed']==0,
+        }
+    elif args.mechanism=='profile-overhead':
         report=evaluate_profile_overhead(rows,size_bytes)
     else:
         report=annotate_profile_analysis(evaluate(rows,size_bytes),args.receiver_profile)
@@ -451,7 +525,7 @@ if __name__=='__main__':
     parser.add_argument('--evidence',required=True,type=Path)
     parser.add_argument('--payload-root',required=True,type=Path)
     parser.add_argument('--commit',required=True)
-    parser.add_argument('--mechanism',choices=('frame','receive-buffer','profile-overhead','m1'),default='frame')
+    parser.add_argument('--mechanism',choices=('frame','receive-buffer','profile-overhead','receiver-profile','m1'),default='frame')
     parser.add_argument('--size-gib',type=int,choices=(1,8),default=1)
     parser.add_argument('--size-bytes',type=int)
     parser.add_argument('--reproducible-source',action='store_true')
