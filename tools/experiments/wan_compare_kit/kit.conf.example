@@ -1,0 +1,40 @@
+# CPNetFlux vs GridFTP comparison kit. Copy to kit.conf (same directory) and edit.
+# The kit only writes below KIT_HOME on the client and REMOTE_KIT_HOME on the server.
+
+# --- Server (receives uploads, serves downloads) ---
+SERVER_HOST=192.168.100.2            # address clients connect to; this picks the network path
+SERVER_SSH=Su@r770-2                 # ssh target for management, or "local" for a loopback self-test
+SSH_OPTS=""                          # extra ssh/scp options, e.g. "-i $HOME/.ssh/id_ed25519"
+REMOTE_KIT_HOME=/home/Su/cpn-wan-kit
+GFTP_DATA_INTERFACE=$SERVER_HOST     # IP GridFTP announces for passive data; the public IP behind NAT
+
+# --- Client (runs the transfers) ---
+KIT_HOME=$HOME/cpn-wan-kit
+CLIENT_BEHIND_NAT=0                  # 1 if the server cannot open connections back to the client
+
+# --- Ports on the server; pick unused ones and open them in any firewall ---
+GFTP_PORT=28110
+GFTP_DATA_PORTS=50000,51999          # stream-mode downloads hold one port per file for 60 s
+CPN_PORT=28200
+CPN_DATA_PORT_BASE=28201             # the CPNetFlux server uses up to 512 ports from here
+IPERF_PORT=28199
+
+# --- CPNetFlux build: CPN_COMMIT is exported with git archive; the checkout is not touched ---
+CPN_REPO=$HOME/projects/CPNetFlux
+CPN_COMMIT=f72f2f2
+CPN_CMAKE_ARGS="-DCPNETFLUX_ENABLE_RDMA=OFF"
+BUILD_JOBS=4                         # keep low on shared machines
+CPN_BIN_DIR=""                       # set to an existing build dir to skip building (both ends use it)
+
+# --- Workload ---
+BIG_MIB=256                          # per big file; use >= 4096 on links of 10 Gbit/s and above
+SMALL_COUNT=1000
+SMALL_KIB=64
+DATASETS="big_text big_random small_text"
+TOOLS="gridftp cpn_raw cpn_adaptive"
+DIRECTIONS="up down"
+REPS=3
+PARALLEL_STREAMS=4                   # GridFTP -p for big files, CPNetFlux --file-parallelism
+SMALL_CONCURRENCY=4                  # GridFTP -cc for small files
+TRANSFER_TIMEOUT=900                 # seconds per transfer
+NICE=10                              # nice level of kit builds and servers; empty disables
