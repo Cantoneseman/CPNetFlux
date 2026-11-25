@@ -17,6 +17,12 @@ EXPERIMENTS=Path('/home/Su/experiments/CPNetFlux')
 GIB=1024**3
 
 def profile_spec(name):
+    if name in ('thp-1g-control','thp-1g-candidate'):
+        capacity=2*GIB
+        return dict(name=name,size_bytes=GIB,mount_limit_bytes=capacity,
+                    huge_policy='never' if name=='thp-1g-control' else 'within_size',
+                    preflight_mem_bytes=13*GIB+capacity,preflight_free_bytes=GIB+capacity,
+                    sender_pacing='1500000000',receiver_profile=False,mapped_write_profile=False)
     if name in ('cpu-profile-control','cpu-profile-candidate'):
         capacity=1024*1024**2
         return dict(name=name,size_bytes=512*1024**2,mount_limit_bytes=capacity,
@@ -38,18 +44,21 @@ def validate_profile(args):
     sender=getattr(args,'sender_pacing','off')
     if sender not in ('off','1500000000'):
         raise ValueError('unsupported fixed application pacing policy')
-    cpu_profile=spec['name'] in ('cpu-profile-control','cpu-profile-candidate')
-    if cpu_profile and (sender!='1500000000' or args.kernel_tcp_pacing):
-        raise ValueError('CPU profiles require fixed application pacing and kernel pacing off')
-    if sender!='off' and not cpu_profile and (args.mode!='v3' or spec['name']!='admission' or args.kernel_tcp_pacing):
+    fixed_profile=spec['name'] in ('cpu-profile-control','cpu-profile-candidate',
+                                    'thp-1g-control','thp-1g-candidate')
+    if fixed_profile and args.mode=='v3' and (sender!='1500000000' or args.kernel_tcp_pacing):
+        raise ValueError('fixed performance profiles require application pacing and kernel pacing off')
+    if sender!='off' and (args.mode!='v3' or
+        (spec['name']!='admission' and not fixed_profile) or args.kernel_tcp_pacing):
         raise ValueError('application pacing requires admission V3 and kernel pacing off')
     spec=dict(spec,sender_pacing=sender)
     if spec['name']!='admission':
         if not getattr(args,'native_setup',False) or args.mode not in ('v3','setup-only'):
             raise ValueError('M2 profiles require native setup and V3/setup-only mode')
-        if cpu_profile:
-            if args.kernel_tcp_pacing or sender!='1500000000':
-                raise ValueError('CPU profile pacing policy mismatch')
+        if fixed_profile:
+            expected='1500000000' if args.mode=='v3' else 'off'
+            if args.kernel_tcp_pacing or sender!=expected:
+                raise ValueError('fixed performance profile pacing policy mismatch')
         else:
             expected=args.mode=='v3' and spec['name']=='m2-candidate'
             if bool(args.kernel_tcp_pacing)!=expected:
@@ -292,6 +301,12 @@ def launch(args):
             if spec['name']=='admission':
                 accepted.update(formal_admission=admission(report.get('complete_target_task_gbps',0),**gates),
                                 scope='single feasibility only')
+            elif spec['name'].startswith('thp-1g-'):
+                accepted.update(valid_sample=bool(gates) and all(v is True for v in gates.values()),
+                                scope='one sample of the five-pair 1GiB THP matrix')
+            elif spec['name'].startswith('cpu-profile-'):
+                accepted.update(valid_sample=bool(gates) and all(v is True for v in gates.values()),
+                                scope='one 512MiB receiver CPU profile arm')
             else:
                 accepted.update(valid_sample=bool(gates) and all(v is True for v in gates.values()),
                                 scope='one row of formal M2; no standalone M2 claim')
@@ -307,7 +322,8 @@ def main():
     p.add_argument('--kernel-tcp-pacing',action='store_true')
     p.add_argument('--sender-pacing',choices=('off','1500000000'),default='off')
     p.add_argument('--native-setup',action='store_true')
-    p.add_argument('--profile',choices=['admission','m2-control','m2-candidate','cpu-profile-control','cpu-profile-candidate'],default='admission')
+    p.add_argument('--profile',choices=['admission','m2-control','m2-candidate','cpu-profile-control',
+        'cpu-profile-candidate','thp-1g-control','thp-1g-candidate'],default='admission')
     p.add_argument('--commit',default='')
     p.add_argument('--uid',type=int);p.add_argument('--gid',type=int);p.add_argument('--inode',type=int)
     p.add_argument('--host-namespace')

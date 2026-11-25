@@ -11,6 +11,7 @@ import shutil
 import statistics
 import subprocess
 
+import receive_network
 import run_small_file_baseline as base
 from run_summary_default_gate import residency, verify_chunks
 from run_summary_path_ab import ready
@@ -170,6 +171,10 @@ def own_peer(args,action):
     return json.loads(result.stdout)
 
 
+def tcp_retransmissions():
+    return receive_network.parse_netstat(Path('/proc/net/snmp').read_text())['Tcp.RetransSegs']
+
+
 def mapped_checks(args,name,size,receiver_profile=None,range_timing=None):
     size = 65532 if size is None else size
     if receiver_profile is None:receiver_profile=args.receiver_profile
@@ -184,6 +189,7 @@ def mapped_checks(args,name,size,receiver_profile=None,range_timing=None):
         mapped=row['mapped_write']
         expected=expected_write_calls(SIZE, size)
         assert mapped['write_calls']==expected and mapped['written_bytes']==SIZE//8
+        assert mapped['direct_receive_calls']==0 and mapped['direct_received_bytes']==0
         assert mapped['map_calls']==mapped['unmap_calls']==SIZE//(512*base.MiB) and mapped['active_mapped_bytes']==0
         assert mapped['window_bound_bytes']==64*base.MiB and mapped['concurrent_window_bound_bytes']==256*base.MiB
         frames+=mapped['write_calls']
@@ -440,7 +446,8 @@ def matrix(args):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--action',required=True,choices=('matrix','seed','residency','cleanup'))
+    parser.add_argument('--action',required=True,choices=('matrix','seed','residency','cleanup',
+                                                          'tcp-retrans','network-snapshot'))
     parser.add_argument('--evidence',required=True,type=Path)
     parser.add_argument('--payload-root',required=True,type=Path)
     parser.add_argument('--commit',required=True)
@@ -466,4 +473,8 @@ if __name__=='__main__':
         source=base.owned(args.payload_root,'source')
         if source.exists():base.remove_owned(args.payload_root,source)
         print(json.dumps(dict(source_removed=not source.exists())))
+    elif args.action=='tcp-retrans':
+        print(json.dumps(dict(tcp_retransmissions=tcp_retransmissions())))
+    elif args.action=='network-snapshot':
+        print(json.dumps(receive_network.snapshot(full=True)))
     else:print(json.dumps(seed(args) if args.action=='seed' else source_probe(args)))

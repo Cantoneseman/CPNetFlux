@@ -10,6 +10,8 @@ Profile the current default buffered inline-mmap receiver on one 512 MiB V3 TCP 
 
 Evaluate one candidate supported by prior cold-write evidence. Use a private tmpfs mount with `huge=within_size` for the target, compared with the same isolated mount using `huge=never`. This is not the rejected `MADV_POPULATE_WRITE`, collapse, larger DATA frame, exact-read, or direct-to-mmap candidate. Do not change the shared tmpfs mount or global THP policy.
 
+After the 512 MiB gate passes, run five 1 GiB AB/BA pairs using the same inline buffered-mmap TCP workload. Give each arm a private 2 GiB tmpfs mount and include namespace/mount setup, target-directory preparation, and client completion in the complete-task denominator. Collect per-sample RX missed/OOB counters and host TCP retransmission deltas on both endpoints. Require at most two retransmissions per host per sample, matching the established comparison bound.
+
 Both 512 MiB arms use the same four TCP lanes, inline buffered mmap, 256 KiB DATA, 1 MiB requested receive buffer, 1.5 GB/s per-lane application pacing, CRC32C, 1 MiB chunks, checkpoint interval 16, tmpfs source and destination, compression off, and identical direction, data, bind, and task timing. Include necessary private mount and target preparation in the candidate's complete-task time. Detailed syscall tracing is diagnostic only and is not used to accept throughput.
 
 Security-profile compatibility is a separate deliverable. It may follow the performance candidate review and must not be reported as a throughput optimization.
@@ -31,10 +33,12 @@ The prior private-tmpfs mechanism test measured a 49.82% reduction in worker CPU
 ## Expected files
 
 - `tools/perf/run_private_tmpfs_v3.py`
+- `tools/perf/run_private_thp_1g_ab.py`
 - `tools/perf/run_large_data_ab.py`
 - `tools/perf/private_tmpfs.py`
 - `tools/perf/private_tmpfs_launcher.cpp`
 - `tools/test/run_private_tmpfs_test.py`
+- `tools/test/run_private_setup_smoke.py`
 - `tools/perf/run_small_file_baseline.py`
 - TLS profile-compatibility code and tests, only if needed after candidate review
 - This task and its result document
@@ -46,9 +50,10 @@ The final affected-file list may be narrower after implementation review.
 1. The current default buffered mmap profile is collected from a fixed commit and matched R770-1/R770-2 builds. Record phase-level costs, mmap write CPU/faults, lock/lease/checkpoint accounting, process resource use, sampled context switches and faults, existing diagnostic syscall counts, interface/RX/OOB/retransmission counters, SHA-256, verified chunks, and cleanup.
 2. Candidate and control each complete one 512 MiB task with identical workload and instrumentation. Both pass protocol terminal, external SHA-256, verified-chunk, memory/swap, network, and cleanup gates.
 3. The candidate is considered promising only if receiver CPU falls by at least 10% without a complete-task throughput regression greater than 5%. A pass permits a separate decision on 1 GiB five-pair A/B. A failed network or correctness gate stops the experiment.
-4. If neither arm is safely comparable or the candidate misses its CPU/task gate, record the result as no demonstrated performance improvement. Do not label environment compatibility as a performance optimization.
-5. Separately test any TLS compatibility changes against the same DATA size, receive-buffer request, pacing, inline-mmap, and checksum profile. Preserve buffered receive under TLS and prove that the direct path remains inactive.
-6. Run related CMake/CTest, build both endpoints from the same pushed commit, compare runtime binary SHA-256, and record remote SHA readback before any transfer.
+4. The 1 GiB matrix requires all ten samples to pass integrity, resource, network, retransmission, actual-page-policy, and cleanup gates. Both arms must have CV <=5%, at least four of five paired candidate wins, and candidate median task-rate improvement >=10% to qualify as an annual-baseline candidate.
+5. If neither arm is safely comparable or the candidate misses its CPU/task or matrix gate, record the result as no demonstrated performance improvement. Do not label environment compatibility as a performance optimization.
+6. Separately test any TLS compatibility changes against the same DATA size, receive-buffer request, pacing, inline-mmap, and checksum profile. Preserve buffered receive under TLS and prove that the direct path remains inactive.
+7. Run related CMake/CTest, build both endpoints from the same pushed commit, compare runtime binary SHA-256, and record remote SHA readback before any transfer.
 
 ## Stop conditions
 

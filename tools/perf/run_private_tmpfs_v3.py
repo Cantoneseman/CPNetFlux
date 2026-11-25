@@ -20,6 +20,10 @@ def validate_receive_deltas(values):
 def validate_netdev_deltas(values):
     assert values['rx_missed_errors']==0
 
+def validate_tcp_retransmission_deltas(values):
+    assert set(values)=={'r1','r2'} and all(0<=value<=2 for value in values.values()), \
+        'TCP retransmission delta exceeds the established per-host limit'
+
 def resource_gate(client,sender,source,host_mem_available,host_pswpout_delta):
     if not all(isinstance(value,dict) for value in (client,sender,source)):
         return False
@@ -76,7 +80,9 @@ def run(args):
                   'm2-control':'private58-control-8g',
                   'm2-candidate':'private58-candidate-8g',
                   'cpu-profile-control':'private60-cpu-control-512m',
-                  'cpu-profile-candidate':'private60-cpu-candidate-512m'}
+                  'cpu-profile-candidate':'private60-cpu-candidate-512m',
+                  'thp-1g-control':'private61-thp-control-1g',
+                  'thp-1g-candidate':'private61-thp-candidate-1g'}
     sample_name=sample_names[spec['name']]
     receiver_profile=bool(spec.get('receiver_profile',False))
     mapped_write_profile=bool(spec.get('mapped_write_profile',False))
@@ -127,6 +133,8 @@ def run(args):
         source=large.own_peer(args,'residency');base.save(args.evidence/'source-residency.json',source)
         assert source['all_resident'] and source['host_pswpout_delta_since_seed']==0
         assert source['mem_available_bytes']>=12*base.GIB and source['process']['swap_bytes']==0
+        sample_network_before=dict(r1=net.snapshot(full=True),
+                                   r2=large.own_peer(args,'network-snapshot'))
         try:
             row=base.client_sample(args,sample_name,expected,'2','on',49337,
                 mapped_download=True,data_frame_bytes=262144,tcp_receive_buffer_bytes='1048576',
@@ -135,6 +143,21 @@ def run(args):
                 network_profile=True,network_settle_seconds=.5,
                 tcp_exact_read='off',runner=runner)
         finally:base.save(args.evidence/'receiver-pages.json',page)
+        sample_network_after=dict(r1=net.snapshot(full=True),
+                                  r2=large.own_peer(args,'network-snapshot'))
+        base.save(args.evidence/'sample-network.json',dict(before=sample_network_before,
+            after=sample_network_after))
+        sample_network_analysis={host:net.analyze(sample_network_before[host],sample_network_after[host])
+                                 for host in ('r1','r2')}
+        retransmission_deltas={host:sample_network_after[host]['tcp']['Tcp.RetransSegs']-
+                               sample_network_before[host]['tcp']['Tcp.RetransSegs']
+                               for host in ('r1','r2')}
+        validate_tcp_retransmission_deltas(retransmission_deltas)
+        assert all(value['rx_out_of_buffer_delta']==0 and value['rx_missed_errors_delta']==0
+                   for value in sample_network_analysis.values()), 'per-sample RX/OOB gate'
+        base.save(args.evidence/'sample-network.json',dict(before=sample_network_before,
+            after=sample_network_after,analysis=sample_network_analysis,
+            tcp_retransmission_deltas=retransmission_deltas))
         for phase in ('before','after'):
             assert row[phase]['production']['pid']==before['production']['pid'] and \
                 row[phase]['production']['start_ticks']==before['production']['start_ticks'], \

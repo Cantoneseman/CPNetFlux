@@ -39,6 +39,48 @@ class PrivateTmpfsTests(unittest.TestCase):
             values=dict(fixed,**changes)
             with self.subTest(changes=changes):
                 with self.assertRaises(ValueError):self.m.validate_profile(SimpleNamespace(**values))
+    def test_one_gib_thp_profiles_hold_workload_constant(self):
+        control=self.m.profile_spec('thp-1g-control')
+        candidate=self.m.profile_spec('thp-1g-candidate')
+        for spec in (control,candidate):
+            self.assertEqual(spec['size_bytes'],1024**3)
+            self.assertEqual(spec['mount_limit_bytes'],2*1024**3)
+            self.assertEqual(spec['sender_pacing'],'1500000000')
+            self.assertFalse(spec['receiver_profile'])
+            self.assertFalse(spec['mapped_write_profile'])
+        self.assertEqual(control['huge_policy'],'never')
+        self.assertEqual(candidate['huge_policy'],'within_size')
+        self.assertEqual({k:v for k,v in control.items() if k not in ('name','huge_policy')},
+                         {k:v for k,v in candidate.items() if k not in ('name','huge_policy')})
+    def test_one_gib_profile_rejects_incompatible_pacing_and_setup(self):
+        from types import SimpleNamespace
+        fixed=dict(mode='v3',sender_pacing='1500000000',kernel_tcp_pacing=False,
+                   native_setup=True,profile='thp-1g-control')
+        self.assertEqual(self.m.validate_profile(SimpleNamespace(**fixed))['size_bytes'],1024**3)
+        for changes in ({'sender_pacing':'off'},{'kernel_tcp_pacing':True},{'native_setup':False}):
+            values=dict(fixed,**changes)
+            with self.subTest(changes=changes):
+                with self.assertRaises(ValueError):self.m.validate_profile(SimpleNamespace(**values))
+        setup_only=dict(fixed,mode='setup-only',sender_pacing='off')
+        self.assertEqual(self.m.validate_profile(SimpleNamespace(**setup_only))['mount_limit_bytes'],
+                         2*1024**3)
+    def test_tcp_retransmission_gate_uses_per_host_limit(self):
+        from run_private_tmpfs_v3 import validate_tcp_retransmission_deltas
+        validate_tcp_retransmission_deltas({'r1':2,'r2':0})
+        with self.assertRaisesRegex(AssertionError,'TCP retransmission'):
+            validate_tcp_retransmission_deltas({'r1':3,'r2':0})
+    def test_one_gib_matrix_requires_five_interleaved_valid_pairs(self):
+        import run_private_thp_1g_ab as matrix
+        rows=[]
+        for rep,arm in matrix.EXPECTED_ORDER:
+            rows.append(dict(rep=rep,arm=arm,valid=True,
+                complete_seconds=1.0 if arm=='control' else .88,
+                mount_setup_seconds=.01,target_directory_prepare_seconds=.002))
+        accepted=matrix.evaluate(rows)
+        self.assertTrue(accepted['performance_gate_pass'])
+        self.assertEqual(accepted['improved_pairs'],5)
+        rows[0]['valid']=False
+        self.assertFalse(matrix.evaluate(rows)['performance_gate_pass'])
     def test_profile_environment_enables_mapped_write_observation_only_on_request(self):
         ordinary=self.base.environment(receiver_profile=True)
         profiled=self.base.environment(receiver_profile=True,mapped_write_profile=True)

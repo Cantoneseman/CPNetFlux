@@ -84,7 +84,7 @@ def run(build):
             assert not (Path('/proc')/str(descendant['pid'])).exists(),'escaped descendant survived'
         receipts.append(dict(mode=mode,exit_code=code,unmounted=True,reaped=True,target_setup_seconds=ns['target_setup_seconds']))
     profiles=[]
-    for profile in ('m2-control','m2-candidate'):
+    for profile in ('m2-control','m2-candidate','thp-1g-control','thp-1g-candidate'):
         folder=evidence/profile
         payload=Path('/dev/shm/cpnetflux-s0-private55-capacity58-'+uuid.uuid4().hex)
         command=[sys.executable,str(P/'tools/perf/private_tmpfs.py'),'--enable-private-tmpfs',

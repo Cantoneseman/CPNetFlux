@@ -116,17 +116,21 @@ Options parse(int argc, char** argv) {
             o.mode == "smoke-descendant", "unsupported fixed child mode");
     require(!o.pacing || o.mode == "v3", "kernel pacing requires V3");
     require(o.senderPacing == "off" || o.senderPacing == "1500000000", "unsupported fixed application pacing");
-    const bool cpuProfile = o.profile == "cpu-profile-control" || o.profile == "cpu-profile-candidate";
+    const bool fixedPerformanceProfile = o.profile == "cpu-profile-control" ||
+        o.profile == "cpu-profile-candidate" || o.profile == "thp-1g-control" ||
+        o.profile == "thp-1g-candidate";
     require(o.senderPacing == "off" || (o.mode == "v3" &&
-            (o.profile == "admission" || cpuProfile) && !o.pacing),
+            (o.profile == "admission" || fixedPerformanceProfile) && !o.pacing),
             "application pacing requires admission V3 and kernel pacing off");
     require(o.profile == "admission" || o.profile == "m2-control" || o.profile == "m2-candidate" ||
-            o.profile == "cpu-profile-control" || o.profile == "cpu-profile-candidate",
+            o.profile == "cpu-profile-control" || o.profile == "cpu-profile-candidate" ||
+            o.profile == "thp-1g-control" || o.profile == "thp-1g-candidate",
             "unsupported bounded profile");
     if (o.profile != "admission") {
         require(o.mode == "v3" || o.mode == "setup-only", "formal profile child mode rejected");
-        if (cpuProfile) {
-            require(!o.pacing && o.senderPacing == "1500000000", "CPU profile pacing mismatch");
+        if (fixedPerformanceProfile) {
+            const auto expected = o.mode == "v3" ? "1500000000" : "off";
+            require(!o.pacing && o.senderPacing == expected, "fixed performance profile pacing mismatch");
         } else {
             require(o.pacing == (o.mode == "v3" && o.profile == "m2-candidate"),
                     "formal sender policy mismatch");
@@ -143,12 +147,15 @@ struct stat checkedDirectory(const fs::path& path, uid_t uid) {
     return st;
 }
 std::uint64_t capacityBytes(const Options& o) {
+    if (o.profile == "thp-1g-control" || o.profile == "thp-1g-candidate")
+        return 2ULL * 1024 * 1024 * 1024;
     if (o.profile == "cpu-profile-control" || o.profile == "cpu-profile-candidate")
         return 1024ULL * 1024 * 1024;
     return (o.profile == "admission" ? 1280ULL : 8448ULL) * 1024 * 1024;
 }
 std::string hugePolicy(const Options& o) {
-    return o.profile == "m2-control" || o.profile == "cpu-profile-control" ? "never" : "within_size";
+    return o.profile == "m2-control" || o.profile == "cpu-profile-control" ||
+        o.profile == "thp-1g-control" ? "never" : "within_size";
 }
 std::string profileFields(const Options& o) {
     return ",\"experiment_profile\":" + quote(o.profile) + ",\"mount_limit_bytes\":" +
