@@ -161,11 +161,17 @@ def node():
     text=output('ip','-o','-4','addr','show','dev','eno17095np0')
     return 2 if '192.168.100.2/' in text else 1
 
+def production_listener_pid(listener_text, local_address):
+    pids=set(re.findall(r'pid=(\d+)',listener_text))
+    if local_address+':2121' not in listener_text or len(pids)!=1 or 'cpnetflux-gridf' not in listener_text:
+        raise RuntimeError('expected one CPNetFlux production listener on '+local_address+':2121')
+    return int(next(iter(pids)))
+
 def snapshot():
     which=node();local=f'192.168.100.{which}';peer=f'192.168.100.{3-which}'
     counters={p.name:int(p.read_text()) for p in Path('/sys/class/net/eno17095np0/statistics').iterdir()}
-    production=proc_info(126766 if which==1 else 164834)
-    assert production['start_ticks']==(1191040 if which==1 else 1679976)
+    listener=output('ss','-Hlnp','sport','=','2121')
+    production=proc_info(production_listener_pid(listener,local))
     return {'mem_available_bytes':mem(),'pswpout':pswpout(),'net':counters,'production':production,
             'route':output('ip','route','get',peer,'from',local)}
 

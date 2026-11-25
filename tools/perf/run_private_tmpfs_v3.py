@@ -135,6 +135,10 @@ def run(args):
                 network_profile=True,network_settle_seconds=.5,
                 tcp_exact_read='off',runner=runner)
         finally:base.save(args.evidence/'receiver-pages.json',page)
+        for phase in ('before','after'):
+            assert row[phase]['production']['pid']==before['production']['pid'] and \
+                row[phase]['production']['start_ticks']==before['production']['start_ticks'], \
+                'production listener identity changed during transfer'
         base.save(args.evidence/'results.json',[row])
         validate_summary(row['summary'])
         row['verified_chunks']=verify_chunks(row['manifest_checks']['member_example'],args.size)

@@ -54,6 +54,15 @@ class PrivateTmpfsTests(unittest.TestCase):
         self.assertEqual(value['major_faults'],11)
         self.assertEqual(value['voluntary_context_switches'],31)
         self.assertEqual(value['involuntary_context_switches'],4)
+    def test_production_listener_pid_requires_exact_host_service_binding(self):
+        from run_small_file_baseline import production_listener_pid
+        listener='LISTEN 0 32 192.168.100.1:2121 0.0.0.0:* users:(("cpnetflux-gridf",pid=2477,fd=3))'
+        self.assertEqual(production_listener_pid(listener,'192.168.100.1'),2477)
+        for text,address in ((listener,'192.168.100.2'),
+                             (listener.replace('pid=2477','pid=2477,pid=2478'),'192.168.100.1'),
+                             (listener.replace('cpnetflux-gridf','python3'),'192.168.100.1')):
+            with self.subTest(text=text,address=address):
+                with self.assertRaises(RuntimeError):production_listener_pid(text,address)
     def test_no_arbitrary_mounts(self):
         for path in ('/dev/shm','/tmp/cpnetflux-s0-private55-x','/dev/shm/other','/dev/shm/../shm/cpnetflux-s0-private55-x'):
             with self.assertRaises(ValueError):
