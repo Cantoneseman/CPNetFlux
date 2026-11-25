@@ -27,7 +27,7 @@ CHUNK = MIB
 FRAME = 256 * 1024
 RATE = 1_500_000_000
 IFACE = "eno17095np0"
-RUN_ID = "2026-11-25-r770-tls-comfort-01"
+RUN_ID = "2026-11-25-r770-tls-comfort-02"
 PORT = "45841"
 DATA_PORT_BASE = "61420"
 ROOT = Path("/dev/shm") / ("cpnetflux-tlscomfort-" + RUN_ID)
@@ -84,7 +84,7 @@ def remove_root() -> bool:
 
 
 def peer(*args: str) -> list[str]:
-    remote = ["python3", "-B", str(Path(__file__).resolve()), "--action", *args]
+    remote = ["python3", "-B", str(Path(__file__).resolve()), "--action", *map(str, args)]
     return ["ssh", "-n", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "r770-2",
             shlex.join(remote)]
 
