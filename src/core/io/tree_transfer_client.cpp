@@ -2249,7 +2249,6 @@ common::Status tryPersistentDirectory(const config::TreeTransferOptions& options
 
     if (options.dataFrameBytes != 65532 &&
         (options.dataFrameBytes != 262144 || options.dataTransport != DataTransport::Tcp ||
-         options.tls.mode != TlsMode::Off || options.dataTlsMode != DataTlsMode::Off ||
          options.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
          options.chunkSize != 1048576 || options.compressionMode != config::CompressionMode::Off ||
          options.hotPathCompression.enabled))
@@ -3433,7 +3432,7 @@ common::Status configureExperimentalDownloadWrite(config::TreeTransferOptions& o
     };
     if (options.connections != 4 || options.fileParallelism != 4 || options.linkSetLinks != 1 ||
         options.controlReuseMode != config::ControlReuseMode::Worker || !options.reuseDataSession ||
-        options.dataTransport != DataTransport::Tcp || options.dataTlsMode != DataTlsMode::Off ||
+        options.dataTransport != DataTransport::Tcp ||
         options.compressionMode != config::CompressionMode::Off || options.hotPathCompression.enabled ||
         options.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
         options.fileIo.backend != storage::FileIoBackendKind::Posix ||

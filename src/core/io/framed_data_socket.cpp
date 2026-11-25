@@ -52,7 +52,7 @@ bool FramedDataSocket::tlsEnabled() const noexcept { return tlsMode_; }
 
 common::Status FramedDataSocket::configureDataFrameBytes(std::uint32_t logicalBytes) {
     if (dataLimitConfigured_ || (logicalBytes != 65532 && logicalBytes != 262144) ||
-        (logicalBytes == 262144 && (tlsEnabled() || transport() != DataTransport::Tcp)))
+        (logicalBytes == 262144 && transport() != DataTransport::Tcp))
         return common::Status::invalidArgument("unsupported or changed V3 DATA limit");
     dataPayloadLimit_ = logicalBytes + 4;
     dataLimitConfigured_ = true;
@@ -66,9 +66,9 @@ DataTransport FramedDataSocket::transport() const noexcept {
 common::Status FramedDataSocket::configureTcpReceiveBuffer(std::uint32_t requestedBytes) {
     if (requestedBytes != 0 && requestedBytes != 1048576)
         return common::Status::invalidArgument("TCP receive buffer must be off or 1048576");
-    if (tlsEnabled() || transport() != DataTransport::Tcp) {
+    if (transport() != DataTransport::Tcp) {
         if (requestedBytes != 0)
-            return common::Status::invalidArgument("TCP receive buffer requires plain TCP data");
+            return common::Status::invalidArgument("TCP receive buffer requires TCP data");
         return common::Status::ok();
     }
     if (requestedBytes != 0) {

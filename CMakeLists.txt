@@ -677,6 +677,12 @@ if(CPNETFLUX_BUILD_TESTS)
     )
     if(CPNETFLUX_HAS_TLS)
         add_test(
+            NAME cpnetflux_tls_large_data_comfort_smoke
+            COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_cpnetflux_tls_comfort_smoke.py
+                --build-dir ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(cpnetflux_tls_large_data_comfort_smoke PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE)
+        add_test(
             NAME cpnetflux_gridftp_control_mtls_smoke
             COMMAND python3 ${PROJECT_SOURCE_DIR}/tools/test/run_gridftp_control_mtls_smoke.py --build-dir ${CMAKE_BINARY_DIR}
         )

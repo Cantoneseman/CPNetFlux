@@ -1505,9 +1505,9 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
     if (pacing != "off" && pacing != "1500000000")
         return Status::invalidArgument("CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND must be off or 1500000000");
     const bool paced = pacing != "off";
-    if (paced && (socket->tlsEnabled() || socket->transport() != DataTransport::Tcp ||
+    if (paced && (socket->transport() != DataTransport::Tcp ||
         channelCount > 4 || (transferOptions && transferOptions->hotPathCompression.enabled)))
-        return Status::invalidArgument("sender pacing requires plain uncompressed V3 TCP and at most four lanes");
+        return Status::invalidArgument("sender pacing requires uncompressed V3 TCP and at most four lanes");
     const char* kernelValue = std::getenv("CPNETFLUX_TCP_KERNEL_PACING_BYTES_PER_SECOND");
     const std::string_view kernelPacing = kernelValue ? kernelValue : "off";
     if (kernelPacing != "off" && kernelPacing != "2000000000")
@@ -2447,7 +2447,7 @@ common::Status receivePersistentTree(FramedDataSocket* socket, const std::string
     if (context->policy.experimentalMappedDownload) {
         const auto& options = context->policy.options;
         const auto* direct = std::getenv("CPNETFLUX_RANGE_DIRECT_WRITE");
-        if (!download || channelCount != 4 || socket->transport() != DataTransport::Tcp || socket->tlsEnabled() ||
+        if (!download || channelCount != 4 || socket->transport() != DataTransport::Tcp ||
             !receiverInline.value() || receiverWriteBatch.value() != 1 ||
             stages->readConcurrency || stages->writeConcurrency || stages->writerPool ||
             options.fileIo.backend != storage::FileIoBackendKind::Posix ||

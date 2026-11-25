@@ -1495,8 +1495,7 @@ void handleControlConnection(core::io::UniqueFd controlFd, ControlServerOptions 
                     if (!valid) break;
                 }
                 persistentNegotiated = valid && checksumAlgorithm == options.checksumAlgorithm &&
-                    (!hasDataBytes || (requestedDataTls == core::io::DataTlsMode::Off &&
-                        !control.tlsEnabled() && requestedDataTransport == core::io::DataTransport::Tcp &&
+                    (!hasDataBytes || (requestedDataTransport == core::io::DataTransport::Tcp &&
                         checksumAlgorithm == checksum::ChecksumAlgorithm::Crc32c &&
                         options.chunkSize == 1048576 &&
                         core::io::TransferStages::preflight(requestedChannels,262148).isOk())) &&

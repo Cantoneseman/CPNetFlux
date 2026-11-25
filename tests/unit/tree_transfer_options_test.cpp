@@ -612,6 +612,46 @@ TEST(TreeTransferOptionsTest, ParsesTlsClientOptions) {
     std::filesystem::remove(key);
 }
 
+TEST(TreeTransferOptionsTest, LargeDataProfileAcceptsValidatedTlsModes) {
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / "cpnetflux-large-data-tls-options";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    const auto ca = root / "ca.pem";
+    const auto cert = root / "cert.pem";
+    const auto key = root / "key.pem";
+    for (const auto& path : {ca, cert, key}) {
+        std::ofstream output(path);
+        output << "test fixture\n";
+    }
+    fs::permissions(key, fs::perms::owner_read | fs::perms::owner_write);
+    const auto parse = [&](bool dataTls) {
+        std::vector<std::string> values{
+            "cpnetflux-tree-upload-client", "--auth-probe", "--host", "localhost", "--port", "2121",
+            "--tls-mode", "required", "--tls-ca-file", ca.string(), "--tls-server-name", "localhost",
+            "--tls-cert-file", cert.string(), "--tls-key-file", key.string(),
+            "--data-tls-mode", dataTls ? "required" : "off",
+            "--data-frame-bytes", "262144", "--data-transport", "tcp",
+            "--checksum", "crc32c", "--chunk-size", "1048576",
+            "--data-session-reuse", "tree", "--control-reuse", "worker"};
+        std::vector<const char*> argv;
+        for (const auto& value : values) argv.push_back(value.c_str());
+        return cpnetflux::config::parseTreeTransferOptions(
+            static_cast<int>(argv.size()), argv.data(), cpnetflux::config::TreeTransferRole::Upload);
+    };
+    if (cpnetflux::core::io::tlsSupportAvailable()) {
+        for (const bool dataTls : {false, true}) {
+            auto parsed = parse(dataTls);
+            ASSERT_TRUE(parsed.isOk()) << parsed.status().message();
+            EXPECT_EQ(parsed.value().dataFrameBytes, 262144U);
+            EXPECT_EQ(parsed.value().dataTlsMode, dataTls
+                ? cpnetflux::core::io::DataTlsMode::Required
+                : cpnetflux::core::io::DataTlsMode::Off);
+        }
+    }
+    fs::remove_all(root);
+}
+
 TEST(TreeTransferOptionsTest, ParsesTokenAuthOptions) {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "cpnetflux-tree-options-token-root";

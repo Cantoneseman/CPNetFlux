@@ -641,7 +641,6 @@ common::Result<TreeTransferOptions> parseTreeTransferOptions(int argc, const cha
 
     if (options.dataFrameBytes != 65532 &&
         (options.dataTransport != core::io::DataTransport::Tcp ||
-         options.dataTlsMode != core::io::DataTlsMode::Off || options.tls.mode != core::io::TlsMode::Off ||
          options.compressionMode != CompressionMode::Off || options.hotPathCompression.enabled ||
          options.chunkSize != 1048576 || options.checksumAlgorithm != checksum::ChecksumAlgorithm::Crc32c ||
          !options.reuseDataSession || options.controlReuseMode != ControlReuseMode::Worker))
