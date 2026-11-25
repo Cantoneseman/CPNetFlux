@@ -141,13 +141,21 @@ def mem():
 def pswpout():
     return int(next(l.split()[1] for l in Path('/proc/vmstat').read_text().splitlines() if l.startswith('pswpout ')))
 
-def proc_info(pid, *, read_text=None):
+def proc_info(pid, *, read_text=None, detailed=False):
     base=Path('/proc')/str(pid)
     read_text=read_text or (lambda path:path.read_text())
     fields=read_text(base/'stat').rsplit(')',1)[1].split()
     values={line.split(':')[0]:int(line.split()[1])*1024 for line in read_text(base/'status').splitlines() if line.endswith('kB')}
-    return {'pid':pid,'start_ticks':int(fields[19]),'cpu_seconds':(int(fields[11])+int(fields[12]))/os.sysconf('SC_CLK_TCK'),
+    result={'pid':pid,'start_ticks':int(fields[19]),'cpu_seconds':(int(fields[11])+int(fields[12]))/os.sysconf('SC_CLK_TCK'),
             'rss_bytes':values.get('VmRSS',0),'swap_bytes':values.get('VmSwap',0)}
+    if detailed:
+        status={line.split(':',1)[0]:int(line.split(':',1)[1])
+                for line in read_text(base/'status').splitlines()
+                if ':' in line and line.split(':',1)[0] in ('voluntary_ctxt_switches','nonvoluntary_ctxt_switches')}
+        result.update(minor_faults=int(fields[7]),major_faults=int(fields[9]),
+                      voluntary_context_switches=status.get('voluntary_ctxt_switches',0),
+                      involuntary_context_switches=status.get('nonvoluntary_ctxt_switches',0))
+    return result
 
 def node():
     text=output('ip','-o','-4','addr','show','dev','eno17095np0')
@@ -171,7 +179,7 @@ def receipt(commit):
     return {'commit':commit,'configuration':configuration(),
             'binaries':{n:sha(PROJECT/'build'/n) for n in BINARIES},'project':str(PROJECT)}
 
-def environment(receiver_profile=False, range_timing=None):
+def environment(receiver_profile=False, range_timing=None, mapped_write_profile=False):
     env=os.environ.copy()
     # Freeze task-local knobs; never inherit another experiment's runtime policy.
     for key in list(env):
@@ -184,7 +192,7 @@ def environment(receiver_profile=False, range_timing=None):
                CPNETFLUX_RECEIVER_PROFILE='1' if receiver_profile else '0',
                CPNETFLUX_SENDER_PROFILE='0',
                CPNETFLUX_RECEIVER_CPU_PROFILE='1' if receiver_profile else '0',
-               CPNETFLUX_MAPPED_WRITE_PROFILE='0',
+               CPNETFLUX_MAPPED_WRITE_PROFILE='1' if mapped_write_profile else '0',
                CPNETFLUX_RECEIVER_WRITE_BATCH='1',CPNETFLUX_RANGE_DIRECT_WRITE='parallel')
     return env
 
@@ -203,6 +211,14 @@ def observe(proc, state):
         state['owned_swap_peak_bytes']=max(state['owned_swap_peak_bytes'],info['swap_bytes'])
         state['rss_peak_bytes']=max(state['rss_peak_bytes'],info['rss_bytes'])
         state['cpu_seconds_sampled_lower_bound']=max(state['cpu_seconds_sampled_lower_bound'],info['cpu_seconds'])
+        detailed=proc_info(proc.pid,read_text=lambda path:read_owned_process_text(proc,path.name,state),detailed=True)
+        diagnostic_keys=('minor_faults','major_faults','voluntary_context_switches','involuntary_context_switches')
+        sample={key:detailed[key] for key in diagnostic_keys}
+        state.setdefault('process_diagnostics_first',sample)
+        state['process_diagnostics_last']=sample
+        state['process_diagnostics_samples']=state.get('process_diagnostics_samples',0)+1
+        state['process_diagnostics_sampled_delta']={
+            key:sample[key]-state['process_diagnostics_first'][key] for key in diagnostic_keys}
     except ProcessSampleEnded:pass
     state['samples']+=1
     assert state['mem_available_min_bytes']>=12*GIB, 'memory threshold'
@@ -217,9 +233,11 @@ def observe(proc, state):
 
 def run_guarded(argv, log, timeout=120, summary_path=None, mapped_download=False, tree_manifest_serializer=None,
                 tree_manifest_profile=None, member_work_profile=None, tcp_receive_buffer_bytes=None,
-                process_observer=None, receiver_profile=False, range_timing=None, tcp_exact_read=None):
+                process_observer=None, receiver_profile=False, range_timing=None, tcp_exact_read=None,
+                mapped_write_profile=False):
     state=resource_state();started=time.monotonic()
-    env=environment(receiver_profile=receiver_profile,range_timing=range_timing)
+    env=environment(receiver_profile=receiver_profile,range_timing=range_timing,
+                    mapped_write_profile=mapped_write_profile)
     if tcp_receive_buffer_bytes is not None:
         assert tcp_receive_buffer_bytes in ('off','1048576')
         env['CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES']=tcp_receive_buffer_bytes
@@ -403,7 +421,8 @@ def check_manifests(slot, count, size):
 
 def client_sample(args, name, expected, window, timing, port, summary_path=None, mapped_download=False, runner=None,
                   tree_manifest_serializer=None, data_frame_bytes=None, tcp_receive_buffer_bytes=None,
-                  receiver_profile=False, range_timing=None, network_profile=False, connections=4,
+                  receiver_profile=False, range_timing=None, mapped_write_profile=False,
+                  network_profile=False, connections=4,
                   network_settle_seconds=0, tcp_exact_read=None):
     assert connections in (1,4), 'bounded client supports one or four lanes'
     assert network_settle_seconds in (0,.5) and (network_profile or not network_settle_seconds)
@@ -447,6 +466,8 @@ def client_sample(args, name, expected, window, timing, port, summary_path=None,
             run_options['receiver_profile']=True
         if range_timing is not None:
             run_options['range_timing']=range_timing
+        if mapped_write_profile:
+            run_options['mapped_write_profile']=True
         try:
             resources=(runner or run_guarded)(command,log,**run_options)
         finally:

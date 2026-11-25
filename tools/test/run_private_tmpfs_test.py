@@ -11,10 +11,49 @@ class PrivateTmpfsTests(unittest.TestCase):
         self.assertIsNotNone(importlib.util.find_spec('private_tmpfs'),
                              'default-off bounded private tmpfs lifecycle is missing')
         import private_tmpfs
+        import run_small_file_baseline
         self.m=private_tmpfs
+        self.base=run_small_file_baseline
     def test_default_off(self):
         with self.assertRaisesRegex(ValueError,'explicit'):
             self.m.require_enabled(False)
+    def test_cpu_profile_specs_hold_workload_constant(self):
+        control=self.m.profile_spec('cpu-profile-control')
+        candidate=self.m.profile_spec('cpu-profile-candidate')
+        for spec in (control,candidate):
+            self.assertEqual(spec['size_bytes'],512*1024**2)
+            self.assertEqual(spec['mount_limit_bytes'],1024*1024**2)
+            self.assertEqual(spec['sender_pacing'],'1500000000')
+            self.assertTrue(spec['receiver_profile'])
+            self.assertTrue(spec['mapped_write_profile'])
+        self.assertEqual(control['huge_policy'],'never')
+        self.assertEqual(candidate['huge_policy'],'within_size')
+        self.assertEqual({k:v for k,v in control.items() if k not in ('name','huge_policy')},
+                         {k:v for k,v in candidate.items() if k not in ('name','huge_policy')})
+    def test_cpu_profile_rejects_incompatible_pacing_and_setup(self):
+        from types import SimpleNamespace
+        fixed=dict(mode='v3',sender_pacing='1500000000',kernel_tcp_pacing=False,
+                   native_setup=True,profile='cpu-profile-control')
+        self.assertEqual(self.m.validate_profile(SimpleNamespace(**fixed))['size_bytes'],512*1024**2)
+        for changes in ({'sender_pacing':'off'},{'kernel_tcp_pacing':True},{'native_setup':False}):
+            values=dict(fixed,**changes)
+            with self.subTest(changes=changes):
+                with self.assertRaises(ValueError):self.m.validate_profile(SimpleNamespace(**values))
+    def test_profile_environment_enables_mapped_write_observation_only_on_request(self):
+        ordinary=self.base.environment(receiver_profile=True)
+        profiled=self.base.environment(receiver_profile=True,mapped_write_profile=True)
+        self.assertEqual(ordinary['CPNETFLUX_MAPPED_WRITE_PROFILE'],'0')
+        self.assertEqual(profiled['CPNETFLUX_MAPPED_WRITE_PROFILE'],'1')
+    def test_process_profile_can_capture_faults_and_context_switches(self):
+        stat='123 (cpnetflux) S 1 2 3 4 5 6 89 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24'
+        status='VmRSS: 64 kB\nVmSwap: 0 kB\nvoluntary_ctxt_switches: 31\nnonvoluntary_ctxt_switches: 4\n'
+        def read(path):
+            return stat if path.name=='stat' else status
+        value=self.base.proc_info(123,read_text=read,detailed=True)
+        self.assertEqual(value['minor_faults'],89)
+        self.assertEqual(value['major_faults'],11)
+        self.assertEqual(value['voluntary_context_switches'],31)
+        self.assertEqual(value['involuntary_context_switches'],4)
     def test_no_arbitrary_mounts(self):
         for path in ('/dev/shm','/tmp/cpnetflux-s0-private55-x','/dev/shm/other','/dev/shm/../shm/cpnetflux-s0-private55-x'):
             with self.assertRaises(ValueError):

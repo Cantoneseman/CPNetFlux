@@ -67,10 +67,19 @@ def run(args):
     assert base.node()==1 and os.geteuid()!=0
     args.mode='v3'  # This entry point only executes V3 rows.
     spec=private.validate_profile(args)
-    args.size_gib=spec['size_gib'];args.size,args.count=args.size_gib*base.GIB,1
+    args.size_gib=spec.get('size_gib',0)
+    args.size,args.count=spec['size_bytes'],1
+    args.size_bytes=args.size
     large.SIZE=args.size
     args.reproducible_source=spec['name']!='admission'
-    sample_name='private55-combined-1g' if spec['name']=='admission' else 'private58-'+spec['name'][3:]+'-8g'
+    sample_names={'admission':'private55-combined-1g',
+                  'm2-control':'private58-control-8g',
+                  'm2-candidate':'private58-candidate-8g',
+                  'cpu-profile-control':'private60-cpu-control-512m',
+                  'cpu-profile-candidate':'private60-cpu-candidate-512m'}
+    sample_name=sample_names[spec['name']]
+    receiver_profile=bool(spec.get('receiver_profile',False))
+    mapped_write_profile=bool(spec.get('mapped_write_profile',False))
     mount=json.loads((args.evidence/'mount-ready.json').read_text())
     assert os.readlink('/proc/self/ns/mnt')==mount['private_namespace']
     assert os.path.ismount(args.payload_root)
@@ -121,7 +130,9 @@ def run(args):
         try:
             row=base.client_sample(args,sample_name,expected,'2','on',49337,
                 mapped_download=True,data_frame_bytes=262144,tcp_receive_buffer_bytes='1048576',
-                receiver_profile=False,range_timing=False,network_profile=True,network_settle_seconds=.5,
+                receiver_profile=receiver_profile,range_timing=receiver_profile,
+                mapped_write_profile=mapped_write_profile,
+                network_profile=True,network_settle_seconds=.5,
                 tcp_exact_read='off',runner=runner)
         finally:base.save(args.evidence/'receiver-pages.json',page)
         base.save(args.evidence/'results.json',[row])
@@ -129,7 +140,8 @@ def run(args):
         row['verified_chunks']=verify_chunks(row['manifest_checks']['member_example'],args.size)
         assert row['verified_chunks']==args.size//base.MiB
         row['mapped_mechanism']=large.mapped_checks(args,sample_name,262144,
-                                                  receiver_profile=False,range_timing=False)
+                                                  receiver_profile=receiver_profile,
+                                                  range_timing=receiver_profile)
         gates['content']=True
         gates['pages']=page['samples']>0 and ((page['target_shmem_pmd_mapped_peak_bytes']>0)
             if huge=='within_size' else page['target_shmem_pmd_mapped_peak_bytes']==0)
@@ -204,8 +216,12 @@ def run(args):
     except BaseException as error:
         gates['resources']=False
         failures.append(dict(stage='resources',error=repr(error)))
-    scope=('one instrumented feasibility; no A/B, CV, M2 or stability claim' if spec['name']=='admission'
-           else 'one 8GiB row of formal M2; matrix decision external')
+    if spec['name']=='admission':
+        scope='one instrumented feasibility; no A/B, CV, M2 or stability claim'
+    elif spec['name'].startswith('cpu-profile-'):
+        scope='one 512MiB receiver CPU profile arm; pair comparison is external'
+    else:
+        scope='one 8GiB row of formal M2; matrix decision external'
     report=dict(scope=scope,profile=spec['name'],payload_bytes=args.size,
         gates=gates,failures=failures,cleanup=cleanup,m2_pass=False,
         setup_strategy=mount.get('setup_strategy','python_namespace'),
@@ -233,7 +249,7 @@ def main():
     p.add_argument('--kernel-tcp-pacing',action='store_true')
     p.add_argument('--sender-pacing',choices=('off','1500000000'),default='off')
     p.add_argument('--native-setup',action='store_true')
-    p.add_argument('--profile',choices=['admission','m2-control','m2-candidate'],default='admission')
+    p.add_argument('--profile',choices=['admission','m2-control','m2-candidate','cpu-profile-control','cpu-profile-candidate'],default='admission')
     p.add_argument('--commit',required=True)
     return run(p.parse_args())
 

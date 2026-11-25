@@ -17,11 +17,18 @@ EXPERIMENTS=Path('/home/Su/experiments/CPNetFlux')
 GIB=1024**3
 
 def profile_spec(name):
+    if name in ('cpu-profile-control','cpu-profile-candidate'):
+        capacity=1024*1024**2
+        return dict(name=name,size_bytes=512*1024**2,mount_limit_bytes=capacity,
+                    huge_policy='never' if name=='cpu-profile-control' else 'within_size',
+                    preflight_mem_bytes=13*GIB+capacity,preflight_free_bytes=GIB+capacity,
+                    sender_pacing='1500000000',receiver_profile=True,mapped_write_profile=True)
     if name not in ('admission','m2-control','m2-candidate'):
         raise ValueError('unsupported bounded private profile')
     formal=name!='admission'
     capacity=(8448 if formal else 1280)*1024**2
-    return dict(name=name,size_gib=8 if formal else 1,mount_limit_bytes=capacity,
+    size_gib=8 if formal else 1
+    return dict(name=name,size_gib=size_gib,size_bytes=size_gib*GIB,mount_limit_bytes=capacity,
                 huge_policy='never' if name=='m2-control' else 'within_size',
                 preflight_mem_bytes=12*GIB+capacity+GIB if formal else 12*GIB,
                 preflight_free_bytes=capacity+GIB if formal else 0)
@@ -31,15 +38,22 @@ def validate_profile(args):
     sender=getattr(args,'sender_pacing','off')
     if sender not in ('off','1500000000'):
         raise ValueError('unsupported fixed application pacing policy')
-    if sender!='off' and (args.mode!='v3' or spec['name']!='admission' or args.kernel_tcp_pacing):
+    cpu_profile=spec['name'] in ('cpu-profile-control','cpu-profile-candidate')
+    if cpu_profile and (sender!='1500000000' or args.kernel_tcp_pacing):
+        raise ValueError('CPU profiles require fixed application pacing and kernel pacing off')
+    if sender!='off' and not cpu_profile and (args.mode!='v3' or spec['name']!='admission' or args.kernel_tcp_pacing):
         raise ValueError('application pacing requires admission V3 and kernel pacing off')
     spec=dict(spec,sender_pacing=sender)
     if spec['name']!='admission':
         if not getattr(args,'native_setup',False) or args.mode not in ('v3','setup-only'):
             raise ValueError('M2 profiles require native setup and V3/setup-only mode')
-        expected=args.mode=='v3' and spec['name']=='m2-candidate'
-        if bool(args.kernel_tcp_pacing)!=expected:
-            raise ValueError('M2 profile requires its fixed kernel pacing policy')
+        if cpu_profile:
+            if args.kernel_tcp_pacing or sender!='1500000000':
+                raise ValueError('CPU profile pacing policy mismatch')
+        else:
+            expected=args.mode=='v3' and spec['name']=='m2-candidate'
+            if bool(args.kernel_tcp_pacing)!=expected:
+                raise ValueError('M2 profile requires its fixed kernel pacing policy')
     return spec
 
 def available_memory():
@@ -293,7 +307,7 @@ def main():
     p.add_argument('--kernel-tcp-pacing',action='store_true')
     p.add_argument('--sender-pacing',choices=('off','1500000000'),default='off')
     p.add_argument('--native-setup',action='store_true')
-    p.add_argument('--profile',choices=['admission','m2-control','m2-candidate'],default='admission')
+    p.add_argument('--profile',choices=['admission','m2-control','m2-candidate','cpu-profile-control','cpu-profile-candidate'],default='admission')
     p.add_argument('--commit',default='')
     p.add_argument('--uid',type=int);p.add_argument('--gid',type=int);p.add_argument('--inode',type=int)
     p.add_argument('--host-namespace')

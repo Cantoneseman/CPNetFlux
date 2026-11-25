@@ -162,7 +162,7 @@ def seed(args):
 def own_peer(args,action):
     argv=['python3',str(Path(__file__).resolve()),'--action',action,'--evidence',str(args.evidence),
           '--payload-root',str(args.payload_root),'--commit',args.commit,
-          '--size-gib',str(args.size_gib)]
+          '--size-bytes',str(getattr(args,'size_bytes',args.size_gib*base.GIB))]
     if getattr(args,'reproducible_source',False):argv.append('--reproducible-source')
     result=subprocess.run(['ssh','-n','-o','BatchMode=yes','r770-2',shlex.join(argv)],
                           text=True,capture_output=True,timeout=180)
@@ -446,16 +446,21 @@ if __name__=='__main__':
     parser.add_argument('--commit',required=True)
     parser.add_argument('--mechanism',choices=('frame','receive-buffer','profile-overhead','m1'),default='frame')
     parser.add_argument('--size-gib',type=int,choices=(1,8),default=1)
+    parser.add_argument('--size-bytes',type=int)
     parser.add_argument('--reproducible-source',action='store_true')
     parser.add_argument('--receiver-profile',action='store_true',
-                        help='enable receiver CPU/payload profiling for bounded 1 GiB diagnostics')
+                        help='enable receiver CPU/payload profiling for bounded diagnostics')
     args=parser.parse_args()
     try:
         validate_receiver_profile_request(args.action,args.mechanism,args.size_gib,args.receiver_profile)
     except ValueError as error:
         parser.error(str(error))
+    if args.action=='matrix' and args.size_bytes is not None:
+        parser.error('--size-bytes is reserved for peer seed/probe actions')
     args.evidence.mkdir(parents=True,exist_ok=True)
-    SIZE=args.size_gib*base.GIB
+    SIZE=args.size_bytes if args.size_bytes is not None else args.size_gib*base.GIB
+    if SIZE not in (512*base.MiB,base.GIB,8*base.GIB):
+        parser.error('size must be 512 MiB, 1 GiB, or 8 GiB')
     if args.action=='matrix':matrix(args)
     elif args.action=='cleanup':
         source=base.owned(args.payload_root,'source')
