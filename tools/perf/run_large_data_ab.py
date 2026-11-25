@@ -106,14 +106,20 @@ def network_counter_deltas(before, after):
 def profile_network_result(before, after):
     analysis = receive_network.analyze(before, after)
     retransmissions = after['tcp']['Tcp.RetransSegs'] - before['tcp']['Tcp.RetransSegs']
+    netdev = receive_network.delta(before['netdev'], after['netdev'])
+    error_keys = ('rx_errors', 'tx_errors', 'rx_dropped', 'tx_dropped',
+                  'rx_over_errors', 'rx_fifo_errors', 'tx_fifo_errors')
+    netdev_errors = {key: netdev[key] for key in error_keys if netdev.get(key, 0)}
     return {
         'rx_missed_errors_delta': analysis['rx_missed_errors_delta'],
         'rx_out_of_buffer_delta': analysis['rx_out_of_buffer_delta'],
         'ethtool_errors_drops': analysis['ethtool_changed'],
+        'netdev_errors_drops': netdev_errors,
         'tcp_retransmissions_delta': retransmissions,
         'gate_pass': analysis['rx_missed_errors_delta'] == 0
                      and analysis['rx_out_of_buffer_delta'] == 0
                      and not analysis['ethtool_changed']
+                     and not netdev_errors
                      and retransmissions == 0,
     }
 
@@ -432,8 +438,9 @@ def matrix(args):
                 if profile_only:
                     peer_network_after=own_peer(args,'network-snapshot')
                     window=row['receiver_network_window']
+                    r1_after=window.get('after_settle_before_sha',window['after_transfer'])
                     row['profile_network']={
-                        'r1':profile_network_result(window['before'],window['after_transfer']),
+                        'r1':profile_network_result(window['before'],r1_after),
                         'r2':profile_network_result(peer_network_before,peer_network_after),
                         'r2_before':peer_network_before,
                         'r2_after':peer_network_after,
@@ -441,6 +448,8 @@ def matrix(args):
                     row['profile_network_gate_pass']=(
                         row['profile_network']['r1']['gate_pass']
                         and row['profile_network']['r2']['gate_pass'])
+                    base.save(args.evidence/'profile-network.json',row['profile_network'])
+                    assert row['profile_network_gate_pass'], 'receiver profile network acceptance gate'
                 if sample_profile:
                     validate_profile_frame_count(row['receiver_phases']['receiver_profile'],
                                                  row['mechanism']['actual_data_frames'])
