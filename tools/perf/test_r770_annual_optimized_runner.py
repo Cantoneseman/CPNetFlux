@@ -249,6 +249,7 @@ class AnnualComfortRunnerTests(unittest.TestCase):
             "reverse": node.ANNUAL_5G_REVERSE_RUN,
         }
         self.assertEqual(len(set(node.ANNUAL_5G_RUNS)), 3)
+        self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_RUN], 5 * 2**30)
         for run in node.ANNUAL_5G_RUNS:
             self.assertEqual(node.RUN_SIZES[run], 5 * 2**30)
         for run in node.ANNUAL_5G_RUNS:
