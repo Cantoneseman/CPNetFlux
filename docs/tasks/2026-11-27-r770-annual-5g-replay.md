@@ -45,3 +45,7 @@ CPNetFlux 主对比固定 V3/TCP 四条数据流、接收端 inline mmap、256 K
 反向 `main-reverse-03` 的准入 smoke 中 GridFTP 通过，随后 CPNetFlux 128 MiB smoke 按硬门拒收，R1 `rx_missed_errors/rx_out_of_buffer` 增加 133，R2 发送 socket 重传 133 次、20,272 与 172,312 字节分布于两条 lane。阶段未运行正式反向样本。双端临时数据、凭据和 listener 清理成功，postflight 身份匹配，6 秒空载错误计数稳定。
 
 使用独立 reverse `2026-11-27-r770-annual-5g-main-reverse-04` 重新执行准入和正式 10 项。`-03` 失败证据保留且不与新 run 合并。
+
+`security-05` 与 `main-forward-04` 的 5 GiB 矩阵已完整采集，但它们使用提交 `a85c684`。reverse `-03` 在该提交下 smoke 拒收；尝试启动 reverse `-04` 时，提交校验检测到 runner 已更新至 `3571f95`，在创建实验目录和启动传输前停止。因此上述三组不拼接。server/upload/download 二进制哈希在两提交之间保持不变。
+
+为使本轮完整对比落在单一固定提交 `3571f95`，新的正式 run IDs 为 security `2026-11-27-r770-annual-5g-security-06`、forward `2026-11-27-r770-annual-5g-main-forward-05`、reverse `2026-11-27-r770-annual-5g-main-reverse-04`。较早尝试仅作为拒收/诊断证据，正式汇总使用这三个新 ID。
