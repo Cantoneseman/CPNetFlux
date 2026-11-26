@@ -19,9 +19,9 @@ import r770_tcp_diag as diag
 SECURITY_RUN = "2026-11-24-r770-annual-5g-security-02"
 REVERSE_RUN = "2026-11-24-r770-annual-5g-reverse-02"
 COMFORT_DIAG_RUN = "2026-11-27-r770-tcp-diag-validation-02"
-COMFORT_SECURITY_RUN = "2026-11-27-r770-annual-comfort-security-1g-12"
-COMFORT_FORWARD_RUN = "2026-11-27-r770-annual-comfort-main-forward-1g-12"
-COMFORT_REVERSE_RUN = "2026-11-27-r770-annual-comfort-main-reverse-1g-12"
+COMFORT_SECURITY_RUN = "2026-11-27-r770-annual-comfort-security-1g-13"
+COMFORT_FORWARD_RUN = "2026-11-27-r770-annual-comfort-main-forward-1g-13"
+COMFORT_REVERSE_RUN = "2026-11-27-r770-annual-comfort-main-reverse-1g-13"
 COMFORT_RUNS = (COMFORT_SECURITY_RUN, COMFORT_FORWARD_RUN, COMFORT_REVERSE_RUN)
 RUN_SIZES = {
     "2026-11-24-r770-annual-optimized-5g-01": 5 * 2**30,
