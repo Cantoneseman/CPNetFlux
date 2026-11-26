@@ -250,11 +250,37 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         }
         self.assertEqual(len(set(node.ANNUAL_5G_RUNS)), 3)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_RUN], 5 * 2**30)
+        self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_RETRY_RUN], 5 * 2**30)
+        self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_FORWARD_RUN], 5 * 2**30)
         for run in node.ANNUAL_5G_RUNS:
             self.assertEqual(node.RUN_SIZES[run], 5 * 2**30)
         for run in node.ANNUAL_5G_RUNS:
             with patch.object(node, "RUN", run), patch.object(node, "IS_DIAG_VALIDATION", False):
                 self.assertEqual(runner.stage_run_names(), expected)
+
+    def test_sequence_collects_remaining_samples_after_a_rejection(self):
+        expected = {"violations": [], "bytes": 1, "sha256": "source-sha"}
+        with patch.object(runner, "idle", return_value={"after": {2: {}}}), \
+                patch.object(runner.rx, "require_capacity"), \
+                patch.object(runner, "call", side_effect=lambda host, action, *args:
+                             expected if action == "seed" else True), \
+                patch.object(runner, "record"), \
+                patch.object(runner, "sample", side_effect=[False, True, False]) as samples:
+            accepted = runner.sequence("unit", 2, ("grid", "mmap", "grid"), 1)
+
+        self.assertFalse(accepted)
+        self.assertEqual(samples.call_count, 3)
+
+    def test_security_matrix_completion_counts_rejected_rows(self):
+        rows = [
+            {"mode": mode, "decision": "accepted" if index == 0 else "rejected",
+             "payload_bytes": 5}
+            for mode in runner.SECURITY_BLOCKS[0]
+            for index in range(3)
+        ]
+
+        self.assertTrue(runner.security_matrix_complete(rows, 5))
+        self.assertFalse(runner.security_matrix_complete(rows[:-1], 5))
 
     def test_security_profiles_share_the_comfort_data_path(self):
         profiles = [node.comfort_profile(mode) for mode in ("mmap", "clear", "tls")]

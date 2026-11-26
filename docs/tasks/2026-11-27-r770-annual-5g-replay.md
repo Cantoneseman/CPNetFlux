@@ -35,3 +35,9 @@ CPNetFlux 主对比固定 V3/TCP 四条数据流、接收端 inline mmap、256 K
 首次 run `2026-11-27-r770-annual-5g-security-03` 的 7 个准入 smoke 均通过。第一个正式 GridFTP GSI clear 5 GiB 样本按原资源门拒收，R770-1 的 `pswpout` 增加 31，`memory.full` PSI 增加 33,970 微秒，`/sys/fs/cgroup/user.slice` 的 `memory.swap.current` 增加 126,976 字节。OOM 与 NIC/HCA 错误增量均为零。拒收结果和双端 socket/resource 证据保留，未计吞吐。临时 payload、凭据和 listener 均已清理，postflight 身份匹配；随后 6 秒空载门通过。
 
 不拼接 `-03` 样本。为独立重跑完整 15 项安全矩阵，新的 security run ID 为 `2026-11-27-r770-annual-5g-security-04`。主对比 forward/reverse run ID 保持 `2026-11-27-r770-annual-5g-main-forward-03` 与 `2026-11-27-r770-annual-5g-main-reverse-03`。门槛、样本顺序、配置和网卡状态不变。
+
+## 2026-11-27 矩阵续采
+
+正向 `main-forward-03` 也在首个 5 GiB GridFTP 样本后被 R770-1 host full-memory PSI 门拒收。完整性 SHA、双端 GridFTP 226 回执及四数据流 socket 观测通过，NIC/OOB 无增量。与 security-03/04 一样，失败样本保留且不计合格吞吐。
+
+按用户要求，后续矩阵将采完全部计划行，逐行保留现有 accepted/rejected 判定；门槛值和单样本拒收语义不变。security 15 行齐全并核验固定提交后进入 reverse，即使有拒收行也不把它们计为合格。新的 run ID 为 security `2026-11-27-r770-annual-5g-security-05`、forward `2026-11-27-r770-annual-5g-main-forward-04`、reverse `2026-11-27-r770-annual-5g-main-reverse-03`。

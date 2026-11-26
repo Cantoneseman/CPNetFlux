@@ -589,10 +589,11 @@ def sequence(group, sender, samples, size, expected_sha=None):
         record(group+"-source",dict(sender=sender,payload_bytes=size,source=expected,idle=safety))
         if expected["violations"] or expected["bytes"]!=size or (expected_sha and expected["sha256"]!=expected_sha):
             raise RuntimeError("source integrity/resource check")
+        all_accepted = True
         for index, mode in enumerate(samples,1):
             if not sample(group,index,mode,sender,expected):
-                return False
-        return True
+                all_accepted = False
+        return all_accepted
     finally:
         if not call(sender,"remove","source"):
             raise RuntimeError("source still exists")
@@ -610,19 +611,24 @@ def stage_run_names():
     return {"security": node.SECURITY_RUN, "reverse": node.REVERSE_RUN}
 
 
-def require_security_pass(commit):
+def security_matrix_complete(rows, size):
+    counts = {mode: sum(row.get("mode") == mode and row.get("payload_bytes") == size
+                        for row in rows)
+              for mode in SECURITY_BLOCKS[0]}
+    valid_decisions = all(row.get("decision") in ("accepted", "rejected") for row in rows)
+    return len(rows) == 15 and set(counts.values()) == {3} and valid_decisions
+
+
+def require_security_complete(commit):
     security_run = stage_run_names()["security"]
     security = OUT.parent / security_run
     post = json.loads((security / "postflight.json").read_text())
     builds = json.loads((security / "matching-builds.json").read_text())
     rows = [json.loads(path.read_text()) for path in security.glob("security-formal-*.json")
             if re.fullmatch(r"security-formal-\d{2}-(grid|private|anon|clear|tls)\.json", path.name)]
-    counts = {mode: sum(row["mode"] == mode and row["decision"] == "accepted"
-                        and row["payload_bytes"] == node.SIZE for row in rows)
-              for mode in SECURITY_BLOCKS[0]}
-    if (post["stage"] != "security" or post["status"] != "pass" or
-            len(rows) != 15 or set(counts.values()) != {3} or builds["1"]["commit"] != commit):
-        raise RuntimeError("independent security matrix did not pass at the requested commit")
+    if (post["stage"] != "security" or post["status"] not in ("pass", "complete_with_rejections") or
+            not security_matrix_complete(rows, node.SIZE) or builds["1"]["commit"] != commit):
+        raise RuntimeError("complete independent security matrix is missing at the requested commit")
 
 
 def main():
@@ -632,7 +638,7 @@ def main():
     if node.RUN != run_names[stage] or node.HOST != 1:
         raise ValueError("stage, controller node or run directory mismatch")
     if stage == "reverse":
-        require_security_pass(commit)
+        require_security_complete(commit)
     initial = prepare_preflight(commit)
     prepared = []
     outcome = {"stage": stage, "status": "stopped"}
@@ -661,7 +667,7 @@ def main():
             done = sequence("main-forward-formal", 2, FORWARD_ORDER, node.SIZE, expected_sha)
         else:
             done = sequence("main-reverse-formal", 1, REVERSE_ORDER, node.SIZE, expected_sha)
-        outcome["status"] = "pass" if done else "stopped"
+        outcome["status"] = "pass" if done else "complete_with_rejections"
     except Exception as error:
         outcome["error"] = str(error)
         print(str(error), file=sys.stderr, flush=True)
@@ -684,7 +690,7 @@ def main():
             outcome["postflight_error"] = str(error)
             outcome["status"] = "stopped"
         record("postflight", outcome)
-    return 0 if outcome["status"] == "pass" else 2
+    return 0 if outcome["status"] in ("pass", "complete_with_rejections") else 2
 
 
 if __name__ == "__main__":
