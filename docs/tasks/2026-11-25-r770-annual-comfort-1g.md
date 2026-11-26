@@ -87,4 +87,6 @@ CPNetFlux 的主对比和两个安全臂统一使用 V3/TCP、四条数据流、
 
 矩阵 `-13` 在第 6 个 clear 样本完成 1 GiB 传输和 CRC32C 校验，实测 34.80 Gbps，但按硬门拒收。R1 接收侧 `rx_missed_errors` 和 mlx5 `rx_out_of_buffer` 各增加 508；R2 的 lane 1 和 lane 3 记录了多段 TCP 重传。物理 CRC、符号错误和丢弃计数没有增量。队列快照显示接收包主要落在 RX queue 9、27 和 29。服务 pacer 记录四条 lane 的首帧 admission 相差约 4 微秒，说明四路 256 KiB 数据帧以近乎同相的节奏启动。Linux mlx5 文档将 `rx_out_of_buffer` 定义为接收队列没有可供网卡使用的软件 buffer。依据这些证据，本轮在发送端对首帧 admission 按 lane 均分最大帧周期相位，随后维持原来的每 lane 1.5 GB/s no-catch-up 节奏。该变化不修改 frame、接收缓冲、NIC/IRQ/ring 设置或硬门，当前只验证相位展开假设，尚不能视为性能修复已证实。
 
-新完整年度矩阵使用 security `2026-11-27-r770-annual-comfort-security-1g-14`、正向 `2026-11-27-r770-annual-comfort-main-forward-1g-14`、反向 `2026-11-27-r770-annual-comfort-main-reverse-1g-14`。必须先确认接收端 RX OOB/missed 为零、四条 TCP socket 零重传及全部数据完整，再以固定提交完成 security 15/15 和正反向各五对。`-01` 至 `-13` 的历史记录和拒收样本保持独立，不能拼接入新矩阵。
+矩阵 `-14` 的 smoke 全部通过，正式 security 第 1 项 GridFTP GSI 明文通过。第 2 项 CPNetFlux TLS 传输和 CRC32C 校验通过，测得 26.24 Gbps，但 R2 发送 socket `192.168.100.2:61351 -> 192.168.100.1:57261` 记录到 1 次、760 字节 TCP 重传，按硬门停止。两端 `rx_missed_errors`、`rx_out_of_buffer`、NIC/HCA 与物理层错误增量均为零，R1 RX 队列流量分布正常。四条 pacing lane 首帧 admission 时间跨度约 318 微秒，`spacing_violations=0`；对比 `-13` 首帧约 4 微秒内聚，错相已生效，且本样本未复现 RX 缓冲耗尽。该样本不计入年度统计，不能据此确认完整安全矩阵通过。
+
+下一完整矩阵使用 security `2026-11-27-r770-annual-comfort-security-1g-15`、正向 `2026-11-27-r770-annual-comfort-main-forward-1g-15`、反向 `2026-11-27-r770-annual-comfort-main-reverse-1g-15`。必须先确认接收端 RX OOB/missed 为零、四条 TCP socket 零重传及全部数据完整，再以固定提交完成 security 15/15 和正反向各五对。`-01` 至 `-14` 的历史记录和拒收样本保持独立，不能拼接入新矩阵。
