@@ -59,7 +59,7 @@ CPNetFlux 的主对比和两个安全臂统一使用 V3/TCP、四条数据流、
 ### 验收标准
 
 - 纯解析和 runner 单测覆盖管理 SSH/2121 排除、实验端口筛选、destroy 终态事件、socket 在开始与结束间关闭、重传增量拒收、无实验 socket、事件丢失、终态缺失和四条数据流覆盖。
-- 双端 observer 均完成订阅 ready 与 stop/drain 握手。128 MiB smoke 负载高于 64 MiB 自适应范围阈值，须触发四到八条 CRC32C 并行范围。NETLINK 过载、截断、observer 异常退出、样本无实验 socket 或任一预期数据流缺少双端活动及终态证据时拒收。
+- 双端 observer 均完成订阅 ready 与 stop/drain 握手。128 MiB smoke 负载高于 64 MiB 自适应范围阈值，须触发四到八条 CRC32C 并行范围。诊断客户端开启 phase timing 收集每范围实际 mmap/backend 回执，正式性能样本仍关闭 phase timing。NETLINK 过载、截断、observer 异常退出、样本无实验 socket 或任一预期数据流缺少双端活动及终态证据时拒收。
 - R1 py_compile、runner 单测与相关 CTest 通过。改动在 R1 精确提交并推送后，R2 同提交同配置构建通过，server/upload/download 二进制 SHA-256 一致。
 - 新的唯一验证 run 中短连接、GridFTP 四数据流和 CPNetFlux 四数据流均留下双端 4-tuple/socket-cookie/TCP_INFO 证据。任何验证门未通过，不启动年度 1 GiB 矩阵。
 - 完成验证后使用未使用过的新 annual run ID，原 1 GiB 安全臂与双向主比较保持原样本数、顺序、参数和其余硬门。失败证据不纳入速率统计。
@@ -72,6 +72,6 @@ CPNetFlux 的主对比和两个安全臂统一使用 V3/TCP、四条数据流、
 - 本任务范围和结果报告
 - 本轮新 run 目录中的 observer/样本证据
 
-8 MiB 准入验证中，GridFTP 四流与双端 TCP_INFO 观测通过。CPNetFlux mmap 客户端按协议拒绝了未分段的小文件，原因是 8 MiB 未超过自适应范围门槛，无法产生接收端 mmap 所需的四至八个并行范围。该失败记录保留，不作为性能样本。修正后的诊断负载为 128 MiB，正式 1 GiB 配置、重传和 NIC 硬门均不变。
+8 MiB 准入验证中，GridFTP 四流与双端 TCP_INFO 观测通过。CPNetFlux mmap 客户端按协议拒绝了未分段的小文件，原因是 8 MiB 未超过自适应范围门槛，无法产生接收端 mmap 所需的四至八个并行范围。该失败记录保留，不作为性能样本。128 MiB 验证的 GridFTP 与 CPNetFlux 实际传输均成功，CPNetFlux 四流、双端终态、0 重传及 NIC 门通过，但 runner 因正式 phase timing 关闭而未收到范围级 backend 回执，仍按验证样本拒收。新的诊断 run 将只对诊断客户端开启 phase timing，正式 1 GiB 参数和硬门不变。
 
-代码输入提交为 `163682e7b3fd8320e8c9e83da0607b92cbdba372`。新验证 run ID 为 `2026-11-27-r770-tcp-diag-validation-01`，正式年度矩阵 run ID 为 `2026-11-27-r770-annual-comfort-security-1g-01`、`2026-11-27-r770-annual-comfort-main-forward-1g-01` 与 `2026-11-27-r770-annual-comfort-main-reverse-1g-01`。
+代码输入提交为 `8650384de955becf7ee240fc52f7f785e67b7135`。新验证 run ID 为 `2026-11-27-r770-tcp-diag-validation-02`，正式年度矩阵 run ID 为 `2026-11-27-r770-annual-comfort-security-1g-01`、`2026-11-27-r770-annual-comfort-main-forward-1g-01` 与 `2026-11-27-r770-annual-comfort-main-reverse-1g-01`。

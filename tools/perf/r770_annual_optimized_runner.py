@@ -339,14 +339,17 @@ def validate_cp(row, receipt, mode, sender, receiver, size):
                x["tcp_receive_buffer_bytes"] > 2 * profile["tcp_receive_buffer_requested_bytes"]
                for x in lanes):
             raise ValueError("CPNetFlux receive buffer readback mismatch")
-        ranges = [item for item in s.get("file_timings", []) if item.get("range_id")]
-        if (sum(item.get("length", 0) for item in ranges) != size or
-                not all(item.get("receiver_payload_execution") == "inline" and
-                        item.get("receiver_write_backend") == "mmap_experimental" and
-                        item.get("mapped_write", {}).get("direct_receive_calls") == 0 and
-                        item.get("mapped_write", {}).get("direct_received_bytes") == 0
-                        for item in ranges)):
-            raise ValueError("CPNetFlux buffered inline mmap receipt mismatch")
+        if node.IS_DIAG_VALIDATION:
+            ranges = [item for item in s.get("file_timings", []) if item.get("range_id")]
+            if (sum(item.get("length", 0) for item in ranges) != size or
+                    not all(item.get("receiver_payload_execution") == "inline" and
+                            item.get("receiver_write_backend") == "mmap_experimental" and
+                            item.get("mapped_write", {}).get("direct_receive_calls") == 0 and
+                            item.get("mapped_write", {}).get("direct_received_bytes") == 0
+                            for item in ranges)):
+                raise ValueError("CPNetFlux buffered inline mmap diagnostic receipt mismatch")
+        elif s.get("phase_timing_schema") is not None:
+            raise ValueError("CPNetFlux formal sample unexpectedly enabled phase timing")
         if (s.get("receiver_policy", {}).get("range_checkpoint_batch_chunks_effective") != 16 or
                 s.get("receiver_policy", {}).get("final_verify_policy_effective") != "verified_chunks"):
             raise ValueError("CPNetFlux chunk checkpoint or verification mismatch")

@@ -268,6 +268,7 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(argument(clear_argv, "--connections"), "4")
         self.assertEqual(argument(clear_argv, "--data-frame-bytes"), "262144")
         self.assertEqual(argument(clear_argv, "--data-transport"), "tcp")
+        self.assertEqual(argument(clear_argv, "--phase-timing"), "off")
         self.assertEqual(argument(clear_argv, "--chunk-size"), "1048576")
         self.assertEqual(argument(clear_argv, "--range-checkpoint-batch-chunks"), "16")
         self.assertEqual(clear_env["CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES"], "1048576")
@@ -275,6 +276,15 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(clear_env["CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE"], "off")
         self.assertEqual(argument(tls_argv, "--tls-mode"), "required")
         self.assertEqual(argument(tls_argv, "--data-tls-mode"), "required")
+
+    def test_diagnostic_mmap_client_enables_per_range_backend_receipts(self):
+        test_root = Path("/__cpnetflux_unit_test__")
+        with patch.object(node, "IS_COMFORT", True), patch.object(
+                node, "IS_DIAG_VALIDATION", True), patch.object(
+                node, "slot", side_effect=lambda label: test_root / label):
+            argv, _ = node.cp_client_args("mmap", "unit-sample", 2)
+
+        self.assertEqual(argument(argv, "--phase-timing"), "on")
 
     def test_token_server_clear_and_tls_keep_identical_data_arguments(self):
         test_root = Path("/__cpnetflux_unit_test__")

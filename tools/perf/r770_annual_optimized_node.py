@@ -18,7 +18,7 @@ import r770_tcp_diag as diag
 
 SECURITY_RUN = "2026-11-24-r770-annual-5g-security-02"
 REVERSE_RUN = "2026-11-24-r770-annual-5g-reverse-02"
-COMFORT_DIAG_RUN = "2026-11-27-r770-tcp-diag-validation-01"
+COMFORT_DIAG_RUN = "2026-11-27-r770-tcp-diag-validation-02"
 COMFORT_SECURITY_RUN = "2026-11-27-r770-annual-comfort-security-1g-01"
 COMFORT_FORWARD_RUN = "2026-11-27-r770-annual-comfort-main-forward-1g-01"
 COMFORT_REVERSE_RUN = "2026-11-27-r770-annual-comfort-main-reverse-1g-01"
@@ -372,6 +372,7 @@ def cp_client_args(mode, label, server_host):
     auth = "anonymous" if mode == "mmap" else "token"
     peer = f"192.168.100.{server_host}"
     summary = OUT/(label + ".summary.json")
+    phase_timing = "on" if IS_DIAG_VALIDATION and download else "off"
     argv = [str(BUILD/f"cpnetflux-tree-{'download' if download else 'upload'}-client"),
             "--host", peer, "--port", "45596", "--local-bind-address", IP,
             "--source-dir", "source" if download else str(slot("source")),
@@ -382,7 +383,7 @@ def cp_client_args(mode, label, server_host):
             "--data-frame-bytes", "262144" if download else "65532", "--data-transport", "tcp",
             "--compression", "off", "--auth-mode", auth,
             "--tls-mode", tls, "--data-tls-mode", tls, "--reconnect-attempts", "0",
-            "--phase-timing", "off", "--json-summary", str(summary)]
+            "--phase-timing", phase_timing, "--json-summary", str(summary)]
     if download:
         argv += ["--final-verify-policy", "verified_chunks", "--commit-sync-policy", "none",
                  "--manifest-flush-policy", "every_n_chunks", "--manifest-flush-interval-chunks", "16",
