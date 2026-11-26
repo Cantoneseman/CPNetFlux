@@ -12,6 +12,7 @@ import time
 
 import r770_annual_optimized_node as node
 import run_r770_receive_cost as rx
+import r770_tcp_diag as diag
 
 OUT = node.OUT
 HOSTS = (1, 2)
@@ -97,35 +98,170 @@ def credentials():
         "gridmap_account":"Su"})
 
 
-def bounds(before, after, observations, check_tcp_retrans):
+def bounds(before, after, observations, require_resource_observations=False):
     errors, deltas, metrics = {}, {}, {}
     for host in HOSTS:
-        a,b = before[host],after[host]
-        readings = [a,*observations.get(host, []),b]
-        network, delta = rx.comparable(a,b)
-        tcp_retrans_delta = b["tcp_retrans"] - a["tcp_retrans"]
-        if check_tcp_retrans and tcp_retrans_delta:
-            network.append(f"tcp_retrans {tcp_retrans_delta:+d}")
-        extra = [reason for sample in readings for reason in rx.violations(a,sample)]
+        start = before[host]
+        end = after[host]
+        observed = observations.get(host, [])
+        readings = [start, *(item.get("resource", item) for item in observed), end]
+        network, delta = rx.comparable(start, end)
+        extra = [reason for sample in readings for reason in rx.violations(start, sample)]
         errors[host] = sorted(set(network + extra))
         deltas[host] = delta
         metrics[host] = {
-            "mem_available_min_kib":min(s["available_kib"] for s in readings),
-            "mem_free_min_kib":min(s["free_kib"] for s in readings),
-            "cpu_seconds":b["host_busy_cpu_s"]-a["host_busy_cpu_s"],
-            "tcp_retrans":tcp_retrans_delta,
-            "swapout_delta":b["pswpout"]-a["pswpout"],
-            "memory_full_stall_us":b["psi_full_us"]-a["psi_full_us"],
-            "inflight_observations":len(observations.get(host, [])),
+            "mem_available_min_kib": min(item["available_kib"] for item in readings),
+            "mem_free_min_kib": min(item["free_kib"] for item in readings),
+            "cpu_seconds": end["host_busy_cpu_s"] - start["host_busy_cpu_s"],
+            "tcp_retrans_diagnostic_only": end["tcp_retrans"] - start["tcp_retrans"],
+            "swapout_delta": end["pswpout"] - start["pswpout"],
+            "memory_full_stall_us": end["psi_full_us"] - start["psi_full_us"],
+            "resource_observations": sum("resource" in item for item in observed),
         }
+        if require_resource_observations and not metrics[host]["resource_observations"]:
+            errors[host].append("resource watcher produced no samples")
     return errors, deltas, metrics
 
+
+def _watch_socket_rows(records):
+    rows = []
+    for record in records:
+        if record.get("kind") == "sample":
+            rows.extend(record.get("sockets", []))
+        elif record.get("kind") == "destroy" and record.get("socket"):
+            rows.append(record["socket"])
+    return rows
+
+
+def socket_gate(records, host, label, expected_data_streams=4):
+    errors = []
+    ready = [item for item in records if item.get("kind") == "ready"]
+    stopped = [item for item in records if item.get("kind") == "stopped"]
+    observer_errors = [item for item in records if item.get("kind") == "observer_error"]
+
+    if len(ready) != 1:
+        errors.append("socket observer start handshake missing or duplicated")
+    elif (ready[0].get("handshake") != "start" or ready[0].get("observer") != "NETLINK_SOCK_DIAG"
+          or ready[0].get("host") != host or ready[0].get("run_id") != node.RUN
+          or ready[0].get("label") != label or not ready[0].get("observer_id")):
+        errors.append("socket observer start handshake does not match this sample")
+
+    if len(stopped) != 1:
+        errors.append("socket observer terminal handshake missing or duplicated")
+    elif (stopped[0].get("handshake") != "stop" or stopped[0].get("observer") != "NETLINK_SOCK_DIAG"
+          or stopped[0].get("host") != host or stopped[0].get("run_id") != node.RUN
+          or stopped[0].get("label") != label or not stopped[0].get("observer_id")):
+        errors.append("socket observer terminal handshake does not match this sample")
+    if len(ready) == 1 and len(stopped) == 1:
+        if ready[0].get("observer_id") != stopped[0].get("observer_id"):
+            errors.append("socket observer start/stop identities differ")
+        if stopped[0].get("event_loss_count") != 0:
+            errors.append("socket observer reported kernel event loss")
+        if stopped[0].get("drain_grace_seconds", 0) < 0.5:
+            errors.append("socket observer terminal drain grace was incomplete")
+    if observer_errors:
+        errors.append("socket observer reported an error")
+    if not any(item.get("kind") == "sample" for item in records):
+        errors.append("socket observer produced no snapshots")
+
+    socket_rows = _watch_socket_rows(records)
+    history = {}
+    terminal_rows = {}
+    for record in records:
+        if record.get("kind") == "destroy" and record.get("socket"):
+            socket = record["socket"]
+            if diag.is_tcp_flow_socket(socket) and diag.is_experiment_socket(socket):
+                terminal_rows[diag.socket_key(socket)] = socket
+
+    socket_rows = [row for row in socket_rows if diag.is_tcp_flow_socket(row)]
+    for row in sorted(socket_rows, key=lambda item: item.get("observed_at_ns", 0)):
+        if not diag.is_experiment_socket(row):
+            errors.append("observer included a socket outside the experiment filter")
+            continue
+        key = diag.socket_key(row)
+        if key[0] in (None, "", "0000000000000000", "ffffffffffffffff"):
+            errors.append("experimental socket has no usable socket cookie")
+        if (not row.get("tcp_info_present") or row.get("retrans_total") is None
+                or row.get("bytes_retrans") is None):
+            errors.append("experimental socket lacks TCP_INFO retransmission counters")
+            continue
+        prior = history.get(key, (0, 0))
+        retrans_delta = row["retrans_total"] - prior[0]
+        bytes_delta = row["bytes_retrans"] - prior[1]
+        if retrans_delta < 0 or bytes_delta < 0:
+            errors.append("socket TCP_INFO retransmission counter regressed")
+        elif retrans_delta or bytes_delta:
+            errors.append(
+                "socket retransmission {}->{} retrans_total +{}, bytes_retrans +{}".format(
+                    row["local_tuple"], row["peer_tuple"], retrans_delta, bytes_delta))
+        history[key] = (max(prior[0], row["retrans_total"]),
+                        max(prior[1], row["bytes_retrans"]))
+
+    if not history:
+        errors.append("no experiment TCP sockets observed")
+
+    data_rows = {}
+    for row in socket_rows:
+        if diag.is_experiment_socket(row) and diag.is_data_socket(row):
+            key = diag.socket_key(row)
+            previous = data_rows.get(key)
+            if previous is None or row.get("observed_at_ns", 0) >= previous.get("observed_at_ns", 0):
+                data_rows[key] = row
+
+    data_keys = set(data_rows)
+    if len(data_keys) != expected_data_streams:
+        errors.append("expected {} distinct data sockets, observed {}".format(
+            expected_data_streams, len(data_keys)))
+    missing_terminal = data_keys - set(terminal_rows)
+    if missing_terminal:
+        errors.append("{} data socket destroy terminal(s) missing".format(len(missing_terminal)))
+
+    data_flows = []
+    for key, row in sorted(data_rows.items(), key=lambda item: (
+            item[1]["local_ip"], item[1]["local_port"],
+            item[1]["peer_ip"], item[1]["peer_port"])):
+        terminal = terminal_rows.get(key)
+        data_flows.append({
+            "socket_cookie": row["socket_cookie"],
+            "local_ip": row["local_ip"],
+            "local_port": row["local_port"],
+            "peer_ip": row["peer_ip"],
+            "peer_port": row["peer_port"],
+            "local_tuple": row["local_tuple"],
+            "peer_tuple": row["peer_tuple"],
+            "terminal_event": terminal,
+        })
+
+    return {
+        "host": host,
+        "errors": sorted(set(errors)),
+        "socket_count": len(history),
+        "destroy_event_count": len(terminal_rows),
+        "data_flows": data_flows,
+        "observer_ready": len(ready) == 1,
+        "observer_stopped": len(stopped) == 1,
+        "event_loss_count": stopped[0].get("event_loss_count") if len(stopped) == 1 else None,
+    }
+
+
+def socket_pair_errors(gates):
+    local = {
+        (row["local_ip"], row["local_port"], row["peer_ip"], row["peer_port"])
+        for row in gates[1]["data_flows"]
+    }
+    peer_reversed = {
+        (row["peer_ip"], row["peer_port"], row["local_ip"], row["local_port"])
+        for row in gates[2]["data_flows"]
+    }
+    if local != peer_reversed:
+        return ["R1/R2 data socket 4-tuple coverage does not match"]
+    return []
 
 def idle(seconds=6):
     start=both("snapshot")
     time.sleep(seconds)
     end=both("snapshot")
-    failures, _, _=bounds(start,end,{},check_tcp_retrans=False)
+    failures, _, _ = bounds(start, end, {})
     if any(failures.values()):
         raise RuntimeError("idle gates: " + str(failures))
     for host in HOSTS:
@@ -136,6 +272,9 @@ def idle(seconds=6):
 def prepare_preflight(commit):
     if OUT.exists():
         raise FileExistsError("annual evidence directory already exists: " + str(OUT))
+    availability = both("run-available")
+    if any(not availability[host]["available"] for host in HOSTS):
+        raise FileExistsError("annual run path, payload root or credentials already exists")
     initial = both("identity")
     builds = both("receipt", commit)
     if builds[1] != builds[2]:
@@ -218,28 +357,140 @@ def validate_cp(row, receipt, mode, sender, receiver, size):
             raise ValueError("CPNetFlux per-lane application pacing receipt mismatch")
 
 
-def transfer(label, mode, sender, receiver):
-    paths={host:OUT/f"{label}.r{host}.watch.jsonl" for host in HOSTS}
-    watchers={}
-    try:
-        for host,path in paths.items():
-            with path.open("x") as stream:
-                watchers[host]=subprocess.Popen(argv(host,"watch"), stdout=stream, stderr=subprocess.DEVNULL)
-        until=time.monotonic()+5
-        while not all(path.stat().st_size for path in paths.values()):
-            if time.monotonic()>until or any(p.poll() is not None for p in watchers.values()):
-                raise RuntimeError("resource watcher startup")
-            time.sleep(.025)
-        if mode in GRID:
-            return call(1,"grid-client",mode,label,sender,receiver)
-        client, server = (receiver,sender) if node.cp_download_mode(mode) else (sender,receiver)
-        return call(client,"cp-client",mode,label,server)
-    finally:
-        for proc in watchers.values():
-            proc.terminate()
-        for proc in watchers.values():
-            proc.wait(timeout=5)
+def read_watch_records(path, allow_partial=False):
+    records = []
+    content = path.read_text()
+    lines = content.splitlines(keepends=True)
+    for line_number, line in enumerate(lines, 1):
+        if not line.endswith("\n"):
+            if allow_partial and line_number == len(lines):
+                break
+            raise RuntimeError("unterminated socket watcher record at {}:{}".format(
+                path, line_number))
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError as error:
+            raise RuntimeError("invalid socket watcher JSON at {}:{}".format(
+                path, line_number)) from error
+    return records
 
+
+def wait_for_watcher_ready(host, path, process, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        records = read_watch_records(path, allow_partial=True) if path.exists() else []
+        if any(item.get("kind") == "observer_error" for item in records):
+            raise RuntimeError("R{} socket watcher failed before ready".format(host))
+        ready = [item for item in records if item.get("kind") == "ready"]
+        if ready:
+            item = ready[0]
+            if (item.get("host") != host or item.get("run_id") != node.RUN
+                    or item.get("label") != path.name.split(".r{}".format(host))[0]):
+                raise RuntimeError("R{} socket watcher start handshake mismatch".format(host))
+            return item
+        if process.poll() is not None:
+            raise RuntimeError("R{} socket watcher exited before ready: {}".format(
+                host, process.returncode))
+        time.sleep(0.025)
+    raise RuntimeError("R{} socket watcher ready timeout".format(host))
+
+
+def _append_handshake(path, row):
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(row) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def transfer(label, mode, sender, receiver):
+    paths = {host: OUT / "{}.r{}.watch.jsonl".format(label, host) for host in HOSTS}
+    stderr_paths = {host: OUT / "{}.r{}.watch.stderr.log".format(label, host) for host in HOSTS}
+    handshake_path = OUT / (label + ".watch-handshake.jsonl")
+    watchers = {}
+    streams = {}
+    stderr_streams = {}
+    transfer_result = None
+    transfer_error = None
+    started = {}
+    stopped = {}
+    stop_errors = []
+    with handshake_path.open("x", encoding="utf-8") as handshake:
+        handshake.write(json.dumps({
+            "phase": "launch", "label": label, "run_id": node.RUN,
+            "requested_at_ns": time.time_ns(),
+        }) + "\n")
+        handshake.flush()
+        os.fsync(handshake.fileno())
+    try:
+        for host in HOSTS:
+            streams[host] = paths[host].open("xb", buffering=0)
+            stderr_streams[host] = stderr_paths[host].open("xb", buffering=0)
+            watchers[host] = subprocess.Popen(
+                argv(host, "watch", label), stdin=subprocess.DEVNULL,
+                stdout=streams[host], stderr=stderr_streams[host])
+        for host in HOSTS:
+            started[host] = wait_for_watcher_ready(host, paths[host], watchers[host])
+        _append_handshake(handshake_path, {
+            "phase": "start", "label": label, "run_id": node.RUN,
+            "ready_at_ns": time.time_ns(), "observers": started,
+        })
+        if mode in GRID:
+            transfer_result = call(1, "grid-client", mode, label, sender, receiver)
+        else:
+            client, server = (receiver, sender) if node.cp_download_mode(mode) else (sender, receiver)
+            transfer_result = call(client, "cp-client", mode, label, server)
+    except Exception as error:
+        transfer_error = error
+    finally:
+        for host in watchers:
+            try:
+                call(host, "watch-stop", label)
+            except Exception as error:
+                stop_errors.append("R{} stop request: {}".format(host, error))
+        for host, process in watchers.items():
+            try:
+                process.wait(timeout=12)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+                stop_errors.append("R{} socket observer did not stop cleanly".format(host))
+            if process.returncode != 0:
+                stop_errors.append("R{} socket observer exit {}".format(host, process.returncode))
+        for stream in streams.values():
+            stream.close()
+        for stream in stderr_streams.values():
+            stream.close()
+        for host in watchers:
+            if paths[host].exists():
+                try:
+                    records = read_watch_records(paths[host])
+                    rows = [item for item in records if item.get("kind") == "stopped"]
+                    if len(rows) == 1:
+                        stopped[host] = rows[0]
+                    if not any(item.get("kind") == "ready" for item in records):
+                        stop_errors.append("R{} socket observer never completed start handshake".format(host))
+                except Exception as error:
+                    stop_errors.append("R{} socket evidence parse: {}".format(host, error))
+        _append_handshake(handshake_path, {
+            "phase": "stop", "label": label, "run_id": node.RUN,
+            "stopped_at_ns": time.time_ns(), "observers": stopped,
+            "stop_errors": stop_errors,
+        })
+        if stop_errors and transfer_error is None:
+            transfer_error = RuntimeError("; ".join(stop_errors))
+    if transfer_error is not None:
+        raise transfer_error
+    if transfer_result is None:
+        raise RuntimeError("transfer client produced no result")
+    transfer_result["socket_watch_paths"] = {host: str(path) for host, path in paths.items()}
+    transfer_result["socket_watch_handshake_path"] = str(handshake_path)
+    transfer_result["socket_observer_start"] = started
+    transfer_result["socket_observer_stop"] = stopped
+    return transfer_result
 
 def sample(group, index, mode, sender, expected):
     receiver=3-sender
@@ -247,6 +498,10 @@ def sample(group, index, mode, sender, expected):
     row = dict(group=group,index=index,label=label,mode=mode,sender=sender,receiver=receiver,
                payload_bytes=expected["bytes"],decision="rejected")
     server = sender if node.cp_download_mode(mode) else receiver
+    row["socket_evidence_paths"] = {
+        host: str(OUT / "{}.r{}.watch.jsonl".format(label, host)) for host in HOSTS
+    }
+    row["socket_handshake_path"] = str(OUT / (label + ".watch-handshake.jsonl"))
     if node.IS_COMFORT and mode in node.CP_MODES:
         row["profile"] = node.comfort_profile(mode)
     folder_ready = False
@@ -263,12 +518,25 @@ def sample(group, index, mode, sender, expected):
         immediate=both("snapshot")
         time.sleep(.35)
         after=both("snapshot")
-        readings={}
+        watch_records = {}
+        resource_readings = {}
         for host in HOSTS:
-            path=OUT/f"{label}.r{host}.watch.jsonl"
-            readings[host]=[json.loads(s) for s in path.read_text().splitlines() if s.endswith("}")]
-        errors,deltas,metrics=bounds(before,after,readings,check_tcp_retrans=True)
-        row.update(immediate=immediate,after=after,gate_errors=errors,interface_deltas=deltas,metrics=metrics)
+            path = OUT / f"{label}.r{host}.watch.jsonl"
+            watch_records[host] = read_watch_records(path)
+            resource_readings[host] = [item for item in watch_records[host]
+                                       if item.get("kind") == "sample"]
+        errors, deltas, metrics = bounds(
+            before, after, resource_readings, require_resource_observations=True)
+        socket_gates = {host: socket_gate(watch_records[host], host, label) for host in HOSTS}
+        pair_errors = socket_pair_errors(socket_gates)
+        for host in HOSTS:
+            errors[host].extend(socket_gates[host]["errors"])
+            if pair_errors:
+                errors[host].extend(pair_errors)
+        row.update(immediate=immediate, after=after, gate_errors=errors,
+                   interface_deltas=deltas, metrics=metrics, socket_gate=socket_gates,
+                   socket_pair_errors=pair_errors, socket_evidence_paths={
+                       host: str(OUT / f"{label}.r{host}.watch.jsonl") for host in HOSTS})
         if mode in GRID:
             receipts={sender:call(sender,"grid-receipt",mode,label,"RETR"),
                       receiver:call(receiver,"grid-receipt",mode,label,"STOR")}
@@ -285,7 +553,7 @@ def sample(group, index, mode, sender, expected):
         row["target"]=actual
         if (actual["sha256"],actual["bytes"])!=(expected["sha256"],expected["bytes"]):
             raise ValueError("target SHA or size is wrong")
-        if any(errors.values()) or any(not x for x in readings.values()):
+        if any(errors.values()):
             raise ValueError("memory/network gate: " + str(errors))
         if min(deltas[sender]["tx_bytes"],deltas[receiver]["rx_bytes"]) < expected["bytes"]:
             raise ValueError("interface did not carry logical payload")
@@ -346,8 +614,10 @@ def main():
     stage, commit = sys.argv[1:3]
     expected_sha = sys.argv[3] if len(sys.argv) > 3 else None
     run_names = ({"security": node.COMFORT_SECURITY_RUN, "forward": node.COMFORT_FORWARD_RUN,
-                  "reverse": node.COMFORT_REVERSE_RUN} if node.IS_COMFORT else
+                  "reverse": node.COMFORT_REVERSE_RUN} if node.RUN in node.COMFORT_RUNS else
                  {"security": node.SECURITY_RUN, "reverse": node.REVERSE_RUN})
+    if node.IS_DIAG_VALIDATION:
+        run_names = {"validate": node.COMFORT_DIAG_RUN}
     if node.RUN != run_names[stage] or node.HOST != 1:
         raise ValueError("stage, controller node or run directory mismatch")
     if stage == "reverse":
@@ -359,6 +629,9 @@ def main():
         for host in HOSTS:
             call(host, "prepare")
             prepared.append(host)
+        if stage == "validate":
+            loopback = {host: call(host, "diag-selftest") for host in HOSTS}
+            record("socket-diag-loopback", loopback)
         credentials()
         for host in HOSTS:
             for mode in (("grid", "anon") if stage == "security" else ("grid",)):
@@ -369,7 +642,9 @@ def main():
             raise RuntimeError("8 MiB authentication/data mode smoke stopped")
         if expected_sha is None and not node.IS_COMFORT:
             expected_sha = "867c60a763149bef989bd4f23ee180ee83022256ed1518841f6ee2e41b45f8c0"
-        if stage == "security":
+        if stage == "validate":
+            done = True
+        elif stage == "security":
             done = sequence("security-formal", 2, sum(SECURITY_BLOCKS, ()), node.SIZE, expected_sha)
         elif stage == "forward":
             done = sequence("main-forward-formal", 2, FORWARD_ORDER, node.SIZE, expected_sha)

@@ -14,17 +14,20 @@ import sys
 import time
 
 import run_r770_receive_cost as rx
+import r770_tcp_diag as diag
 
 SECURITY_RUN = "2026-11-24-r770-annual-5g-security-02"
 REVERSE_RUN = "2026-11-24-r770-annual-5g-reverse-02"
-COMFORT_SECURITY_RUN = "2026-11-26-r770-annual-comfort-security-1g-02"
-COMFORT_FORWARD_RUN = "2026-11-26-r770-annual-comfort-main-forward-1g-02"
-COMFORT_REVERSE_RUN = "2026-11-26-r770-annual-comfort-main-reverse-1g-02"
+COMFORT_DIAG_RUN = "2026-11-26-r770-tcp-diag-validation-01"
+COMFORT_SECURITY_RUN = "2026-11-26-r770-annual-comfort-security-1g-03"
+COMFORT_FORWARD_RUN = "2026-11-26-r770-annual-comfort-main-forward-1g-03"
+COMFORT_REVERSE_RUN = "2026-11-26-r770-annual-comfort-main-reverse-1g-03"
 COMFORT_RUNS = (COMFORT_SECURITY_RUN, COMFORT_FORWARD_RUN, COMFORT_REVERSE_RUN)
 RUN_SIZES = {
     "2026-11-24-r770-annual-optimized-5g-01": 5 * 2**30,
     SECURITY_RUN: 5 * 2**30,
     REVERSE_RUN: 5 * 2**30,
+    COMFORT_DIAG_RUN: 8 * 2**20,
     COMFORT_SECURITY_RUN: 2**30,
     COMFORT_FORWARD_RUN: 2**30,
     COMFORT_REVERSE_RUN: 2**30,
@@ -40,7 +43,8 @@ SIZE = RUN_SIZES[RUN]
 SMOKE = 8 * 2**20
 MODES = ("mmap", "grid", "private", "anon", "clear", "tls")
 CP_MODES = ("mmap", "clear", "tls")
-IS_COMFORT = RUN in COMFORT_RUNS
+IS_COMFORT = RUN in COMFORT_RUNS or RUN == COMFORT_DIAG_RUN
+IS_DIAG_VALIDATION = RUN == COMFORT_DIAG_RUN
 HOST = rx.baseline.node()
 IP = f"192.168.100.{HOST}"
 
@@ -292,6 +296,11 @@ def clean():
         rx.baseline.check_root(ROOT)
         (ROOT/rx.baseline.MARKER).unlink()
         ROOT.rmdir()
+    for marker in OUT.glob("*.watch.stop"):
+        identity = marker.lstat()
+        if not stat.S_ISREG(identity.st_mode) or identity.st_uid != os.getuid() or identity.st_nlink != 1:
+            raise RuntimeError("foreign watcher stop marker")
+        marker.unlink()
     if CRED.exists():
         if CRED.parent != OUT or CRED.is_symlink() or CRED.stat().st_uid != os.getuid():
             raise RuntimeError("foreign credential directory")
@@ -418,6 +427,100 @@ def target_sha(mode, label, size):
     return result
 
 
+def watch_stop_path(label):
+    return OUT / f"{label}.r{HOST}.watch.stop"
+
+
+def request_watch_stop(label):
+    path = watch_stop_path(label)
+    with path.open("x") as stream:
+        stream.write("stop\n")
+    return {"stop_requested": True, "path": str(path)}
+
+
+def run_socket_watcher(label):
+    stop_path = watch_stop_path(label)
+    observer = None
+    observer_id = "R{}:{}:{}".format(HOST, os.getpid(), time.time_ns())
+    snapshot_count = 0
+    destroy_event_count = 0
+    selected_socket_count = 0
+    stop_seen_at = None
+
+    def emit_sample():
+        nonlocal snapshot_count, selected_socket_count
+        rows = [row for row in observer.snapshot() if diag.is_experiment_socket(row)]
+        observed_at_ns = time.time_ns()
+        emit({"kind": "sample", "host": HOST, "run_id": RUN, "label": label,
+              "observer_id": observer_id, "observed_at_ns": observed_at_ns,
+              "resource": rx.resource_sample(), "sockets": rows})
+        snapshot_count += 1
+        selected_socket_count += len(rows)
+
+    def emit_destroy_events():
+        nonlocal destroy_event_count, selected_socket_count
+        for row in observer.drain_destroy_events():
+            if diag.is_experiment_socket(row):
+                emit({"kind": "destroy", "host": HOST, "run_id": RUN, "label": label,
+                      "observer_id": observer_id, "observed_at_ns": row["observed_at_ns"],
+                      "socket": row})
+                destroy_event_count += 1
+                selected_socket_count += 1
+
+    def validate_stop_marker():
+        identity = stop_path.lstat()
+        if (not stat.S_ISREG(identity.st_mode) or identity.st_uid != os.getuid()
+                or identity.st_nlink != 1 or stop_path.read_text() != "stop\n"):
+            raise RuntimeError("watch stop marker has foreign ownership or content")
+
+    try:
+        observer = diag.SocketDiagObserver()
+        baseline = [row for row in observer.snapshot() if diag.is_experiment_socket(row)]
+        emit({"kind": "ready", "handshake": "start", "host": HOST, "run_id": RUN,
+              "label": label, "observer": "NETLINK_SOCK_DIAG",
+              "observer_id": observer_id,
+              "destroy_group": diag.SKNLGRP_INET_TCP_DESTROY,
+              "subscribed_at_ns": observer.subscribed_at_ns,
+              "event_socket_rcvbuf_bytes": observer.event_socket_rcvbuf_bytes,
+              "dump_socket_rcvbuf_bytes": observer.dump_socket_rcvbuf_bytes,
+              "baseline_experiment_sockets": len(baseline)})
+        emit({"kind": "sample", "host": HOST, "run_id": RUN, "label": label,
+              "observer_id": observer_id, "observed_at_ns": time.time_ns(),
+              "resource": rx.resource_sample(), "sockets": baseline})
+        snapshot_count += 1
+        selected_socket_count += len(baseline)
+
+        while True:
+            emit_destroy_events()
+            emit_sample()
+            if stop_path.exists():
+                validate_stop_marker()
+                if stop_seen_at is None:
+                    stop_seen_at = time.monotonic()
+                if time.monotonic() - stop_seen_at >= 0.5:
+                    emit_sample()
+                    emit_destroy_events()
+                    validate_stop_marker()
+                    stop_path.unlink()
+                    emit({"kind": "stopped", "handshake": "stop", "host": HOST,
+                          "run_id": RUN, "label": label, "observer": "NETLINK_SOCK_DIAG",
+                          "observer_id": observer_id, "snapshot_count": snapshot_count,
+                          "destroy_event_count": destroy_event_count,
+                          "selected_socket_observations": selected_socket_count,
+                          "event_loss_count": 0, "drain_grace_seconds": 0.5,
+                          "stopped_at_ns": time.time_ns()})
+                    return 0
+            time.sleep(0.1)
+    except Exception as error:
+        emit({"kind": "observer_error", "host": HOST, "run_id": RUN, "label": label,
+              "observer_id": observer_id, "error": "{}: {}".format(type(error).__name__, error),
+              "event_loss_count": 1, "observed_at_ns": time.time_ns()})
+        return 2
+    finally:
+        if observer is not None:
+            observer.close()
+
+
 def emit(value):
     print(json.dumps(value), flush=True)
 
@@ -425,17 +528,21 @@ def emit(value):
 def main():
     action, *args = sys.argv[1:]
     if action == "watch":
-        while True:
-            emit(rx.resource_sample())
-            time.sleep(.075)
-        return
-    if action in ("mkdir","remove","stop","cp-receipt") and not re.fullmatch("[a-z0-9-]+", args[0]):
+        if len(args) != 1 or not re.fullmatch("[a-z0-9-]+", args[0]):
+            raise ValueError("invalid watcher label")
+        return run_socket_watcher(args[0])
+    if action == "diag-selftest":
+        emit(diag.loopback_destroy_selftest())
+        return 0
+    if action in ("mkdir","remove","stop","cp-receipt","watch-stop") and not re.fullmatch("[a-z0-9-]+", args[0]):
         raise ValueError("invalid slot")
     if action in ("service","grid-client","cp-client","grid-receipt","sha") and (
             args[0] not in MODES or not re.fullmatch("[a-z0-9-]+", args[1])):
         raise ValueError("invalid mode or slot")
     actions = {
         "prepare": prepare, "snapshot": rx.snapshot, "identity": rx.identity,
+        "run-available": lambda: {"run": RUN, "available": not OUT.exists() and not ROOT.exists() and not CRED.exists()},
+        "watch-stop": request_watch_stop,
         "receipt": rx.build_receipt, "seed": lambda s: seed(int(s)),
         "remove": clean_slot, "remove-upload-manifest": remove_upload_manifest,
         "mkdir": lambda label: slot(label).mkdir(),
@@ -449,4 +556,4 @@ def main():
 
 if __name__ == "__main__":
     os.umask(0o077)
-    main()
+    sys.exit(main())

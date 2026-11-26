@@ -46,3 +46,30 @@ CPNetFlux 的主对比和两个安全臂统一使用 V3/TCP、四条数据流、
 本次使用新的唯一 run ID，security 为 `2026-11-26-r770-annual-comfort-security-1g-02`，正向为 `2026-11-26-r770-annual-comfort-main-forward-1g-02`，反向为 `2026-11-26-r770-annual-comfort-main-reverse-1g-02`。此前预检中止记录保留在 `/home/Su/experiments/CPNetFlux/2026-11-26-r770-annual-preflight-abort-01/`，不并入新 run。
 
 本次受影响文件为 runner、对应纯单测、节点 run ID 清单和本任务范围记录。CPNetFlux 传输逻辑、网络配置、样本阈值与舒适区参数均不变。
+## 2026-11-26 TCP socket 终态观测修正
+
+### 范围
+
+修正年度 runner 的 TCP 重传证据来源。使用双端 NETLINK_SOCK_DIAG IPv4 TCP destroy multicast 记录 socket 关闭时的 INET_DIAG_INFO，并以 TCP_INFO 中的 `tcpi_total_retrans` 和 `tcpi_bytes_retrans` 作传输样本硬门。周期 diag dump 保留活动 socket 快照，补充启动/停止握手、观测时间、4-tuple、socket cookie、事件丢失状态和四条数据流覆盖审计。主机级 Tcp.RetransSegs 只留诊断值，不参与空载或样本拒收。
+
+### 非目标
+
+不修改 CPNetFlux 生产协议、数据路径、舒适区参数、NIC/路由/系统设置或既有硬门。保留所有过往失败样本和报告。先完成回环短连接、GridFTP 与 CPNetFlux 的 socket 事件覆盖准入，全部通过后再运行新的完整 1 GiB 年度矩阵。
+
+### 验收标准
+
+- 纯解析和 runner 单测覆盖管理 SSH/2121 排除、实验端口筛选、destroy 终态事件、socket 在开始与结束间关闭、重传增量拒收、无实验 socket、事件丢失、终态缺失和四条数据流覆盖。
+- 双端 observer 均完成订阅 ready 与 stop/drain 握手。NETLINK 过载、截断、observer 异常退出、样本无实验 socket 或任一预期数据流缺少双端活动及终态证据时拒收。
+- R1 py_compile、runner 单测与相关 CTest 通过。改动在 R1 精确提交并推送后，R2 同提交同配置构建通过，server/upload/download 二进制 SHA-256 一致。
+- 新的唯一验证 run 中短连接、GridFTP 四数据流和 CPNetFlux 四数据流均留下双端 4-tuple/socket-cookie/TCP_INFO 证据。任何验证门未通过，不启动年度 1 GiB 矩阵。
+- 完成验证后使用未使用过的新 annual run ID，原 1 GiB 安全臂与双向主比较保持原样本数、顺序、参数和其余硬门。失败证据不纳入速率统计。
+
+### 预期受影响文件
+
+- tools/perf/r770_annual_optimized_node.py
+- tools/perf/r770_annual_optimized_runner.py
+- tools/perf/test_r770_annual_optimized_runner.py
+- 本任务范围和结果报告
+- 本轮新 run 目录中的 observer/样本证据
+
+代码输入提交为 `61a77951c419b8d0a5a2f7e1ae6a8c7ec9c2a57a`。验证 run ID 规划为 `2026-11-26-r770-tcp-diag-validation-01`，正式年度矩阵 run ID 规划为 security/forward/reverse `...-1g-03`。

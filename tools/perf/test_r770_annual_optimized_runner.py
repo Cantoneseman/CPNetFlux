@@ -1,3 +1,5 @@
+import socket
+import struct
 import sys
 import unittest
 from collections import Counter
@@ -8,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import r770_annual_optimized_node as node
 import r770_annual_optimized_runner as runner
+import r770_tcp_diag as diag
 
 
 def argument(argv, name):
@@ -43,7 +46,191 @@ def network_snapshot(tcp_retrans):
     }
 
 
+def flow_row(host, index, state=1, cookie=None, tcp_info_present=True):
+    if host == 1:
+        local_ip, local_port = "192.168.100.1", 61350 + index
+        peer_ip, peer_port = "192.168.100.2", 46000 + index
+    else:
+        local_ip, local_port = "192.168.100.2", 46000 + index
+        peer_ip, peer_port = "192.168.100.1", 61350 + index
+    return {
+        "source": "snapshot",
+        "observed_at_ns": 100,
+        "local_ip": local_ip,
+        "local_port": local_port,
+        "peer_ip": peer_ip,
+        "peer_port": peer_port,
+        "local_tuple": f"{local_ip}:{local_port}",
+        "peer_tuple": f"{peer_ip}:{peer_port}",
+        "socket_cookie": cookie or f"{host:04x}{index + 1:012x}",
+        "tcp_state": state,
+        "tcp_state_name": {1: "ESTABLISHED", 6: "TIME_WAIT", 7: "CLOSE",
+                            10: "LISTEN", 12: "NEW_SYN_RECV"}.get(state, "STATE"),
+        "tcp_info_present": tcp_info_present,
+        "retrans_total": 0 if tcp_info_present else None,
+        "bytes_retrans": 0 if tcp_info_present else None,
+    }
+
+
+def watcher_records(host, missing_terminal=None, extra_sockets=()):
+    observer_id = f"observer-{host}"
+    sockets = [flow_row(host, index) for index in range(4)]
+    records = [{
+        "kind": "ready", "handshake": "start", "observer": "NETLINK_SOCK_DIAG",
+        "host": host, "run_id": node.RUN, "label": "sample", "observer_id": observer_id,
+    }, {
+        "kind": "sample", "observed_at_ns": 100, "sockets": sockets + list(extra_sockets),
+    }]
+    for index, row in enumerate(sockets):
+        if index == missing_terminal:
+            continue
+        terminal = dict(row, source="destroy_event", observed_at_ns=200,
+                        tcp_state=7, tcp_state_name="CLOSE")
+        records.append({"kind": "destroy", "socket": terminal})
+    records.append({
+        "kind": "stopped", "handshake": "stop", "observer": "NETLINK_SOCK_DIAG",
+        "host": host, "run_id": node.RUN, "label": "sample", "observer_id": observer_id,
+        "event_loss_count": 0, "drain_grace_seconds": 0.5,
+    })
+    return records
+
+
 class AnnualComfortRunnerTests(unittest.TestCase):
+    def test_socket_diag_parser_extracts_cookie_and_tcp_info_counters(self):
+        message = bytearray(diag.SOCKET_DIAG_HEADER_BYTES)
+        struct.pack_into("=BBBB", message, 0, socket.AF_INET, 1, 0, 0)
+        struct.pack_into("!HH", message, 4, 61350, 46000)
+        message[8:12] = socket.inet_aton("192.168.100.1")
+        message[24:28] = socket.inet_aton("192.168.100.2")
+        struct.pack_into("=II", message, 44, 0x00001004, 0)
+        info = bytearray(280)
+        struct.pack_into("=I", info, 100, 7)
+        struct.pack_into("=Q", info, 208, 8192)
+        attribute = struct.pack("=HH", 4 + len(info), diag.INET_DIAG_INFO) + info
+
+        row = diag.parse_inet_diag_message(message + attribute)
+
+        self.assertEqual(row["socket_cookie"], "0000100400000000")
+        self.assertEqual(row["tcp_state_name"], "ESTABLISHED")
+        self.assertEqual(row["retrans_total"], 7)
+        self.assertEqual(row["bytes_retrans"], 8192)
+
+    def test_diag_filter_excludes_management_and_resident_ports(self):
+        data = flow_row(1, 0)
+        self.assertTrue(diag.is_experiment_socket(data))
+        self.assertTrue(diag.is_data_socket(data))
+        for port in (22, 2121):
+            management = dict(data, local_port=port)
+            self.assertFalse(diag.is_experiment_socket(management))
+        management_host = dict(data, peer_ip="192.168.1.109")
+        self.assertFalse(diag.is_experiment_socket(management_host))
+
+    def test_socket_gate_ignores_time_wait_and_new_syn_recv_pseudo_sockets(self):
+        real = flow_row(1, 0)
+        time_wait = dict(real, source="snapshot", socket_cookie="0000100400000000",
+                         tcp_state=diag.TCP_TIME_WAIT, tcp_state_name="TIME_WAIT",
+                         tcp_info_present=False, retrans_total=None, bytes_retrans=None)
+        new_syn_recv = dict(real, source="snapshot", socket_cookie="ffffffffffffffff",
+                            tcp_state=diag.TCP_NEW_SYN_RECV, tcp_state_name="NEW_SYN_RECV",
+                            tcp_info_present=False,
+                            retrans_total=None, bytes_retrans=None)
+        records = watcher_records(1, extra_sockets=(time_wait, new_syn_recv))
+
+        gate = runner.socket_gate(records, 1, "sample")
+
+        self.assertEqual(gate["errors"], [])
+        self.assertEqual(gate["socket_count"], 4)
+        self.assertEqual(len(gate["data_flows"]), 4)
+
+    def test_destroy_event_covers_socket_closed_between_snapshots(self):
+        records = watcher_records(1)
+        sample = next(item for item in records if item["kind"] == "sample")
+        sample["sockets"] = [row for row in sample["sockets"] if row["local_port"] != 61353]
+
+        gate = runner.socket_gate(records, 1, "sample")
+
+        self.assertEqual(gate["errors"], [])
+        self.assertEqual(len(gate["data_flows"]), 4)
+
+    def test_socket_gate_rejects_event_loss(self):
+        records = watcher_records(1)
+        stopped = next(item for item in records if item["kind"] == "stopped")
+        stopped["event_loss_count"] = 1
+
+        gate = runner.socket_gate(records, 1, "sample")
+
+        self.assertTrue(any("kernel event loss" in error for error in gate["errors"]))
+
+    def test_socket_gate_rejects_missing_terminal_handshake(self):
+        records = [item for item in watcher_records(1) if item["kind"] != "stopped"]
+
+        gate = runner.socket_gate(records, 1, "sample")
+
+        self.assertTrue(any("terminal handshake missing" in error for error in gate["errors"]))
+
+    def test_socket_gate_rejects_no_experiment_sockets(self):
+        records = watcher_records(1)
+        records = [item for item in records if item["kind"] in ("ready", "stopped")]
+        records.append({"kind": "sample", "sockets": []})
+
+        gate = runner.socket_gate(records, 1, "sample")
+
+        self.assertTrue(any("no experiment TCP sockets observed" in error
+                            for error in gate["errors"]))
+
+    def test_socket_gate_rejects_unusable_cookie(self):
+        records = watcher_records(1)
+        sample = next(item for item in records if item["kind"] == "sample")
+        sample["sockets"][0]["socket_cookie"] = "ffffffffffffffff"
+
+        gate = runner.socket_gate(records, 1, "sample")
+
+        self.assertTrue(any("no usable socket cookie" in error for error in gate["errors"]))
+
+    def test_socket_gate_requires_real_data_socket_destroy_terminals(self):
+        gate = runner.socket_gate(
+            watcher_records(1, missing_terminal=3), 1, "sample")
+
+        self.assertTrue(any("data socket destroy terminal(s) missing" in error
+                            for error in gate["errors"]))
+
+    def test_socket_gate_rejects_tcp_info_retransmission_delta(self):
+        records = watcher_records(1)
+        sample = next(item for item in records if item["kind"] == "sample")
+        sample["sockets"][0]["retrans_total"] = 1
+        sample["sockets"][0]["bytes_retrans"] = 1448
+
+        gate = runner.socket_gate(records, 1, "sample")
+
+        self.assertTrue(any("socket retransmission" in error for error in gate["errors"]))
+
+    def test_socket_gate_rejects_incomplete_four_stream_coverage(self):
+        records = watcher_records(1, missing_terminal=3)
+        sample = next(item for item in records if item["kind"] == "sample")
+        sample["sockets"] = [row for row in sample["sockets"] if row["local_port"] != 61353]
+
+        gate = runner.socket_gate(records, 1, "sample")
+
+        self.assertTrue(any("expected 4 distinct data sockets, observed 3" in error
+                            for error in gate["errors"]))
+
+    def test_socket_pair_comparison_requires_matching_reversed_four_tuples(self):
+        gates = {
+            host: runner.socket_gate(watcher_records(host), host, "sample")
+            for host in runner.HOSTS
+        }
+        self.assertEqual(runner.socket_pair_errors(gates), [])
+        gates[2]["data_flows"][0]["peer_port"] += 1
+        self.assertTrue(runner.socket_pair_errors(gates))
+
+    def test_loopback_destroy_multicast_has_both_tcp_info_terminals(self):
+        result = diag.loopback_destroy_selftest()
+
+        self.assertEqual(result["payload_bytes"], 1)
+        self.assertEqual(len(result["destroy_events"]), 2)
+        self.assertEqual({row["tcp_state_name"] for row in result["destroy_events"]}, {"CLOSE"})
+        self.assertTrue(all(row["tcp_info_present"] for row in result["destroy_events"]))
+
     def test_run_sizes_keep_legacy_and_add_exact_one_gib(self):
         self.assertEqual(node.RUN_SIZES[node.SECURITY_RUN], 5 * 2**30)
         for run in node.COMFORT_RUNS:
@@ -107,27 +294,26 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(Counter(runner.FORWARD_ORDER), {"grid": 5, "mmap": 5})
         self.assertEqual(Counter(runner.REVERSE_ORDER), {"grid": 5, "mmap": 5})
 
-    def test_sample_tcp_retrans_zero_delta_passes(self):
+    def test_sample_host_tcp_retrans_zero_delta_is_diagnostic(self):
         before = {host: network_snapshot(100) for host in runner.HOSTS}
         after = {host: network_snapshot(100) for host in runner.HOSTS}
         watch = {key: value for key, value in network_snapshot(100).items()
                  if key not in ("counters", "tcp_retrans", "host_busy_cpu_s")}
 
         errors, _, metrics = runner.bounds(
-            before, after, {host: [watch] for host in runner.HOSTS}, check_tcp_retrans=True)
+            before, after, {host: [watch] for host in runner.HOSTS})
 
         self.assertEqual(errors, {1: [], 2: []})
-        self.assertEqual(metrics[1]["tcp_retrans"], 0)
+        self.assertEqual(metrics[1]["tcp_retrans_diagnostic_only"], 0)
 
-    def test_sample_tcp_retrans_increment_is_rejected(self):
+    def test_sample_host_tcp_retrans_increment_is_diagnostic_only(self):
         before = {host: network_snapshot(100) for host in runner.HOSTS}
         after = {1: network_snapshot(101), 2: network_snapshot(100)}
 
-        errors, _, metrics = runner.bounds(before, after, {}, check_tcp_retrans=True)
+        errors, _, metrics = runner.bounds(before, after, {})
 
-        self.assertIn("tcp_retrans +1", errors[1])
-        self.assertEqual(errors[2], [])
-        self.assertEqual(metrics[1]["tcp_retrans"], 1)
+        self.assertEqual(errors, {1: [], 2: []})
+        self.assertEqual(metrics[1]["tcp_retrans_diagnostic_only"], 1)
 
     def test_idle_ignores_tcp_retrans_increment(self):
         before = {host: network_snapshot(100) for host in runner.HOSTS}
@@ -161,6 +347,8 @@ class AnnualComfortRunnerTests(unittest.TestCase):
 
         def both(*args):
             events.append(("both", args))
+            if args == ("run-available",):
+                return {1: {"available": True}, 2: {"available": True}}
             if args == ("identity",):
                 return {1: {"host": 1}, 2: {"host": 2}}
             return {1: {"commit": commit}, 2: {"commit": commit}}
@@ -180,6 +368,7 @@ class AnnualComfortRunnerTests(unittest.TestCase):
 
         self.assertEqual(initial, {1: {"host": 1}, 2: {"host": 2}})
         self.assertEqual(events, [
+            ("both", ("run-available",)),
             ("both", ("identity",)),
             ("both", ("receipt", commit)),
             ("idle",),
