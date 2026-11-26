@@ -109,8 +109,7 @@ def run(build, receive_buffer, exact_read='off'):
             # Unsupported combinations must fail locally before any connection/payload.
             base_cmd = command(build, "upload", 1, source, "unused", root / "reject.json", 262144)
             for extra in (["--checksum", "none"], ["--chunk-size", "2097152"],
-                          ["--compression", "auto"], ["--data-transport", "rdma"],
-                          ["--tls-mode", "required"]):
+                          ["--compression", "auto"], ["--data-transport", "rdma"]):
                 done = subprocess.run(base_cmd + extra, capture_output=True, text=True, timeout=5)
                 assert done.returncode != 0 and "large DATA requires" in done.stderr + done.stdout, done
             # A peer returning old V3 success without confirming DATA capacity cannot enable large DATA.

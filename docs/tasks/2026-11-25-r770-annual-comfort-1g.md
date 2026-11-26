@@ -30,6 +30,7 @@ CPNetFlux 的主对比和两个安全臂统一使用 V3/TCP、四条数据流、
 - tools/perf/r770_annual_optimized_node.py
 - tools/perf/r770_annual_optimized_runner.py
 - tools/perf/test_r770_annual_optimized_runner.py
+- tools/test/run_cpnetflux_large_data_smoke.py
 - 本任务范围、结果报告和证据索引
 
 ## 当前准入快照
