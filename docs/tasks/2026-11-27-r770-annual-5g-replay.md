@@ -41,3 +41,7 @@ CPNetFlux 主对比固定 V3/TCP 四条数据流、接收端 inline mmap、256 K
 正向 `main-forward-03` 也在首个 5 GiB GridFTP 样本后被 R770-1 host full-memory PSI 门拒收。完整性 SHA、双端 GridFTP 226 回执及四数据流 socket 观测通过，NIC/OOB 无增量。与 security-03/04 一样，失败样本保留且不计合格吞吐。
 
 按用户要求，后续矩阵将采完全部计划行，逐行保留现有 accepted/rejected 判定；门槛值和单样本拒收语义不变。security 15 行齐全并核验固定提交后进入 reverse，即使有拒收行也不把它们计为合格。新的 run ID 为 security `2026-11-27-r770-annual-5g-security-05`、forward `2026-11-27-r770-annual-5g-main-forward-04`、reverse `2026-11-27-r770-annual-5g-main-reverse-03`。
+
+反向 `main-reverse-03` 的准入 smoke 中 GridFTP 通过，随后 CPNetFlux 128 MiB smoke 按硬门拒收，R1 `rx_missed_errors/rx_out_of_buffer` 增加 133，R2 发送 socket 重传 133 次、20,272 与 172,312 字节分布于两条 lane。阶段未运行正式反向样本。双端临时数据、凭据和 listener 清理成功，postflight 身份匹配，6 秒空载错误计数稳定。
+
+使用独立 reverse `2026-11-27-r770-annual-5g-main-reverse-04` 重新执行准入和正式 10 项。`-03` 失败证据保留且不与新 run 合并。
