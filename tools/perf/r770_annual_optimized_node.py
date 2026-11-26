@@ -18,16 +18,16 @@ import r770_tcp_diag as diag
 
 SECURITY_RUN = "2026-11-24-r770-annual-5g-security-02"
 REVERSE_RUN = "2026-11-24-r770-annual-5g-reverse-02"
-COMFORT_DIAG_RUN = "2026-11-26-r770-tcp-diag-validation-01"
-COMFORT_SECURITY_RUN = "2026-11-26-r770-annual-comfort-security-1g-03"
-COMFORT_FORWARD_RUN = "2026-11-26-r770-annual-comfort-main-forward-1g-03"
-COMFORT_REVERSE_RUN = "2026-11-26-r770-annual-comfort-main-reverse-1g-03"
+COMFORT_DIAG_RUN = "2026-11-27-r770-tcp-diag-validation-01"
+COMFORT_SECURITY_RUN = "2026-11-27-r770-annual-comfort-security-1g-01"
+COMFORT_FORWARD_RUN = "2026-11-27-r770-annual-comfort-main-forward-1g-01"
+COMFORT_REVERSE_RUN = "2026-11-27-r770-annual-comfort-main-reverse-1g-01"
 COMFORT_RUNS = (COMFORT_SECURITY_RUN, COMFORT_FORWARD_RUN, COMFORT_REVERSE_RUN)
 RUN_SIZES = {
     "2026-11-24-r770-annual-optimized-5g-01": 5 * 2**30,
     SECURITY_RUN: 5 * 2**30,
     REVERSE_RUN: 5 * 2**30,
-    COMFORT_DIAG_RUN: 8 * 2**20,
+    COMFORT_DIAG_RUN: 128 * 2**20,
     COMFORT_SECURITY_RUN: 2**30,
     COMFORT_FORWARD_RUN: 2**30,
     COMFORT_REVERSE_RUN: 2**30,
@@ -40,7 +40,7 @@ ROOT = Path("/dev/shm") / ("cpnetflux-s0-" + RUN)
 CRED = OUT / "credentials"
 BUILD = rx.baseline.PROJECT / "build"
 SIZE = RUN_SIZES[RUN]
-SMOKE = 8 * 2**20
+SMOKE = 128 * 2**20
 MODES = ("mmap", "grid", "private", "anon", "clear", "tls")
 CP_MODES = ("mmap", "clear", "tls")
 IS_COMFORT = RUN in COMFORT_RUNS or RUN == COMFORT_DIAG_RUN

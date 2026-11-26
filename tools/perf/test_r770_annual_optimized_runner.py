@@ -233,6 +233,9 @@ class AnnualComfortRunnerTests(unittest.TestCase):
 
     def test_run_sizes_keep_legacy_and_add_exact_one_gib(self):
         self.assertEqual(node.RUN_SIZES[node.SECURITY_RUN], 5 * 2**30)
+        self.assertEqual(node.RUN_SIZES[node.COMFORT_DIAG_RUN], node.SMOKE)
+        self.assertEqual(node.SMOKE, 128 * 2**20)
+        self.assertGreater(node.SMOKE, 64 * 2**20)
         for run in node.COMFORT_RUNS:
             self.assertEqual(node.RUN_SIZES[run], 2**30)
 
