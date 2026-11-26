@@ -2,7 +2,7 @@ import sys
 import unittest
 from collections import Counter
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -127,6 +127,53 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertIn("tcp_retrans +1", errors[1])
         self.assertEqual(errors[2], [])
         self.assertEqual(metrics[1]["tcp_retrans"], 1)
+
+    def test_preflight_creates_missing_output_before_first_record(self):
+        commit = "test-commit"
+        output = Mock()
+        output.exists.return_value = False
+        events = []
+        output.mkdir.side_effect = lambda **kwargs: events.append(("mkdir", kwargs))
+
+        def both(*args):
+            events.append(("both", args))
+            if args == ("identity",):
+                return {1: {"host": 1}, 2: {"host": 2}}
+            return {1: {"commit": commit}, 2: {"commit": commit}}
+
+        def idle():
+            events.append(("idle",))
+            return {"idle": "pass"}
+
+        def record(name, _value):
+            events.append(("record", name))
+
+        with patch.object(runner, "OUT", output), patch.object(
+                runner, "both", side_effect=both), patch.object(
+                runner, "idle", side_effect=idle), patch.object(
+                runner, "record", side_effect=record):
+            initial = runner.prepare_preflight(commit)
+
+        self.assertEqual(initial, {1: {"host": 1}, 2: {"host": 2}})
+        self.assertEqual(events, [
+            ("both", ("identity",)),
+            ("both", ("receipt", commit)),
+            ("idle",),
+            ("mkdir", {"mode": 0o700, "parents": True}),
+            ("record", "matching-builds"),
+            ("record", "preflight"),
+        ])
+
+    def test_preflight_refuses_existing_output_directory(self):
+        output = Mock()
+        output.exists.return_value = True
+
+        with patch.object(runner, "OUT", output), patch.object(runner, "both") as both:
+            with self.assertRaises(FileExistsError):
+                runner.prepare_preflight("test-commit")
+
+        both.assert_not_called()
+        output.mkdir.assert_not_called()
 
 
 if __name__ == "__main__":

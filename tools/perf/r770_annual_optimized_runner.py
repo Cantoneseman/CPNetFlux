@@ -133,6 +133,20 @@ def idle(seconds=6):
     return {"minimum_idle_seconds":seconds,"before":start,"after":end}
 
 
+def prepare_preflight(commit):
+    if OUT.exists():
+        raise FileExistsError("annual evidence directory already exists: " + str(OUT))
+    initial = both("identity")
+    builds = both("receipt", commit)
+    if builds[1] != builds[2]:
+        raise RuntimeError("dual build mismatch")
+    idle_state = idle()
+    OUT.mkdir(mode=0o700, parents=True)
+    record("matching-builds", builds)
+    record("preflight", {"identity": initial, "idle": idle_state})
+    return initial
+
+
 def validate_grid(result, receipts, mode, sender, target, size):
     who = "anonymous" if mode == "anon" else "Su"
     markers = result["markers"]
@@ -338,12 +352,7 @@ def main():
         raise ValueError("stage, controller node or run directory mismatch")
     if stage == "reverse":
         require_security_pass(commit)
-    initial = both("identity")
-    builds = both("receipt", commit)
-    if builds[1] != builds[2]:
-        raise RuntimeError("dual build mismatch")
-    record("matching-builds", builds)
-    record("preflight", {"identity": initial, "idle": idle()})
+    initial = prepare_preflight(commit)
     prepared = []
     outcome = {"stage": stage, "status": "stopped"}
     try:
