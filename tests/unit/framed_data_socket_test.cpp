@@ -756,6 +756,24 @@ TEST(SenderPacerTest, AdmissionSpacingAndNoCatchupAfterPause) {
     EXPECT_EQ(pacer.waits, 2U);
     EXPECT_EQ(pacer.spacingViolations, 0U);
 }
+TEST(SenderPacerTest, LanePhaseOffsetsSpreadFirstFrameAdmissions) {
+    using P = cpnetflux::core::io::detail::SenderPacer;
+    for (std::uint32_t lane = 0; lane < 4; ++lane) {
+        const auto phase = P::lanePhaseOffset(lane, 4);
+        P pacer(P::kRate, phase);
+        auto current = P::Clock::time_point{};
+        const auto now = [&] { return current; };
+        const auto sleep = [&](P::Clock::duration delay) { current += delay; };
+        const auto ok = [] { return Status::ok(); };
+
+        ASSERT_TRUE(pacer.beforeSend(262212, ok, now, sleep).isOk());
+        EXPECT_EQ(current, P::Clock::time_point{} + phase);
+        EXPECT_EQ(pacer.frames, 1U);
+        EXPECT_EQ(pacer.firstAdmissionNanoseconds,
+                  std::chrono::duration_cast<std::chrono::nanoseconds>(phase).count());
+    }
+    EXPECT_LT(P::lanePhaseOffset(3, 4), std::chrono::microseconds(175));
+}
 TEST(SenderPacerTest, CancellationDuringWaitDoesNotAdmitAnotherFrame) {
     using P = cpnetflux::core::io::detail::SenderPacer;
     P pacer(1024);

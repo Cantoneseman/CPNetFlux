@@ -1532,7 +1532,10 @@ common::Status sendPersistentTree(FramedDataSocket* socket, const std::string& r
                 (unsigned long long)s.effectiveBytesPerSecond, s.enabled ? "true" : "false");
         }
     } kernelReceipt{kernelPaced, channelIndex, socket};
-    detail::SenderPacer pacer(paced ? detail::SenderPacer::kRate : 0);
+    const auto pacingPhase = paced
+        ? detail::SenderPacer::lanePhaseOffset(channelIndex, channelCount)
+        : detail::SenderPacer::Clock::duration::zero();
+    detail::SenderPacer pacer(paced ? detail::SenderPacer::kRate : 0, pacingPhase);
     struct PacingReceipt {
         bool enabled; std::uint32_t lane; detail::SenderPacer& p;
         ~PacingReceipt() {

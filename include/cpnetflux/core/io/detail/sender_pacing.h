@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cerrno>
 #include <type_traits>
@@ -18,7 +19,17 @@ class SenderPacer {
  public:
     using Clock = std::chrono::steady_clock;
     static constexpr std::uint64_t kRate = 1500000000;
-    explicit SenderPacer(std::uint64_t rate = 0) : rate_(rate) {}
+    static constexpr std::size_t kMaximumAdmissionBytes = 262212;
+    explicit SenderPacer(std::uint64_t rate = 0,
+                         Clock::duration firstAdmissionDelay = Clock::duration::zero())
+        : rate_(rate), firstAdmissionDelay_(firstAdmissionDelay) {}
+
+    static Clock::duration lanePhaseOffset(std::uint32_t laneIndex, std::uint32_t laneCount) {
+        if (laneCount <= 1 || laneIndex >= laneCount) return Clock::duration::zero();
+        const auto intervalNanoseconds =
+            (kMaximumAdmissionBytes * 1000000000ULL + kRate - 1) / kRate;
+        return std::chrono::nanoseconds(intervalNanoseconds * laneIndex / laneCount);
+    }
     std::uint64_t frames = 0, wireBytes = 0, waits = 0, sleepCalls = 0;
     std::uint64_t waitNanoseconds = 0, requiredSpacingNanoseconds = 0, spacingViolations = 0;
     std::uint64_t timerFdCreates = 0, timerArmCalls = 0, timerReadCalls = 0;
@@ -27,15 +38,16 @@ class SenderPacer {
     template<class Cancel, class Now, class Sleep>
     common::Status beforeSend(std::size_t bytes, Cancel cancel, Now now, Sleep sleep) {
         if (!rate_) return common::Status::ok();
-        if (!bytes || bytes > 262212 || rate_ > kRate)
+        if (!bytes || bytes > kMaximumAdmissionBytes || rate_ > kRate)
             return common::Status::invalidArgument("invalid sender pacing admission");
         auto status = cancel();
         if (!status.isOk()) return status;
         auto current = now();
         const auto began = current;
-        const bool waiting = frames && current < next_;
-        while (frames && current < next_) {
-            const auto delay = std::min(next_ - current,
+        const auto deadline = frames ? next_ : current + firstAdmissionDelay_;
+        const bool waiting = current < deadline;
+        while (current < deadline) {
+            const auto delay = std::min(deadline - current,
                 std::chrono::duration_cast<Clock::duration>(std::chrono::milliseconds(1)));
             ++sleepCalls;
             if constexpr (std::is_void_v<std::invoke_result_t<Sleep, Clock::duration>>) {
@@ -109,6 +121,7 @@ class SenderPacer {
     }
     UniqueFd timer_;
     std::uint64_t rate_, previousInterval_ = 0;
+    Clock::duration firstAdmissionDelay_;
     Clock::time_point next_{};
 };
 
