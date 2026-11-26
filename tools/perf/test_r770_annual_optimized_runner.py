@@ -110,8 +110,10 @@ class AnnualComfortRunnerTests(unittest.TestCase):
     def test_tcp_retrans_zero_delta_passes(self):
         before = {host: network_snapshot(100) for host in runner.HOSTS}
         after = {host: network_snapshot(100) for host in runner.HOSTS}
+        watch = {key: value for key, value in network_snapshot(100).items()
+                 if key not in ("counters", "tcp_retrans", "host_busy_cpu_s")}
 
-        errors, _, metrics = runner.bounds(before, after, {})
+        errors, _, metrics = runner.bounds(before, after, {host: [watch] for host in runner.HOSTS})
 
         self.assertEqual(errors, {1: [], 2: []})
         self.assertEqual(metrics[1]["tcp_retrans"], 0)
