@@ -17,16 +17,30 @@ import run_r770_receive_cost as rx
 
 SECURITY_RUN = "2026-11-24-r770-annual-5g-security-02"
 REVERSE_RUN = "2026-11-24-r770-annual-5g-reverse-02"
+COMFORT_SECURITY_RUN = "2026-11-25-r770-annual-comfort-security-1g-01"
+COMFORT_FORWARD_RUN = "2026-11-25-r770-annual-comfort-main-forward-1g-01"
+COMFORT_REVERSE_RUN = "2026-11-25-r770-annual-comfort-main-reverse-1g-01"
+COMFORT_RUNS = (COMFORT_SECURITY_RUN, COMFORT_FORWARD_RUN, COMFORT_REVERSE_RUN)
+RUN_SIZES = {
+    "2026-11-24-r770-annual-optimized-5g-01": 5 * 2**30,
+    SECURITY_RUN: 5 * 2**30,
+    REVERSE_RUN: 5 * 2**30,
+    COMFORT_SECURITY_RUN: 2**30,
+    COMFORT_FORWARD_RUN: 2**30,
+    COMFORT_REVERSE_RUN: 2**30,
+}
 RUN = os.environ.get("CPNETFLUX_ANNUAL_RUN", "2026-11-24-r770-annual-optimized-5g-01")
-if RUN not in ("2026-11-24-r770-annual-optimized-5g-01", SECURITY_RUN, REVERSE_RUN):
+if RUN not in RUN_SIZES:
     raise ValueError("unknown annual run directory")
 OUT = Path("/home/Su/experiments/CPNetFlux") / RUN
 ROOT = Path("/dev/shm") / ("cpnetflux-s0-" + RUN)
 CRED = OUT / "credentials"
 BUILD = rx.baseline.PROJECT / "build"
-SIZE = 5 * 2**30
+SIZE = RUN_SIZES[RUN]
 SMOKE = 8 * 2**20
 MODES = ("mmap", "grid", "private", "anon", "clear", "tls")
+CP_MODES = ("mmap", "clear", "tls")
+IS_COMFORT = RUN in COMFORT_RUNS
 HOST = rx.baseline.node()
 IP = f"192.168.100.{HOST}"
 
@@ -132,12 +146,41 @@ def install_cert():
     return cmd(["openssl", "x509", "-in", str(cert), "-noout", "-subject", "-enddate"])
 
 
+def cp_download_mode(mode):
+    return mode == "mmap" or (IS_COMFORT and mode in ("clear", "tls"))
+
+
 def env(mode):
-    value = rx.environment("mmap" if mode == "mmap" else "pwrite", False)
-    if mode != "mmap":
+    value = rx.environment("mmap" if cp_download_mode(mode) else "pwrite", False)
+    if IS_COMFORT and mode in CP_MODES:
+        value.update(CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION="inline",
+                     CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE="off",
+                     CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES="1048576",
+                     CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND="1500000000")
+    elif mode != "mmap":
         value.update(CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES="off",
                      CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND="off")
     return value
+
+
+def comfort_profile(mode):
+    return {
+        "data_transport": "tcp",
+        "connections": 4,
+        "receiver_payload_execution": "inline",
+        "receiver_write_backend": "mmap_experimental",
+        "direct_receive_opt_in": "off",
+        "data_frame_bytes": 262144,
+        "tcp_receive_buffer_requested_bytes": 1048576,
+        "application_pacing_bytes_per_second_per_lane": 1500000000,
+        "checksum": "crc32c",
+        "chunk_bytes": 1048576,
+        "checkpoint_chunks": 16,
+        "compression": "off",
+        "authentication": "token" if mode in ("clear", "tls") else "anonymous",
+        "control_tls": mode == "tls",
+        "data_tls": mode == "tls",
+    }
 
 
 def grid_env():
@@ -172,7 +215,9 @@ def service_args(mode, label):
         return argv, config_env, grid_listener(mode)
 
     tls = "required" if mode == "tls" else "off"
-    directory = ROOT if mode == "mmap" else slot(label)
+    download = cp_download_mode(mode)
+    directory = ROOT if download else slot(label)
+    auth = "anonymous" if mode == "mmap" else "token"
     argv = [str(BUILD/"cpnetflux-gridftp-server"), "--root", str(directory), "--host", IP,
             "--port", "45596", "--data-port-base", "61350", "--connections", "4",
             "--checksum", "crc32c", "--chunk-size", "1048576", "--buffer-size", "65536",
@@ -180,11 +225,11 @@ def service_args(mode, label):
             "--data-transport", "tcp", "--final-verify-policy", "verified_chunks",
             "--commit-sync-policy", "none", "--file-io-backend", "posix",
             "--posix-write-strategy", "direct",
-            "--access-policy", "read-only" if mode == "mmap" else "write-only",
-            "--auth-mode", "anonymous" if mode == "mmap" else "token",
+            "--access-policy", "read-only" if download else "write-only",
+            "--auth-mode", auth,
             "--tls-mode", tls, "--data-tls-mode", tls,
             "--event-log", str(OUT/(label + ".events.jsonl"))]
-    if mode != "mmap":
+    if auth == "token":
         argv += ["--auth-token-file", str(CRED/"cp.token")]
     if tls == "required":
         argv += ["--tls-cert-file", str(CRED/"host.pem"), "--tls-key-file", str(CRED/"host.key")]
@@ -312,33 +357,40 @@ def grid_receipt(mode, label, direction):
     return value[-1:] if direction == "RETR" else value
 
 
-def cp_client(mode, label, server_host):
+def cp_client_args(mode, label, server_host):
     tls = "required" if mode == "tls" else "off"
-    mmap = mode == "mmap"
+    download = cp_download_mode(mode)
+    auth = "anonymous" if mode == "mmap" else "token"
     peer = f"192.168.100.{server_host}"
     summary = OUT/(label + ".summary.json")
-    argv = [str(BUILD/f"cpnetflux-tree-{'download' if mmap else 'upload'}-client"),
+    argv = [str(BUILD/f"cpnetflux-tree-{'download' if download else 'upload'}-client"),
             "--host", peer, "--port", "45596", "--local-bind-address", IP,
-            "--source-dir", "source" if mmap else str(slot("source")),
-            "--dest-dir", str(slot(label)/"dataset") if mmap else "dataset",
+            "--source-dir", "source" if download else str(slot("source")),
+            "--dest-dir", str(slot(label)/"dataset") if download else "dataset",
             "--connections", "4", "--file-parallelism", "4", "--control-reuse", "worker",
             "--data-session-reuse", "tree", "--file-scheduling", "dynamic", "--data-pending-window", "2",
             "--checksum", "crc32c", "--chunk-size", "1048576", "--buffer-size", "65536",
-            "--data-frame-bytes", "262144" if mmap else "65532", "--data-transport", "tcp",
-            "--compression", "off", "--auth-mode", "anonymous" if mmap else "token",
+            "--data-frame-bytes", "262144" if download else "65532", "--data-transport", "tcp",
+            "--compression", "off", "--auth-mode", auth,
             "--tls-mode", tls, "--data-tls-mode", tls, "--reconnect-attempts", "0",
             "--phase-timing", "off", "--json-summary", str(summary)]
-    if mmap:
+    if download:
         argv += ["--final-verify-policy", "verified_chunks", "--commit-sync-policy", "none",
                  "--manifest-flush-policy", "every_n_chunks", "--manifest-flush-interval-chunks", "16",
                  "--range-checkpoint-batch-chunks", "16", "--posix-write-strategy", "direct",
                  "--file-io-buffer-size", "0"]
-    else:
+    if auth == "token":
         argv += ["--auth-token-file", str(CRED/"cp.token")]
-        if tls == "required":
-            argv += ["--tls-ca-file", str(CRED/"ca.pem"), "--tls-server-name", peer]
-    proc, row = run_client(argv, env(mode))
+    if tls == "required":
+        argv += ["--tls-ca-file", str(CRED/"ca.pem"), "--tls-server-name", peer]
+    return argv, env(mode)
+
+
+def cp_client(mode, label, server_host):
+    argv, variables = cp_client_args(mode, label, server_host)
+    proc, row = run_client(argv, variables)
     (OUT/(label + ".client.log")).write_text(proc.stdout + "\n" + proc.stderr)
+    summary = OUT/(label + ".summary.json")
     row["summary"] = json.loads(summary.read_text()) if summary.exists() else {}
     return row
 
@@ -348,9 +400,12 @@ def cp_receipt(label):
     log = OUT/(label + ".service.log")
     lines = log.read_text(errors="replace").splitlines()
     names = [json.loads(l)["event"] for l in events.read_text().splitlines()]
+    pacing = [json.loads(l.split(" ", 1)[1]) for l in lines
+              if l.startswith("CPNETFLUX_SENDER_PACING ")]
     return {"events": names, "batch_error": any("CPNETFLUX_V3_BATCH_TERMINAL " in l for l in lines),
             "channels": [json.loads(l.split(" ",1)[1])["channel_index"] for l in lines
-                         if l.startswith("CPNETFLUX_PERSISTENT_TIMING ")]}
+                         if l.startswith("CPNETFLUX_PERSISTENT_TIMING ")],
+            "pacing": pacing}
 
 
 def target_sha(mode, label, size):
