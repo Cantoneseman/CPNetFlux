@@ -59,3 +59,22 @@ CPNetFlux 主对比固定 V3/TCP 四条数据流、接收端 inline mmap、256 K
 run `security-06`、`main-forward-05` 與 `main-reverse-05` 的尝试不能组成固定提交矩阵：R1/R2 在 `d5a5569` 更新了 run ID 映射后，runner 的 build receipt 强制校验当前 HEAD 与请求提交一致，阻止了把 `02f65c39` 作为提交号继续运行。`reverse-05` 在 preflight receipt 阶段停止，没有创建正式实验目录或传输样本。
 
 映射提交后将固定本轮源码版本，再启动三阶段新 run ID。security `2026-11-27-r770-annual-5g-security-07`、forward `2026-11-27-r770-annual-5g-main-forward-06`、reverse `2026-11-27-r770-annual-5g-main-reverse-05`。security-06 与 forward-05 保留为旧提交结果，不纳入该固定提交矩阵。
+## 2026-11-27 当前代码完整重测结论
+
+本轮按历史结果文件 `2026-11-24-r770-annual-5g-independent-reruns-result.md` 的矩阵配置复核。计划为安全组 15 项、R770-2→R770-1 正向主对比 10 项、R770-1→R770-2 反向主对比 10 项。主对比使用 CPNetFlux V3/TCP 四流、inline mmap、256 KiB DATA、请求 1 MiB 接收缓冲、每流 1.5 GB/s pacing、CRC32C、1 MiB chunk、每 16 块 checkpoint；GridFTP 使用 GSI clear、MODE E、四流、1 MiB TCP buffer、256 KiB block。安全组 CPNetFlux clear/TLS 使用 pwrite、65,532-byte DATA、无 application pacing。双端 RX/TX ring 全程为 1024/1024，未修改网卡或系统网络参数。
+
+固定源码提交为 `431db9eeb896931e25411c130e5aca3b854e7b5a`。R1/R2 同提交构建通过，runner 回归测试各 28 项通过，`cmake --build build -j2` 两端均无待构建目标。三份运行二进制两端 SHA-256 一致，server `377edba4690acc7a96d95581f45d6662f2dc6bf970cf8290c14b159fb31f8e88`，upload `361cd581e83cfaf70b6e6fed122f181e5136afd2d98124a60ed6af64b9a1faea`，download `b2b854a16ca72ce19272b1231216df5a545ec293066f5720a6f6dea2ff4be117`。
+
+| 阶段 | run ID | 正式传输样本 | accepted | rejected |
+| --- | --- | ---: | ---: | ---: |
+| 安全矩阵 | `2026-11-27-r770-annual-5g-security-08` | 15 | 0 | 15 |
+| 正向主对比 | `2026-11-27-r770-annual-5g-main-forward-06` | 10 | 0 | 10 |
+| 反向主对比 | reverse-06、reverse-09 至 reverse-15 | 0 | 0 | 0 |
+
+安全组和正向组每一正式行都触发 R1 host full-memory PSI。个别安全模式另有 R2 TCP 重传，TLS 样本还因观测到 5 条数据 socket 被拒收。正向有一条 CPNetFlux 样本另有 R1 RX OOB +155 与 R2 TCP retrans +155。正向 10 条客户端命令均以 return code 0 结束，但全部被原门拒收，不作为有效成绩。
+
+仅供诊断的正向客户端耗时中位数为 GridFTP 2.480 秒、CPNetFlux 1.164 秒，按 5 GiB 换算约 17.32 与 36.89 Gbps。安全组客户端耗时中位数为 GridFTP anonymous 2.371 秒、GridFTP GSI clear 2.511 秒、GridFTP GSI private 3.696 秒、CPNetFlux token clear 6.347 秒、CPNetFlux token + TLS 6.151 秒。这些值来自被拒收样本，不能作为正式性能结论或写入年度报告。
+
+反向 8 次源文件生成均因 R1 host full-memory PSI 在完整 5 GiB 前中止，正式反向样本为 0。证据显示已写入 4,831,838,208 至 5,301,600,256 字节。reverse-07 与 reverse-08 是临时调用器首次尝试，因漏设入口所需 `umask 077` 导致 GSI 证书权限失败，没有启动传输；后续反向尝试显式设置该 umask。8 次 PSI 停止和 2 次凭据失败均保留独立目录，不拼接样本。所有结束的阶段和尝试都清理了临时 payload、凭据与 listener，双端身份复核通过。
+
+因此本轮未形成完整 35 项合格比较，现有数据不能替代历史报告或进入年度报告。拒收行不与后续样本拼接。证据保存在 R1 `/home/Su/experiments/CPNetFlux/` 下 security-08、main-forward-06 和各 reverse 目录。
