@@ -89,4 +89,8 @@ CPNetFlux 的主对比和两个安全臂统一使用 V3/TCP、四条数据流、
 
 矩阵 `-14` 的 smoke 全部通过，正式 security 第 1 项 GridFTP GSI 明文通过。第 2 项 CPNetFlux TLS 传输和 CRC32C 校验通过，测得 26.24 Gbps，但 R2 发送 socket `192.168.100.2:61351 -> 192.168.100.1:57261` 记录到 1 次、760 字节 TCP 重传，按硬门停止。两端 `rx_missed_errors`、`rx_out_of_buffer`、NIC/HCA 与物理层错误增量均为零，R1 RX 队列流量分布正常。四条 pacing lane 首帧 admission 时间跨度约 318 微秒，`spacing_violations=0`；对比 `-13` 首帧约 4 微秒内聚，错相已生效，且本样本未复现 RX 缓冲耗尽。该样本不计入年度统计，不能据此确认完整安全矩阵通过。
 
-下一完整矩阵使用 security `2026-11-27-r770-annual-comfort-security-1g-15`、正向 `2026-11-27-r770-annual-comfort-main-forward-1g-15`、反向 `2026-11-27-r770-annual-comfort-main-reverse-1g-15`。必须先确认接收端 RX OOB/missed 为零、四条 TCP socket 零重传及全部数据完整，再以固定提交完成 security 15/15 和正反向各五对。`-01` 至 `-14` 的历史记录和拒收样本保持独立，不能拼接入新矩阵。
+矩阵 `-15` 在 128 MiB 反向 CPNetFlux 准入 smoke 停止，传输和 CRC32C 通过，诊断吞吐 23.69 Gbps，但 R2 接收侧 `rx_missed_errors` / `rx_out_of_buffer` 各增加 9，R1 发送 socket 重传 9 次、13,032 字节，故该样本拒收且没有正式性能样本。R2 四条流落到三个 RX/NAPI 队列，其中两条共享 NAPI 8205 / RX queue 12，该队列约 46,425 包，另外两队列各约 23,265 包；物理 CRC、符号错误、丢弃和 HCA 错误没有增量。首帧相位展开在 `-14` 的反向 TLS 样本中消除了本次观测到的 OOB，但在 `-15` 正向 smoke 中没有稳定消除 OOB。
+
+已有历史证据表明单靠队列分散不足：阶段69四条流分到四个不同队列仍 OOB +132，阶段70避开 RX 核的客户端 affinity 仍 OOB +328。唯一完整通过的历史优势配置为阶段75临时 RX4096，五对 CPNetFlux/GridFTP 中位数分别 31.075/12.352 Gbps，双方 CV 均低于 5%；但输入运行时代码较旧，不能作为当前版本成绩。阶段74的90分钟窗口已结束，双端已恢复 RX/TX 1024/1024。
+
+后续若要复测该优势配置，必须先建立新的有界实验范围和回滚监督窗口，并用当前固定提交重新完成准入与完整年度矩阵；不得复用阶段75样本或已过期的阶段74授权。下一组尚未启动，预留唯一 run IDs 为 security `2026-11-27-r770-annual-comfort-security-1g-16`、正向 `2026-11-27-r770-annual-comfort-main-forward-1g-16`、反向 `2026-11-27-r770-annual-comfort-main-reverse-1g-16`。`-01` 至 `-15` 的历史记录和拒收样本保持独立，不能拼接入新矩阵。
