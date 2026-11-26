@@ -17,9 +17,9 @@ import run_r770_receive_cost as rx
 
 SECURITY_RUN = "2026-11-24-r770-annual-5g-security-02"
 REVERSE_RUN = "2026-11-24-r770-annual-5g-reverse-02"
-COMFORT_SECURITY_RUN = "2026-11-25-r770-annual-comfort-security-1g-01"
-COMFORT_FORWARD_RUN = "2026-11-25-r770-annual-comfort-main-forward-1g-01"
-COMFORT_REVERSE_RUN = "2026-11-25-r770-annual-comfort-main-reverse-1g-01"
+COMFORT_SECURITY_RUN = "2026-11-26-r770-annual-comfort-security-1g-02"
+COMFORT_FORWARD_RUN = "2026-11-26-r770-annual-comfort-main-forward-1g-02"
+COMFORT_REVERSE_RUN = "2026-11-26-r770-annual-comfort-main-reverse-1g-02"
 COMFORT_RUNS = (COMFORT_SECURITY_RUN, COMFORT_FORWARD_RUN, COMFORT_REVERSE_RUN)
 RUN_SIZES = {
     "2026-11-24-r770-annual-optimized-5g-01": 5 * 2**30,

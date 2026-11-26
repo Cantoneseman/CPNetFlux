@@ -107,26 +107,50 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(Counter(runner.FORWARD_ORDER), {"grid": 5, "mmap": 5})
         self.assertEqual(Counter(runner.REVERSE_ORDER), {"grid": 5, "mmap": 5})
 
-    def test_tcp_retrans_zero_delta_passes(self):
+    def test_sample_tcp_retrans_zero_delta_passes(self):
         before = {host: network_snapshot(100) for host in runner.HOSTS}
         after = {host: network_snapshot(100) for host in runner.HOSTS}
         watch = {key: value for key, value in network_snapshot(100).items()
                  if key not in ("counters", "tcp_retrans", "host_busy_cpu_s")}
 
-        errors, _, metrics = runner.bounds(before, after, {host: [watch] for host in runner.HOSTS})
+        errors, _, metrics = runner.bounds(
+            before, after, {host: [watch] for host in runner.HOSTS}, check_tcp_retrans=True)
 
         self.assertEqual(errors, {1: [], 2: []})
         self.assertEqual(metrics[1]["tcp_retrans"], 0)
 
-    def test_tcp_retrans_increment_is_rejected_on_affected_host(self):
+    def test_sample_tcp_retrans_increment_is_rejected(self):
         before = {host: network_snapshot(100) for host in runner.HOSTS}
         after = {1: network_snapshot(101), 2: network_snapshot(100)}
 
-        errors, _, metrics = runner.bounds(before, after, {})
+        errors, _, metrics = runner.bounds(before, after, {}, check_tcp_retrans=True)
 
         self.assertIn("tcp_retrans +1", errors[1])
         self.assertEqual(errors[2], [])
         self.assertEqual(metrics[1]["tcp_retrans"], 1)
+
+    def test_idle_ignores_tcp_retrans_increment(self):
+        before = {host: network_snapshot(100) for host in runner.HOSTS}
+        after = {1: network_snapshot(101), 2: network_snapshot(100)}
+
+        with patch.object(runner, "both", side_effect=[before, after]), patch.object(
+                runner.time, "sleep"), patch.object(runner.rx, "require_capacity") as capacity:
+            result = runner.idle(0)
+
+        self.assertEqual(result["after"][1]["tcp_retrans"] - result["before"][1]["tcp_retrans"], 1)
+        self.assertEqual(capacity.call_count, 2)
+
+    def test_idle_still_rejects_interface_error_increment(self):
+        before = {host: network_snapshot(100) for host in runner.HOSTS}
+        after = {1: network_snapshot(101), 2: network_snapshot(100)}
+        after[1]["counters"]["rx_missed_errors"] += 1
+
+        with patch.object(runner, "both", side_effect=[before, after]), patch.object(
+                runner.time, "sleep"), patch.object(runner.rx, "require_capacity") as capacity:
+            with self.assertRaisesRegex(RuntimeError, "rx_missed_errors \\+1"):
+                runner.idle(0)
+
+        capacity.assert_not_called()
 
     def test_preflight_creates_missing_output_before_first_record(self):
         commit = "test-commit"

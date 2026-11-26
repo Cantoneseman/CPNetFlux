@@ -97,14 +97,14 @@ def credentials():
         "gridmap_account":"Su"})
 
 
-def bounds(before, after, observations):
+def bounds(before, after, observations, check_tcp_retrans):
     errors, deltas, metrics = {}, {}, {}
     for host in HOSTS:
         a,b = before[host],after[host]
         readings = [a,*observations.get(host, []),b]
         network, delta = rx.comparable(a,b)
         tcp_retrans_delta = b["tcp_retrans"] - a["tcp_retrans"]
-        if tcp_retrans_delta:
+        if check_tcp_retrans and tcp_retrans_delta:
             network.append(f"tcp_retrans {tcp_retrans_delta:+d}")
         extra = [reason for sample in readings for reason in rx.violations(a,sample)]
         errors[host] = sorted(set(network + extra))
@@ -125,7 +125,7 @@ def idle(seconds=6):
     start=both("snapshot")
     time.sleep(seconds)
     end=both("snapshot")
-    failures, _, _=bounds(start,end,{})
+    failures, _, _=bounds(start,end,{},check_tcp_retrans=False)
     if any(failures.values()):
         raise RuntimeError("idle gates: " + str(failures))
     for host in HOSTS:
@@ -267,7 +267,7 @@ def sample(group, index, mode, sender, expected):
         for host in HOSTS:
             path=OUT/f"{label}.r{host}.watch.jsonl"
             readings[host]=[json.loads(s) for s in path.read_text().splitlines() if s.endswith("}")]
-        errors,deltas,metrics=bounds(before,after,readings)
+        errors,deltas,metrics=bounds(before,after,readings,check_tcp_retrans=True)
         row.update(immediate=immediate,after=after,gate_errors=errors,interface_deltas=deltas,metrics=metrics)
         if mode in GRID:
             receipts={sender:call(sender,"grid-receipt",mode,label,"RETR"),

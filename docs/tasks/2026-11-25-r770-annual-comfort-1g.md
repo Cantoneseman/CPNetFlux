@@ -38,3 +38,11 @@ CPNetFlux 的主对比和两个安全臂统一使用 V3/TCP、四条数据流、
 2026-11-25 的只读 6.5 秒窗口内，两端 rx_missed_errors、rx_out_of_buffer、NIC/HCA 错误及 TCP 重传计数稳定。当前累计值为 R770-1 两项接收计数 2826、R770-2 1332；这些历史累计值保留，样本只按独立窗口增量判断。两端 ring 为 RX/TX 1024/1024，直连路由与原 2121 服务 PID/start time 未变。MemAvailable 约 27.7/28.7 GiB，/dev/shm 可用约 15.25 GiB，允许 1 GiB 及固定安全余量。
 
 之前年度主对比的 1 GiB 矩阵使用的 CPNetFlux profile 不等同于本轮要求的舒适区 profile。本轮结果独立统计，不并入历史 1 GiB、5 GiB 或 9 GB 样本。
+
+## 2026-11-26 续跑修正
+
+本次续跑从提交 `1eeea5746163402d5a009aae40b88413516daea7` 开始，修正空载和传输窗口的计数口径。`idle()` 仍检查直连接口/HCA 错误、内存、swap、PSI 与 cgroup 稳定性，但不以主机级 `Tcp.RetransSegs` 增量拒绝空载窗口，因为该计数无法按接口归属，采样命令还会经过管理 SSH。每个传输样本仍对双端 `Tcp.RetransSegs` 增量执行硬拒收，不降低传输门槛。
+
+本次使用新的唯一 run ID，security 为 `2026-11-26-r770-annual-comfort-security-1g-02`，正向为 `2026-11-26-r770-annual-comfort-main-forward-1g-02`，反向为 `2026-11-26-r770-annual-comfort-main-reverse-1g-02`。此前预检中止记录保留在 `/home/Su/experiments/CPNetFlux/2026-11-26-r770-annual-preflight-abort-01/`，不并入新 run。
+
+本次受影响文件为 runner、对应纯单测、节点 run ID 清单和本任务范围记录。CPNetFlux 传输逻辑、网络配置、样本阈值与舒适区参数均不变。
