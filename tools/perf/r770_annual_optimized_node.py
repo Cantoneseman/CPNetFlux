@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Node actions for the fixed 1 GiB annual comparison."""
+"""Node actions for fixed 1 GiB and 5 GiB annual comparisons."""
 import json
 import os
 from pathlib import Path
@@ -18,6 +18,10 @@ import r770_tcp_diag as diag
 
 SECURITY_RUN = "2026-11-24-r770-annual-5g-security-02"
 REVERSE_RUN = "2026-11-24-r770-annual-5g-reverse-02"
+ANNUAL_5G_SECURITY_RUN = "2026-11-27-r770-annual-5g-security-03"
+ANNUAL_5G_FORWARD_RUN = "2026-11-27-r770-annual-5g-main-forward-03"
+ANNUAL_5G_REVERSE_RUN = "2026-11-27-r770-annual-5g-main-reverse-03"
+ANNUAL_5G_RUNS = (ANNUAL_5G_SECURITY_RUN, ANNUAL_5G_FORWARD_RUN, ANNUAL_5G_REVERSE_RUN)
 COMFORT_DIAG_RUN = "2026-11-27-r770-tcp-diag-validation-02"
 COMFORT_SECURITY_RUN = "2026-11-27-r770-annual-comfort-security-1g-16"
 COMFORT_FORWARD_RUN = "2026-11-27-r770-annual-comfort-main-forward-1g-16"
@@ -27,6 +31,9 @@ RUN_SIZES = {
     "2026-11-24-r770-annual-optimized-5g-01": 5 * 2**30,
     SECURITY_RUN: 5 * 2**30,
     REVERSE_RUN: 5 * 2**30,
+    ANNUAL_5G_SECURITY_RUN: 5 * 2**30,
+    ANNUAL_5G_FORWARD_RUN: 5 * 2**30,
+    ANNUAL_5G_REVERSE_RUN: 5 * 2**30,
     COMFORT_DIAG_RUN: 128 * 2**20,
     COMFORT_SECURITY_RUN: 2**30,
     COMFORT_FORWARD_RUN: 2**30,

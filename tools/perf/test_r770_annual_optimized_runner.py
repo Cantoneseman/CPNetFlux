@@ -242,6 +242,19 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         for run in node.COMFORT_RUNS:
             self.assertEqual(node.RUN_SIZES[run], 2**30)
 
+    def test_five_gib_replay_has_three_independent_stages(self):
+        expected = {
+            "security": node.ANNUAL_5G_SECURITY_RUN,
+            "forward": node.ANNUAL_5G_FORWARD_RUN,
+            "reverse": node.ANNUAL_5G_REVERSE_RUN,
+        }
+        self.assertEqual(len(set(node.ANNUAL_5G_RUNS)), 3)
+        for run in node.ANNUAL_5G_RUNS:
+            self.assertEqual(node.RUN_SIZES[run], 5 * 2**30)
+        for run in node.ANNUAL_5G_RUNS:
+            with patch.object(node, "RUN", run), patch.object(node, "IS_DIAG_VALIDATION", False):
+                self.assertEqual(runner.stage_run_names(), expected)
+
     def test_security_profiles_share_the_comfort_data_path(self):
         profiles = [node.comfort_profile(mode) for mode in ("mmap", "clear", "tls")]
         common_fields = set(profiles[0]) - {"authentication", "control_tls", "data_tls"}

@@ -598,8 +598,20 @@ def sequence(group, sender, samples, size, expected_sha=None):
             raise RuntimeError("source still exists")
 
 
+def stage_run_names():
+    if node.IS_DIAG_VALIDATION:
+        return {"validate": node.COMFORT_DIAG_RUN}
+    if node.RUN in node.COMFORT_RUNS:
+        return {"security": node.COMFORT_SECURITY_RUN, "forward": node.COMFORT_FORWARD_RUN,
+                "reverse": node.COMFORT_REVERSE_RUN}
+    if node.RUN in node.ANNUAL_5G_RUNS:
+        return {"security": node.ANNUAL_5G_SECURITY_RUN, "forward": node.ANNUAL_5G_FORWARD_RUN,
+                "reverse": node.ANNUAL_5G_REVERSE_RUN}
+    return {"security": node.SECURITY_RUN, "reverse": node.REVERSE_RUN}
+
+
 def require_security_pass(commit):
-    security_run = node.COMFORT_SECURITY_RUN if node.IS_COMFORT else node.SECURITY_RUN
+    security_run = stage_run_names()["security"]
     security = OUT.parent / security_run
     post = json.loads((security / "postflight.json").read_text())
     builds = json.loads((security / "matching-builds.json").read_text())
@@ -616,11 +628,7 @@ def require_security_pass(commit):
 def main():
     stage, commit = sys.argv[1:3]
     expected_sha = sys.argv[3] if len(sys.argv) > 3 else None
-    run_names = ({"security": node.COMFORT_SECURITY_RUN, "forward": node.COMFORT_FORWARD_RUN,
-                  "reverse": node.COMFORT_REVERSE_RUN} if node.RUN in node.COMFORT_RUNS else
-                 {"security": node.SECURITY_RUN, "reverse": node.REVERSE_RUN})
-    if node.IS_DIAG_VALIDATION:
-        run_names = {"validate": node.COMFORT_DIAG_RUN}
+    run_names = stage_run_names()
     if node.RUN != run_names[stage] or node.HOST != 1:
         raise ValueError("stage, controller node or run directory mismatch")
     if stage == "reverse":

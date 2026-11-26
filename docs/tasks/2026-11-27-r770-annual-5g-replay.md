@@ -1,0 +1,31 @@
+# R770 5 GiB 对比矩阵重跑
+
+## 范围
+
+以当前固定 CPNetFlux 提交，在 R770-2 到 R770-1 完成与 2026-11-24 结果相同的内部 5 GiB 对比矩阵。矩阵由 15 个安全设置样本、正向 5 对和反向 5 对组成，共 35 个正式样本。安全组按 GridFTP anonymous、GridFTP GSI clear、GridFTP GSI private、CPNetFlux token clear、CPNetFlux token 加控制/数据 TLS 的顺序分三轮交错。双向主对比各以五对 GridFTP GSI clear 与 CPNetFlux 明文交错。
+
+CPNetFlux 主对比固定 V3/TCP 四条数据流、接收端 inline mmap、256 KiB DATA、请求 1 MiB 接收缓冲、每流 1.5 GB/s pacing、CRC32C、1 MiB chunk 和每 16 块 checkpoint。安全组 CPNetFlux clear/TLS 沿用报告中的 TLS-compatible pwrite、65,532-byte DATA 和无 application pacing。GridFTP 使用报告中的 GSI 认证、明文数据、MODE E、1 MiB TCP buffer 与 256 KiB block。双端 RX/TX ring 保持 1024/1024。
+
+输入提交为 `ba59f794ad5d4dd75121746ded59d2db584faa63`。新 run ID 为 security `2026-11-27-r770-annual-5g-security-03`、正向 `2026-11-27-r770-annual-5g-main-forward-03`、反向 `2026-11-27-r770-annual-5g-main-reverse-03`。历史 run 目录不复用。
+
+## 非目标
+
+不修改性能门槛或拒收语义，不修改 CPNetFlux 数据路径，不更改 GridFTP 配置、网卡、路由、内核网络参数或 ring，不拼接历史样本，不将内部 5 GiB 结果写入年度报告。
+
+## 验收标准
+
+- 同一固定提交在 R770-1/R770-2 构建通过，server/upload/download 二进制 SHA-256 一致。
+- 安全组 15 项、正向主对比 10 项、反向主对比 10 项均有原始终态、模式、完整性、流数、资源和网络证据。失败样本按既有硬门保留并单独标记，不统计为合格样本。
+- 每阶段清理临时服务、凭据与 payload，postflight 身份和 NIC 错误增量通过。
+- 在本记录追加逐样本结果、汇总统计、证据目录、固定提交 SHA 和未完成项。
+
+## 受影响文件
+
+- `tools/perf/r770_annual_optimized_node.py`
+- `tools/perf/r770_annual_optimized_runner.py`
+- `tools/perf/test_r770_annual_optimized_runner.py`
+- `docs/tasks/2026-11-27-r770-annual-5g-replay.md`
+
+## 当前状态
+
+本记录建立时，R770-1 与 R770-2 均位于输入提交。新增 run 目录均不存在。runner 原有样本顺序、实验配置和拒收门槛保持原样，本次只补齐三个新 5 GiB run ID 及正向阶段映射。
