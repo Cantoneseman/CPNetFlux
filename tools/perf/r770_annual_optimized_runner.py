@@ -103,6 +103,10 @@ def bounds(before, after, observations):
         a,b = before[host],after[host]
         readings = [a,*observations.get(host, []),b]
         network, delta = rx.comparable(a,b)
+        retrans_changes = [sample["tcp_retrans"] - a["tcp_retrans"] for sample in readings]
+        if any(retrans_changes):
+            changed = sorted(set(value for value in retrans_changes if value))
+            network.extend(f"tcp_retrans {value:+d}" for value in changed)
         extra = [reason for sample in readings for reason in rx.violations(a,sample)]
         errors[host] = sorted(set(network + extra))
         deltas[host] = delta
@@ -110,7 +114,7 @@ def bounds(before, after, observations):
             "mem_available_min_kib":min(s["available_kib"] for s in readings),
             "mem_free_min_kib":min(s["free_kib"] for s in readings),
             "cpu_seconds":b["host_busy_cpu_s"]-a["host_busy_cpu_s"],
-            "tcp_retrans":b["tcp_retrans"]-a["tcp_retrans"],
+            "tcp_retrans":max(sample["tcp_retrans"] for sample in readings)-a["tcp_retrans"],
             "swapout_delta":b["pswpout"]-a["pswpout"],
             "memory_full_stall_us":b["psi_full_us"]-a["psi_full_us"],
             "inflight_observations":len(observations.get(host, [])),
