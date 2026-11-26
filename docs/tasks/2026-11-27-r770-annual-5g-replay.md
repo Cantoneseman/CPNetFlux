@@ -55,3 +55,7 @@ CPNetFlux 主对比固定 V3/TCP 四条数据流、接收端 inline mmap、256 K
 `security-06` 与 `main-forward-05` 均基于 CPNetFlux 二进制提交 `02f65c39d806708211f325b4420c10364fe66848`。security 15 行、forward 10 行均已完整采集，所有正式样本因 R1 host full-memory PSI 被拒收；个别 CPNetFlux 行另有 R1 RX OOB 与 R2 socket 重传。失败行不纳入合格吞吐统计，双端清理与身份核验通过。
 
 `main-reverse-04` 两端 128 MiB smoke 通过，但 R1 在 5 GiB source seed 过程中触发 host full-memory PSI，种子只生成 5,167,382,528 字节，随后因字节数与预期 5,368,709,120 不符而停止，没有正式反向样本。source 的违规记录、postflight 和清理结果保留。反向完整重跑使用新 ID `2026-11-27-r770-annual-5g-main-reverse-05`，二进制提交仍为 `02f65c39d806708211f325b4420c10364fe66848`。本次 runner 版本只新增 run ID 映射、测试和记录，R1/R2 均同步同一源码提交，传输二进制哈希不变。
+
+run `security-06`、`main-forward-05` 與 `main-reverse-05` 的尝试不能组成固定提交矩阵：R1/R2 在 `d5a5569` 更新了 run ID 映射后，runner 的 build receipt 强制校验当前 HEAD 与请求提交一致，阻止了把 `02f65c39` 作为提交号继续运行。`reverse-05` 在 preflight receipt 阶段停止，没有创建正式实验目录或传输样本。
+
+映射提交后将固定本轮源码版本，再启动三阶段新 run ID。security `2026-11-27-r770-annual-5g-security-07`、forward `2026-11-27-r770-annual-5g-main-forward-06`、reverse `2026-11-27-r770-annual-5g-main-reverse-05`。security-06 与 forward-05 保留为旧提交结果，不纳入该固定提交矩阵。
