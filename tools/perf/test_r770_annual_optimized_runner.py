@@ -130,11 +130,14 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         time_wait = dict(real, source="snapshot", socket_cookie="0000100400000000",
                          tcp_state=diag.TCP_TIME_WAIT, tcp_state_name="TIME_WAIT",
                          tcp_info_present=False, retrans_total=None, bytes_retrans=None)
+        syn_recv = dict(real, source="snapshot", socket_cookie="0000100500000000",
+                        tcp_state=diag.TCP_SYN_RECV, tcp_state_name="SYN_RECV",
+                        tcp_info_present=False, retrans_total=None, bytes_retrans=None)
         new_syn_recv = dict(real, source="snapshot", socket_cookie="ffffffffffffffff",
                             tcp_state=diag.TCP_NEW_SYN_RECV, tcp_state_name="NEW_SYN_RECV",
                             tcp_info_present=False,
                             retrans_total=None, bytes_retrans=None)
-        records = watcher_records(1, extra_sockets=(time_wait, new_syn_recv))
+        records = watcher_records(1, extra_sockets=(time_wait, syn_recv, new_syn_recv))
 
         gate = runner.socket_gate(records, 1, "sample")
 
