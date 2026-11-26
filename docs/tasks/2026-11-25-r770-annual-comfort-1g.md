@@ -74,4 +74,10 @@ CPNetFlux 的主对比和两个安全臂统一使用 V3/TCP、四条数据流、
 
 8 MiB 准入验证中，GridFTP 四流与双端 TCP_INFO 观测通过。CPNetFlux mmap 客户端按协议拒绝了未分段的小文件，原因是 8 MiB 未超过自适应范围门槛，无法产生接收端 mmap 所需的四至八个并行范围。该失败记录保留，不作为性能样本。128 MiB 验证的 GridFTP 与 CPNetFlux 实际传输均成功，CPNetFlux 四流、双端终态、0 重传及 NIC 门通过，但 runner 因正式 phase timing 关闭而未收到范围级 backend 回执，仍按验证样本拒收。新的诊断 run 将只对诊断客户端开启 phase timing，正式 1 GiB 参数和硬门不变。
 
-代码输入提交为 `8650384de955becf7ee240fc52f7f785e67b7135`。新验证 run ID 为 `2026-11-27-r770-tcp-diag-validation-02`，正式年度矩阵 run ID 为 `2026-11-27-r770-annual-comfort-security-1g-01`、`2026-11-27-r770-annual-comfort-main-forward-1g-01` 与 `2026-11-27-r770-annual-comfort-main-reverse-1g-01`。
+代码输入提交为 `8650384de955becf7ee240fc52f7f785e67b7135`。诊断验证 run ID 为 `2026-11-27-r770-tcp-diag-validation-02`。首次年度矩阵 run ID 为 `2026-11-27-r770-annual-comfort-security-1g-01`、`2026-11-27-r770-annual-comfort-main-forward-1g-01` 与 `2026-11-27-r770-annual-comfort-main-reverse-1g-01`。
+
+### 2026-11-27 正式矩阵重跑
+
+首次 security 矩阵在前五个 1 GiB 样本通过后，于 `security-formal-06-clear` 停止。接收和 CRC32C 校验通过，接口/HCA 错误计数在样本期间没有增量；双端 socket 证据确认 R2 到 R1 的一条数据流有 1 次 TCP 重传、1408 字节，因此该样本按硬门拒收。样本原始证据保留于 `2026-11-27-r770-annual-comfort-security-1g-01`，不计入年度结果。收尾核验显示两端临时 listener、凭据和 tmpfs payload 均已清理，postflight 身份匹配，清理后的接口错误计数增量为零。
+
+为保持年度结果来自同一固定提交，新的完整矩阵使用 security `2026-11-27-r770-annual-comfort-security-1g-02`、正向 `2026-11-27-r770-annual-comfort-main-forward-1g-02`、反向 `2026-11-27-r770-annual-comfort-main-reverse-1g-02`。不补跑单个失败样本，不降低重传或 NIC/HCA 硬门，不调整舒适区配置。只有新 security 阶段 15/15 样本合格并通过 postflight，才启动正反向各五对主比较。年度结论依据通过门槛的原始数据和各臂中位数，如有 CPNetFlux 指标未超过 GridFTP，将如实列出。
