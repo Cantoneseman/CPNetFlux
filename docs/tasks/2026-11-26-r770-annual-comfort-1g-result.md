@@ -18,7 +18,7 @@
 - 输入提交：`499758e8906fcfb699f3850d581dcbcf016d3b90`
 - 该 security 矩阵原定 R2→R1、1 GiB（1,073,741,824 字节）、GridFTP GSI 明文/私密及匿名明文、CPNetFlux token 明文与控制/数据 TLS 五种模式各 3 个正式样本。CPNetFlux 采用 V3/TCP、四连接、inline mmap 接收、direct receive 关闭、256 KiB DATA、请求 1 MiB TCP 接收缓冲、每 lane 1.5 GB/s pacing、CRC32C、1 MiB chunk、每 16 块 checkpoint、关闭压缩。GridFTP 使用固定年度合同中的 GSI profile。双端 RX/TX ring 保持 1024/1024。
 - 先前 `smoke-r2-01-grid`：8 MiB，准入接受。该样本仅用于 smoke，不计正式结果。
-- `smoke-r2-02-private`：8 MiB，目标 SHA-256 `f81f74d8573dd6dfd8f543981a80b6eec2f3adae51db706a3b5ae4f62c44fe83`，SHA 通过；R1 `Tcp.RetransSegs +2`，R2 为 0；双端 RX missed/OOB、丢包和 CRC 增量为 0；换出增量为 0。样本拒收，security 矩阵立即停止。
+- `smoke-r2-02-private`：8 MiB，目标 SHA-256 `f81f74d8573dd6dfd8f543981a80b6eec2f3adae51db706a3b5ae4f62c44fe83`，SHA 通过；R1 `Tcp.RetransSegs +2`，R2 为 0；双端 RX missed/OOB、丢包和 CRC 增量为 0；换出增量为 0。该计数是主机级，无法归属到具体数据连接，因此按传输样本硬门拒收，但不能据此认定数据通道本身发生重传。security 矩阵立即停止。
 - postflight：双端 payload 和实验凭据均已移除，临时监听为空，接口/服务身份匹配；6 秒空载窗口 RX missed/OOB 与换出增量为 0。常驻 2121 服务仍在。
 - 前一次失败证据未改写：`/home/Su/experiments/CPNetFlux/2026-11-26-r770-annual-preflight-abort-01/`
 
