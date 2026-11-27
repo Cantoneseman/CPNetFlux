@@ -25,6 +25,9 @@ SECURITY_BLOCKS = (
 FORWARD_ORDER = ("grid", "mmap", "mmap", "grid", "grid", "mmap", "mmap", "grid", "grid", "mmap")
 REVERSE_ORDER = ("mmap", "grid", "grid", "mmap", "mmap", "grid", "grid", "mmap", "mmap", "grid")
 TOOL = str(Path(node.__file__).resolve())
+RETRANS_EVENT_TOLERANCE_PER_DATA_STREAM = 1
+RETRANS_BYTE_TOLERANCE_DENOMINATOR = 1_000_000
+RETRANS_MINIMUM_TOLERANCE_BYTES = 1500
 
 
 def argv(host, *args):
@@ -136,7 +139,7 @@ def _watch_socket_rows(records):
     return rows
 
 
-def socket_gate(records, host, label, expected_data_streams=4):
+def socket_gate(records, host, label, expected_data_streams=4, expected_bytes=None):
     errors = []
     ready = [item for item in records if item.get("kind") == "ready"]
     stopped = [item for item in records if item.get("kind") == "stopped"]
@@ -170,6 +173,8 @@ def socket_gate(records, host, label, expected_data_streams=4):
     socket_rows = _watch_socket_rows(records)
     history = {}
     terminal_rows = {}
+    total_retrans_events = 0
+    total_retrans_bytes = 0
     for record in records:
         if record.get("kind") == "destroy" and record.get("socket"):
             socket = record["socket"]
@@ -194,14 +199,31 @@ def socket_gate(records, host, label, expected_data_streams=4):
         if retrans_delta < 0 or bytes_delta < 0:
             errors.append("socket TCP_INFO retransmission counter regressed")
         elif retrans_delta or bytes_delta:
-            errors.append(
-                "socket retransmission {}->{} retrans_total +{}, bytes_retrans +{}".format(
-                    row["local_tuple"], row["peer_tuple"], retrans_delta, bytes_delta))
+            total_retrans_events += retrans_delta
+            total_retrans_bytes += bytes_delta
         history[key] = (max(prior[0], row["retrans_total"]),
                         max(prior[1], row["bytes_retrans"]))
 
     if not history:
         errors.append("no experiment TCP sockets observed")
+
+    retrans_event_tolerance = (
+        expected_data_streams * RETRANS_EVENT_TOLERANCE_PER_DATA_STREAM
+        if expected_bytes is not None else 0)
+    retrans_byte_tolerance = (
+        max(RETRANS_MINIMUM_TOLERANCE_BYTES,
+            expected_bytes // RETRANS_BYTE_TOLERANCE_DENOMINATOR)
+        if expected_bytes is not None else 0)
+    retransmission_tolerated = (
+        bool(total_retrans_events or total_retrans_bytes)
+        and total_retrans_events <= retrans_event_tolerance
+        and total_retrans_bytes <= retrans_byte_tolerance)
+    if (total_retrans_events > retrans_event_tolerance
+            or total_retrans_bytes > retrans_byte_tolerance):
+        errors.append(
+            "socket retransmission exceeds tolerance: events {}/{} bytes {}/{}".format(
+                total_retrans_events, retrans_event_tolerance,
+                total_retrans_bytes, retrans_byte_tolerance))
 
     data_rows = {}
     for row in socket_rows:
@@ -244,6 +266,11 @@ def socket_gate(records, host, label, expected_data_streams=4):
         "observer_ready": len(ready) == 1,
         "observer_stopped": len(stopped) == 1,
         "event_loss_count": stopped[0].get("event_loss_count") if len(stopped) == 1 else None,
+        "retrans_total_delta": total_retrans_events,
+        "bytes_retrans_delta": total_retrans_bytes,
+        "retrans_event_tolerance": retrans_event_tolerance,
+        "retrans_byte_tolerance": retrans_byte_tolerance,
+        "retransmission_tolerated": retransmission_tolerated,
     }
 
 
@@ -565,7 +592,10 @@ def sample(group, index, mode, sender, expected):
                                        if item.get("kind") == "sample"]
         errors, deltas, metrics = bounds(
             before, after, resource_readings, require_resource_observations=True)
-        socket_gates = {host: socket_gate(watch_records[host], host, label) for host in HOSTS}
+        socket_gates = {
+            host: socket_gate(watch_records[host], host, label,
+                              expected_bytes=expected["bytes"])
+            for host in HOSTS}
         pair_errors = socket_pair_errors(socket_gates)
         for host in HOSTS:
             errors[host].extend(socket_gates[host]["errors"])

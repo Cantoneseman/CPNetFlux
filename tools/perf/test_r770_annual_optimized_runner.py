@@ -95,6 +95,18 @@ def watcher_records(host, missing_terminal=None, extra_sockets=()):
     return records
 
 
+def set_socket_retransmission(records, index, events, byte_count):
+    sample = next(item for item in records if item["kind"] == "sample")
+    socket_row = sample["sockets"][index]
+    socket_row["retrans_total"] = events
+    socket_row["bytes_retrans"] = byte_count
+    cookie = socket_row["socket_cookie"]
+    for record in records:
+        if record.get("kind") == "destroy" and record["socket"]["socket_cookie"] == cookie:
+            record["socket"]["retrans_total"] = events
+            record["socket"]["bytes_retrans"] = byte_count
+
+
 class AnnualComfortRunnerTests(unittest.TestCase):
     def test_socket_diag_parser_extracts_cookie_and_tcp_info_counters(self):
         message = bytearray(diag.SOCKET_DIAG_HEADER_BYTES)
@@ -199,13 +211,43 @@ class AnnualComfortRunnerTests(unittest.TestCase):
 
     def test_socket_gate_rejects_tcp_info_retransmission_delta(self):
         records = watcher_records(1)
-        sample = next(item for item in records if item["kind"] == "sample")
-        sample["sockets"][0]["retrans_total"] = 1
-        sample["sockets"][0]["bytes_retrans"] = 1448
+        set_socket_retransmission(records, 0, 1, 1448)
 
         gate = runner.socket_gate(records, 1, "sample")
 
         self.assertTrue(any("socket retransmission" in error for error in gate["errors"]))
+
+    def test_socket_gate_accepts_bounded_retransmission_for_payload_sample(self):
+        records = watcher_records(1)
+        set_socket_retransmission(records, 0, 2, 824)
+
+        gate = runner.socket_gate(records, 1, "sample", expected_bytes=5 * 2**30)
+
+        self.assertEqual(gate["errors"], [])
+        self.assertEqual(gate["retrans_total_delta"], 2)
+        self.assertEqual(gate["bytes_retrans_delta"], 824)
+        self.assertEqual(gate["retrans_event_tolerance"], 4)
+        self.assertEqual(gate["retrans_byte_tolerance"], 5 * 2**30 // 1_000_000)
+        self.assertTrue(gate["retransmission_tolerated"])
+
+    def test_socket_gate_rejects_retransmission_above_byte_tolerance(self):
+        records = watcher_records(1)
+        set_socket_retransmission(records, 0, 1,
+                                  5 * 2**30 // 1_000_000 + 1)
+
+        gate = runner.socket_gate(records, 1, "sample", expected_bytes=5 * 2**30)
+
+        self.assertTrue(any("socket retransmission exceeds tolerance" in error
+                            for error in gate["errors"]))
+
+    def test_socket_gate_rejects_retransmission_above_event_tolerance(self):
+        records = watcher_records(1)
+        set_socket_retransmission(records, 0, 5, 1500)
+
+        gate = runner.socket_gate(records, 1, "sample", expected_bytes=5 * 2**30)
+
+        self.assertTrue(any("socket retransmission exceeds tolerance" in error
+                            for error in gate["errors"]))
 
     def test_socket_gate_rejects_incomplete_four_stream_coverage(self):
         records = watcher_records(1, missing_terminal=3)
@@ -253,6 +295,7 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_RETRY_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_FIXED_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_SCOPE_RUN], 5 * 2**30)
+        self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_GATE_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_D5_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_FORWARD_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_FORWARD_FIXED_RUN], 5 * 2**30)

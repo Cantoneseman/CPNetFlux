@@ -120,3 +120,13 @@ run `security-06`、`main-forward-05` 與 `main-reverse-05` 的尝试不能组�
 `security-formal-14-tls` 有一次 lane socket 的 `retrans_total` 增量 2、累计重传字节 824（分两次观察增加 216 与 608 字节）；`security-formal-15-clear` 两条 lane 各有 1 次重传，分别 1,328 与 728 字节。客户端返回码均为 0，5 GiB 数据和 SHA 均正确，但按原 socket 零重传硬门拒收，不统计吞吐。两项均无 host swap/PSI、NIC error 或完整性门失败。
 
 run `2026-11-27-r770-annual-5g-security-12` 的 postflight 为 `complete_with_rejections`，双端临时 payload、凭据和 listener 清理成功，接口身份匹配，清理后 6 秒空载期 host swap、TCP retrans 和 NIC error 计数稳定。详细逐项 JSON、socket watcher、资源、认证、build 和清理证据位于 R1 `/home/Su/experiments/CPNetFlux/2026-11-27-r770-annual-5g-security-12/`。5 GiB 仅作内部工程验证，旧年度报告没有修改。
+
+## 2026-11-27 重传容差门禁调整任务
+
+**范围**：将年度性能样本逐 socket 零重传门调整为有界、可审计的样本级容差。每端每样本允许的重传段数最多为 4，总重传字节最多为 `max(1500, payload_bytes / 1,000,000)`。原始逐 socket TCP_INFO 计数继续保留，超出任一阈值仍拒收。使用新 run ID 完整重跑 15 项安全矩阵。
+
+**非目标**：不修改 CPNetFlux/GridFTP 数据路径、安全模式、传输参数、NIC、路由、ring、host PSI/内存/NIC error/完整性/认证门，不修改年度报告，不把被拒样本计入吞吐。
+
+**验收标准**：回归测试证明 5 GiB 样本内的微量重传通过、超过字节或事件阈值仍拒收；R1/R2 在同一固定提交通过相关单测、Python 语法检查和 CMake 构建，二进制哈希一致；新安全矩阵 15 项完整采集并逐项记录接收决策和原始重传值，所有接受项 SHA 正确且清理通过。
+
+**受影响文件**：`tools/perf/r770_annual_optimized_node.py`、`tools/perf/r770_annual_optimized_runner.py`、`tools/perf/test_r770_annual_optimized_runner.py`、本任务记录。
