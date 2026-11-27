@@ -24,7 +24,8 @@ ANNUAL_5G_REJECTED_SECURITY_FIXED_RUN = "2026-11-27-r770-annual-5g-security-05"
 ANNUAL_5G_REJECTED_SECURITY_D5_RUN = "2026-11-27-r770-annual-5g-security-06"
 ANNUAL_5G_REJECTED_SECURITY_LATEST_RUN = "2026-11-27-r770-annual-5g-security-07"
 ANNUAL_5G_REJECTED_SECURITY_PREOPT_RUN = "2026-11-27-r770-annual-5g-security-08"
-ANNUAL_5G_SECURITY_RUN = "2026-11-27-r770-annual-5g-security-09"
+ANNUAL_5G_REJECTED_SECURITY_RECEIPT_RUN = "2026-11-27-r770-annual-5g-security-09"
+ANNUAL_5G_SECURITY_RUN = "2026-11-27-r770-annual-5g-security-10"
 ANNUAL_5G_REJECTED_FORWARD_RUN = "2026-11-27-r770-annual-5g-main-forward-03"
 ANNUAL_5G_REJECTED_FORWARD_FIXED_RUN = "2026-11-27-r770-annual-5g-main-forward-04"
 ANNUAL_5G_REJECTED_FORWARD_D5_RUN = "2026-11-27-r770-annual-5g-main-forward-05"
@@ -48,6 +49,7 @@ RUN_SIZES = {
     ANNUAL_5G_REJECTED_SECURITY_RETRY_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_FIXED_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_PREOPT_RUN: 5 * 2**30,
+    ANNUAL_5G_REJECTED_SECURITY_RECEIPT_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_D5_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_LATEST_RUN: 5 * 2**30,
     ANNUAL_5G_FORWARD_RUN: 5 * 2**30,
@@ -226,6 +228,7 @@ def comfort_profile(mode):
         "control_tls": mode == "tls",
         "data_tls": mode == "tls",
     }
+
 
 def security_5g_profile(mode):
     return {
@@ -468,6 +471,13 @@ def cp_client(mode, label, server_host):
     (OUT/(label + ".client.log")).write_text(proc.stdout + "\n" + proc.stderr)
     summary = OUT/(label + ".summary.json")
     row["summary"] = json.loads(summary.read_text()) if summary.exists() else {}
+    if IS_SECURITY_5G and mode in ("clear", "tls"):
+        row["client_runtime_profile"] = {key: variables.get(key) for key in (
+            "CPNETFLUX_EXPERIMENTAL_DOWNLOAD_WRITE",
+            "CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION",
+            "CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE",
+            "CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES",
+            "CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND")}
     return row
 
 
@@ -483,6 +493,7 @@ def cp_receipt(label):
             "channels": [json.loads(l.split(" ",1)[1])["channel_index"] for l in lines
                          if l.startswith("CPNETFLUX_PERSISTENT_TIMING ")],
             "pacing": pacing}
+
 def cp_client_receipt(label):
     path = OUT/(label + ".client.log")
     pacing = [json.loads(line.split(" ", 1)[1]) for line in path.read_text(errors="replace").splitlines()

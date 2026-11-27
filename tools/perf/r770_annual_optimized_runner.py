@@ -371,14 +371,13 @@ def validate_cp(row, receipt, mode, sender, receiver, size, service_receipt=None
                lane.get("tcp_receive_buffer_bytes", 0) >
                2 * profile["tcp_receive_buffer_requested_bytes"] for lane in lanes):
             raise ValueError("CPNetFlux security receive buffer readback mismatch")
-        timings = [item for item in s.get("file_timings", []) if item.get("range_id")]
-        if (not 4 <= len(timings) <= 8 or sum(item.get("length", 0) for item in timings) != size or
-                not all(item.get("receiver_payload_execution") == "inline" and
-                        item.get("receiver_write_backend") == "mmap_experimental" and
-                        (item.get("mapped_write") or {}).get("direct_receive_calls") == 0 and
-                        (item.get("mapped_write") or {}).get("direct_received_bytes") == 0
-                        for item in timings)):
-            raise ValueError("CPNetFlux security buffered inline mmap receipt mismatch")
+        client_profile = row.get("client_runtime_profile", {})
+        if (client_profile.get("CPNETFLUX_EXPERIMENTAL_DOWNLOAD_WRITE") != "mmap" or
+                client_profile.get("CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION") != "inline" or
+                client_profile.get("CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE") != "off" or
+                client_profile.get("CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES") != "1048576" or
+                client_profile.get("CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND") != "off"):
+            raise ValueError("CPNetFlux security receiver configuration receipt mismatch")
         if (s.get("receiver_policy", {}).get("range_checkpoint_batch_chunks_effective") != 16 or
                 s.get("receiver_policy", {}).get("final_verify_policy_effective") != "verified_chunks"):
             raise ValueError("CPNetFlux security checkpoint or verification policy mismatch")
