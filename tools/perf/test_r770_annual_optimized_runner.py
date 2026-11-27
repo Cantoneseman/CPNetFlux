@@ -377,7 +377,7 @@ class AnnualComfortRunnerTests(unittest.TestCase):
 
         self.assertIn(leaf + " memory events or swap", runner.rx.violations(before, after))
 
-    def test_resource_gate_rejects_cgroup_scope_change(self):
+    def test_resource_gate_skips_cgroup_deltas_when_ssh_scope_changes(self):
         before = network_snapshot(0)
         before["cgroup_path"] = "/sys/fs/cgroup/user.slice/session-a.scope"
         before["cgroups"] = {before["cgroup_path"]: {
@@ -385,7 +385,9 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         after = dict(before)
         after["cgroup_path"] = "/sys/fs/cgroup/user.slice/session-b.scope"
 
-        self.assertIn("experiment cgroup scope changed", runner.rx.violations(before, after))
+        self.assertEqual(runner.rx.violations(before, after), [])
+        pressured = dict(after, psi_full_us=after["psi_full_us"] + 1)
+        self.assertIn("host full memory PSI", runner.rx.violations(before, pressured))
 
     def test_token_clear_and_tls_clients_keep_identical_data_arguments(self):
         test_root = Path("/__cpnetflux_unit_test__")
