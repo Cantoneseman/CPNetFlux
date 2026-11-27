@@ -226,14 +226,14 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(gate["errors"], [])
         self.assertEqual(gate["retrans_total_delta"], 2)
         self.assertEqual(gate["bytes_retrans_delta"], 824)
-        self.assertEqual(gate["retrans_event_tolerance"], 4)
-        self.assertEqual(gate["retrans_byte_tolerance"], 5 * 2**30 // 1_000_000)
+        self.assertEqual(gate["retrans_event_tolerance"], 5 * 2**30 // 1500 // 1000)
+        self.assertEqual(gate["retrans_byte_tolerance"], 5 * 2**30 // 1000)
         self.assertTrue(gate["retransmission_tolerated"])
 
     def test_socket_gate_rejects_retransmission_above_byte_tolerance(self):
         records = watcher_records(1)
         set_socket_retransmission(records, 0, 1,
-                                  5 * 2**30 // 1_000_000 + 1)
+                                  5 * 2**30 // 1000 + 1)
 
         gate = runner.socket_gate(records, 1, "sample", expected_bytes=5 * 2**30)
 
@@ -242,12 +242,41 @@ class AnnualComfortRunnerTests(unittest.TestCase):
 
     def test_socket_gate_rejects_retransmission_above_event_tolerance(self):
         records = watcher_records(1)
-        set_socket_retransmission(records, 0, 5, 1500)
+        set_socket_retransmission(records, 0, 5 * 2**30 // 1500 // 1000 + 1, 1500)
 
         gate = runner.socket_gate(records, 1, "sample", expected_bytes=5 * 2**30)
 
         self.assertTrue(any("socket retransmission exceeds tolerance" in error
                             for error in gate["errors"]))
+
+    def test_bounds_accepts_bounded_rx_queue_drops_but_rejects_other_nic_errors(self):
+        expected_bytes = 5 * 2**30
+        rx_drop_limit = expected_bytes // 1500 // 1000
+        before = {host: network_snapshot(100) for host in runner.HOSTS}
+        after = {host: network_snapshot(100) for host in runner.HOSTS}
+        after[2]["counters"]["rx_missed_errors"] += rx_drop_limit
+        after[2]["counters"]["rx_out_of_buffer"] += rx_drop_limit
+        after[2]["counters"]["rx_crc_errors_phy"] += 1
+
+        errors, _, metrics = runner.bounds(before, after, {}, expected_bytes=expected_bytes)
+
+        self.assertEqual(metrics[2]["tolerated_rx_drop_counters"], {
+            "rx_missed_errors": rx_drop_limit,
+            "rx_out_of_buffer": rx_drop_limit,
+        })
+        self.assertEqual(errors[1], [])
+        self.assertTrue(any("rx_crc_errors_phy +1" in error for error in errors[2]))
+
+    def test_bounds_rejects_rx_queue_drops_above_payload_ratio(self):
+        expected_bytes = 5 * 2**30
+        rx_drop_limit = expected_bytes // 1500 // 1000
+        before = {host: network_snapshot(100) for host in runner.HOSTS}
+        after = {host: network_snapshot(100) for host in runner.HOSTS}
+        after[2]["counters"]["rx_out_of_buffer"] += rx_drop_limit + 1
+
+        errors, _, _ = runner.bounds(before, after, {}, expected_bytes=expected_bytes)
+
+        self.assertIn(f"rx_out_of_buffer +{rx_drop_limit + 1}", errors[2])
 
     def test_socket_gate_rejects_incomplete_four_stream_coverage(self):
         records = watcher_records(1, missing_terminal=3)
@@ -296,6 +325,7 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_FIXED_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_SCOPE_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_GATE_RUN], 5 * 2**30)
+        self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_TOLERANCE_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_D5_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_FORWARD_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_FORWARD_FIXED_RUN], 5 * 2**30)

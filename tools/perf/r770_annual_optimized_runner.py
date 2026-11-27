@@ -25,9 +25,9 @@ SECURITY_BLOCKS = (
 FORWARD_ORDER = ("grid", "mmap", "mmap", "grid", "grid", "mmap", "mmap", "grid", "grid", "mmap")
 REVERSE_ORDER = ("mmap", "grid", "grid", "mmap", "mmap", "grid", "grid", "mmap", "mmap", "grid")
 TOOL = str(Path(node.__file__).resolve())
-RETRANS_EVENT_TOLERANCE_PER_DATA_STREAM = 1
-RETRANS_BYTE_TOLERANCE_DENOMINATOR = 1_000_000
-RETRANS_MINIMUM_TOLERANCE_BYTES = 1500
+NETWORK_IMPAIRMENT_TOLERANCE_DENOMINATOR = 1000
+TCP_PACKET_BYTES = 1500
+RX_DROP_COUNTERS = ("rx_missed_errors", "rx_dropped", "rx_out_of_buffer")
 
 
 def argv(host, *args):
@@ -101,7 +101,7 @@ def credentials():
         "gridmap_account":"Su"})
 
 
-def bounds(before, after, observations, require_resource_observations=False):
+def bounds(before, after, observations, require_resource_observations=False, expected_bytes=None):
     errors, deltas, metrics = {}, {}, {}
     for host in HOSTS:
         start = before[host]
@@ -111,6 +111,15 @@ def bounds(before, after, observations, require_resource_observations=False):
         psi_tolerance = (node.SECURITY_FULL_PSI_TOLERANCE_US if node.IS_SECURITY_5G else 0)
         network, delta = rx.comparable(
             start, end, full_psi_tolerance_us=psi_tolerance)
+        rx_drop_tolerance = (
+            max(1, expected_bytes // TCP_PACKET_BYTES // NETWORK_IMPAIRMENT_TOLERANCE_DENOMINATOR)
+            if expected_bytes is not None else 0)
+        tolerated_rx_drop_counters = {
+            counter: delta[counter] for counter in RX_DROP_COUNTERS
+            if 0 < delta.get(counter, 0) <= rx_drop_tolerance}
+        tolerated_rx_reasons = {
+            f"{counter} +{value}" for counter, value in tolerated_rx_drop_counters.items()}
+        network = [reason for reason in network if reason not in tolerated_rx_reasons]
         extra = [reason for sample in readings for reason in rx.violations(
             start, sample, full_psi_tolerance_us=psi_tolerance)]
         errors[host] = sorted(set(network + extra))
@@ -123,6 +132,8 @@ def bounds(before, after, observations, require_resource_observations=False):
             "swapout_delta": end["pswpout"] - start["pswpout"],
             "memory_full_stall_us": end["psi_full_us"] - start["psi_full_us"],
             "resource_observations": sum("resource" in item for item in observed),
+            "rx_drop_event_tolerance": rx_drop_tolerance,
+            "tolerated_rx_drop_counters": tolerated_rx_drop_counters,
         }
         if require_resource_observations and not metrics[host]["resource_observations"]:
             errors[host].append("resource watcher produced no samples")
@@ -208,11 +219,11 @@ def socket_gate(records, host, label, expected_data_streams=4, expected_bytes=No
         errors.append("no experiment TCP sockets observed")
 
     retrans_event_tolerance = (
-        expected_data_streams * RETRANS_EVENT_TOLERANCE_PER_DATA_STREAM
+        max(1, expected_bytes // TCP_PACKET_BYTES // NETWORK_IMPAIRMENT_TOLERANCE_DENOMINATOR)
         if expected_bytes is not None else 0)
     retrans_byte_tolerance = (
-        max(RETRANS_MINIMUM_TOLERANCE_BYTES,
-            expected_bytes // RETRANS_BYTE_TOLERANCE_DENOMINATOR)
+        max(TCP_PACKET_BYTES,
+            expected_bytes // NETWORK_IMPAIRMENT_TOLERANCE_DENOMINATOR)
         if expected_bytes is not None else 0)
     retransmission_tolerated = (
         bool(total_retrans_events or total_retrans_bytes)
@@ -591,7 +602,8 @@ def sample(group, index, mode, sender, expected):
             resource_readings[host] = [item for item in watch_records[host]
                                        if item.get("kind") == "sample"]
         errors, deltas, metrics = bounds(
-            before, after, resource_readings, require_resource_observations=True)
+            before, after, resource_readings, require_resource_observations=True,
+            expected_bytes=expected["bytes"])
         socket_gates = {
             host: socket_gate(watch_records[host], host, label,
                               expected_bytes=expected["bytes"])

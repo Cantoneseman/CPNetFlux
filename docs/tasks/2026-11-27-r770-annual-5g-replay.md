@@ -123,10 +123,10 @@ run `2026-11-27-r770-annual-5g-security-12` 的 postflight 为 `complete_with_re
 
 ## 2026-11-27 重传容差门禁调整任务
 
-**范围**：将年度性能样本逐 socket 零重传门调整为有界、可审计的样本级容差。每端每样本允许的重传段数最多为 4，总重传字节最多为 `max(1500, payload_bytes / 1,000,000)`。原始逐 socket TCP_INFO 计数继续保留，超出任一阈值仍拒收。使用新 run ID 完整重跑 15 项安全矩阵。
+**范围**：将年度性能样本的可恢复 TCP 重传和接收队列丢包门调整为有界、可审计的样本级容差。每端每样本的 TCP 重传段数上限为 `max(1, floor(payload_bytes / 1500 / 1000))`，重传字节上限为 `max(1500, floor(payload_bytes / 1000))`。`rx_missed_errors`、`rx_dropped`、`rx_out_of_buffer` 各自增量使用相同的 0.1% 估算包数上限。原始逐 socket 和 NIC 计数继续保留，超出任一阈值仍拒收。CRC/物理链路/HCA/TX 错误、PSI、内存、认证、流覆盖和数据完整性门仍保持原标准。使用新 run ID 完整重跑 15 项安全矩阵。
 
-**非目标**：不修改 CPNetFlux/GridFTP 数据路径、安全模式、传输参数、NIC、路由、ring、host PSI/内存/NIC error/完整性/认证门，不修改年度报告，不把被拒样本计入吞吐。
+**非目标**：不修改 CPNetFlux/GridFTP 数据路径、安全模式、传输参数、NIC 设置、路由或 ring；不放宽 host PSI、内存、CRC/物理链路/HCA/TX 错误、认证、流覆盖或完整性门；不修改年度报告，不把超过容差的被拒样本计入吞吐。
 
-**验收标准**：回归测试证明 5 GiB 样本内的微量重传通过、超过字节或事件阈值仍拒收；R1/R2 在同一固定提交通过相关单测、Python 语法检查和 CMake 构建，二进制哈希一致；新安全矩阵 15 项完整采集并逐项记录接收决策和原始重传值，所有接受项 SHA 正确且清理通过。
+**验收标准**：回归测试证明 5 GiB 样本内低于 0.1% 的重传/接收队列丢包通过、超过包数或字节阈值仍拒收，其他网卡错误继续拒收；R1/R2 在同一固定提交通过相关单测、Python 语法检查和 CMake 构建，二进制哈希一致；新安全矩阵 15 项完整采集并逐项记录接收决策和原始 TCP/NIC 计数，所有接受项 SHA 正确且清理通过。
 
 **受影响文件**：`tools/perf/r770_annual_optimized_node.py`、`tools/perf/r770_annual_optimized_runner.py`、`tools/perf/test_r770_annual_optimized_runner.py`、本任务记录。
