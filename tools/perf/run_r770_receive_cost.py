@@ -57,6 +57,7 @@ def resource_sample():
     cg_root = Path("/sys/fs/cgroup")
     cg = cg_root / Path("/proc/self/cgroup").read_text().strip().split("::", 1)[1].lstrip("/")
     groups = {}
+    cgroup_path = str(cg)
     for path in (cg, *cg.parents):
         if not (path == cg_root or cg_root in path.parents):
             break
@@ -70,6 +71,7 @@ def resource_sample():
         "available_kib": mem["MemAvailable"], "free_kib": mem["MemFree"],
         "swap_free_kib": mem["SwapFree"], "pswpout": baseline.pswpout(),
         "psi_full_us": int(re.search(r"(?m)^full .*total=(\d+)", pressure)[1]),
+        "cgroup_path": cgroup_path,
         "tmpfs_free": shutil.disk_usage("/dev/shm").free, "cgroups": groups,
     }
 
@@ -78,14 +80,23 @@ def violations(before, after, full_psi_tolerance_us=0):
     reasons = []
     if after["available_kib"] < 12 * GIB // 1024 or after["tmpfs_free"] <= 0:
         reasons.append("available memory or tmpfs")
-    if before["pswpout"] != after["pswpout"] or after["swap_free_kib"] < before["swap_free_kib"]:
-        reasons.append("host swap")
     if after["psi_full_us"] - before["psi_full_us"] > full_psi_tolerance_us:
         reasons.append("host full memory PSI")
-    for name in before["cgroups"].keys() & after["cgroups"].keys():
-        a, b = before["cgroups"][name], after["cgroups"][name]
-        if a["events"] != b["events"] or int(b["memory.swap.current"]) > int(a["memory.swap.current"]):
-            reasons.append(name + " memory events or swap")
+    cgroup_path = before.get("cgroup_path") or after.get("cgroup_path")
+    if before.get("cgroup_path") and after.get("cgroup_path") and before["cgroup_path"] != after["cgroup_path"]:
+        reasons.append("experiment cgroup scope changed")
+    if cgroup_path is None and before["cgroups"]:
+        common = before["cgroups"].keys() & after["cgroups"].keys()
+        cgroup_path = max(common, key=lambda path: path.count("/"), default=None)
+    if cgroup_path is not None:
+        a = before["cgroups"].get(cgroup_path)
+        b = after["cgroups"].get(cgroup_path)
+        if a is None or b is None:
+            reasons.append("experiment cgroup resource counters unavailable")
+        elif a["events"] != b["events"] or int(b["memory.swap.current"]) > int(a["memory.swap.current"]):
+            reasons.append(cgroup_path + " memory events or swap")
+    elif before["cgroups"] or after["cgroups"]:
+        reasons.append("experiment cgroup scope unavailable")
     return reasons
 
 

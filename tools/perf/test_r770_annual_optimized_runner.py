@@ -252,6 +252,7 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_RETRY_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_FIXED_RUN], 5 * 2**30)
+        self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_SCOPE_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_SECURITY_D5_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_FORWARD_RUN], 5 * 2**30)
         self.assertEqual(node.RUN_SIZES[node.ANNUAL_5G_REJECTED_FORWARD_FIXED_RUN], 5 * 2**30)
@@ -331,16 +332,60 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(profile["receiver_write_backend"], "mmap_experimental")
         self.assertEqual(profile["direct_receive_opt_in"], "off")
 
-    def test_security_psi_tolerance_is_bounded_and_swap_stays_rejected(self):
+    def test_security_psi_tolerance_is_bounded_and_host_swap_is_diagnostic(self):
         before = network_snapshot(0)
         tolerated = dict(before, psi_full_us=before["psi_full_us"] + 5000)
         rejected = dict(before, psi_full_us=before["psi_full_us"] + 5001)
-        swapped = dict(tolerated, pswpout=before["pswpout"] + 1)
+        swapped = dict(tolerated, pswpout=before["pswpout"] + 1,
+                       swap_free_kib=before["swap_free_kib"] - 1)
 
         self.assertEqual(runner.rx.violations(before, tolerated, 5000), [])
         self.assertIn("host full memory PSI", runner.rx.violations(before, rejected, 5000))
         self.assertIn("host full memory PSI", runner.rx.violations(before, tolerated))
-        self.assertIn("host swap", runner.rx.violations(before, swapped, 5000))
+        self.assertEqual(runner.rx.violations(before, swapped, 5000), [])
+
+    def test_resource_gate_ignores_shared_ancestor_memory_events_and_swap(self):
+        leaf = "/sys/fs/cgroup/user.slice/user-1002.slice/session-test.scope"
+        ancestor = "/sys/fs/cgroup/user.slice/user-1002.slice"
+        before = network_snapshot(0)
+        before["cgroup_path"] = leaf
+        before["cgroups"] = {
+            leaf: {"events": {"high": 0}, "memory.swap.current": "0"},
+            ancestor: {"events": {"high": 0}, "memory.swap.current": "0"},
+        }
+        after = network_snapshot(0)
+        after["cgroup_path"] = leaf
+        after["cgroups"] = {
+            leaf: {"events": {"high": 0}, "memory.swap.current": "0"},
+            ancestor: {"events": {"high": 1}, "memory.swap.current": "4096"},
+        }
+
+        self.assertEqual(runner.rx.violations(before, after), [])
+
+    def test_resource_gate_rejects_task_cgroup_swap(self):
+        leaf = "/sys/fs/cgroup/user.slice/user-1002.slice/session-test.scope"
+        before = network_snapshot(0)
+        before["cgroup_path"] = leaf
+        before["cgroups"] = {
+            leaf: {"events": {"high": 0}, "memory.swap.current": "0"},
+        }
+        after = network_snapshot(0)
+        after["cgroup_path"] = leaf
+        after["cgroups"] = {
+            leaf: {"events": {"high": 0}, "memory.swap.current": "4096"},
+        }
+
+        self.assertIn(leaf + " memory events or swap", runner.rx.violations(before, after))
+
+    def test_resource_gate_rejects_cgroup_scope_change(self):
+        before = network_snapshot(0)
+        before["cgroup_path"] = "/sys/fs/cgroup/user.slice/session-a.scope"
+        before["cgroups"] = {before["cgroup_path"]: {
+            "events": {"high": 0}, "memory.swap.current": "0"}}
+        after = dict(before)
+        after["cgroup_path"] = "/sys/fs/cgroup/user.slice/session-b.scope"
+
+        self.assertIn("experiment cgroup scope changed", runner.rx.violations(before, after))
 
     def test_token_clear_and_tls_clients_keep_identical_data_arguments(self):
         test_root = Path("/__cpnetflux_unit_test__")
