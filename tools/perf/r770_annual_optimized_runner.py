@@ -310,7 +310,7 @@ def validate_grid(result, receipts, mode, sender, target, size):
         raise ValueError("unexpected protection or missing clear mode acknowledgement")
 
 
-def validate_cp(row, receipt, mode, sender, receiver, size):
+def validate_cp(row, receipt, mode, sender, receiver, size, service_receipt=None):
     s=row["summary"]
     tls=mode=="tls"
     fields = {"result":"pass","bytes_transferred":size,"completed_files":1,"failed_files":0,
@@ -358,6 +358,37 @@ def validate_cp(row, receipt, mode, sender, receiver, size):
                 item.get("rate_bytes_per_second") != 1500000000 or
                 item.get("spacing_violations") != 0 for item in pacing):
             raise ValueError("CPNetFlux per-lane application pacing receipt mismatch")
+    if node.IS_SECURITY_5G and mode in ("clear", "tls"):
+        profile = node.security_5g_profile(mode)
+        if s.get("data_frame_logical_bytes") != profile["data_frame_bytes"]:
+            raise ValueError("CPNetFlux security DATA frame mismatch")
+        applied = (service_receipt or {}).get("runtime_profile", {})
+        if applied.get("CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND") != str(
+                profile["application_pacing_bytes_per_second_per_lane"]):
+            raise ValueError("CPNetFlux security sender pacing configuration mismatch")
+        lanes = s.get("lane_endpoints", [])
+        if any(lane.get("tcp_receive_buffer_bytes", 0) < profile["tcp_receive_buffer_requested_bytes"] or
+               lane.get("tcp_receive_buffer_bytes", 0) >
+               2 * profile["tcp_receive_buffer_requested_bytes"] for lane in lanes):
+            raise ValueError("CPNetFlux security receive buffer readback mismatch")
+        timings = [item for item in s.get("file_timings", []) if item.get("range_id")]
+        if (not 4 <= len(timings) <= 8 or sum(item.get("length", 0) for item in timings) != size or
+                not all(item.get("receiver_payload_execution") == "inline" and
+                        item.get("receiver_write_backend") == "mmap_experimental" and
+                        (item.get("mapped_write") or {}).get("direct_receive_calls") == 0 and
+                        (item.get("mapped_write") or {}).get("direct_received_bytes") == 0
+                        for item in timings)):
+            raise ValueError("CPNetFlux security buffered inline mmap receipt mismatch")
+        if (s.get("receiver_policy", {}).get("range_checkpoint_batch_chunks_effective") != 16 or
+                s.get("receiver_policy", {}).get("final_verify_policy_effective") != "verified_chunks"):
+            raise ValueError("CPNetFlux security checkpoint or verification policy mismatch")
+        pacing = receipt.get("sender_pacing", [])
+        if len(pacing) != 4 or {item.get("lane") for item in pacing} != set(range(4)) or any(
+                item.get("rate_bytes_per_second") !=
+                profile["application_pacing_bytes_per_second_per_lane"] or
+                item.get("spacing_violations") != 0 or item.get("frames", 0) <= 0
+                for item in pacing):
+            raise ValueError("CPNetFlux security sender pacing receipt mismatch")
 
 
 def read_watch_records(path, allow_partial=False):
@@ -501,6 +532,8 @@ def sample(group, index, mode, sender, expected):
     row = dict(group=group,index=index,label=label,mode=mode,sender=sender,receiver=receiver,
                payload_bytes=expected["bytes"],decision="rejected")
     server = sender if node.cp_download_mode(mode) else receiver
+    if node.IS_SECURITY_5G and mode in ("clear", "tls"):
+        row["profile"] = node.security_5g_profile(mode)
     row["socket_evidence_paths"] = {
         host: str(OUT / "{}.r{}.watch.jsonl".format(label, host)) for host in HOSTS
     }
@@ -545,13 +578,17 @@ def sample(group, index, mode, sender, expected):
                       receiver:call(receiver,"grid-receipt",mode,label,"STOR")}
         else:
             receipts=call(server,"cp-receipt",label)
+            if node.IS_SECURITY_5G and mode in ("clear", "tls"):
+                receipts["sender_pacing"] = (receipts.get("pacing", [])
+                                              if node.cp_download_mode(mode) else
+                                              call(sender,"cp-client-receipt",label)["pacing"])
         row["receipts"]=receipts
         if result["returncode"]!=0:
             raise ValueError("client returned " + str(result["returncode"]))
         if mode in GRID:
             validate_grid(result,receipts,mode,sender,receiver,expected["bytes"])
         else:
-            validate_cp(result,receipts,mode,sender,receiver,expected["bytes"])
+            validate_cp(result,receipts,mode,sender,receiver,expected["bytes"],row.get("service"))
         actual=call(receiver,"sha",mode,label,expected["bytes"])
         row["target"]=actual
         if (actual["sha256"],actual["bytes"])!=(expected["sha256"],expected["bytes"]):
@@ -567,7 +604,8 @@ def sample(group, index, mode, sender, expected):
         try:
             if mode not in GRID:
                 call(server,"stop",label)
-            if not node.IS_COMFORT and mode in ("clear", "tls") and not call(sender, "remove-upload-manifest"):
+            if (not node.IS_COMFORT and mode in ("clear", "tls") and
+                    not node.cp_download_mode(mode) and not call(sender, "remove-upload-manifest")):
                 raise RuntimeError("sender upload manifest still exists")
             if folder_ready and not call(receiver,"remove",label):
                 raise RuntimeError("target still exists")
@@ -662,7 +700,7 @@ def main():
         if stage == "validate":
             done = True
         elif stage == "security":
-            done = sequence("security-formal", 2, sum(SECURITY_BLOCKS, ()), node.SIZE, expected_sha)
+            done = sequence("security-formal", 1, sum(SECURITY_BLOCKS, ()), node.SIZE, expected_sha)
         elif stage == "forward":
             done = sequence("main-forward-formal", 2, FORWARD_ORDER, node.SIZE, expected_sha)
         else:

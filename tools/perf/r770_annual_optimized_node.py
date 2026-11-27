@@ -23,7 +23,8 @@ ANNUAL_5G_REJECTED_SECURITY_RETRY_RUN = "2026-11-27-r770-annual-5g-security-04"
 ANNUAL_5G_REJECTED_SECURITY_FIXED_RUN = "2026-11-27-r770-annual-5g-security-05"
 ANNUAL_5G_REJECTED_SECURITY_D5_RUN = "2026-11-27-r770-annual-5g-security-06"
 ANNUAL_5G_REJECTED_SECURITY_LATEST_RUN = "2026-11-27-r770-annual-5g-security-07"
-ANNUAL_5G_SECURITY_RUN = "2026-11-27-r770-annual-5g-security-08"
+ANNUAL_5G_REJECTED_SECURITY_PREOPT_RUN = "2026-11-27-r770-annual-5g-security-08"
+ANNUAL_5G_SECURITY_RUN = "2026-11-27-r770-annual-5g-security-09"
 ANNUAL_5G_REJECTED_FORWARD_RUN = "2026-11-27-r770-annual-5g-main-forward-03"
 ANNUAL_5G_REJECTED_FORWARD_FIXED_RUN = "2026-11-27-r770-annual-5g-main-forward-04"
 ANNUAL_5G_REJECTED_FORWARD_D5_RUN = "2026-11-27-r770-annual-5g-main-forward-05"
@@ -46,6 +47,7 @@ RUN_SIZES = {
     ANNUAL_5G_REJECTED_SECURITY_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_RETRY_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_FIXED_RUN: 5 * 2**30,
+    ANNUAL_5G_REJECTED_SECURITY_PREOPT_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_D5_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_LATEST_RUN: 5 * 2**30,
     ANNUAL_5G_FORWARD_RUN: 5 * 2**30,
@@ -73,6 +75,7 @@ SMOKE = 128 * 2**20
 MODES = ("mmap", "grid", "private", "anon", "clear", "tls")
 CP_MODES = ("mmap", "clear", "tls")
 IS_COMFORT = RUN in COMFORT_RUNS or RUN == COMFORT_DIAG_RUN
+IS_SECURITY_5G = RUN == ANNUAL_5G_SECURITY_RUN
 IS_DIAG_VALIDATION = RUN == COMFORT_DIAG_RUN
 HOST = rx.baseline.node()
 IP = f"192.168.100.{HOST}"
@@ -180,12 +183,21 @@ def install_cert():
 
 
 def cp_download_mode(mode):
-    return mode == "mmap" or (IS_COMFORT and mode in ("clear", "tls"))
+    return mode == "mmap" or ((IS_COMFORT or IS_SECURITY_5G) and mode in ("clear", "tls"))
 
 
-def env(mode):
+def env(mode, role=None):
     value = rx.environment("mmap" if cp_download_mode(mode) else "pwrite", False)
-    if IS_COMFORT and mode in CP_MODES:
+    if IS_SECURITY_5G and mode in ("clear", "tls"):
+        if role == "receiver":
+            value.update(CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION="inline",
+                         CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE="off",
+                         CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES="1048576",
+                         CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND="off")
+        elif role == "sender":
+            value.update(CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES="off",
+                         CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND="1500000000")
+    elif IS_COMFORT and mode in CP_MODES:
         value.update(CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION="inline",
                      CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE="off",
                      CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES="1048576",
@@ -214,6 +226,26 @@ def comfort_profile(mode):
         "control_tls": mode == "tls",
         "data_tls": mode == "tls",
     }
+
+def security_5g_profile(mode):
+    return {
+        "data_transport": "tcp",
+        "connections": 4,
+        "receiver_payload_execution": "inline",
+        "receiver_write_backend": "mmap_experimental",
+        "direct_receive_opt_in": "off",
+        "data_frame_bytes": 262144,
+        "tcp_receive_buffer_requested_bytes": 1048576,
+        "application_pacing_bytes_per_second_per_lane": 1500000000,
+        "checksum": "crc32c",
+        "chunk_bytes": 1048576,
+        "checkpoint_chunks": 16,
+        "compression": "off",
+        "authentication": "token",
+        "control_tls": mode == "tls",
+        "data_tls": mode == "tls",
+    }
+
 
 
 def grid_env():
@@ -266,7 +298,7 @@ def service_args(mode, label):
         argv += ["--auth-token-file", str(CRED/"cp.token")]
     if tls == "required":
         argv += ["--tls-cert-file", str(CRED/"host.pem"), "--tls-key-file", str(CRED/"host.key")]
-    return argv, env(mode), 45596
+    return argv, env(mode, "sender" if download else "receiver"), 45596
 
 
 def service(mode, label):
@@ -279,15 +311,19 @@ def service(mode, label):
                                    stdin=subprocess.DEVNULL, stdout=stream, stderr=stream,
                                    start_new_session=True)
     ident = rx.baseline.proc_info(process.pid)
+    runtime_profile = {key: variables.get(key) for key in (
+        "CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION", "CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES",
+        "CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND")}
     receipt = OUT/(label + ".service.json")
     with receipt.open("x") as stream:
-        json.dump(dict(pid=process.pid, start=ident["start_ticks"], command=argv, port=port), stream)
+        json.dump(dict(pid=process.pid, start=ident["start_ticks"], command=argv, port=port,
+                       runtime_profile=runtime_profile), stream)
     try:
         for _ in range(60):
             if process.poll() is not None:
                 break
             if IP + ":" + str(port) in cmd(["ss", "-Hln", "sport", "=", str(port)]):
-                return {"pid": process.pid, "port": port}
+                return {"pid": process.pid, "port": port, "runtime_profile": runtime_profile}
             time.sleep(.05)
         raise RuntimeError("listener did not start; see " + str(log))
     except BaseException:
@@ -402,6 +438,7 @@ def cp_client_args(mode, label, server_host):
     peer = f"192.168.100.{server_host}"
     summary = OUT/(label + ".summary.json")
     phase_timing = "on" if IS_DIAG_VALIDATION and download else "off"
+    data_frame_bytes = 262144 if download or (IS_SECURITY_5G and mode in ("clear", "tls")) else 65532
     argv = [str(BUILD/f"cpnetflux-tree-{'download' if download else 'upload'}-client"),
             "--host", peer, "--port", "45596", "--local-bind-address", IP,
             "--source-dir", "source" if download else str(slot("source")),
@@ -409,7 +446,7 @@ def cp_client_args(mode, label, server_host):
             "--connections", "4", "--file-parallelism", "4", "--control-reuse", "worker",
             "--data-session-reuse", "tree", "--file-scheduling", "dynamic", "--data-pending-window", "2",
             "--checksum", "crc32c", "--chunk-size", "1048576", "--buffer-size", "65536",
-            "--data-frame-bytes", "262144" if download else "65532", "--data-transport", "tcp",
+            "--data-frame-bytes", str(data_frame_bytes), "--data-transport", "tcp",
             "--compression", "off", "--auth-mode", auth,
             "--tls-mode", tls, "--data-tls-mode", tls, "--reconnect-attempts", "0",
             "--phase-timing", phase_timing, "--json-summary", str(summary)]
@@ -422,7 +459,7 @@ def cp_client_args(mode, label, server_host):
         argv += ["--auth-token-file", str(CRED/"cp.token")]
     if tls == "required":
         argv += ["--tls-ca-file", str(CRED/"ca.pem"), "--tls-server-name", peer]
-    return argv, env(mode)
+    return argv, env(mode, "receiver" if download else "sender")
 
 
 def cp_client(mode, label, server_host):
@@ -439,12 +476,19 @@ def cp_receipt(label):
     log = OUT/(label + ".service.log")
     lines = log.read_text(errors="replace").splitlines()
     names = [json.loads(l)["event"] for l in events.read_text().splitlines()]
+
     pacing = [json.loads(l.split(" ", 1)[1]) for l in lines
               if l.startswith("CPNETFLUX_SENDER_PACING ")]
     return {"events": names, "batch_error": any("CPNETFLUX_V3_BATCH_TERMINAL " in l for l in lines),
             "channels": [json.loads(l.split(" ",1)[1])["channel_index"] for l in lines
                          if l.startswith("CPNETFLUX_PERSISTENT_TIMING ")],
             "pacing": pacing}
+def cp_client_receipt(label):
+    path = OUT/(label + ".client.log")
+    pacing = [json.loads(line.split(" ", 1)[1]) for line in path.read_text(errors="replace").splitlines()
+              if line.startswith("CPNETFLUX_SENDER_PACING ")]
+    return {"pacing": pacing}
+
 
 
 def target_sha(mode, label, size):
@@ -484,6 +528,7 @@ def run_socket_watcher(label):
         emit({"kind": "sample", "host": HOST, "run_id": RUN, "label": label,
               "observer_id": observer_id, "observed_at_ns": observed_at_ns,
               "resource": rx.resource_sample(), "sockets": rows})
+
         snapshot_count += 1
         selected_socket_count += len(rows)
 
@@ -579,6 +624,7 @@ def main():
         "request-cert": request_cert, "install-cert": install_cert, "clean": clean,
         "service": service, "stop": stop, "grid-client": lambda m,l,s,r: grid_client(m,l,int(s),int(r)),
         "grid-receipt": grid_receipt, "cp-client": cp_client, "cp-receipt": cp_receipt,
+        "cp-client-receipt": cp_client_receipt,
         "sha": lambda m,l,s: target_sha(m,l,int(s)),
     }
     emit(actions[action](*args))

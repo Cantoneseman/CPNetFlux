@@ -301,6 +301,32 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual([profile["data_tls"] for profile in profiles],
                          [False, False, True])
 
+    def test_security_5g_download_uses_inline_mmap_and_large_frames(self):
+        test_root = Path("/__cpnetflux_unit_test__")
+        with patch.object(node, "IS_SECURITY_5G", True), patch.object(
+                node, "IS_COMFORT", False), patch.object(
+                node, "slot", side_effect=lambda label: test_root / label):
+            clear_argv, clear_env = node.cp_client_args("clear", "unit-clear", 1)
+            tls_argv, tls_env = node.cp_client_args("tls", "unit-tls", 1)
+            service_argv, service_env, _ = node.service_args("clear", "unit-clear")
+            self.assertTrue(node.cp_download_mode("clear"))
+            profile = node.security_5g_profile("clear")
+
+        self.assertEqual(Path(clear_argv[0]).name, "cpnetflux-tree-download-client")
+        self.assertEqual(argument(clear_argv, "--connections"), "4")
+        self.assertEqual(argument(clear_argv, "--data-frame-bytes"), "262144")
+        self.assertEqual(argument(tls_argv, "--data-frame-bytes"), "262144")
+        self.assertEqual(clear_env["CPNETFLUX_EXPERIMENTAL_DOWNLOAD_WRITE"], "mmap")
+        self.assertEqual(clear_env["CPNETFLUX_RECEIVER_PAYLOAD_EXECUTION"], "inline")
+        self.assertEqual(clear_env["CPNETFLUX_EXPERIMENTAL_DIRECT_MMAP_RECEIVE"], "off")
+        self.assertEqual(clear_env["CPNETFLUX_TCP_RECEIVE_BUFFER_BYTES"], "1048576")
+        self.assertEqual(clear_env["CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND"], "off")
+        self.assertEqual(tls_env, clear_env)
+        self.assertEqual(argument(service_argv, "--access-policy"), "read-only")
+        self.assertEqual(service_env["CPNETFLUX_SENDER_PACING_BYTES_PER_SECOND"], "1500000000")
+        self.assertEqual(profile["receiver_write_backend"], "mmap_experimental")
+        self.assertEqual(profile["direct_receive_opt_in"], "off")
+
     def test_token_clear_and_tls_clients_keep_identical_data_arguments(self):
         test_root = Path("/__cpnetflux_unit_test__")
         with patch.object(node, "IS_COMFORT", True), patch.object(
