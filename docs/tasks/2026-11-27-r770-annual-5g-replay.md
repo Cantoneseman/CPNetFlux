@@ -98,3 +98,25 @@ run `security-06`、`main-forward-05` 與 `main-reverse-05` 的尝试不能组�
 | CPNetFlux token + 控制/数据 TLS | 2/3 | 28.76 | 28.90, 28.62 |
 
 15 项均已采集，13 项 accepted、2 项 rejected。`security-formal-04-clear` 因 cgroup/host swap 计数变化并出现 1 次 TCP retransmission（272 字节）而拒收；`security-formal-10-tls` 因 1 次 TCP retransmission（760 字节）而拒收。拒收样本不计吞吐。runner 终态为 `complete_with_rejections`，双端 payload、凭据与 listener 清理成功，接口身份匹配，清理后的 6 秒空载期 swap、重传和网卡错误计数稳定。证据目录为 R1 `/home/Su/experiments/CPNetFlux/2026-11-27-r770-annual-5g-security-11/`，包括逐样本 JSON、watcher/socket 证据、认证、matching-builds、preflight 和 postflight。security-09 和 security-10 仍保留为独立失败尝试，不拼接进本矩阵。
+
+## 2026-11-27 门禁归属修复与安全组复测（security-12）
+
+安全组复测发现 security-11 两条拒收中存在两种不同原因。`security-formal-04-clear` 的 R1 host `pswpout` 仅增加 1，R1 用户 slice 的 `memory.swap.current` 增加 4 KiB，但任务 session leaf 的 swap 与 memory events 不变；原逻辑同时硬比较 host 累计 swap 和共享 ancestor cgroup，把无法归因于本次传输的活动算到样本上。该行另有一次小额 TCP retransmission。`security-formal-10-tls` 的目标 socket TCP_INFO 计数从 0 增至 1，增加 760 字节，属于真实连接重传，维持拒收。
+
+首次启动 security-12 时，R2 两次独立 SSH 快照落在不同的 `session-*.scope`，导致修复版 preflight 错把正常 SSH session 轮换作为失败。该尝试在 preflight 停止，没有创建 run evidence 目录或启动传输。第二次修正为仅在前后 cgroup scope 相同时比较 leaf 的 events/swap；SSH scope 改变时跳过不可比的 cgroup delta，并继续执行 host PSI、可用内存、tmpfs、NIC 和 socket 检查。host `pswpout` 与 swap-free 继续保留在快照供诊断，不再作为样本硬拒收依据。逐 socket TCP retransmission 仍按原零增量门拒收。
+
+正式 run 使用固定提交 `6dff97b967f248ce8d5d70d190165265c53b1161`。前置修复提交 `4d1cd8bf0b96f7310241377ba3aeea2fced686ed` 因 R2 scope 轮换问题未启动实验；最终修正已单独提交并推送至 GitHub。R1/R2 均为相同提交，runner 单测各 33 项通过，Python 语法检查和 CMake build 通过；server/download/upload 二进制 SHA-256 与 security-11 相同。安全配置、方向和 5,000 微秒 security full-PSI 上限不变。双端 RX/TX ring 仍是 1024/1024。
+
+5 GiB source 完整性 SHA-256 为 `867c60a763149bef989bd4f23ee180ee83022256ed1518841f6ee2e41b45f8c0`，source seed full-PSI 增量 450 微秒，换出增量为 0。7 个 smoke 均 accepted。15 个正式样本全部传完并校验目标 SHA，13 项 accepted、2 项 rejected。
+
+| 模式 | 有效样本 | 有效吞吐中位数 | 有效样本吞吐（Gbps） |
+| --- | ---: | ---: | --- |
+| GridFTP GSI clear | 3/3 | 17.30 | 16.75, 17.47, 17.30 |
+| GridFTP GSI private | 3/3 | 11.66 | 11.93, 11.66, 11.43 |
+| GridFTP anonymous | 3/3 | 18.02 | 18.21, 18.02, 17.96 |
+| CPNetFlux token 明文 | 2/3 | 34.22 | 34.01, 34.44 |
+| CPNetFlux token + 控制/数据 TLS | 2/3 | 29.65 | 29.48, 29.82 |
+
+`security-formal-14-tls` 有一次 lane socket 的 `retrans_total` 增量 2、累计重传字节 824（分两次观察增加 216 与 608 字节）；`security-formal-15-clear` 两条 lane 各有 1 次重传，分别 1,328 与 728 字节。客户端返回码均为 0，5 GiB 数据和 SHA 均正确，但按原 socket 零重传硬门拒收，不统计吞吐。两项均无 host swap/PSI、NIC error 或完整性门失败。
+
+run `2026-11-27-r770-annual-5g-security-12` 的 postflight 为 `complete_with_rejections`，双端临时 payload、凭据和 listener 清理成功，接口身份匹配，清理后 6 秒空载期 host swap、TCP retrans 和 NIC error 计数稳定。详细逐项 JSON、socket watcher、资源、认证、build 和清理证据位于 R1 `/home/Su/experiments/CPNetFlux/2026-11-27-r770-annual-5g-security-12/`。5 GiB 仅作内部工程验证，旧年度报告没有修改。
