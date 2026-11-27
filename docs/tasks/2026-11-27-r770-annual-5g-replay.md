@@ -130,3 +130,23 @@ run `2026-11-27-r770-annual-5g-security-12` 的 postflight 为 `complete_with_re
 **验收标准**：回归测试证明 5 GiB 样本内低于 0.1% 的重传/接收队列丢包通过、超过包数或字节阈值仍拒收，其他网卡错误继续拒收；R1/R2 在同一固定提交通过相关单测、Python 语法检查和 CMake 构建，二进制哈希一致；新安全矩阵 15 项完整采集并逐项记录接收决策和原始 TCP/NIC 计数，所有接受项 SHA 正确且清理通过。
 
 **受影响文件**：`tools/perf/r770_annual_optimized_node.py`、`tools/perf/r770_annual_optimized_runner.py`、`tools/perf/test_r770_annual_optimized_runner.py`、本任务记录。
+
+## 2026-11-27 重传容差全量复测（security-13/14）
+
+security-13 使用提交 `4b6ff8a7664d0d6da2c07f458ff431e8dc9e034e`，先将任务级 TCP 重传字节上限设为 1 ppm，但 NIC 接收丢包仍要求零增量。15 个正式样本中 13 项通过，2 项 CPNetFlux 明文样本拒收：`security-formal-06-clear` R1 socket 重传 1,573 段、2,272,504 字节，R2 `rx_missed_errors`/`rx_out_of_buffer` 各增加 1,571；`security-formal-15-clear` 重传 2,316 段、3,349,000 字节，R2 两个接收计数各增加 2,314。两项数据传输完成且目标 SHA 正确，但超过旧门槛，未计吞吐。postflight 清理与身份检查通过。
+
+这两项分别约为 5 GiB payload 的 0.042% 和 0.062%。据此把性能样本中的可恢复传输丢包上限定为 0.1%，而不是忽略 NIC 计数：TCP 重传字节上限为 5,368,709，段数上限为 3,579；`rx_missed_errors`、`rx_dropped`、`rx_out_of_buffer` 各自最多增加 3,579。所有原始 socket/NIC 计数仍记录在逐项 JSON；CRC、物理链路、HCA、TX 丢弃、PSI、内存、认证、SHA 与清理门没有放宽。security-13 和 security-14 是独立 run，结果不拼接。
+
+security-14 固定提交 `3f6e05be5c21bb2f075851d0fdf389e0e6087afc`，R1/R2 同提交。runner 单测两端各 38 项通过，Python 语法检查通过，CMake build 通过；server/download/upload 二进制 SHA-256 两端相同，分别为 `377edba4690acc7a96d95581f45d6662f2dc6bf970cf8290c14b159fb31f8e88`、`b2b854a16ca72ce19272b1231216df5a545ec293066f5720a6f6dea2ff4be117`、`361cd581e83cfaf70b6e6fed122f181e5136afd2d98124a60ed6af64b9a1faea`。双端 RX/TX ring 为 1024/1024。
+
+CPNetFlux 设置为 V3/TCP 四流、接收端 inline mmap、256 KiB DATA、请求 1 MiB 接收缓冲、每流 pacing 1.5 GB/s、CRC32C、1 MiB chunk、每 16 块 checkpoint、关闭压缩。安全模式为 token 明文及控制面/数据面 TLS。方向为 R770-1→R770-2。7 项 smoke 与 15 项正式样本全部 accepted；每项均传输 5 GiB 且目标 SHA-256 匹配 source `867c60a763149bef989bd4f23ee180ee83022256ed1518841f6ee2e41b45f8c0`。
+
+| 模式 | 有效样本 | 中位吞吐（Gbps） | 各样本吞吐（Gbps） |
+| --- | ---: | ---: | --- |
+| GridFTP GSI clear | 3/3 | 17.200 | 17.200, 17.343, 16.698 |
+| GridFTP GSI private | 3/3 | 11.522 | 11.598, 11.522, 11.302 |
+| GridFTP anonymous | 3/3 | 18.025 | 17.863, 18.025, 18.128 |
+| CPNetFlux token 明文 | 3/3 | 34.221 | 33.578, 34.221, 36.269 |
+| CPNetFlux token + 控制/数据 TLS | 3/3 | 27.621 | 28.639, 27.621, 26.344 |
+
+security-14 中少量 TCP 重传被容差接受并保留：CPNetFlux token 明文 3 样本合计 7 段、6,144 字节；TLS 3 样本合计 5 段、4,488 字节。NIC 接收丢包容差实际未触发，CRC/链路/HCA/TX 错误均无增量。source 生成无资源违规，host swapout 增量为 0；postflight 为 `pass`，双端 identity 匹配、payload/凭据/listener 清理成功，清理后空载窗口 NIC 错误计数稳定。证据目录为 R1 `/home/Su/experiments/CPNetFlux/2026-11-27-r770-annual-5g-security-14/`。5 GiB 结果仅供内部工程验证，年度报告未修改。
