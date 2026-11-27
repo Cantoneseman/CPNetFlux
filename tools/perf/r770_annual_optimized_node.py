@@ -25,7 +25,9 @@ ANNUAL_5G_REJECTED_SECURITY_D5_RUN = "2026-11-27-r770-annual-5g-security-06"
 ANNUAL_5G_REJECTED_SECURITY_LATEST_RUN = "2026-11-27-r770-annual-5g-security-07"
 ANNUAL_5G_REJECTED_SECURITY_PREOPT_RUN = "2026-11-27-r770-annual-5g-security-08"
 ANNUAL_5G_REJECTED_SECURITY_RECEIPT_RUN = "2026-11-27-r770-annual-5g-security-09"
-ANNUAL_5G_SECURITY_RUN = "2026-11-27-r770-annual-5g-security-10"
+ANNUAL_5G_REJECTED_SECURITY_RESOURCE_RUN = "2026-11-27-r770-annual-5g-security-10"
+ANNUAL_5G_SECURITY_RUN = "2026-11-27-r770-annual-5g-security-11"
+SECURITY_FULL_PSI_TOLERANCE_US = 5000
 ANNUAL_5G_REJECTED_FORWARD_RUN = "2026-11-27-r770-annual-5g-main-forward-03"
 ANNUAL_5G_REJECTED_FORWARD_FIXED_RUN = "2026-11-27-r770-annual-5g-main-forward-04"
 ANNUAL_5G_REJECTED_FORWARD_D5_RUN = "2026-11-27-r770-annual-5g-main-forward-05"
@@ -50,6 +52,7 @@ RUN_SIZES = {
     ANNUAL_5G_REJECTED_SECURITY_FIXED_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_PREOPT_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_RECEIPT_RUN: 5 * 2**30,
+    ANNUAL_5G_REJECTED_SECURITY_RESOURCE_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_D5_RUN: 5 * 2**30,
     ANNUAL_5G_REJECTED_SECURITY_LATEST_RUN: 5 * 2**30,
     ANNUAL_5G_FORWARD_RUN: 5 * 2**30,
@@ -114,13 +117,17 @@ def seed(size):
         for block in range(size // 2**20):
             stream.write(rng.randbytes(2**20))
             if block % 64 == 63:
-                reasons = rx.violations(start, rx.resource_sample())
+                reasons = rx.violations(
+                    start, rx.resource_sample(),
+                    full_psi_tolerance_us=(SECURITY_FULL_PSI_TOLERANCE_US if IS_SECURITY_5G else 0))
                 if reasons:
                     break
     generation = time.monotonic() - stamp
     result = rx.sha(source / "f000000.bin")
     result.update(generation_seconds=generation, before=start, after=rx.resource_sample())
-    result["violations"] = reasons or rx.violations(start, result["after"])
+    result["violations"] = reasons or rx.violations(
+        start, result["after"],
+        full_psi_tolerance_us=(SECURITY_FULL_PSI_TOLERANCE_US if IS_SECURITY_5G else 0))
     return result
 
 

@@ -331,6 +331,17 @@ class AnnualComfortRunnerTests(unittest.TestCase):
         self.assertEqual(profile["receiver_write_backend"], "mmap_experimental")
         self.assertEqual(profile["direct_receive_opt_in"], "off")
 
+    def test_security_psi_tolerance_is_bounded_and_swap_stays_rejected(self):
+        before = network_snapshot(0)
+        tolerated = dict(before, psi_full_us=before["psi_full_us"] + 5000)
+        rejected = dict(before, psi_full_us=before["psi_full_us"] + 5001)
+        swapped = dict(tolerated, pswpout=before["pswpout"] + 1)
+
+        self.assertEqual(runner.rx.violations(before, tolerated, 5000), [])
+        self.assertIn("host full memory PSI", runner.rx.violations(before, rejected, 5000))
+        self.assertIn("host full memory PSI", runner.rx.violations(before, tolerated))
+        self.assertIn("host swap", runner.rx.violations(before, swapped, 5000))
+
     def test_token_clear_and_tls_clients_keep_identical_data_arguments(self):
         test_root = Path("/__cpnetflux_unit_test__")
         with patch.object(node, "IS_COMFORT", True), patch.object(

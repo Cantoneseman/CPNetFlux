@@ -74,13 +74,13 @@ def resource_sample():
     }
 
 
-def violations(before, after):
+def violations(before, after, full_psi_tolerance_us=0):
     reasons = []
     if after["available_kib"] < 12 * GIB // 1024 or after["tmpfs_free"] <= 0:
         reasons.append("available memory or tmpfs")
     if before["pswpout"] != after["pswpout"] or after["swap_free_kib"] < before["swap_free_kib"]:
         reasons.append("host swap")
-    if after["psi_full_us"] != before["psi_full_us"]:
+    if after["psi_full_us"] - before["psi_full_us"] > full_psi_tolerance_us:
         reasons.append("host full memory PSI")
     for name in before["cgroups"].keys() & after["cgroups"].keys():
         a, b = before["cgroups"][name], after["cgroups"][name]
@@ -121,8 +121,8 @@ def changes(before, after):
     return {key: after[key] - before[key] for key in before}
 
 
-def comparable(before, after, traffic=False):
-    problems = violations(before, after)
+def comparable(before, after, traffic=False, full_psi_tolerance_us=0):
+    problems = violations(before, after, full_psi_tolerance_us)
     delta = changes(before["counters"], after["counters"])
     problems += [f"{key} {value:+d}" for key, value in delta.items()
                  if key not in ("rx_bytes", "tx_bytes") and value]
