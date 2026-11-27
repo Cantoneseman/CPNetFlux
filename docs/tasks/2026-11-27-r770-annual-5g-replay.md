@@ -78,3 +78,23 @@ run `security-06`、`main-forward-05` 與 `main-reverse-05` 的尝试不能组�
 反向 8 次源文件生成均因 R1 host full-memory PSI 在完整 5 GiB 前中止，正式反向样本为 0。证据显示已写入 4,831,838,208 至 5,301,600,256 字节。reverse-07 与 reverse-08 是临时调用器首次尝试，因漏设入口所需 `umask 077` 导致 GSI 证书权限失败，没有启动传输；后续反向尝试显式设置该 umask。8 次 PSI 停止和 2 次凭据失败均保留独立目录，不拼接样本。所有结束的阶段和尝试都清理了临时 payload、凭据与 listener，双端身份复核通过。
 
 因此本轮未形成完整 35 项合格比较，现有数据不能替代历史报告或进入年度报告。拒收行不与后续样本拼接。证据保存在 R1 `/home/Su/experiments/CPNetFlux/` 下 security-08、main-forward-06 和各 reverse 目录。
+
+## 2026-11-27 安全组优化配置重跑（security-11）
+
+本次只补做历史年度对比中尚未完成的 15 项安全矩阵，输入基线为 `2026-11-24-r770-annual-5g-independent-reruns-result.md`。5 GiB 数据只用于内部工程验证，不写入年度报告；原报告文件未修改。
+
+为让 CPNetFlux 使用报告中的优势接收配置，整组方向统一为 R770-1→R770-2 下载。当前 inline mmap 仅由 V3 下载客户端接收侧实现，因此 GridFTP 与 CPNetFlux 安全模式均按同一方向运行。CPNetFlux 使用 V3/TCP 四流、inline mmap、256 KiB DATA、请求 1 MiB `SO_RCVBUF`、每流 1.5 GB/s pacing、CRC32C、1 MiB chunk、每 16 块 checkpoint，关闭压缩。安全模式为 token 明文，以及控制面和数据面 TLS。GridFTP 使用 GSI clear、GSI private 与 anonymous 模式。
+
+固定提交为 `9d9b845354b4421cc7e01f1a9b3fa45ce7ef0461`，R1/R2 和 GitHub 对应分支 SHA 一致。两端 runner 单测各 30 项通过，Python 语法检查和 CMake 构建通过；三份二进制 SHA-256 完全一致：server `377edba4690acc7a96d95581f45d6662f2dc6bf970cf8290c14b159fb31f8e88`、download `b2b854a16ca72ce19272b1231216df5a545ec293066f5720a6f6dea2ff4be117`、upload `361cd581e83cfaf70b6e6fed122f181e5136afd2d98124a60ed6af64b9a1faea`。双端 RX/TX ring 均保持 1024/1024。
+
+针对 run-10 源文件准备阶段仅增加 94 微秒 full-memory PSI、且 swap 与换出未变化的记录，本 run 仅将 security-11 的 full PSI 增量容差设为 5,000 微秒；默认容差仍为 0。swap、cgroup memory events、最低可用内存、NIC RX/OOB、TCP retransmission、认证和完整性门槛保持原规则。7 个 smoke 全部通过。5 GiB 源文件 SHA-256 为 `867c60a763149bef989bd4f23ee180ee83022256ed1518841f6ee2e41b45f8c0`，生成期间 PSI 增量 1,097 微秒，资源违规为 0。
+
+| 模式 | 有效样本 | 有效吞吐中位数 | 有效样本吞吐（Gbps） |
+| --- | ---: | ---: | --- |
+| GridFTP GSI clear | 3/3 | 17.16 | 17.16, 16.56, 18.04 |
+| GridFTP GSI private | 3/3 | 11.68 | 11.68, 11.75, 11.37 |
+| GridFTP anonymous | 3/3 | 18.95 | 19.49, 18.95, 18.39 |
+| CPNetFlux token 明文 | 2/3 | 35.90 | 37.36, 34.45 |
+| CPNetFlux token + 控制/数据 TLS | 2/3 | 28.76 | 28.90, 28.62 |
+
+15 项均已采集，13 项 accepted、2 项 rejected。`security-formal-04-clear` 因 cgroup/host swap 计数变化并出现 1 次 TCP retransmission（272 字节）而拒收；`security-formal-10-tls` 因 1 次 TCP retransmission（760 字节）而拒收。拒收样本不计吞吐。runner 终态为 `complete_with_rejections`，双端 payload、凭据与 listener 清理成功，接口身份匹配，清理后的 6 秒空载期 swap、重传和网卡错误计数稳定。证据目录为 R1 `/home/Su/experiments/CPNetFlux/2026-11-27-r770-annual-5g-security-11/`，包括逐样本 JSON、watcher/socket 证据、认证、matching-builds、preflight 和 postflight。security-09 和 security-10 仍保留为独立失败尝试，不拼接进本矩阵。
